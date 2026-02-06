@@ -1,0 +1,1000 @@
+                  labels: kpiData.value.visitas.map(d => d.name),
+                  datasets: [{ label: '% Tiempo', data: kpiData.value.visitas.map(d => d.value), backgroundColor: '#ED7D31' }]
+              },
+              options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } }
+          });
+
+          // 3. PRE WO
+          createChart('chartPreWO', {
+              type: 'doughnut',
+              data: {
+                  labels: kpiData.value.preWO.map(d => d.name),
+                  datasets: [{ data: kpiData.value.preWO.map(d => d.value), backgroundColor: ['#A5A5A5', '#7F7F7F', '#595959'] }]
+              },
+              options: { responsive: true, maintainAspectRatio: false }
+          });
+
+          // 4. ENTREGA COTIZACIONES
+          createChart('chartEntregaCotiz', {
+              type: 'bar',
+              data: {
+                  labels: kpiData.value.entregaCotiz.labels,
+                  datasets: [{ label: '% A Tiempo', data: kpiData.value.entregaCotiz.data, backgroundColor: ['#FFC000', '#FFD966', '#BF9000'] }]
+              },
+              options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } }
+          });
+
+          // 5. ARCHIVOS 100%
+          createChart('chartArchivos100', {
+              type: 'polarArea',
+              data: {
+                  labels: kpiData.value.archivos100.map(d => d.name),
+                  datasets: [{ data: kpiData.value.archivos100.map(d => d.value), backgroundColor: ['#5B9BD5', '#4472C4', '#2F5597'] }]
+              },
+              options: { responsive: true, maintainAspectRatio: false, scales: { r: { min: 80 } } }
+          });
+
+          // 6. DISEÑOS
+          createChart('chartDisenos', {
+              type: 'bar',
+              data: {
+                  labels: kpiData.value.disenos.map(d => d.name),
+                  datasets: [{ label: '% Entrega', data: kpiData.value.disenos.map(d => d.value), backgroundColor: '#70AD47' }]
+              },
+              options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } }
+          });
+
+          // 7. PLANEACION
+          createChart('chartPlaneacion', {
+              type: 'radar',
+              data: {
+                  labels: kpiData.value.planeacion.labels,
+                  datasets: [{ label: '% Cumplimiento', data: kpiData.value.planeacion.data, backgroundColor: 'rgba(38, 68, 120, 0.2)', borderColor: '#264478', pointBackgroundColor: '#264478' }]
+              },
+              options: { responsive: true, maintainAspectRatio: false, scales: { r: { min: 50, max: 100 } } }
+          });
+
+          // 8. VENTAS
+          const createVentasChart = (ctxId, dataObj) => {
+              createChart(ctxId, {
+                  type: 'line',
+                  data: {
+                      labels: dataObj.labels,
+                      datasets: [{ label: 'Ventas', data: dataObj.data, borderColor: '#9E480E', tension: 0.1, fill: true, backgroundColor: 'rgba(158, 72, 14, 0.1)' }]
+                  },
+                  options: { responsive: true, maintainAspectRatio: false }
+              });
+          };
+          createVentasChart('chartVentasSem', kpiData.value.ventas.semanal);
+          createVentasChart('chartVentasMes', kpiData.value.ventas.mensual);
+          createVentasChart('chartVentasAnual', kpiData.value.ventas.anual);
+
+          // 9. CONTROL PROYECTO
+          createChart('chartControlProy', {
+              type: 'bar',
+              data: {
+                  labels: kpiData.value.controlProy.labels,
+                  datasets: [{ label: '% Control', data: kpiData.value.controlProy.data, backgroundColor: ['#997300', '#7F6000'] }]
+              },
+              options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } }
+          });
+      };
+
+      const closeIframe = () => currentView.value='DASHBOARD';
+
+      const openStaffTracker = (p) => {
+          currentStaffName.value = p.name;
+          activeTrackerTab.value = 'OPERATIVO';
+          staffTracker.value.previousView = currentView.value;
+          currentView.value = 'STAFF_TRACKER';
+          loadTrackerData();
+      };
+
+      const switchTrackerTab = (tab) => {
+          if (activeTrackerTab.value === tab) return;
+          activeTrackerTab.value = tab;
+          loadTrackerData();
+      };
+
+      const loadTrackerData = () => {
+          staffTrackerFilters.value = {};
+          let sheetName = currentStaffName.value;
+          if (activeTrackerTab.value === 'VENTAS') {
+              sheetName = sheetName + " VENTAS";
+          }
+          staffTracker.value.name = sheetName;
+          staffTracker.value.isLoading = true;
+
+          google.script.run.withSuccessHandler(res => {
+              staffTracker.value.isLoading = false;
+              if (res.success) {
+                  staffTracker.value.data = res.data;
+                  staffTracker.value.history = res.history;
+                  staffTracker.value.headers = res.headers;
+                  // Recalcular Días (Contador) para todas las hojas (si tienen las columnas)
+                  // Se ejecuta siempre, la función calculateDiasCounter valida si existen las columnas
+                  staffTracker.value.data.forEach(row => calculateDiasCounter(row));
+              } else {
+                  if (res.message && res.message.includes("Falta hoja")) {
+                      staffTracker.value.data = [];
+                      staffTracker.value.history = [];
+                      staffTracker.value.headers = [];
+                      Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'Vista vacía (Sin hoja)', showConfirmButton: false, timer: 2000 });
+                  } else {
+                      Swal.fire('Error', res.message, 'error');
+                  }
+              }
+          }).withFailureHandler(handleErr).apiFetchStaffTrackerData(sheetName);
+      };
+
+      const reloadStaffTracker = () => loadTrackerData();
+
+      const saveAllTrackerRows = () => {
+          if (staffTracker.value.data.length === 0) return;
+          Swal.fire({
+              title: '¿Guardar Todo?',
+              text: `Se guardarán ${staffTracker.value.data.length} filas.`,
+              icon: 'question',
+              showCancelButton: true,
+              confirmButtonText: 'Sí, Guardar'
+          }).then((result) => {
+              if (result.isConfirmed) {
+                  Swal.showLoading();
+                  google.script.run.withSuccessHandler(res => {
+                      Swal.close();
+                      if (res.success) {
+                          Swal.fire('Guardado', 'Todas las tareas han sido actualizadas.', 'success');
+                          loadTrackerData(); // Reload to get updated IDs/States
+                      } else {
+                          Swal.fire('Error', res.message, 'error');
+                      }
+                  }).apiSaveTrackerBatch(staffTracker.value.name, JSON.parse(JSON.stringify(staffTracker.value.data)), currentUsername.value);
+              }
+          });
+      };
+
+      const addNewRow = () => {
+          if(!staffTracker.value.headers.length) return;
+          const row={_isNew:true};
+          staffTracker.value.headers.forEach(h => { if(isCol(h, ['DIAS','RELOJ'])) row[h]=0; else row[h]=""; });
+          staffTracker.value.data.unshift(row);
+          pulseNewRow('trackerTable', 'first');
+      };
+      const saveRow = (row, event) => {
+          if (row._isSaving) return;
+          row._isSaving = true;
+
+          if (event && event.clientX) {
+             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && String(v) === '100') || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
+             if (isCompleted) triggerConfetti(event.clientX, event.clientY);
+          }
+          Swal.showLoading();
+          google.script.run.withSuccessHandler(res => {
+              row._isSaving = false;
+              Swal.close();
+              if(res.success){
+                  row._isNew=false;
+                  if (res.data && (res.data.FOLIO || res.data.ID)) {
+                      row.FOLIO = res.data.FOLIO || res.data.ID;
+                      if (row.ID === undefined) row.ID = row.FOLIO;
+                  }
+                  if(res.moved){
+                      reloadStaffTracker();
+                      Swal.fire({icon: 'success', title: 'Archivado', text: 'Tarea movida a Realizadas (100%)', timer: 1500, showConfirmButton: false});
+                  } else {
+                      Swal.fire({icon: 'success', title: 'Guardado', timer: 1000, showConfirmButton: false});
+                  }
+              } else {
+                  Swal.fire('Error', res.message, 'error');
+              }
+          }).withFailureHandler(err => { row._isSaving = false; handleErr(err); }).apiUpdateTask(staffTracker.value.name, JSON.parse(JSON.stringify(row)), currentUsername.value);
+      };
+
+      const deleteFile = (row, h, urlToDelete) => {
+          if (!isFieldEditable(h, row)) return;
+          Swal.fire({
+              title: '¿Eliminar archivo?',
+              text: "Se quitará este archivo de la celda.",
+              icon: 'warning',
+              showCancelButton: true,
+              confirmButtonColor: '#d33',
+              cancelButtonColor: '#3085d6',
+              confirmButtonText: 'Sí, eliminar',
+              cancelButtonText: 'Cancelar'
+          }).then((result) => {
+              if (result.isConfirmed) {
+                  let urls = String(row[h]).split(/[\n\s]+/).filter(u => u.startsWith('http'));
+                  urls = urls.filter(u => u !== urlToDelete);
+                  row[h] = urls.join('\n');
+                  saveRow(row);
+              }
+          });
+      };
+
+      const openCellUpload = (row, col) => { uploadingCell.value = {row, col}; cellFileInput.value.click(); };
+      const handleCellFile = (e) => { const file = e.target.files[0]; if(!file || !uploadingCell.value.row) return; Swal.showLoading(); const r = new FileReader(); r.onload = (ev) => { google.script.run.withSuccessHandler(res => { if(res.success){ const colName = String(uploadingCell.value.col).toUpperCase(); if (colName === 'INFO CLIENTE' || colName === 'REQUISITOR') { const currentVal = uploadingCell.value.row[uploadingCell.value.col] || ''; uploadingCell.value.row[uploadingCell.value.col] = currentVal ? currentVal + '\n' + res.fileUrl : res.fileUrl; } else { uploadingCell.value.row[uploadingCell.value.col] = res.fileUrl; } saveRow(uploadingCell.value.row); } else Swal.fire('Error', res.message, 'error'); e.target.value = null; }).uploadFileToDrive(ev.target.result, file.type, file.name); }; r.readAsDataURL(file); };
+      const addResponsable = (n) => { selectedResponsables.value.push(n); staffSearch.value=''; };
+      const openFileDialog = () => fileInput.value.click();
+      const handleFileSelect = (e) => {
+          const file = e.target.files[0];
+          if(!file) return;
+          isUploadingFile.value=true;
+          const r = new FileReader();
+          r.onload=(ev)=>google.script.run.withSuccessHandler(res=>{
+              isUploadingFile.value=false;
+              if(res.success){
+                  uploadSuccess.value=true;
+                  if(currentView.value === 'PPC_DINAMICO') {
+                      dynamicPpc.value.archivoUrl=res.fileUrl;
+                  } else if (currentView.value === 'WORKORDER_FORM') {
+                      const tag = currentUploadType.value ? `[${currentUploadType.value}] ` : '';
+                      workorderData.value.files.push(tag + res.fileUrl);
+                      Swal.fire('Archivo Subido', '', 'success');
+                  } else {
+                      ppcData.value.archivoUrl=res.fileUrl;
+                  }
+                  if (currentView.value !== 'WORKORDER_FORM') Swal.fire('Archivo Subido','','success');
+              }
+          }).uploadFileToDrive(ev.target.result,file.type,file.name);
+          r.readAsDataURL(file);
+      };
+      const triggerUpload = (type) => { currentUploadType.value = type; fileInput.value.click(); };
+      const promptExtraData = () => { if(!ppcData.value.concepto || !selectedResponsables.value.length) return Swal.fire('Faltan datos básicos','','warning'); extraData.value = { restricciones: '', prioridades: '', riesgos: '', fechaRespuesta: '', clasificacion: '' }; showExtraModal.value = true; };
+      const confirmAddToQueue = () => {
+          // WORKORDER FLOW
+          if (currentView.value === 'WORKORDER_FORM') {
+             if (!currentWorkorderId.value) return;
+             isSubmitting.value = true;
+             let fResp = extraData.value.fechaRespuesta;
+             if(fResp) { const parts = fResp.split('-'); if(parts.length === 3) fResp = `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`; }
+             const updatePayload = {
+                 FOLIO: currentWorkorderId.value,
+                 CLASIFICACION: extraData.value.clasificacion,
+                 PRIORIDAD: extraData.value.prioridades,
+                 RIESGOS: extraData.value.riesgos,
+                 RESTRICCIONES: extraData.value.restricciones,
+                 FECHA_RESPUESTA: fResp
+             };
+             google.script.run.withSuccessHandler(res => {
+                 isSubmitting.value = false;
+                 if(res.success) {
+                     Swal.fire({ icon:'success', title: 'Workorder Completa', text: `Folio: ${currentWorkorderId.value} actualizado con detalles.`, timer: 2000, showConfirmButton: false });
+                     showExtraModal.value = false;
+                     workorderData.value = {
+                         cliente: '', planta: '', requisitor: '', newRequisitor: '', contactName: '', contacto: '', celular: '', fechaCotizacion: '', proyecto: '',
+                         cotizador: '', departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
+                         prioridad: 'AAA - Alta Prioridad', conceptoDesc: ''
+                     };
+                     currentWorkorderId.value = null;
+                 } else {
+                     Swal.fire('Error', res.message, 'error');
+                 }
+             }).apiUpdatePPCV3(updatePayload, currentUsername.value);
+             return;
+          }
+
+          const item = JSON.parse(JSON.stringify(ppcData.value)); item.responsable = selectedResponsables.value.join(','); item.restricciones = extraData.value.restricciones; item.prioridades = extraData.value.prioridades; item.riesgos = extraData.value.riesgos; item.clasificacion = extraData.value.clasificacion; if(currentPpcProject.value) { const tag = `[PROY: ${currentPpcProject.value.name}]`; item.comentarios = (item.comentarios ? item.comentarios + ' ' : '') + tag; } let fResp = extraData.value.fechaRespuesta; if(fResp) { const parts = fResp.split('-'); if(parts.length === 3) fResp = `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`; } item.fechaRespuesta = fResp; item.fechaAlta = new Date().toISOString(); activityQueue.value.push(item); ppcData.value.concepto=''; ppcData.value.horas=''; ppcData.value.comentarios=''; ppcData.value.comentariosPrevios=''; selectedResponsables.value=[]; uploadSuccess.value=false; showExtraModal.value = false; syncQueueToBackend(); pulseNewRow('ppcDraftTable', 'last');
+      };
+      const syncQueueToBackend = () => { google.script.run.apiSyncDrafts(JSON.parse(JSON.stringify(activityQueue.value))); };
+
+      const saveWorkOrder = () => {
+        if(!workorderData.value.cliente || !workorderData.value.tipoTrabajo || !workorderData.value.cotizador.length) {
+            return Swal.fire('Faltan datos obligatorios', 'Cliente, Tipo de Trabajo y quien Elaboró son requeridos.', 'warning');
+        }
+        isSubmitting.value = true;
+
+        let fEnt = workorderData.value.fechaEntrega;
+        if(fEnt) { const parts = fEnt.split('-'); if(parts.length === 3) fEnt = `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`; }
+
+        // Construct Rich Description (CONCEPTO)
+        let conceptoStr = workorderData.value.conceptoDesc || '';
+        conceptoStr += `\n[TIPO: ${workorderData.value.tipoTrabajo || 'N/A'}]`;
+        if (workorderData.value.tiempoEstimado) conceptoStr += ` [TIEMPO: ${workorderData.value.tiempoEstimado}]`;
+
+        // Serialize Vehicle Control Data
+        const vCtrl = vehicleControlData.value;
+        if (Object.keys(vCtrl).length > 0) {
+            conceptoStr += `\n\n[CONTROL VEHICULO]`;
+            if (vCtrl.cotizacion) conceptoStr += `\nCotización: ${vCtrl.cotizacion}`;
+            if (vCtrl.chofer) conceptoStr += `\nChofer: ${vCtrl.chofer}`;
+            if (vCtrl.vehiculo) conceptoStr += `\nVehiculo: ${vCtrl.vehiculo}`;
+            if (vCtrl.gasolina) conceptoStr += `\nGasolina: ${vCtrl.gasolina}`;
+            if (vCtrl.horaSalida) conceptoStr += `\nHora Salida: ${vCtrl.horaSalida}`;
+            if (vCtrl.evaluacion) conceptoStr += `\nEvaluación: ${vCtrl.evaluacion}`;
+            if (vCtrl.multas) conceptoStr += `\nMultas: ${vCtrl.multas}`;
+            if (vCtrl.horaLlegada) conceptoStr += `\nHora Llegada: ${vCtrl.horaLlegada}`;
+            if (vCtrl.ruta) conceptoStr += `\nRuta: ${vCtrl.ruta}`;
+            if (vCtrl.verifVehiculo) conceptoStr += `\nVerificación: ${vCtrl.verifVehiculo}`;
+        }
+
+        // Serialize Vehicle Control Data 2 (Final)
+        const vCtrl2 = vehicleControlData2.value;
+        if (Object.keys(vCtrl2).length > 0) {
+            conceptoStr += `\n\n[CONTROL VEHICULO FINAL]`;
+            if (vCtrl2.cotizacion) conceptoStr += `\nCotización: ${vCtrl2.cotizacion}`;
+            if (vCtrl2.chofer) conceptoStr += `\nChofer: ${vCtrl2.chofer}`;
+            if (vCtrl2.vehiculo) conceptoStr += `\nVehiculo: ${vCtrl2.vehiculo}`;
+            if (vCtrl2.gasolina) conceptoStr += `\nGasolina: ${vCtrl2.gasolina}`;
+            if (vCtrl2.horaSalida) conceptoStr += `\nHora Salida: ${vCtrl2.horaSalida}`;
+            if (vCtrl2.evaluacion) conceptoStr += `\nEvaluación: ${vCtrl2.evaluacion}`;
+            if (vCtrl2.multas) conceptoStr += `\nMultas: ${vCtrl2.multas}`;
+            if (vCtrl2.horaLlegada) conceptoStr += `\nHora Llegada: ${vCtrl2.horaLlegada}`;
+            if (vCtrl2.ruta) conceptoStr += `\nRuta: ${vCtrl2.ruta}`;
+            if (vCtrl2.verifVehiculo) conceptoStr += `\nVerificación: ${vCtrl2.verifVehiculo}`;
+        }
+
+        const fullClientName = workorderData.value.cliente;
+
+        const fullRequisitor = workorderData.value.newRequisitor
+            ? `${workorderData.value.newRequisitor} (${workorderData.value.contactName || ''})`
+            : (workorderData.value.contactName || '');
+
+        // Use selected Department for Especialidad (Folio generation), fallback to Tipo if missing
+        const spec = workorderData.value.departamento || workorderData.value.tipoTrabajo;
+
+        // Collect Design Files
+        const designFiles = [];
+        if (workorderData.value.designValidation && workorderData.value.designValidation.items) {
+            workorderData.value.designValidation.items.forEach(item => {
+                ['diseno', 'maquinados', 'dibujos'].forEach(col => {
+                    if (item[col]) {
+                        item[col].forEach(f => {
+                             designFiles.push(`[${col.toUpperCase()}-${f.type}] ${f.url}`);
+                        });
+                    }
+                });
+            });
+        }
+
+        const payload = {
+            cliente: fullClientName,
+            especialidad: spec, // Mapping Department to Area/Especialidad for Folio
+            concepto: conceptoStr,
+            responsable: workorderData.value.cotizador.join(', '),
+            requisitor: fullRequisitor,
+            contacto: workorderData.value.contacto,
+            celular: workorderData.value.celular,
+            prioridad: workorderData.value.prioridad,
+            fechaRespuesta: fEnt, // Mapped to Fecha Entrega
+            comentarios: '',
+            restricciones: Object.entries(workorderData.value.restricciones)
+                .filter(([k, v]) => v)
+                .map(([k, v]) => `[${k.toUpperCase()}: ${v}]`)
+                .join(' '),
+            archivoUrl: [...workorderData.value.files, ...designFiles].join('\n'),
+            horas: 0,
+            cumplimiento: 'NO',
+            TRABAJO: workorderData.value.tipoTrabajo,
+            // CAMPOS DE DETALLE (NUEVO)
+            materiales: JSON.parse(JSON.stringify(requiredMaterials.value.items)),
+            manoObra: JSON.parse(JSON.stringify(laborTable.value.items)),
+            herramientas: JSON.parse(JSON.stringify(toolsRequired.value.items)),
+            equipos: JSON.parse(JSON.stringify(specialEquipment.value.items)),
+            programa: [
+                ...projectProgram.value.visita.map(i => ({...i, seccion: 'VISITA'})),
+                ...projectProgram.value.reqCotizacion.map(i => ({...i, seccion: 'REQUERIMIENTO'})),
+                ...projectProgram.value.cotPreconstruccion.map(i => ({...i, seccion: 'PRECONSTRUCCION'})),
+                ...projectProgram.value.cotTrabajo.map(i => ({...i, seccion: 'TRABAJO'}))
+            ].map(i => ({
+                ...i,
+                responsable: Array.isArray(i.responsable) ? i.responsable.join(', ') : i.responsable
+            })),
+            checkList: JSON.parse(JSON.stringify(workorderData.value.checkList)),
+            additionalCosts: JSON.parse(JSON.stringify(additionalCosts.value))
+        };
+
+        google.script.run.withSuccessHandler(res => {
+            isSubmitting.value = false;
+            if(res.success) {
+                if (res.ids && res.ids.length > 0) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Pre Work Order Guardada',
+                        text: `Folio Generado: ${res.ids[0]}`,
+                        confirmButtonText: 'Aceptar'
+                    }).then(() => {
+                        // Reset Form
+                        workorderData.value = {
+                            cliente: '', planta: '', requisitor: '', newRequisitor: '', contactName: '', contacto: '', celular: '', fechaCotizacion: '', proyecto: '',
+                            cotizador: [], departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
+                            prioridad: 'AAA - Alta Prioridad', conceptoDesc: '',
+                      checkList: { libreta: false, cinta: false, bernier: false, chaleco: false, laser: false, epp: false, casco: false, credencial: false, zapato: false, sua: false, lentes: false },
+                      restricciones: { produccion: '', seguridad: '', dificultad: '', horarios: '', especificidad: '' },
+                      files: [],
+                      designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] }
+                        };
+                        currentWorkorderId.value = null;
+                    });
+                } else {
+                    Swal.fire('Guardado', 'Pre Work Order guardada.', 'success');
+                }
+            } else {
+                Swal.fire('Error', res.message, 'error');
+            }
+        }).apiSavePPCData([payload], currentUsername.value);
+      };
+      const saveDynamicPPC = () => { if(!dynamicPpc.value.especialidad || !dynamicPpc.value.concepto || !selectedResponsables.value.length) return Swal.fire('Faltan datos','','warning'); isSubmitting.value = true; let fResp = dynamicPpc.value.fechaFin; if(fResp) { const parts = fResp.split('-'); if(parts.length === 3) fResp = `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`; } let finalComs = dynamicPpc.value.comentarios || ''; if(currentPpcProject.value) { finalComs = (finalComs ? finalComs + ' ' : '') + `[PROY: ${currentPpcProject.value.name}]`; } const payload = { especialidad: dynamicPpc.value.especialidad, concepto: dynamicPpc.value.concepto, responsable: selectedResponsables.value.join(','), clasificacion: dynamicPpc.value.clasificacion, riesgos: dynamicPpc.value.riesgos, prioridad: dynamicPpc.value.prioridad, fechaRespuesta: fResp, archivoUrl: dynamicPpc.value.archivoUrl, comentarios: finalComs, horas: '', cumplimiento: 'NO' }; google.script.run.withSuccessHandler(res => { isSubmitting.value = false; if(res.success){ Swal.fire('Registro Guardado','Enviado a PPC y Tracker','success'); dynamicPpc.value = { especialidad: '', clasificacion: 'A', concepto: '', riesgos: 'BAJO', prioridad: 'MEDIA', fechaFin: '', comentarios: '', archivoUrl: '' }; selectedResponsables.value = []; uploadSuccess.value = false; } else { Swal.fire('Error', res.message, 'error'); } }).withFailureHandler(handleErr).apiSavePPCData([payload], currentUsername.value); };
+      const submitBatch = () => { isSubmitting.value=true; google.script.run.withSuccessHandler(res => { isSubmitting.value=false; if(res.success){ Swal.fire('Guardado','','success'); google.script.run.withSuccessHandler(r => { if(r.success) ppcExistingData.value = r.data; }).apiFetchPPCData(); } else Swal.fire('Error',res.message,'error'); }).withFailureHandler(handleErr).apiSavePPCData(JSON.parse(JSON.stringify(activityQueue.value)), currentUsername.value); };
+      const clearQueue = () => { Swal.fire({ title: '¿Limpiar tabla?', icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí' }).then((result) => { if (result.isConfirmed) { activityQueue.value = []; google.script.run.apiClearDrafts(); } }); };
+      const toIsoDate = (val) => { if (!val) return ''; const parts = String(val).split('/'); if (parts.length === 3) { let y = parts[2]; if (y.length === 2) y = '20' + y; return `${y}-${parts[1]}-${parts[0]}`; } return ''; };
+      const formatDisplayDate = (val) => { if(!val) return ''; if(String(val).match(/^\d{1,2}\/\d{1,2}\/\d{2}$/)) return val; if(String(val).match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) return val.replace(/\/(\d{4})$/, (m, y) => "/" + y.slice(-2)); return val; };
+      const updateDateFromPicker = (e, row, h) => {
+          const val = e.target.value;
+          if (!val) { row[h] = ''; return; }
+          const parts = val.split('-');
+          if (parts.length === 3) row[h] = `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`;
+          calculateDiasCounter(row);
+      };
+
+      // CALENDAR LOGIC
+      const weekDays = computed(() => {
+          const startOfWeek = new Date(dashboardCalendar.value.currentDate);
+          const day = startOfWeek.getDay() || 7; // Make Sunday 7
+          startOfWeek.setHours(0,0,0,0);
+          if (day !== 1) startOfWeek.setDate(startOfWeek.getDate() - (day - 1));
+
+          const finalDays = [];
+          for (let i = 0; i < 7; i++) {
+              const d = new Date(startOfWeek);
+              d.setDate(startOfWeek.getDate() + i);
+
+              const today = new Date();
+              const isToday = d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+
+              const dd = String(d.getDate()).padStart(2, '0');
+              const mm = String(d.getMonth() + 1).padStart(2, '0');
+              const yy = String(d.getFullYear()).slice(-2);
+              const dateStr = `${dd}/${mm}/${yy}`;
+
+              finalDays.push({
+                  name: ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'][d.getDay()],
+                  number: d.getDate(),
+                  dateStr: dateStr,
+                  isToday: isToday
+              });
+          }
+          return finalDays;
+      });
+
+      const currentMonthYearLabel = computed(() => {
+          const d = dashboardCalendar.value.currentDate;
+          const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+          return `${months[d.getMonth()]} De ${d.getFullYear()}`;
+      });
+
+      const navigateCalendar = (dir) => {
+          anime({
+              targets: '.calendar-grid',
+              opacity: [1, 0],
+              translateX: [0, dir * -30],
+              easing: 'easeInQuad',
+              duration: 200,
+              complete: () => {
+                  const d = new Date(dashboardCalendar.value.currentDate);
+                  d.setDate(d.getDate() + (dir * 7));
+                  dashboardCalendar.value.currentDate = d;
+                  nextTick(() => {
+                      anime.set('.calendar-grid', { translateX: dir * 30, opacity: 0 });
+                      anime({
+                          targets: '.calendar-grid',
+                          opacity: [0, 1],
+                          translateX: [dir * 30, 0],
+                          easing: 'easeOutQuad',
+                          duration: 300
+                      });
+                  });
+              }
+          });
+      };
+
+      const animateCalendarTasks = () => {
+          anime({
+              targets: '.task-anim-enter',
+              translateY: [20, 0],
+              opacity: [0, 1],
+              delay: anime.stagger(50),
+              easing: 'easeOutCubic',
+              duration: 600
+          });
+      };
+
+      const animTaskHover = (el) => {
+          anime.remove(el);
+          anime({
+              targets: el,
+              scale: 1.05,
+              boxShadow: '0 15px 30px rgba(0,0,0,0.15)',
+              zIndex: 100,
+              duration: 800,
+              easing: 'easeOutElastic(1, .6)'
+          });
+      };
+
+      const animTaskLeave = (el) => {
+          anime.remove(el);
+          anime({
+              targets: el,
+              scale: 1,
+              boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+              zIndex: 1,
+              duration: 600,
+              easing: 'easeOutElastic(1, .6)'
+          });
+      };
+
+      const loadDashboardCalendar = () => {
+          calendarLoading.value = true;
+          let target = currentUser.value;
+
+          // ADMIN FILTER OVERRIDE
+          if (currentRole.value === 'ADMIN' && calendarUserFilter.value) {
+              target = calendarUserFilter.value;
+          } else {
+              const mods = config.value.specialModules || [];
+              const salesMod = mods.find(m => m.type === 'mirror_staff' && String(m.target).toUpperCase().includes('VENTAS'));
+              const trackerMod = mods.find(m => m.type === 'mirror_staff' && !String(m.target).toUpperCase().includes('VENTAS'));
+
+              if (salesMod) target = salesMod.target;
+              else if (trackerMod) target = trackerMod.target;
+
+              if (currentRole.value === 'TONITA' || currentUser.value === 'ANTONIA_VENTAS') target = "ANTONIA_VENTAS";
+          }
+
+          google.script.run.withSuccessHandler(res => {
+              calendarLoading.value = false;
+              if (res.success) {
+                  dashboardCalendar.value.tasks = res.data;
+                  nextTick(() => animateCalendarTasks());
+              } else {
+                  console.error("Calendar Load Error", res.message);
+              }
+          }).apiFetchCombinedCalendarData(target);
+      };
+
+      watch(weekDays, () => {
+          nextTick(() => animateCalendarTasks());
+      });
+
+      onMounted(() => {
+          calendarInterval.value = setInterval(() => {
+              if (isLoggedIn.value && currentView.value === 'DASHBOARD') {
+                  // Silent update (no loading spinner for polling)
+                  let target = currentUser.value;
+                  if (currentRole.value === 'ADMIN' && calendarUserFilter.value) {
+                      target = calendarUserFilter.value;
+                  } else {
+                      const mods = config.value.specialModules || [];
+                      const salesMod = mods.find(m => m.type === 'mirror_staff' && String(m.target).toUpperCase().includes('VENTAS'));
+                      const trackerMod = mods.find(m => m.type === 'mirror_staff' && !String(m.target).toUpperCase().includes('VENTAS'));
+                      if (salesMod) target = salesMod.target;
+                      else if (trackerMod) target = trackerMod.target;
+                      if (currentRole.value === 'TONITA' || currentUser.value === 'ANTONIA_VENTAS') target = "ANTONIA_VENTAS";
+                  }
+                  google.script.run.withSuccessHandler(res => {
+                      if (res.success) dashboardCalendar.value.tasks = res.data;
+                  }).apiFetchCombinedCalendarData(target);
+              }
+          }, 60000); // 60 seconds polling
+      });
+
+      const getTasksForDay = (dateStr) => {
+          if (!dashboardCalendar.value.tasks) return [];
+          return dashboardCalendar.value.tasks.filter(t => {
+              const tDate = t['FECHA'] || t['FECHA INICIO'] || t['ALTA'] || t['FECHA DE INICIO'] || t['FECHA VISITA'];
+              return tDate === dateStr;
+          });
+      };
+
+      const getTaskColor = (task) => {
+          const status = String(task.ESTATUS || task.STATUS || '').toUpperCase();
+          // 1. COMPLETADO (Verde)
+          if (status.includes('DONE') || status.includes('COMPLET') || status.includes('REALIZAD') || status === '100%') return '#28a745';
+          // 2. CANCELADO (Rojo)
+          if (status.includes('DETENID') || status.includes('CANCEL')) return '#dc3545';
+
+          // 3. SEMÁFORO (Traffic Light) - Solo si hay Clasificación y Fecha
+          const clasi = String(task.CLASIFICACION || task.CLASI || '').toUpperCase().trim();
+          const dateKey = Object.keys(task).find(k => ['FECHA', 'FECHA INICIO', 'FECHA DE INICIO', 'ALTA', 'FECHA VISITA', 'FECHA_ALTA'].includes(String(k).toUpperCase().trim()));
+          const dateVal = dateKey ? task[dateKey] : null;
+
+          if (clasi && dateVal) {
+              let days = 0;
+              let dObj = null;
+              if (dateVal instanceof Date) {
+                  dObj = dateVal;
+              } else if (typeof dateVal === 'string') {
+                  const parts = dateVal.split('/');
+                  if (parts.length === 3) {
+                      let y = parts[2];
+                      if (y.length === 2) y = '20' + y;
+                      dObj = new Date(y, parts[1]-1, parts[0]);
+                  } else if (dateVal.includes('-')) {
+                      dObj = new Date(dateVal);
+                  }
+              }
+
+              // Prioritize explicit DIAS/RELOJ if available (backend calculated)
+              const diasKey = Object.keys(task).find(k => ['DIAS', 'RELOJ', 'DÍAS'].includes(String(k).toUpperCase().trim()));
+              if (diasKey && task[diasKey] !== "" && !isNaN(task[diasKey])) {
+                  days = parseInt(task[diasKey]);
+              } else if (dObj && !isNaN(dObj.getTime())) {
+                  const now = new Date();
+                  now.setHours(0,0,0,0);
+                  dObj.setHours(0,0,0,0);
+                  const diffTime = now - dObj;
+                  days = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+              }
+
+              if (true) {
+                  let limit = 0, buffer = 0;
+                  if (clasi === 'A') { limit = 3; buffer = 1; }
+                  else if (clasi === 'AA') { limit = 15; buffer = 3; }
+                  else if (clasi === 'AAA') { limit = 30; buffer = 5; }
+
+                  if (limit > 0) {
+                      if (days > limit) return '#e74c3c'; // Rojo (Vencido)
+                      if (days >= (limit - buffer)) return '#ffff00'; // Amarillo (Por Vencer)
+                      return '#2ecc71'; // Verde (A Tiempo)
+                  }
+              }
+          }
+
+          // 4. FALLBACK POR ESTATUS
+          if (status.includes('PROCESO') || status.includes('ASIGNAD')) return '#0d6efd';
+          if (status.includes('PENDIENTE')) return '#ffc107';
+          return '#6c757d';
+      };
+
+      const isTaskDone = (task) => {
+          const status = String(task.ESTATUS || '').toUpperCase();
+          const avance = String(task.AVANCE || '').replace('%','').trim();
+          return status.includes('DONE') || status.includes('REALIZAD') || avance === '100' || avance === '1.0';
+      };
+
+      const getResponsible = (task) => {
+          if (!task) return '';
+          const keys = Object.keys(task);
+          const targetKeys = ['VENDEDOR', 'RESPONSABLE', 'RESPONSABLES'];
+          for (const t of targetKeys) {
+              const foundKey = keys.find(k => k.toUpperCase().trim() === t);
+              if (foundKey && task[foundKey]) return task[foundKey];
+          }
+          return '';
+      };
+
+      const loadPersonalAgenda = () => {
+          personalAgenda.value.isLoading = true;
+          google.script.run.withSuccessHandler(res => {
+              personalAgenda.value.isLoading = false;
+              if (res.success) {
+                  const tasks = (res.data.workTasks || []).map(t => {
+                      let dateStr = '';
+                      const dateKeys = ['FECHA', 'FECHA INICIO', 'ALTA', 'FECHA DE INICIO', 'FECHA VISITA', 'FECHA_ALTA', 'FECHAS'];
+                      for (const k of dateKeys) {
+                          if (t[k]) { dateStr = t[k]; break; }
+                      }
+
+                      return {
+                          id: t.FOLIO || t.ID || Math.random().toString(36),
+                          type: 'WORK',
+                          title: t.CONCEPTO || 'Tarea sin descripción',
+                          client: t.CLIENTE || 'Sin Cliente',
+                          time: '09:00', // Default
+                          date: dateStr,
+                          status: t.ESTATUS || 'PENDING',
+                          original: t,
+                          color: getTaskColor(t) // Reuse existing color logic
+                      };
+                  });
+
+                  const events = (res.data.personalEvents || []).map(e => ({
+                      id: e.ID,
+                      type: 'PERSONAL',
+                      title: e.TITULO,
+                      desc: e.DESCRIPCION || e.DETALLES,
+                      time: e.HORA_INICIO || '12:00',
+                      date: e.FECHA,
+                      status: 'PENDING',
+                      original: e,
+                      color: '#00d2ff'
+                  }));
+
+                  // Combine and sort by time
+                  const timeline = [...tasks, ...events].sort((a, b) => {
+                      const timeA = a.time || '00:00';
+                      const timeB = b.time || '00:00';
+                      return timeA.localeCompare(timeB);
+                  }).map(t => {
+                      t.isDone = (t.status === 'DONE' || t.status === 'REALIZADO' || t.status === 'COMPLETADA' || t.status === '100%');
+                      if(t.type === 'WORK' && isTaskDone(t.original)) t.isDone = true;
+                      return t;
+                  });
+
+                  personalAgenda.value.timeline = timeline;
+
+                  if (!selectedDailyDay.value && weekDays.value.length > 0) {
+                      const today = weekDays.value.find(d => d.isToday);
+                      selectedDailyDay.value = today ? today.dateStr : weekDays.value[0].dateStr;
+                  }
+
+                  personalAgenda.value.habits = res.data.habits || [];
+                  personalAgenda.value.habitLogs = res.data.habitLogs || [];
+
+                  // Update Metrics
+                  personalAgenda.value.metrics = {
+                      totalEvents: timeline.length,
+                      pendingTasks: tasks.filter(t => !isTaskDone(t.original)).length,
+                      urgentTasks: tasks.filter(t => t.color === '#e74c3c').length,
+                      completedHabits: (res.data.habitLogs || []).length,
+                      progress: 0 // To be calculated
+                  };
+
+                  // Calculate progress (completed items / total)
+                  const totalItems = timeline.length;
+                  const completedItems = timeline.filter(i => {
+                      if (i.type === 'WORK') return isTaskDone(i.original);
+                      return false; // Personal events don't have explicit status yet in this simple logic
+                  }).length;
+
+                  if (totalItems > 0) {
+                      personalAgenda.value.metrics.progress = Math.round((completedItems / totalItems) * 100);
+                  }
+
+              } else {
+                  Swal.fire('Error', res.message, 'error');
+              }
+          }).apiFetchUnifiedAgenda(currentUser.value);
+      };
+
+      const renderPersonalCharts = () => {
+          nextTick(() => {
+              const ctxActivity = document.getElementById('paChartActivity');
+              const ctxBalance = document.getElementById('paChartBalance');
+
+              if (ctxActivity) {
+                  if (window.paCharts) {
+                      if (window.paCharts.activity) window.paCharts.activity.destroy();
+                      if (window.paCharts.balance) window.paCharts.balance.destroy();
+                  } else {
+                      window.paCharts = {};
+                  }
+
+                  const tasksCount = personalAgenda.value.metrics.totalEvents || 0;
+                  const habitsCount = personalAgenda.value.metrics.completedHabits || 0;
+
+                  window.paCharts.activity = new Chart(ctxActivity, {
+                      type: 'bar',
+                      data: {
+                          labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'],
+                          datasets: [{
+                              label: 'Tareas Completadas',
+                              data: [5, 8, 6, tasksCount, 0, 0, 0],
+                              backgroundColor: '#3699ff',
+                              borderRadius: 4
+                          }, {
+                              label: 'Hábitos',
+                              data: [3, 4, 3, habitsCount, 0, 0, 0],
+                              backgroundColor: '#28a745',
+                              borderRadius: 4
+                          }]
+                      },
+                      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+                  });
+              }
+
+              if (ctxBalance) {
+                  const workCount = personalAgenda.value.timeline.filter(i => i.type === 'WORK').length;
+                  const personalCount = personalAgenda.value.timeline.filter(i => i.type === 'PERSONAL').length;
+
+                  window.paCharts.balance = new Chart(ctxBalance, {
+                      type: 'doughnut',
+                      data: {
+                          labels: ['Trabajo', 'Personal', 'Salud/Hábitos'],
+                          datasets: [{
+                              data: [workCount, personalCount, personalAgenda.value.habits.length],
+                              backgroundColor: ['#0d6efd', '#0dcaf0', '#20c997']
+                          }]
+                      },
+                      options: { responsive: true, maintainAspectRatio: false }
+                  });
+              }
+          });
+      };
+
+      const isHabitDone = (habit) => {
+          if (!habit || !habit.LOG_JSON) return false;
+          try {
+              const log = JSON.parse(habit.LOG_JSON);
+              const today = new Date().toLocaleDateString('en-GB');
+              if (Array.isArray(log)) return false;
+              return !!log[today];
+          } catch(e) { return false; }
+      };
+
+      const toggleHabit = (habit) => {
+          let log = {};
+          try { log = JSON.parse(habit.LOG_JSON || '{}'); } catch(e){}
+          if (Array.isArray(log)) log = {};
+
+          const today = new Date().toLocaleDateString('en-GB');
+          log[today] = !log[today];
+
+          habit.LOG_JSON = JSON.stringify(log);
+
+          const payload = {
+              ID: habit.ID,
+              USUARIO: currentUser.value,
+              HABITO: habit.HABITO,
+              META: habit.META,
+              LOG_JSON: habit.LOG_JSON,
+              FECHA_ACTUALIZACION: new Date().toISOString()
+          };
+          google.script.run.withFailureHandler(handleErr).apiSaveHabitLog(payload);
+
+          const doneCount = personalAgenda.value.habits.filter(h => isHabitDone(h)).length;
+          personalAgenda.value.metrics.completedHabits = doneCount;
+      };
+
+      const promptAddHabit = () => {
+          Swal.fire({
+              title: 'Nuevo Hábito',
+              input: 'text',
+              inputLabel: 'Nombre del hábito (Ej: Leer, Ejercicio)',
+              showCancelButton: true,
+              confirmButtonText: 'Crear'
+          }).then((result) => {
+              if (result.isConfirmed && result.value) {
+                  const newHabit = {
+                      ID: 'H-' + Date.now(),
+                      USUARIO: currentUser.value,
+                      HABITO: result.value,
+                      META: 7,
+                      LOG_JSON: '{}',
+                      FECHA_ACTUALIZACION: new Date().toISOString()
+                  };
+                  personalAgenda.value.habits.push(newHabit);
+                  google.script.run.withFailureHandler(handleErr).apiSaveHabitLog(newHabit);
+                  Swal.fire('Hábito Creado', '', 'success');
+              }
+          });
+      };
+
+      const addMeal = (category) => {
+          Swal.fire({
+              title: `Registrar ${category}`,
+              input: 'text',
+              inputPlaceholder: 'Ej: Avena con frutas...',
+              showCancelButton: true,
+              confirmButtonText: 'Guardar'
+          }).then((result) => {
+              if(result.isConfirmed && result.value) {
+                  const newEvent = {
+                      ID: 'M-' + Date.now(),
+                      USUARIO: currentUser.value,
+                      TITULO: category,
+                      TIPO: 'COMIDA', // Special type for filtering
+                      CLASIFICACION: category, // Desayuno, Comida, etc.
+                      DETALLES: result.value,
+                      FECHA: new Date().toLocaleDateString('en-CA'), // YYYY-MM-DD
+                      HORA_INICIO: new Date().toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'}),
+                      ESTATUS: 'REALIZADO'
+                  };
+                  // Optimistic update
+                  const timelineItem = {
+                      id: newEvent.ID,
+                      type: 'PERSONAL', // Merged into timeline as personal
+                      title: newEvent.TITULO,
+                      desc: newEvent.DETALLES,
+                      time: newEvent.HORA_INICIO,
+                      date: newEvent.FECHA.toLocaleDateString('en-GB'),
+                      status: 'PENDING',
+                      original: newEvent,
+                      color: '#28a745' // Green for meals
+                  };
+                  personalAgenda.value.timeline.push(timelineItem);
+                  personalAgenda.value.timeline.sort((a,b) => a.time.localeCompare(b.time));
+
+                  google.script.run.apiSavePersonalEvent(newEvent);
+                  Swal.fire('Registrado', '', 'success');
+              }
+          });
+      };
+
+      const getMeals = (cat) => {
+          return personalAgenda.value.timeline.filter(i => {
+              return i.type === 'PERSONAL' &&
+                     i.original.TIPO === 'COMIDA' &&
+                     i.original.CLASIFICACION === cat;
+          });
+      };
+
+      const filteredDailyTasks = computed(() => {
+          if (!selectedDailyDay.value) return [];
+          return personalAgenda.value.timeline.filter(t => t.date === selectedDailyDay.value);
+      });
+
+      const saveActivity = () => {
+          if (!newActivity.value.title) return;
+          isSubmitting.value = true;
+
+          let dateStr = "";
+          if (newActivity.value.date) {
+              const parts = newActivity.value.date.split('-');
+              dateStr = `${parts[2]}/${parts[1]}/${parts[0].substring(2)}`;
+          }
+
+          const payload = {
+              ID: 'A-' + Date.now(),
+              USUARIO: currentUser.value,
+              TITULO: newActivity.value.title,
+              TIPO: 'EVENTO',
+              FECHA: newActivity.value.date,
+              HORA_INICIO: newActivity.value.startTime,
+              HORA_FIN: newActivity.value.endTime,
+              CLASIFICACION: newActivity.value.category,
+              ESTATUS: 'PENDIENTE'
+          };
+
+          google.script.run.withSuccessHandler(res => {
+              isSubmitting.value = false;
+              if (res.success) {
+                  Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Actividad Creada', showConfirmButton: false, timer: 1500 });
+                  showNewActivityModal.value = false;
+                  newActivity.value = { title: '', date: new Date().toISOString().split('T')[0], startTime: '09:00', endTime: '10:00', category: 'Trabajo' };
+                  loadPersonalAgenda();
+              } else {
+                  Swal.fire('Error', res.message, 'error');
+              }
+          }).apiSavePersonalEvent(payload);
+      };
+
+      const toggleActivityStatus = (task) => {
+          task.isDone = !task.isDone;
+
+          if (task.type === 'WORK') {
+              const updatePayload = { ...task.original };
+              updatePayload.ESTATUS = task.isDone ? 'DONE' : 'PENDIENTE';
+              updatePayload.AVANCE = task.isDone ? '100%' : '0%';
+
+              google.script.run.withSuccessHandler(res => {
+                  if(!res.success) { task.isDone = !task.isDone; Swal.fire('Error', res.message, 'error'); }
+                  else loadPersonalAgenda();
+              }).apiUpdateTask(currentUser.value, updatePayload, currentUser.value);
+
+          } else {
+              const updatePayload = { ...task.original };
+              updatePayload.ESTATUS = task.isDone ? 'REALIZADO' : 'PENDIENTE';
+
+              google.script.run.withSuccessHandler(res => {
+                  if(!res.success) { task.isDone = !task.isDone; Swal.fire('Error', res.message, 'error'); }
+              }).apiSavePersonalEvent(updatePayload);
+          }
+      };
+
+      return { addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow,
+      ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
+      saveAllTrackerRows,
+      showTimePopup, timePopupValue, openTimePopup, saveTimePopup,
+      projectProgram, addProjectItem, removeProjectItem, updateProjectRowTotal,
+      laborTable, addLaborItem, removeLaborItem, updateLaborRowTotal, laborTableTotal, totalPersonnel, costPerWeekCrew, weeksRequired,
+      requiredMaterials, addMaterialItem, removeMaterialItem, updateMaterialRowTotal, materialsTotal,
+      toolsRequired, addToolItem, removeToolItem, updateToolRowTotal, toolsTotal,
+      specialEquipment, addSpecialEquipItem, removeSpecialEquipItem, updateSpecialEquipRowTotal, specialEquipTotal,
+      additionalCosts, laborTotal, dashboardSubtotal, dashboardUtility, dashboardTotal, animatedTotals,
+      selectedFinancing,
+      addDesignRow, removeDesignRow, triggerDesignUpload, designFileInput, handleDesignFileSelect,
+      eppCost, netCostPerWeek, hoursRequired, costPerHour, totalOvertime, totalNight, totalWeekend,
+      showLogic, sectionVisibility, showInstr, projectRespDropdownOpen, toggleProjectResponsable, openRespDropdown,
+      cotizadorSearch, filteredCotizadores, addCotizador, removeCotizador, cotizadorSearchTop, filteredCotizadoresTop, addCotizadorTop, toggleDictation,
+      trackerTable, projectTable, ppcDraftTable,
+      showEmployeeModal, newEmployee, openNewEmployeeModal, saveNewEmployee, deleteEmployee,
+      infoBankState, ibYears, ibMonths, ibCompanies, ibFolders, filteredIbCompanies, selectIbYear, selectIbMonth, selectIbCompany, goBackInfoBank, resetInfoBank, openIbFolder, fetchInfoBankFiles, getBadgeClass,
+      dashboardCalendar, calendarLoading, calendarUserFilter, weekDays, currentMonthYearLabel, navigateCalendar, loadDashboardCalendar, getTasksForDay, getTaskColor, isTaskDone, animTaskHover, animTaskLeave, getResponsible,
+      staffTrackerFilters, filteredStaffTrackerData, getUniqueValues };
+    }
+  });
+  app.config.errorHandler = (err) => { console.error(err); Swal.fire({ icon: 'error', title: 'Error de Renderizado', text: 'Ocurrió un error visual: ' + err.message }); };
+  app.mount('#app');
+</script>
+</body>
+</html>

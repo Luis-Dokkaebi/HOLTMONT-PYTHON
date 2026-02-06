@@ -1,0 +1,929 @@
+                <div v-if="currentView === 'WORKORDER_FORM'" class="h-100 d-flex flex-column" style="overflow-y:auto;">
+            <div class="p-4" style="max-width: 1400px; margin: 0 auto; width: 100%;">
+                <!-- NOMBRE DE COTIZADOR TOP -->
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-body p-3">
+                         <label class="small text-muted fw-bold mb-1">Nombre de cotizador</label>
+                         <div class="position-relative">
+                             <div class="input-group input-group-sm" @click="cotizadorSearchTop = ''">
+                                 <span class="input-group-text bg-light"><i class="fas fa-user-tie text-muted"></i></span>
+                                 <input v-model="cotizadorSearchTop" class="form-control" placeholder="Buscar..." @focus="cotizadorSearchTop = ''">
+                             </div>
+                             <ul class="list-group position-absolute w-100 shadow-sm" style="z-index: 1000; max-height: 200px; overflow-y: auto;" v-if="cotizadorSearchTop">
+                                 <li v-for="p in filteredCotizadoresTop" :key="p.name" class="list-group-item list-group-item-action small py-1" style="cursor: pointer;" @click="addCotizadorTop(p.name)">
+                                     {{ p.name }}
+                                 </li>
+                             </ul>
+                             <div class="d-flex flex-wrap gap-1 mt-2">
+                                 <span v-for="(c, i) in workorderData.cotizador" :key="i" class="badge bg-light text-dark border d-flex align-items-center">
+                                     {{ c }} <i class="fas fa-times ms-2 text-danger" style="cursor: pointer;" @click="removeCotizador(i)"></i>
+                                 </span>
+                             </div>
+                         </div>
+
+                         <div class="mt-3">
+                             <label class="small text-muted fw-bold mb-1">COTIZACION PRELIMINAR:</label>
+                             <input v-model="vehicleControlData.cotizacion" class="form-control text-danger fw-bold" placeholder="Ej: Cuarto de Metrología...">
+                         </div>
+                    </div>
+                </div>
+
+                <!-- CHECKLIST VISITA -->
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-white border-0 pt-3 ps-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #dc3545 !important; cursor: pointer;" @click="sectionVisibility.checklist = !sectionVisibility.checklist">
+                         <h6 class="fw-bold mb-0 text-danger"><i class="fas fa-clipboard-check me-2"></i>Check list</h6>
+                         <button class="btn btn-sm btn-link text-danger"><i class="fas" :class="sectionVisibility.checklist ? 'fa-chevron-up' : 'fa-chevron-down'"></i></button>
+                    </div>
+                    <div class="card-body" v-show="sectionVisibility.checklist">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.libreta"><label class="form-check-label">Libreta</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.cinta"><label class="form-check-label">Cinta de Medir</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.bernier"><label class="form-check-label">Bernier</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.chaleco"><label class="form-check-label">Chaleco Color x cliente</label></div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.laser"><label class="form-check-label">Laser de Medición</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.epp"><label class="form-check-label">EPP</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.casco"><label class="form-check-label">Casco</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.credencial"><label class="form-check-label">Credencial</label></div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.zapato"><label class="form-check-label">Zapato</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.sua"><label class="form-check-label">SUA</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" v-model="workorderData.checkList.lentes"><label class="form-check-label">Lentes</label></div>
+                                <div class="mt-2 text-primary small fst-italic">
+                                    realizar recordatorios al whatapp 1 hr antes o 2 hr antes al cotizador
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PROTOTYPE SECTION (MOVED UP) -->
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-dark text-white border-0 pt-3 ps-3 d-flex justify-content-between align-items-center" style="cursor: pointer;" @click="sectionVisibility.vehiclePrototype = !sectionVisibility.vehiclePrototype">
+                         <h6 class="fw-bold mb-0"><i class="fas fa-car me-2"></i>PROTOTIPO: Control de Vehículo y Cotización <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click.stop="showLogic.vehicle = !showLogic.vehicle" title="Ver Lógica"></i></h6>
+                         <button class="btn btn-sm btn-link text-white"><i class="fas" :class="sectionVisibility.vehiclePrototype ? 'fa-chevron-up' : 'fa-chevron-down'"></i></button>
+                    </div>
+                    <div class="card-body" v-show="sectionVisibility.vehiclePrototype">
+                         <!-- Control Vehiculo Header -->
+                         <div class="bg-dark text-white p-2 fw-bold mb-3 small">
+                             Control de Vehículo, Tiempo de Cotización, Horarios, Gasolina, Cuidado de Vehículo, Evaluación Conducción
+                         </div>
+
+                         <div class="logic-card mb-3 position-relative" v-if="showLogic.vehicle">
+                             <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showLogic.vehicle = false"></button>
+                             <div class="logic-header"><span class="logic-icon"><i class="fas fa-rocket"></i></span> NUEVO A DESARROLLAR</div>
+                             <div class="logic-content">Lógica el control de los vehículo. Esto va generar un costo que se va ir a la integracion del costo de ir dando a un levantamiento, se requiere controlar los robos de partes, gasolina , tiempo perdidos y rendimientos , se generarian bonos por buen manejos ( Teoria de la Economia Conductual )</div>
+                         </div>
+
+                         <div class="row">
+                             <div class="col-12">
+                                 <table class="table table-bordered table-sm small align-middle">
+                                     <tbody>
+                                         <tr>
+                                             <td class="fw-bold bg-light">Chofer Holtmont</td>
+                                             <td><input v-model="vehicleControlData.chofer" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="HM 003 March 2023"></td>
+                                             <td class="fw-bold bg-light">Gasolina</td>
+                                             <td><input v-model="vehicleControlData.gasolina" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="20 lts"></td>
+                                             <td class="fw-bold bg-light">Hora salida (GPS)</td>
+                                         </tr>
+                                         <tr>
+                                             <td class="fw-bold bg-light">Vehículo Holtmont</td>
+                                             <td><input v-model="vehicleControlData.vehiculo" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="HM 003 March 2023"></td>
+                                             <td class="fw-bold bg-light">FOTO ODOMETRO</td>
+                                             <td>
+                                                 <button class="btn btn-sm btn-outline-secondary w-100" @click="triggerUpload('VEHICULO_ODOMETRO')"><i class="fas fa-camera me-1"></i> Subir Foto</button>
+                                             </td>
+                                             <td><input v-model="vehicleControlData.horaSalida" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="8:30am"></td>
+                                         </tr>
+                                         <tr>
+                                             <td class="fw-bold bg-light">Evaluación de Manejo</td>
+                                             <td><input v-model="vehicleControlData.evaluacion" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="Alertas por alta velocidad"></td>
+                                             <td class="fw-bold bg-light">FOTO DE INDICADOR ANTES DE LLENAR GASOLINA</td>
+                                             <td>
+                                                 <button class="btn btn-sm btn-outline-secondary w-100" @click="triggerUpload('VEHICULO_ANTES_GASOLINA')"><i class="fas fa-camera me-1"></i> Subir Foto</button>
+                                             </td>
+                                             <td class="fw-bold bg-light">Hora llegada (GPS)</td>
+                                         </tr>
+                                         <tr>
+                                             <td class="fw-bold bg-light">Multas</td>
+                                             <td><input v-model="vehicleControlData.multas" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="Asignación de Multa"></td>
+                                             <td class="fw-bold bg-light">FOTO INDICADOR DESPUES</td>
+                                             <td>
+                                                 <button class="btn btn-sm btn-outline-secondary w-100" @click="triggerUpload('VEHICULO_DESPUES_GASOLINA')"><i class="fas fa-camera me-1"></i> Subir Foto</button>
+                                             </td>
+                                             <td><input v-model="vehicleControlData.horaLlegada" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="9:20am"></td>
+                                         </tr>
+                                         <tr>
+                                             <td class="fw-bold bg-light">Verificación de Ruta</td>
+                                             <td colspan="4"><input v-model="vehicleControlData.ruta" class="form-control form-control-sm border-0 bg-transparent" placeholder="de Oficina a Planta"></td>
+                                         </tr>
+                                         <tr>
+                                             <td class="fw-bold bg-light">Verificación Vehículo</td>
+                                             <td colspan="4"><input v-model="vehicleControlData.verifVehiculo" class="form-control form-control-sm border-0 bg-transparent" placeholder="con Video"></td>
+                                         </tr>
+                                     </tbody>
+                                 </table>
+                             </div>
+                         </div>
+                    </div>
+                </div>
+
+                <!-- HEADER (MOVED DOWN) -->
+                <div class="d-flex justify-content-between align-items-center px-4 py-3 mb-4 rounded" style="background: #1c1c1c; color: white;">
+                    <div class="d-flex align-items-center">
+                        <img src="https://drive.google.com/thumbnail?id=1tmNuwauWNjOhv0JwX6ug9pzvsrBCNX7z&sz=w1000" style="height:40px; margin-right:15px; filter: brightness(0) invert(1);">
+                        <div>
+                            <h4 class="fw-bold m-0" style="font-family: 'Roboto', sans-serif;">Holtmont Services</h4>
+                            <small style="letter-spacing: 2px; opacity: 0.7;">PRE WORK ORDER</small>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-3 align-items-center">
+                        <!-- Folio Widget -->
+                        <div class="bg-dark rounded px-3 py-2 border border-secondary position-relative">
+                            <small class="d-block text-white" style="font-size: 10px;">FOLIO <i class="fas fa-info-circle text-info ms-1" title="Instr. El folio debe ayudar a identificar el trabajo, un número, el nombre del cliente, departamento días, mes y año"></i></small>
+                            <span class="fw-bold text-white">{{ currentWorkorderId || generatedFolio }}</span>
+                        </div>
+                        <!-- Date Widget -->
+                        <div class="bg-dark rounded px-3 py-2 border border-secondary">
+                            <small class="d-block text-white" style="font-size: 10px;">FECHA <i class="fas fa-info-circle text-info ms-1" title="En automático se pasa al folio"></i></small>
+                            <span class="fw-bold text-white">{{ new Date().toLocaleDateString() }}</span>
+                        </div>
+                        <!-- Delivery Date Widget -->
+                        <div class="bg-dark rounded px-3 py-2 border border-secondary">
+                            <small class="d-block text-white" style="font-size: 10px;">FECHA DE ENTREGA</small>
+                            <input type="date" v-model="workorderData.fechaEntrega" class="bg-transparent border-0 text-white p-0 fw-bold" style="font-size: 13px; width: 110px;">
+                        </div>
+                        <!-- Priority -->
+                        <select v-model="workorderData.prioridad" class="btn btn-success fw-bold border-0" :class="{'bg-danger': workorderData.prioridad.includes('Alta'), 'bg-warning text-dark': workorderData.prioridad.includes('Media')}">
+                            <option value="AAA - Alta Prioridad">AAA - Alta Prioridad</option>
+                            <option value="AA - Media Prioridad">AA - Media Prioridad</option>
+                            <option value="A - Baja Prioridad">A - Baja Prioridad</option>
+                        </select>
+                        <button class="btn btn-outline-secondary btn-sm ms-2" @click="goHome">Cerrar</button>
+                    </div>
+                </div>
+
+                <div class="row g-4">
+                    <!-- LEFT COL: CLIENT INFO -->
+                    <div class="col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-light border-0 pt-3 ps-3">
+                                <h6 class="fw-bold text-primary mb-0"><i class="fas fa-building me-2"></i>Información del Cliente</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Nombre de Cliente</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-industry text-muted"></i></span>
+                                            <input v-model="workorderData.cliente" class="form-control" placeholder="Ej: Corning Optical...">
+                                        </div>
+                                        <div class="d-flex align-items-center mt-1">
+                                            <i class="fas fa-info-circle text-muted" style="cursor:pointer" @click="showInstr.client = !showInstr.client" :class="{'text-info': showInstr.client}" title="Ver Instrucción"></i>
+                                            <small v-if="showInstr.client" class="logic-inline ms-2 my-0 animate__animated animate__fadeIn">Instr: en automatico se va al folio</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Número de Proyecto Cliente o RFQ</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-hashtag text-muted"></i></span>
+                                            <input v-model="workorderData.proyecto" class="form-control" placeholder="RFQ-XXXXX">
+                                        </div>
+                                        <div class="d-flex align-items-center mt-1">
+                                            <i class="fas fa-info-circle text-muted" style="cursor:pointer" @click="showInstr.rfq = !showInstr.rfq" :class="{'text-info': showInstr.rfq}" title="Ver Instrucción"></i>
+                                            <small v-if="showInstr.rfq" class="logic-inline ms-2 my-0 animate__animated animate__fadeIn">Instr: sirve para la comunicación con el cliente con su RFQ para que lo identifique el cliente</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Fecha de Entrega de Cotización</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-calendar-alt text-muted"></i></span>
+                                            <input type="date" v-model="workorderData.fechaCotizacion" class="form-control">
+                                        </div>
+                                        <div class="d-flex align-items-center mt-1">
+                                            <i class="fas fa-info-circle text-muted" style="cursor:pointer" @click="showInstr.date = !showInstr.date" :class="{'text-info': showInstr.date}" title="Ver Instrucción"></i>
+                                            <small v-if="showInstr.date" class="logic-inline ms-2 my-0 animate__animated animate__fadeIn">Instr: se iria a sistema de Cotizaciones en automático</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Requisitor</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-user-tie text-muted"></i></span>
+                                            <input v-model="workorderData.newRequisitor" class="form-control" placeholder="Nombre requisitor">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Contacto</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-user text-muted"></i></span>
+                                            <input v-model="workorderData.contactName" class="form-control" placeholder="Nombre contacto">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Correo Electrónico</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-envelope text-muted"></i></span>
+                                            <input v-model="workorderData.contacto" class="form-control" placeholder="email@empresa.com">
+                                        </div>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="small text-muted fw-bold mb-1">Teléfono</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-phone text-muted"></i></span>
+                                            <input v-model="workorderData.celular" class="form-control" placeholder="+52 ...">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT COL: WORK TYPE -->
+                    <div class="col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-light border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
+                                <h6 class="fw-bold text-primary mb-0"><i class="fas fa-tools me-2"></i>Tipo de Trabajo <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click="showLogic.workType = !showLogic.workType" title="Ver Lógica"></i></h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="logic-card mb-3 position-relative" v-if="showLogic.workType">
+                                    <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showLogic.workType = false"></button>
+                                    <div class="logic-header"><span class="logic-icon"><i class="fas fa-lightbulb"></i></span> LÓGICA</div>
+                                    <div class="logic-content">Tener una clasificación con un poco de mayor variedad para que se pueda clasificar el tipo de trabajo, se requiere de una reunión con las áreas convocada por el ing Olivo para que se defina.</div>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2 mb-4">
+                                    <button v-for="type in workorderTypes" :key="type"
+                                        class="btn btn-sm fw-bold px-3"
+                                        :class="workorderData.tipoTrabajo === type ? 'btn-primary' : 'btn-light text-muted border'"
+                                        @click="workorderData.tipoTrabajo = type">
+                                        <i class="fas fa-check me-1" v-if="workorderData.tipoTrabajo === type"></i> {{ type }}
+                                    </button>
+                                </div>
+
+                                <h6 class="fw-bold text-primary mb-2 small"><i class="fas fa-building me-2"></i>Departamento / Área (Folio)</h6>
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="fas fa-info-circle text-muted" style="cursor:pointer" @click="showInstr.dept = !showInstr.dept" :class="{'text-info': showInstr.dept}" title="Ver Instrucción"></i>
+                                    <small v-if="showInstr.dept" class="logic-inline ms-2 my-0 animate__animated animate__fadeIn">Instr 1: se agregaria al folio automático / Instr 2: se requiere en base datos dar alta los departamento de holtmont para ayudar en la captura</small>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2 mb-4">
+                                    <button v-for="(dept, key) in (config.allDepartments || config.departments)" :key="key"
+                                        class="btn btn-sm fw-bold px-3"
+                                        :class="workorderData.departamento === key ? 'btn-success' : 'btn-light text-muted border'"
+                                        @click="workorderData.departamento = key">
+                                        <i class="fas fa-check me-1" v-if="workorderData.departamento === key"></i> {{ dept.label }}
+                                    </button>
+                                </div>
+
+                                <hr class="border-light my-3">
+
+                                <div class="row g-3 align-items-end">
+                                    <div class="col-md-8">
+                                        <label class="small text-muted fw-bold mb-1">Elaboró (Responsable Interno)</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-user-tag text-muted"></i></span>
+                                            <div class="form-control p-1 d-flex align-items-center flex-wrap gap-1" style="min-height: 31px; height: auto;" @click="$refs.cotizadorInput.focus()">
+                                                <span v-for="(name, idx) in workorderData.cotizador" :key="idx" class="user-chip">
+                                                    {{ name }} <i class="fas fa-times ms-1 text-danger" style="cursor:pointer" @click.stop="removeCotizador(idx)"></i>
+                                                </span>
+                                                <input ref="cotizadorInput" v-model="cotizadorSearch" placeholder="Buscar..." style="border:none; outline:none; background:transparent; font-size: 0.8rem; flex: 1; min-width: 60px;">
+                                            </div>
+                                        </div>
+                                        <ul class="list-group position-absolute shadow" style="z-index:100; max-height:200px; overflow:auto; width: 90%; margin-top: 2px;" v-if="cotizadorSearch && filteredCotizadores.length">
+                                            <li v-for="p in filteredCotizadores" :key="p.name" class="list-group-item list-group-item-action small py-1" style="cursor:pointer;" @click="addCotizador(p.name)">
+                                                {{p.name}}
+                                            </li>
+                                        </ul>
+                                        <div class="d-flex align-items-center mt-1">
+                                            <i class="fas fa-info-circle text-muted" style="cursor:pointer" @click="showInstr.resp = !showInstr.resp" :class="{'text-info': showInstr.resp}" title="Ver Instrucción"></i>
+                                            <small v-if="showInstr.resp" class="logic-inline ms-2 my-0 animate__animated animate__fadeIn">Instr: se iria al traker automático / Instr 2: se requiere en base datos dar alta las personas que van a cotizar de holtmont para ayudar en la captura</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="small text-muted fw-bold mb-1">Tiempo Estimado</label>
+                                        <input v-model="workorderData.tiempoEstimado" class="form-control form-control-sm" placeholder="Ej: 2 semanas">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- BOTTOM: DESCRIPTION & MEDIA -->
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm">
+                            <div class="card-header bg-light border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
+                                <h6 class="fw-bold text-primary mb-0"><i class="fas fa-align-left me-2"></i>Descripción del Trabajo a Realizar</h6>
+                                <button v-if="!showWorkOrderLogic" @click="showWorkOrderLogic = true" class="btn btn-sm btn-outline-info" title="Mostrar Ayuda"><i class="fas fa-info-circle"></i></button>
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-4">
+                                    <div :class="showWorkOrderLogic ? 'col-md-8' : 'col-12'">
+                                         <div class="position-relative h-100">
+                                            <textarea id="campoConcepto" v-model="workorderData.conceptoDesc" class="form-control border-0 bg-light p-3 h-100" rows="8" placeholder="Describe el trabajo a realizar..." style="resize: none;"></textarea>
+
+                                            <!-- INPUT OCULTO PARA GEMINI -->
+                                            <input type="file" id="audioInputGemini" accept="audio/*" class="d-none" onchange="enviarAudioAGemini(this)">
+
+                                            <button
+                                                class="btn position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
+                                                :class="isRecording ? 'btn-danger animate__animated animate__pulse animate__infinite' : 'btn-primary'"
+                                                style="width: 50px; height: 50px; transition: all 0.3s ease;"
+                                                @click="toggleDictation"
+                                                title="Dictar voz a texto">
+
+                                                <i class="fas" :class="isRecording ? 'fa-stop' : 'fa-microphone'" style="font-size: 1.2rem;"></i>
+                                            </button>
+                                         </div>
+                                    </div>
+                                    <div class="col-md-4" v-if="showWorkOrderLogic">
+                                        <div class="logic-card h-100 position-relative fade show">
+                                            <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showWorkOrderLogic = false"></button>
+                                    <div class="logic-header"><span class="logic-icon"><i class="fas fa-info"></i></span> LÓGICA: CAPTURA DE DESCRIPCIÓN</div>
+                                            <div class="logic-content text-justify">
+                                                Este punto es el más crítico al momento de realizar una cotización, ya que en los recorridos con el cliente son muy cortos, y uno no alcanza a escribir porque va caminando para proyectos A y AA, por lo que se requiere el poder capturar el mayor número de detalles que el cliente menciona así como la confidencialidad de observaciones que el cotizador de Holtmont alcanza a ver y se requiere que la competencia no se entere. Por ello el requerimiento de la diadema y de poder cuestionar puntos.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Multimedia Section (Merged) -->
+                                <div class="mb-4">
+                                    <h6 class="small fw-bold text-muted mb-2">Archivos Multimedia</h6>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-outline-secondary btn-sm border-dashed" @click="openFileDialog">
+                                            <i class="fas" :class="uploadSuccess ? 'fa-check text-success' : 'fa-cloud-upload-alt'"></i> {{ uploadSuccess ? 'Archivo Cargado' : 'Subir Archivos' }}
+                                        </button>
+                                        <input type="file" ref="fileInput" class="file-input-hidden" accept="*" @change="handleFileSelect">
+                                    </div>
+                                </div>
+
+                                <hr class="border-light my-4">
+
+                                <!-- RESTRICCIONES Section (Merged) -->
+                                <div>
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h6 class="fw-bold mb-0 text-danger text-uppercase">RESTRICCIONES <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click="showLogic.restrictions = !showLogic.restrictions" title="Ver Lógica"></i></h6>
+                                    </div>
+                                    <div class="row g-3">
+                                        <div class="col-12" v-if="showLogic.restrictions">
+                                            <div class="logic-card mt-2 position-relative">
+                                                <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showLogic.restrictions = false"></button>
+                                                <div class="logic-header"><span class="logic-icon"><i class="fas fa-exclamation-triangle"></i></span> LÓGICA DE RESTRICCIONES</div>
+                                                <div class="logic-content">Se requiere que el cotizador pueda tener una guía rápida que le permita preguntar al cliente puntos clave que afectan el costo de la cotización.</div>
+                                            </div>
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="small fw-bold text-muted">Producción</label>
+                                            <input v-model="workorderData.restricciones.produccion" class="form-control" placeholder="Restricciones de producción...">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="small fw-bold text-muted">Seguridad</label>
+                                            <input v-model="workorderData.restricciones.seguridad" class="form-control" placeholder="Ej: permiso de chispa, trabajo en altura, espacios confinados...">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="small fw-bold text-muted">Dificultad</label>
+                                            <input v-model="workorderData.restricciones.dificultad" class="form-control" placeholder="Ej: espacios reducidos, maquinaria, químicos...">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="small fw-bold text-muted">Horarios</label>
+                                            <input v-model="workorderData.restricciones.horarios" class="form-control" placeholder="Ej: nocturnos o fines de semana">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="small fw-bold text-muted">Especificidad Trabajo</label>
+                                            <input v-model="workorderData.restricciones.especificidad" class="form-control" placeholder="Detalles específicos...">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 7. DIBUJOS PLANOS Y DIAGRAMAS (DOCUMENTACION BUTTONS - REORDERED #7) -->
+                <div class="col-12 mt-4">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-dark text-white border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
+                            <h6 class="fw-bold mb-0"><i class="fas fa-camera me-2"></i>DIBUJOS PLANOS Y DIAGRAMAS (DOCUMENTACIÓN) <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click="showLogic.docs = !showLogic.docs" title="Ver Lógica"></i></h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="logic-card mb-3 position-relative" v-if="showLogic.docs">
+                                <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showLogic.docs = false"></button>
+                                <div class="logic-header"><span class="logic-icon"><i class="fas fa-mouse-pointer"></i></span> LÓGICA DE BOTONES</div>
+                                <div class="logic-content">Se requiere que los cotizadores puedan de forma ordenada capturar foto ordenadas con una Tablet, videos, también que puedan rallar la fotos para tomar notas muy visuales así como también puedan hacer layout dibujado digital, así como también archivar planos y los alcances del proyecto.</div>
+                            </div>
+                            <div class="d-flex flex-wrap gap-3">
+                                <button class="btn btn-outline-dark" @click="triggerUpload('FOTOS')"><i class="fas fa-camera me-2"></i>FOTOS</button>
+                                <button class="btn btn-outline-dark" @click="triggerUpload('VIDEOS')"><i class="fas fa-video me-2"></i>VIDEOS</button>
+                                <button class="btn btn-outline-dark" @click="triggerUpload('LAYOUT')"><i class="fas fa-pencil-ruler me-2"></i>LAYOUT / DIBUJO</button>
+                                <button class="btn btn-outline-dark" @click="triggerUpload('PLANOS')"><i class="fas fa-map me-2"></i>PLANOS</button>
+
+                                <div class="vr mx-2"></div>
+
+                                <div class="d-flex flex-column align-items-center">
+                                    <a href="https://chat.openai.com" target="_blank" class="btn btn-success text-white"><i class="fas fa-robot me-2"></i>CHAT GPT</a>
+                                    <i class="fas fa-lightbulb text-warning mt-2" style="cursor:pointer" @click="showInstr.chatgpt = !showInstr.chatgpt" title="Ver Lógica"></i>
+                                    <small v-if="showInstr.chatgpt" class="logic-inline mt-1 animate__animated animate__fadeIn" style="max-width: 200px;"><i class="fas fa-lightbulb me-1"></i> Lógica: que nos ayude a realizar una minuta del levantamiento y que nos de un orden en lo que capturamos. Que ayude al texto y que ayude a poner cosas que no alcanzamos a ver.</small>
+                                </div>
+                                <div class="d-flex flex-column align-items-center">
+                                    <button class="btn btn-secondary" disabled title="Próximamente"><i class="fas fa-brain me-2"></i>RED NEURONAL HOLTMONT</button>
+                                    <i class="fas fa-lightbulb text-warning mt-2" style="cursor:pointer" @click="showInstr.neural = !showInstr.neural" title="Ver Lógica"></i>
+                                    <small v-if="showInstr.neural" class="logic-inline mt-1 animate__animated animate__fadeIn" style="max-width: 200px;"><i class="fas fa-lightbulb me-1"></i> Lógica: utilizar nuestro historial de prework order para facilitar preguntas para el levantamiento así como el desarrollo de conceptos.</small>
+                                </div>
+                            </div>
+                            <div v-if="workorderData.files && workorderData.files.length" class="mt-3">
+                                <h6 class="small fw-bold text-muted">Archivos Adjuntos:</h6>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <div v-for="(f, i) in workorderData.files" :key="i" class="badge bg-light text-dark border p-2">
+                                        <i class="fas fa-paperclip me-1"></i> {{ f }}
+                                        <i class="fas fa-times text-danger ms-2" style="cursor:pointer" @click="workorderData.files.splice(i,1)"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PROGRAMA DEL PROYECTO (PROGRAMACION) - Order #5 -->
+                <div class="card border-0 shadow-sm mt-5">
+                    <div class="card-header bg-white border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #6f42c1 !important;">
+                        <h6 class="fw-bold mb-0" style="color: #4a148c;">PROGRAMA DEL PROYECTO</h6>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="small fw-bold text-muted">Tiempo Estimado:</span>
+                            <input type="number" v-model="projectProgram.timeEstimated" class="form-control form-control-sm text-center" style="width: 60px;">
+                            <select v-model="projectProgram.timeUnit" class="form-select form-select-sm" style="width: 90px;">
+                                <option value="dias">días</option>
+                                <option value="horas">horas</option>
+                                <option value="semanas">sem</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-body bg-light">
+                        <!-- Helper component for section rows -->
+                        <div v-for="(section, secKey) in {
+                            'visita': '1. VISITA',
+                            'reqCotizacion': '2. Requerimiento para Cotización',
+                            'cotPreconstruccion': '3. Cotización Preconstrucción',
+                            'cotTrabajo': '4. Cotización Trabajo'
+                        }" :key="secKey" class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                                <span class="fw-bold text-dark small text-uppercase">{{ section }}</span>
+                                <button class="btn btn-primary btn-sm py-0 px-2 fw-bold" style="font-size: 10px;" @click="addProjectItem(secKey)"><i class="fas fa-plus"></i></button>
+                            </div>
+                            <div v-for="(item, idx) in projectProgram[secKey]" :key="idx" class="card mb-1 border shadow-sm">
+                                <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap">
+                                    <span class="fw-bold text-muted small" style="width: 15px;">{{ idx + 1 }}.</span>
+                                    <input v-model="item.description" class="form-control form-control-sm" placeholder="Descripción" style="flex: 2; min-width: 150px;">
+                                    <input type="date" v-model="item.date" class="form-control form-control-sm" style="width: 110px;">
+
+                                    <!-- Tiempo Estimado Row -->
+                                    <div class="input-group input-group-sm" style="width: 110px;">
+                                        <input type="number" v-model="item.duration" class="form-control" placeholder="T">
+                                        <select v-model="item.durationUnit" class="form-select" style="max-width: 55px; padding-right: 2px;">
+                                            <option value="dias">d</option>
+                                            <option value="horas">h</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Responsable Column -->
+                                    <div style="width: 120px; position:relative;">
+                                        <div class="form-control form-control-sm" style="font-size: 0.75rem; cursor:pointer; min-height: 31px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+                                             @click="openRespDropdown(secKey + idx, item)">
+                                            {{ Array.isArray(item.responsable) ? (item.responsable.length ? item.responsable.join(', ') : 'Resp...') : (item.responsable || 'Resp...') }}
+                                        </div>
+                                        <div v-if="projectRespDropdownOpen === (secKey + idx)" class="position-absolute bg-white border shadow rounded p-2" style="z-index: 1000; width: 250px; max-height: 200px; overflow-y: auto;">
+                                            <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-1">
+                                                <small class="fw-bold">Seleccionar:</small>
+                                                <button class="btn btn-sm btn-link p-0 text-secondary" @click="projectRespDropdownOpen = null"><i class="fas fa-times"></i></button>
+                                            </div>
+                                            <div v-for="p in (config.directory || config.staff)" :key="p.name"
+                                                 class="d-flex align-items-center p-1 rounded hover-bg-light" style="cursor:pointer;"
+                                                 @click.stop="toggleProjectResponsable(item, p.name)">
+                                                <div class="form-check m-0">
+                                                    <input class="form-check-input" type="checkbox" :checked="item.responsable.includes(p.name)" style="pointer-events: none;">
+                                                    <label class="form-check-label small ms-2" style="cursor:pointer;">{{ p.name }}</label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <input v-model="item.unit" class="form-control form-control-sm" placeholder="Uni" style="width: 50px;">
+                                    <input type="number" v-model="item.quantity" @input="updateProjectRowTotal(item)" class="form-control form-control-sm" placeholder="Cant" style="width: 60px;">
+                                    <input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm" placeholder="P.U." style="width: 80px;">
+                                    <input :value="formatCurrency(item.total)" class="form-control form-control-sm fw-bold bg-white text-end" placeholder="Total" readonly style="width: 90px;">
+
+                                    <button class="btn btn-outline-danger btn-sm border-0" @click="removeProjectItem(secKey, idx)"><i class="fas fa-trash-alt"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. MATERIALES REQUERIDOS (Tabla de Otros) (MOVED UP) -->
+                <div class="row g-4 mt-4">
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-light border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #107c41 !important;">
+                                <h6 class="fw-bold mb-0" style="color: #0b5d2f;">MATERIALES REQUERIDOS</h6>
+                                <div class="d-flex align-items-center gap-3">
+                                    <span class="fw-bold text-dark">Total: {{ formatCurrency(materialsTotal) }}</span>
+                                    <button class="btn btn-primary btn-sm fw-bold" @click="addMaterialItem"><i class="fas fa-plus"></i> Agregar</button>
+                                </div>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-bordered mb-0 small align-middle bg-white">
+                                        <thead class="table-light text-muted text-uppercase" style="font-size: 11px;">
+                                            <tr>
+                                                <th style="width: 70px;" class="text-center">Cant</th>
+                                                <th style="width: 70px;" class="text-center">Unidad</th>
+                                                <th style="width: 100px;">Tipo</th>
+                                                <th>Descripción</th>
+                                                <th style="width: 90px;" class="text-end">Costo</th>
+                                                <th style="width: 120px;">Espec.</th>
+                                                <th style="width: 90px;" class="text-end">Total</th>
+                                                <th style="width: 40px;"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="(item, idx) in requiredMaterials.items" :key="idx">
+                                                <td><input type="number" v-model="item.quantity" @input="updateMaterialRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center px-1" placeholder="0"></td>
+                                                <td><input v-model="item.unit" class="form-control form-control-sm border-0 bg-transparent text-center px-1" placeholder="-"></td>
+                                                <td><input v-model="item.type" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-"></td>
+                                                <td><input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-"></td>
+                                                <td><input type="number" v-model="item.cost" @input="updateMaterialRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-end px-1" placeholder="0.00"></td>
+                                                <td><input v-model="item.spec" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-"></td>
+                                                <td class="fw-bold text-end px-1">{{ formatCurrency(item.total) }}</td>
+                                                <td class="text-center"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeMaterialItem(idx)"></i></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 1. HERRAMIENTAS REQUERIDAS (REORDERED #1) -->
+                <div class="row g-4 mt-4">
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-light border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #fd7e14 !important;">
+                                <h6 class="fw-bold mb-0" style="color: #e67e22;">HERRAMIENTAS REQUERIDAS</h6>
+                                <div class="d-flex align-items-center gap-3">
+                                    <span class="fw-bold text-dark">Total: {{ formatCurrency(toolsTotal) }}</span>
+                                    <button class="btn btn-primary btn-sm fw-bold" @click="addToolItem"><i class="fas fa-plus"></i> Agregar</button>
+                                </div>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-bordered mb-0 small align-middle bg-white">
+                                        <thead class="table-light text-muted text-uppercase" style="font-size: 11px;">
+                                            <tr>
+                                                <th style="width: 80px;" class="text-center">Cantidad</th>
+                                                <th style="width: 80px;" class="text-center">Unidad</th>
+                                                <th>Descripción</th>
+                                                <th style="width: 120px;" class="text-end">Costo Unitario</th>
+                                                <th style="width: 120px;" class="text-end">Total</th>
+                                                <th style="width: 40px;"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="(item, idx) in toolsRequired.items" :key="idx">
+                                                <td><input type="number" v-model="item.quantity" @input="updateToolRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                                <td><input v-model="item.unit" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="-"></td>
+                                                <td><input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent" placeholder="-"></td>
+                                                <td><input type="number" v-model="item.cost" @input="updateToolRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-end" placeholder="0.00"></td>
+                                                <td class="fw-bold text-end">{{ formatCurrency(item.total) }}</td>
+                                                <td class="text-center"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeToolItem(idx)"></i></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. MANO DE OBRA (REORDERED #2) -->
+                <div class="card border-0 shadow-sm mt-4">
+                    <div class="card-header bg-white border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #107c41 !important;">
+                         <h6 class="fw-bold mb-0 text-primary text-uppercase">MANO DE OBRA <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click="showLogic.labor = !showLogic.labor" title="Ver Lógica"></i></h6>
+                         <div class="d-flex align-items-center gap-3">
+                            <span class="fw-bold text-dark">Total: {{ formatCurrency(laborTotal) }}</span>
+                            <button class="btn btn-primary btn-sm fw-bold" @click="addLaborItem"><i class="fas fa-plus"></i> Agregar</button>
+                         </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="logic-card m-2 position-relative" v-if="showLogic.labor">
+                            <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showLogic.labor = false"></button>
+                            <div class="logic-header"><span class="logic-icon"><i class="fas fa-clock"></i></span> LÓGICA DE LAS HORAS Y SUELDOS</div>
+                            <div class="logic-content">Es muy importante ya que hay muchos trabajos de fin de semana o turno de noche los cuales se deben agregar costos u horas extra.</div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-bordered mb-0 small align-middle bg-white">
+                                <thead class="table-light text-muted text-uppercase" style="font-size: 10px;">
+                                    <tr>
+                                        <th style="width:40px" class="text-center">No.</th>
+                                        <th>CATEGORÍA</th>
+                                        <th class="text-center">SALARIO SEMANAL</th>
+                                        <th class="text-center">PERSONAL</th>
+                                        <th class="text-center">SEMANAS</th>
+                                        <th class="text-center">HORAS EXTRA</th>
+                                        <th class="text-center">HORARIO NOCTURNO</th>
+                                        <th class="text-center">TRABAJO FIN DE SEMANA</th>
+                                        <th class="text-center">OTROS</th>
+                                        <th class="text-end">TOTAL</th>
+                                        <th style="width:40px"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(item, idx) in laborTable.items" :key="idx">
+                                        <td class="text-center fw-bold">{{ idx + 1 }}</td>
+                                        <td><input v-model="item.category" class="form-control form-control-sm border-0 bg-transparent" placeholder="Puesto"></td>
+                                        <td><input type="number" v-model="item.salary" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td><input type="number" v-model="item.personnel" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td><input type="number" v-model="item.weeks" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td><input type="number" v-model="item.overtime" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td><input type="number" v-model="item.night" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td><input type="number" v-model="item.weekend" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td><input type="number" v-model="item.others" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td class="fw-bold text-end">{{ formatCurrency(item.total) }}</td>
+                                        <td class="text-center"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeLaborItem(idx)"></i></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="p-4 bg-white">
+                            <!-- SUMMARY CARDS ROW -->
+                            <div class="row g-4 mb-4">
+                                <div class="col-md-3">
+                                    <div class="cost-card blue">
+                                        <div class="cost-card-title"><i class="fas fa-user-friends"></i> Total Personal</div>
+                                        <div class="cost-card-value">{{ totalPersonnel }}</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="cost-card green">
+                                        <div class="cost-card-title"><i class="fas fa-dollar-sign"></i> Costo Semanal Cuadrilla</div>
+                                        <div class="cost-card-value">{{ formatCurrency(costPerWeekCrew) }}</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="cost-card orange">
+                                        <div class="cost-card-title"><i class="fas fa-hard-hat"></i> 6% Herr. y EPP</div>
+                                        <div class="cost-card-value">{{ formatCurrency(eppCost) }}</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="cost-card purple">
+                                        <div class="cost-card-title"><i class="fas fa-wallet"></i> Costo Neto x Semana</div>
+                                        <div class="cost-card-value">{{ formatCurrency(netCostPerWeek) }}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- CALCULATION ROW -->
+                            <div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+                                <div class="flex-grow-1">
+                                    <label class="calc-label">Semanas Requeridas</label>
+                                    <div class="calc-input-group">
+                                        <input type="number" class="calc-input text-center" style="background: white;" :value="weeksRequired" readonly>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <label class="calc-label">Horas Requeridas</label>
+                                    <div class="calc-input-group">
+                                        <div class="calc-input text-center">{{ hoursRequired }}</div>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <label class="calc-label">Costo por Hora</label>
+                                    <div class="calc-input-group">
+                                        <div class="calc-input text-center">{{ formatCurrency(costPerHour) }}</div>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <label class="calc-label fw-bold text-primary">Total M.O.</label>
+                                    <div class="total-mo-card">
+                                        <span class="fs-4 fw-bold">{{ formatCurrency(laborTotal) }}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- EXTRA FACTORS ROW -->
+                            <div class="row g-4">
+                                <div class="col-md-4">
+                                    <div class="extra-factor-card">
+                                        <div class="extra-factor-header"><i class="far fa-clock text-warning"></i> Horas Extras</div>
+                                        <input type="number" class="extra-factor-input" :value="totalOvertime" readonly>
+                                        <div class="extra-factor-footer">Factor: 2x</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="extra-factor-card">
+                                        <div class="extra-factor-header"><i class="fas fa-moon text-primary"></i> Nocturno</div>
+                                        <input type="number" class="extra-factor-input" :value="totalNight" readonly>
+                                        <div class="extra-factor-footer">Factor: 1.35x</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="extra-factor-card">
+                                        <div class="extra-factor-header"><i class="far fa-calendar-alt text-danger"></i> Fin de Semana</div>
+                                        <input type="number" class="extra-factor-input" :value="totalWeekend" readonly>
+                                        <div class="extra-factor-footer">Factor: 2x</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- 4. DISEÑO / MAQUINADOS / DIBUJOS (REORDERED #4) -->
+                <div class="card border-0 shadow-sm mt-4">
+                    <div class="card-header bg-white border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #6f42c1 !important;">
+                         <h6 class="fw-bold mb-0 text-dark text-uppercase">DISEÑO / MAQUINADOS / DIBUJOS <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click="showLogic.design = !showLogic.design" title="Ver Lógica"></i></h6>
+                         <div class="d-flex align-items-center gap-3">
+                            <button class="btn btn-primary btn-sm fw-bold" @click="addDesignRow"><i class="fas fa-plus"></i> Agregar</button>
+                         </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="logic-card m-2 position-relative" v-if="showLogic.design">
+                            <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showLogic.design = false"></button>
+                            <div class="logic-header"><span class="logic-icon"><i class="fas fa-clipboard-list"></i></span> INSTRUCCIÓN</div>
+                            <div class="logic-content">En la work order se requiere cargar archivos de planos para que el residente siempre tenga los correctos.</div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-bordered mb-0 small align-middle bg-white">
+                                <thead class="table-light text-muted text-uppercase" style="font-size: 11px;">
+                                    <tr>
+                                        <th class="text-center" style="width: 33%;">DISEÑO</th>
+                                        <th class="text-center" style="width: 33%;">MAQUINADOS</th>
+                                        <th class="text-center" style="width: 33%;">DIBUJOS</th>
+                                        <th style="width: 40px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(item, idx) in workorderData.designValidation.items" :key="idx">
+                                        <!-- DISEÑO -->
+                                        <td class="align-top p-2">
+                                            <div class="d-flex gap-1 mb-2 justify-content-center flex-wrap">
+                                                <button class="btn btn-sm btn-outline-danger py-1 px-2 d-flex align-items-center gap-1" title="Subir Video" @click="triggerDesignUpload(idx, 'diseno', 'VIDEO')"><i class="fas fa-video"></i> Videos</button>
+                                                <button class="btn btn-sm btn-outline-success py-1 px-2 d-flex align-items-center gap-1" title="Subir Foto" @click="triggerDesignUpload(idx, 'diseno', 'FOTO')"><i class="fas fa-image"></i> Fotos</button>
+                                                <button class="btn btn-sm btn-outline-primary py-1 px-2 d-flex align-items-center gap-1" title="Subir Plano" @click="triggerDesignUpload(idx, 'diseno', 'PLANO')"><i class="fas fa-file-alt"></i> Planos</button>
+                                            </div>
+                                            <div class="d-flex flex-column gap-1">
+                                                <div v-for="(f, fIdx) in item.diseno" :key="fIdx" class="d-flex align-items-center justify-content-between bg-light border rounded px-2 py-1">
+                                                    <a :href="f.url" target="_blank" class="text-decoration-none text-truncate small" :title="f.name" style="max-width: 150px;">
+                                                        <i class="fas" :class="{'fa-video text-danger': f.type==='VIDEO', 'fa-image text-success': f.type==='FOTO', 'fa-file-alt text-primary': f.type==='PLANO'}"></i> {{ f.name }}
+                                                    </a>
+                                                    <i class="fas fa-times text-danger small" style="cursor:pointer" @click="item.diseno.splice(fIdx, 1)"></i>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <!-- MAQUINADOS -->
+                                        <td class="align-top p-2">
+                                            <div class="d-flex gap-1 mb-2 justify-content-center flex-wrap">
+                                                <button class="btn btn-sm btn-outline-danger py-1 px-2 d-flex align-items-center gap-1" title="Subir Video" @click="triggerDesignUpload(idx, 'maquinados', 'VIDEO')"><i class="fas fa-video"></i> Videos</button>
+                                                <button class="btn btn-sm btn-outline-success py-1 px-2 d-flex align-items-center gap-1" title="Subir Foto" @click="triggerDesignUpload(idx, 'maquinados', 'FOTO')"><i class="fas fa-image"></i> Fotos</button>
+                                                <button class="btn btn-sm btn-outline-primary py-1 px-2 d-flex align-items-center gap-1" title="Subir Plano" @click="triggerDesignUpload(idx, 'maquinados', 'PLANO')"><i class="fas fa-file-alt"></i> Planos</button>
+                                            </div>
+                                             <div class="d-flex flex-column gap-1">
+                                                <div v-for="(f, fIdx) in item.maquinados" :key="fIdx" class="d-flex align-items-center justify-content-between bg-light border rounded px-2 py-1">
+                                                    <a :href="f.url" target="_blank" class="text-decoration-none text-truncate small" :title="f.name" style="max-width: 150px;">
+                                                        <i class="fas" :class="{'fa-video text-danger': f.type==='VIDEO', 'fa-image text-success': f.type==='FOTO', 'fa-file-alt text-primary': f.type==='PLANO'}"></i> {{ f.name }}
+                                                    </a>
+                                                    <i class="fas fa-times text-danger small" style="cursor:pointer" @click="item.maquinados.splice(fIdx, 1)"></i>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <!-- DIBUJOS -->
+                                        <td class="align-top p-2">
+                                            <div class="d-flex gap-1 mb-2 justify-content-center flex-wrap">
+                                                <button class="btn btn-sm btn-outline-danger py-1 px-2 d-flex align-items-center gap-1" title="Subir Video" @click="triggerDesignUpload(idx, 'dibujos', 'VIDEO')"><i class="fas fa-video"></i> Videos</button>
+                                                <button class="btn btn-sm btn-outline-success py-1 px-2 d-flex align-items-center gap-1" title="Subir Foto" @click="triggerDesignUpload(idx, 'dibujos', 'FOTO')"><i class="fas fa-image"></i> Fotos</button>
+                                                <button class="btn btn-sm btn-outline-primary py-1 px-2 d-flex align-items-center gap-1" title="Subir Plano" @click="triggerDesignUpload(idx, 'dibujos', 'PLANO')"><i class="fas fa-file-alt"></i> Planos</button>
+                                            </div>
+                                             <div class="d-flex flex-column gap-1">
+                                                <div v-for="(f, fIdx) in item.dibujos" :key="fIdx" class="d-flex align-items-center justify-content-between bg-light border rounded px-2 py-1">
+                                                    <a :href="f.url" target="_blank" class="text-decoration-none text-truncate small" :title="f.name" style="max-width: 150px;">
+                                                        <i class="fas" :class="{'fa-video text-danger': f.type==='VIDEO', 'fa-image text-success': f.type==='FOTO', 'fa-file-alt text-primary': f.type==='PLANO'}"></i> {{ f.name }}
+                                                    </a>
+                                                    <i class="fas fa-times text-danger small" style="cursor:pointer" @click="item.dibujos.splice(fIdx, 1)"></i>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="text-center align-middle"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeDesignRow(idx)"></i></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. EQUIPOS ESPECIALES (REORDERED #5) -->
+                <div class="card border-0 shadow-sm mt-4">
+                    <div class="card-header bg-white border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #dc3545 !important;">
+                        <h6 class="fw-bold mb-0 text-danger text-uppercase">EQUIPOS ESPECIALES Y ACCESORIOS</h6>
+                        <div class="d-flex align-items-center gap-3">
+                            <span class="fw-bold text-dark">Total: {{ formatCurrency(specialEquipTotal) }}</span>
+                            <button class="btn btn-primary btn-sm fw-bold" @click="addSpecialEquipItem"><i class="fas fa-plus"></i> Agregar</button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-bordered mb-0 small align-middle bg-white">
+                                <thead class="table-light text-muted text-uppercase" style="font-size: 11px;">
+                                    <tr>
+                                        <th style="width: 80px;" class="text-center">CANTIDAD</th>
+                                        <th style="width: 80px;" class="text-center">UNIDAD</th>
+                                        <th style="width: 120px;">TIPO</th>
+                                        <th>DESCRIPCIÓN</th>
+                                        <th style="width: 150px;">ESPECIFICACIONES</th>
+                                        <th style="width: 60px;" class="text-center">DÍAS</th>
+                                        <th style="width: 60px;" class="text-center">HORAS</th>
+                                        <th style="width: 100px;" class="text-end">COSTO UNITARIO</th>
+                                        <th style="width: 100px;" class="text-end">TOTAL</th>
+                                        <th style="width: 40px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(item, idx) in specialEquipment.items" :key="idx">
+                                        <td><input type="number" v-model="item.quantity" @input="updateSpecialEquipRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="1"></td>
+                                        <td><input v-model="item.unit" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="unidad"></td>
+                                        <td><input v-model="item.type" class="form-control form-control-sm border-0 bg-transparent" placeholder="-"></td>
+                                        <td><input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent" placeholder="-"></td>
+                                        <td><input v-model="item.spec" class="form-control form-control-sm border-0 bg-transparent" placeholder="-"></td>
+                                        <td><input type="number" v-model="item.days" @input="updateSpecialEquipRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td><input type="number" v-model="item.hours" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td><input type="number" v-model="item.cost" @input="updateSpecialEquipRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                        <td class="fw-bold text-end">{{ formatCurrency(item.total) }}</td>
+                                        <td class="text-center"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeSpecialEquipItem(idx)"></i></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 6. COSTOS ADICIONALES (INSUMOS, VIATICOS, TRANSPORTE) (REORDERED #6) -->
+                <div class="row g-3 mt-4">
+                    <div class="col-md-4">
+                        <div class="card shadow-sm border-0 h-100">
+                            <div class="card-body">
+                                <h6 class="fw-bold text-primary mb-3 text-uppercase small" style="color: #009688 !important;">INSUMOS</h6>
+                                <input type="number" v-model="additionalCosts.insumos" class="form-control fw-bold" placeholder="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card shadow-sm border-0 h-100">
+                            <div class="card-body">
+                                <h6 class="fw-bold text-primary mb-3 text-uppercase small" style="color: #009688 !important;">VIÁTICOS</h6>
+                                <input type="number" v-model="additionalCosts.viaticos" class="form-control fw-bold" placeholder="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card shadow-sm border-0 h-100">
+                            <div class="card-body">
+                                <h6 class="fw-bold text-primary mb-3 text-uppercase small" style="color: #0d6efd !important;">TRANSPORTE DE EQUIPO Y PERSONAL</h6>
+                                <input type="number" v-model="additionalCosts.transporte" class="form-control fw-bold" placeholder="0">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 8. CONTROL DE VEHÍCULO (NUEVA TABLA INDEPENDIENTE #8) -->
+                <div class="card border-0 shadow-sm mt-4">
+                    <div class="card-header bg-dark text-white border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
+                         <h6 class="fw-bold mb-0"><i class="fas fa-car me-2"></i>CONTROL DE VEHÍCULO (FINAL)</h6>
+                    </div>
+                    <div class="card-body">
+                         <div class="bg-dark text-white p-2 fw-bold mb-3 small">
+                             Seguimiento de Vehículo y Tiempos de Regreso
+                         </div>
+                         <div class="row">
+                             <div class="col-12">
+                                 <table class="table table-bordered table-sm small align-middle">
+                                     <tbody>
+                                         <tr>
+                                             <td class="fw-bold bg-light">Chofer Holtmont</td>
+                                             <td><input v-model="vehicleControlData2.chofer" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="HM 003 March 2023"></td>
+                                             <td class="fw-bold bg-light">Gasolina</td>
+                                             <td><input v-model="vehicleControlData2.gasolina" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="20 lts"></td>
+                                             <td class="fw-bold bg-light">Hora salida (GPS)</td>
+                                         </tr>
+                                         <tr>
+                                             <td class="fw-bold bg-light">Vehículo Holtmont</td>
+                                             <td><input v-model="vehicleControlData2.vehiculo" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="HM 003 March 2023"></td>
+                                             <td class="fw-bold bg-light">FOTO ODOMETRO</td>
+                                             <td>
+                                                 <button class="btn btn-sm btn-outline-secondary w-100" @click="triggerUpload('VEHICULO_2_ODOMETRO')"><i class="fas fa-camera me-1"></i> Subir Foto</button>
+                                             </td>
+                                             <td><input v-model="vehicleControlData2.horaSalida" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="8:30am"></td>
+                                         </tr>
+                                         <tr>
+                                             <td class="fw-bold bg-light">Evaluación de Manejo</td>
+                                             <td><input v-model="vehicleControlData2.evaluacion" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="Alertas por alta velocidad"></td>
