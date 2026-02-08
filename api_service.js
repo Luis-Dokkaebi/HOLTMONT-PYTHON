@@ -24,6 +24,20 @@ class ApiService {
             return { success: false, message: "Connection Error: " + e.toString() };
         }
     }
+
+    static async savePPC(payload, activeUser) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/savePPC`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ payload, activeUser })
+            });
+            if (!response.ok) throw new Error("Network response was not ok: " + await response.text());
+            return await response.json();
+        } catch (e) {
+            return { success: false, message: "Connection Error: " + e.toString() };
+        }
+    }
 }
 
 /**
@@ -80,13 +94,29 @@ class GoogleScriptRunAdapter {
     }
 
     apiFetchPPCData() {
-         console.warn("apiFetchPPCData not implemented");
-         this._successHandler({ success: true, data: [] });
+         ApiService.fetchSheetData("PPCV3")
+            .then(res => this._successHandler(res))
+            .catch(err => this._failureHandler(err));
     }
 
     apiUpdateTask(sheet, data, user) {
-        console.warn("apiUpdateTask not implemented");
-        this._successHandler({ success: true });
+        // For simple updates, we reuse savePPC logic but wrapped appropriately,
+        // OR implement a specific update endpoint.
+        // Given apiSavePPCData handles "saving" (upsert usually), we map it there.
+        // However, apiUpdateTask in GAS is for single row updates.
+        // For MVP, we can reuse apiSavePPCData but need to ensure it handles updates vs inserts.
+        // The current Python implementation of api_save_ppc treats everything as an insert to Mock.
+        // We'll map it to savePPC for now.
+        console.warn("apiUpdateTask mapped to savePPC (check logic)");
+        ApiService.savePPC([data], user)
+            .then(res => this._successHandler(res))
+            .catch(err => this._failureHandler(err));
+    }
+
+    apiSavePPCData(payload, activeUser) {
+        ApiService.savePPC(payload, activeUser)
+            .then(res => this._successHandler(res))
+            .catch(err => this._failureHandler(err));
     }
 }
 

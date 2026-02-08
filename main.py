@@ -49,13 +49,43 @@ class MockSpreadsheet:
             "ANTONIA_VENTAS": [
                 ["FOLIO", "CLIENTE", "CONCEPTO", "FECHA", "ESTATUS", "AVANCE"],
                 ["1001", "CLIENTE A", "TEST TASK", "01/01/25", "PENDIENTE", "0%"]
+            ],
+            "PPCV3": [
+                ["FOLIO", "CONCEPTO", "CLASIFICACION", "AREA", "INVOLUCRADOS", "FECHA", "RELOJ", "ESTATUS",
+                 "PRIORIDAD", "RESTRICCIONES", "RIESGOS", "FECHA_RESPUESTA", "AVANCE", "COMENTARIOS", "ARCHIVO",
+                 "CUMPLIMIENTO", "COMENTARIOS PREVIOS", "REQUISITOR", "CONTACTO", "CELULAR", "FECHA_COTIZACION",
+                 "CLIENTE", "TRABAJO", "DETALLES_EXTRA"]
+            ],
+            "DB_WO_MATERIALES": [
+                ["FOLIO", "CANTIDAD", "UNIDAD", "TIPO", "DESCRIPCION", "COSTO", "ESPECIFICACION", "TOTAL", "RESIDENTE", "COMPRAS", "CONTROLLER", "ORDEN_COMPRA", "PAGOS", "ALMACEN", "LOGISTICA", "RESIDENTE_OBRA"]
+            ],
+            "DB_WO_MANO_OBRA": [
+                ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "TOTAL"]
+            ],
+            "DB_WO_HERRAMIENTAS": [
+                ["FOLIO", "CANTIDAD", "UNIDAD", "DESCRIPCION", "COSTO", "TOTAL", "RESIDENTE", "CONTROLLER", "ALMACEN", "LOGISTICA", "RESIDENTE_FIN"]
+            ],
+            "DB_WO_EQUIPOS": [
+                ["FOLIO", "CANTIDAD", "UNIDAD", "TIPO", "DESCRIPCION", "ESPECIFICACION", "DIAS", "HORAS", "COSTO", "TOTAL"]
+            ],
+            "DB_WO_PROGRAMA": [
+                ["FOLIO", "DESCRIPCION", "FECHA", "DURACION", "UNIDAD_DURACION", "UNIDAD", "CANTIDAD", "PRECIO", "TOTAL", "RESPONSABLE", "SECCION", "ESTATUS"]
             ]
         }
 
     def worksheet(self, name):
         if name in self.sheets:
             return MockSheet(name, self.sheets[name])
-        raise gspread.WorksheetNotFound(name)
+        # Create mock sheet if not found (auto-create behavior)
+        # BUT: For 'get_data', we might want to return 404 if it really doesn't exist
+        # However, api_save_ppc relies on creation.
+        # Let's keep auto-create but handle empty in get_data logic better.
+        self.sheets[name] = [[]]
+        return MockSheet(name, self.sheets[name])
+
+    def add_worksheet(self, title, rows, cols):
+        self.sheets[title] = [[]]
+        return MockSheet(title, self.sheets[title])
 
 class GSheetsManager:
     def __init__(self):
@@ -146,11 +176,254 @@ def format_date_value(val):
     # We assume string or maybe datetime object if gspread parses it (it usually doesn't by default).
     return str(val)
 
+def generate_work_order_folio(client_name: str, dept_name: str) -> str:
+    """
+    Generates a Folio similar to GAS logic: SEQ + CLIENT_ABBR + DEPT_ABBR + DATE
+    """
+    # Simple sequence simulation. In real app, this should be stored in DB or Properties.
+    seq = "0001"
+
+    # Client Abbr
+    clean_client = "".join([c for c in (client_name or "XX").upper() if c.isalnum() or c.isspace()]).strip()
+    words = clean_client.split()
+    client_str = "XX"
+    if len(words) >= 2:
+        client_str = words[0][0] + words[1][0]
+    elif len(words) == 1:
+        client_str = words[0][:2]
+
+    # Dept Abbr
+    raw_dept = (dept_name or "General").strip().upper()
+    abbr_map = {
+        "ELECTROMECANICA": "Electro", "CONSTRUCCION": "Const", "MANTENIMIENTO": "Mtto",
+        "REMODELACION": "Remod", "REPARACION": "Repar", "RECONFIGURACION": "Reconf",
+        "POLIZA": "Poliza", "INSPECCION": "Insp", "ADMINISTRACION": "Admin",
+        "MAQUINARIA": "Maq", "DISEÑO": "Diseño", "COMPRAS": "Compras",
+        "VENTAS": "Ventas", "HVAC": "HVAC", "SEGURIDAD": "EHS", "EHS": "EHS"
+    }
+    dept_str = abbr_map.get(raw_dept)
+    if not dept_str:
+        dept_str = raw_dept[:1] + raw_dept[1:5].lower() if len(raw_dept) > 6 else raw_dept.capitalize()
+
+    date_str = datetime.now().strftime("%d%m%y")
+    return f"{seq}{client_str} {dept_str} {date_str}"
+
+def save_child_data(sheet_name: str, items: List[Dict], headers: List[str]):
+    """
+    Saves a list of dictionaries to a specific sheet with given headers.
+    """
+    if not items:
+        return
+
+    # In a real app, we would get the sheet, check headers, and append rows.
+    # For mock/MVP, we just verify we can access the sheet.
+
+    # Prepare rows
+    rows = []
+    for item in items:
+        row = []
+        for h in headers:
+            # Handle nested objects like 'papaCaliente' if flattened in logic or passed directly
+            # Logic in GAS: item[h] || item[h.replace(" ", "_")]
+            # Also handle keys that might be lowercase in item but uppercase in header
+
+            # 1. Exact match
+            val = item.get(h)
+
+            # 2. Key with spaces replaced by underscore (typical in DB headers)
+            if val is None:
+                val = item.get(h.replace("_", " "))
+
+            # 3. Lowercase keys (common in payload vs DB headers)
+            if val is None:
+                # Try finding case-insensitive key
+                for k in item.keys():
+                    if k.upper().replace("_", " ") == h.upper().replace("_", " "):
+                        val = item[k]
+                        break
+
+            row.append(str(val if val is not None else ""))
+        rows.append(row)
+
+    if gs_manager.is_mock:
+        # Just append to mock data
+        if sheet_name not in gs_manager.ss.sheets:
+             gs_manager.ss.sheets[sheet_name] = [headers]
+        gs_manager.ss.sheets[sheet_name].extend(rows)
+    else:
+        # Real GSpread Logic
+        try:
+            try:
+                sheet = gs_manager.ss.worksheet(sheet_name)
+            except gspread.WorksheetNotFound:
+                sheet = gs_manager.ss.add_worksheet(title=sheet_name, rows=1000, cols=20)
+                sheet.append_row(headers)
+
+            sheet.append_rows(rows)
+        except Exception as e:
+            print(f"Error saving child data to {sheet_name}: {e}")
+
+
 # --- Endpoints ---
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+class SavePPCRequest(BaseModel):
+    # Flexible payload to accept list of items or single item
+    payload: List[Dict[str, Any]]
+    activeUser: str = "ANONYMOUS"
+
+@app.post("/api/savePPC")
+def api_save_ppc(req: SavePPCRequest):
+    """
+    Replicates apiSavePPCData from CODIGO.js.
+    Handles Work Order creation and child sheets.
+    """
+    items = req.payload
+    active_user = req.activeUser
+    generated_ids = []
+
+    # Config from CODIGO.js
+    APP_CONFIG = {
+        "ppcSheetName": "PPCV3",
+        "woMaterialsSheet": "DB_WO_MATERIALES",
+        "woLaborSheet": "DB_WO_MANO_OBRA",
+        "woToolsSheet": "DB_WO_HERRAMIENTAS",
+        "woEquipSheet": "DB_WO_EQUIPOS",
+        "woProgramSheet": "DB_WO_PROGRAMA"
+    }
+
+    try:
+        for item in items:
+            # ID Generation
+            item_id = item.get("id")
+            if not item_id:
+                if active_user == "PREWORK_ORDER":
+                    item_id = generate_work_order_folio(item.get("cliente"), item.get("especialidad"))
+                else:
+                    item_id = f"PPC-{int(datetime.now().timestamp())}"
+
+            generated_ids.append(item_id)
+
+            # --- Save Child Data ---
+
+            # A. Materials
+            if "materiales" in item and item["materiales"]:
+                mat_items = []
+                for m in item["materiales"]:
+                    # Flatten papaCaliente
+                    pc = m.get("papaCaliente", {})
+                    new_m = {
+                        "FOLIO": item_id,
+                        **m,
+                        "RESIDENTE": pc.get("residente", ""),
+                        "COMPRAS": pc.get("compras", ""),
+                        "CONTROLLER": pc.get("controller", ""),
+                        "ORDEN_COMPRA": pc.get("ordenCompra", ""),
+                        "PAGOS": pc.get("pagos", ""),
+                        "ALMACEN": pc.get("almacen", ""),
+                        "LOGISTICA": pc.get("logistica", ""),
+                        "RESIDENTE_OBRA": pc.get("residenteObra", "")
+                    }
+                    mat_items.append(new_m)
+
+                save_child_data(APP_CONFIG["woMaterialsSheet"], mat_items,
+                                ["FOLIO", "CANTIDAD", "UNIDAD", "TIPO", "DESCRIPCION", "COSTO", "ESPECIFICACION", "TOTAL", "RESIDENTE", "COMPRAS", "CONTROLLER", "ORDEN_COMPRA", "PAGOS", "ALMACEN", "LOGISTICA", "RESIDENTE_OBRA"])
+
+            # B. Labor (Mano de Obra)
+            if "manoObra" in item and item["manoObra"]:
+                labor_items = [{"FOLIO": item_id, **l} for l in item["manoObra"]]
+                save_child_data(APP_CONFIG["woLaborSheet"], labor_items,
+                                ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "TOTAL"])
+
+            # C. Tools
+            if "herramientas" in item and item["herramientas"]:
+                tool_items = []
+                for t in item["herramientas"]:
+                    pc = t.get("papaCaliente", {})
+                    new_t = {
+                        "FOLIO": item_id,
+                        **t,
+                        "RESIDENTE": pc.get("residente", ""),
+                        "CONTROLLER": pc.get("controller", ""),
+                        "ALMACEN": pc.get("almacen", ""),
+                        "LOGISTICA": pc.get("logistica", ""),
+                        "RESIDENTE_FIN": pc.get("residenteFin", "")
+                    }
+                    tool_items.append(new_t)
+                save_child_data(APP_CONFIG["woToolsSheet"], tool_items,
+                                ["FOLIO", "CANTIDAD", "UNIDAD", "DESCRIPCION", "COSTO", "TOTAL", "RESIDENTE", "CONTROLLER", "ALMACEN", "LOGISTICA", "RESIDENTE_FIN"])
+
+            # D. Equipos
+            if "equipos" in item and item["equipos"]:
+                equip_items = [{"FOLIO": item_id, **e} for e in item["equipos"]]
+                save_child_data(APP_CONFIG["woEquipSheet"], equip_items,
+                                ["FOLIO", "CANTIDAD", "UNIDAD", "TIPO", "DESCRIPCION", "ESPECIFICACION", "DIAS", "HORAS", "COSTO", "TOTAL"])
+
+            # E. Programa
+            if "programa" in item and item["programa"]:
+                prog_items = []
+                for p in item["programa"]:
+                    new_p = {
+                        "FOLIO": item_id,
+                        **p,
+                        "SECCION": p.get("seccion", ""),
+                        "ESTATUS": p.get("checkStatus") or ("APPLY" if p.get("isActive") else "PENDING")
+                    }
+                    prog_items.append(new_p)
+                save_child_data(APP_CONFIG["woProgramSheet"], prog_items,
+                                ["FOLIO", "DESCRIPCION", "FECHA", "DURACION", "UNIDAD_DURACION", "UNIDAD", "CANTIDAD", "PRECIO", "TOTAL", "RESPONSABLE", "SECCION", "ESTATUS"])
+
+            # F. Main PPC Entry
+            detalles_extra = ""
+            if item.get("checkList") or item.get("additionalCosts"):
+                detalles_extra = json.dumps({
+                    "checkList": item.get("checkList"),
+                    "costs": item.get("additionalCosts")
+                })
+
+            task_data = {
+                'FOLIO': item_id,
+                'CONCEPTO': item.get("concepto"),
+                'CLASIFICACION': item.get("clasificacion") or "Media",
+                'AREA': item.get("especialidad"),
+                'INVOLUCRADOS': item.get("responsable"),
+                'FECHA': datetime.now().strftime("%d/%m/%y"),
+                'RELOJ': item.get("horas"),
+                'ESTATUS': "ASIGNADO",
+                'PRIORIDAD': item.get("prioridad") or item.get("prioridades"),
+                'RESTRICCIONES': item.get("restricciones"),
+                'RIESGOS': item.get("riesgos"),
+                'FECHA_RESPUESTA': item.get("fechaRespuesta"),
+                'AVANCE': "0%",
+                'COMENTARIOS': item.get("comentarios", ""),
+                'ARCHIVO': item.get("archivoUrl"),
+                'CUMPLIMIENTO': item.get("cumplimiento"),
+                'COMENTARIOS PREVIOS': item.get("comentariosPrevios", ""),
+                'REQUISITOR': item.get("requisitor"),
+                'CONTACTO': item.get("contacto"),
+                'CELULAR': item.get("celular"),
+                'FECHA_COTIZACION': item.get("fechaCotizacion"),
+                'CLIENTE': item.get("cliente"),
+                'TRABAJO': item.get("TRABAJO"),
+                'DETALLES_EXTRA': detalles_extra
+            }
+
+            # Save to PPC Sheet
+            # Using save_child_data for simplicity as it handles row appending logic
+            headers = ["FOLIO", "CONCEPTO", "CLASIFICACION", "AREA", "INVOLUCRADOS", "FECHA", "RELOJ", "ESTATUS",
+                       "PRIORIDAD", "RESTRICCIONES", "RIESGOS", "FECHA_RESPUESTA", "AVANCE", "COMENTARIOS", "ARCHIVO",
+                       "CUMPLIMIENTO", "COMENTARIOS PREVIOS", "REQUISITOR", "CONTACTO", "CELULAR", "FECHA_COTIZACION",
+                       "CLIENTE", "TRABAJO", "DETALLES_EXTRA"]
+            save_child_data(APP_CONFIG["ppcSheetName"], [task_data], headers)
+
+        return {"success": True, "message": "Datos procesados correctamente", "ids": generated_ids}
+
+    except Exception as e:
+        print(f"Error in api_save_ppc: {e}")
+        return {"success": False, "message": str(e)}
 
 @app.post("/api/login")
 def api_login(creds: LoginRequest):
@@ -230,6 +503,10 @@ def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):
     is_reading_history = False
 
     for i, row in enumerate(data_rows):
+        # Fix for row length mismatch in Mock/GSpread
+        if len(row) < len(raw_headers):
+            row = row + ([""] * (len(raw_headers) - len(row)))
+
         row_str = "|".join([str(c).upper() for c in row])
         if "TAREAS REALIZADAS" in row_str:
             is_reading_history = True
