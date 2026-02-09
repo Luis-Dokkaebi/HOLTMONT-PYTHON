@@ -88,6 +88,24 @@ class GoogleScriptRunAdapter {
         console.warn("apiUpdateTask not implemented");
         this._successHandler({ success: true });
     }
+
+    apiSavePPCData(payload, activeUser) {
+        fetch(`${API_BASE_URL}/api/savePPC`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payload, activeUser })
+        })
+        .then(res => res.json())
+        .then(data => this._successHandler(data))
+        .catch(err => this._failureHandler(err));
+    }
+
+    apiGetNextWorkOrderSeq() {
+        fetch(`${API_BASE_URL}/api/nextSeq`)
+        .then(res => res.json())
+        .then(seq => this._successHandler(seq))
+        .catch(err => this._failureHandler(err));
+    }
 }
 
 // Expose to window
