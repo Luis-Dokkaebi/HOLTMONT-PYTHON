@@ -4663,7 +4663,15 @@ async function toggleVoiceRecording(btnElement) {
 
       const handleErr = (e) => { loggingIn.value=false; isSubmitting.value=false; Swal.fire('Error',e.message,'error'); };
       const doLogin = () => { if(!loginPass.value || !loginUser.value) return; loggingIn.value=true; google.script.run.withSuccessHandler(res => { loggingIn.value=false; if(res.success){ isLoggedIn.value=true; currentUser.value=res.name; currentUsername.value = res.username; currentRole.value = res.role; loadConfig(res.role); loadCascadeTree(); } else Swal.fire('Error',res.message,'error'); }).withFailureHandler(handleErr).apiLogin(loginUser.value, loginPass.value); };
-      const loadConfig = (r) => { google.script.run.withSuccessHandler(d => { config.value=d; loadDashboardCalendar(); if(r === 'PPC_ADMIN' || r === 'ADMIN_CONTROL' || r === 'ADMIN') { google.script.run.withSuccessHandler(res => { if(res.success && res.data.length > 0) { activityQueue.value = res.data; } }).apiFetchDrafts(); } }).getSystemConfig(r); };
+      const loadConfig = (r) => { google.script.run.withSuccessHandler(d => {
+          config.value=d;
+          loadDashboardCalendar();
+          if(r === 'WORKORDER_USER') {
+              const woMod = d.specialModules.find(m => m.type === 'work_order_form');
+              if(woMod) openModule(woMod);
+          }
+          if(r === 'PPC_ADMIN' || r === 'ADMIN_CONTROL' || r === 'ADMIN') { google.script.run.withSuccessHandler(res => { if(res.success && res.data.length > 0) { activityQueue.value = res.data; } }).apiFetchDrafts(); }
+      }).getSystemConfig(r); };
       const toggleSidebar = () => { isCompact.value = !isCompact.value; };
       const animateCyberpunkLogo = () => {
           anime({

@@ -37,13 +37,17 @@ class GoogleScriptRunAdapter {
     }
 
     withSuccessHandler(fn) {
-        this._successHandler = fn;
-        return this; // Chainable
+        const newAdapter = new GoogleScriptRunAdapter();
+        newAdapter._successHandler = fn;
+        newAdapter._failureHandler = this._failureHandler;
+        return newAdapter;
     }
 
     withFailureHandler(fn) {
-        this._failureHandler = fn;
-        return this; // Chainable
+        const newAdapter = new GoogleScriptRunAdapter();
+        newAdapter._successHandler = this._successHandler;
+        newAdapter._failureHandler = fn;
+        return newAdapter;
     }
 
     // --- Mapped Methods ---

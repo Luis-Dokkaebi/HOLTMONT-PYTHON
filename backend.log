@@ -1,0 +1,19 @@
+INFO:     Started server process [3004]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+credentials.json not found. Using Mock mode.
+INFO:     127.0.0.1:54242 - "OPTIONS /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54256 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54256 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35300 - "OPTIONS /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35314 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35314 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53182 - "OPTIONS /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53194 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53194 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53194 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [3004]
