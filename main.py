@@ -571,7 +571,16 @@ def api_login(creds: LoginRequest):
     if not user_found and gs_manager.is_mock:
         MOCK_USER_DB = {
             "LUIS_CARLOS":      {"pass": "admin2025", "role": "ADMIN", "label": "Administrador (Mock)"},
+            "JESUS_CANTU":      {"pass": "ppc2025",   "role": "PPC_ADMIN", "label": "PPC Manager (Mock)"},
             "ANTONIA_VENTAS":   {"pass": "tonita2025", "role": "TONITA", "label": "Ventas (Mock)"},
+            "JAIME_OLIVO":      {"pass": "admin2025", "role": "ADMIN_CONTROL", "label": "Jaime Olivo (Mock)"},
+            "ANGEL_SALINAS":    {"pass": "angel2025", "role": "ANGEL_USER", "label": "Angel Salinas (Mock)"},
+            "TERESA_GARZA":     {"pass": "tere2025",  "role": "TERESA_USER", "label": "Teresa Garza (Mock)"},
+            "EDUARDO_TERAN":    {"pass": "lalo2025",  "role": "EDUARDO_USER", "label": "Eduardo Teran (Mock)"},
+            "EDUARDO_MANZANARES":{"pass": "manzanares2025", "role": "MANZANARES_USER", "label": "Eduardo Manzanares (Mock)"},
+            "RAMIRO_RODRIGUEZ": {"pass": "ramiro2025", "role": "RAMIRO_USER", "label": "Ramiro Rodriguez (Mock)"},
+            "SEBASTIAN_PADILLA":{"pass": "sebastian2025", "role": "SEBASTIAN_USER", "label": "Sebastian Padilla (Mock)"},
+            "EDGAR_LOPEZ":      {"pass": "edgar2025", "role": "EDGAR_USER", "label": "Edgar Lopez (Mock)"},
             "PREWORK_ORDER":    {"pass": "workorder2026", "role": "WORKORDER_USER", "label": "Workorder (Mock)"},
         }
 
