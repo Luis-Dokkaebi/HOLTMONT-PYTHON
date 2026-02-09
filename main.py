@@ -395,10 +395,9 @@ def api_get_system_config(role: str = Query(..., description="User Role")):
     ppc_module_master = { "id": "PPC_MASTER", "label": "PPC Maestro", "icon": "fa-tasks", "color": "#fd7e14", "type": "ppc_native" }
     ppc_module_weekly = { "id": "WEEKLY_PLAN", "label": "Planeación Semanal", "icon": "fa-calendar-alt", "color": "#6f42c1", "type": "weekly_plan_view" }
     kpi_module = { "id": "KPI_DASHBOARD", "label": "KPI Performance", "icon": "fa-chart-line", "color": "#d63384", "type": "kpi_dashboard_view" }
+    wo_module = { "id": "WORK_ORDER_FORM", "label": "Pre Work Order", "icon": "fa-clipboard-list", "color": "#fd7e14", "type": "work_order_form" }
 
     if role == 'WORKORDER_USER':
-        wo_module = ppc_module_master.copy()
-        wo_module["label"] = "Pre Work Order"
         return {
             "departments": {},
             "allDepartments": ALL_DEPTS,
@@ -454,6 +453,7 @@ def api_get_system_config(role: str = Query(..., description="User Role")):
     # Default ADMIN
     default_modules = [ *ppc_modules, { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" } ]
     if role == 'ADMIN':
+        default_modules.insert(0, wo_module)
         default_modules.append(kpi_module)
 
     return {
