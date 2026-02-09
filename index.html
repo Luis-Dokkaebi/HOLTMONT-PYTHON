@@ -4795,30 +4795,29 @@ async function toggleVoiceRecording(btnElement) {
           currentModuleId.value = m.id; currentDept.value = '';
           if(m.type==='mirror_staff') { openStaffTracker({name:m.target}); }
           else if(m.type==='ppc_native') {
-              if (currentRole.value === 'WORKORDER_USER') {
-                  currentView.value = 'WORKORDER_FORM';
-                  fetchNextSequence();
-                  workorderData.value = {
-                      cliente: '', planta: '', requisitor: '', newRequisitor: '', contactName: '', contacto: '', celular: '', fechaCotizacion: '', proyecto: '',
-                      cotizador: [], departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
-                      prioridad: 'AAA - Alta Prioridad', conceptoDesc: '',
-                      checkList: { libreta: false, cinta: false, bernier: false, chaleco: false, laser: false, epp: false, casco: false, credencial: false, zapato: false, sua: false, lentes: false },
-                      restricciones: { produccion: '', seguridad: '', dificultad: '', horarios: '', especificidad: '' },
-                      files: [],
-                      designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] }
-                  };
-                      projectProgram.value = {
-                          timeEstimated: 1,
-                          timeUnit: 'dias',
-                          visita: [{ description: '', date: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, responsable: [] }],
-                          reqCotizacion: JSON.parse(JSON.stringify(defaultReqCotizacion)),
-                          cotPreconstruccion: JSON.parse(JSON.stringify(defaultCotPreconstruccion)),
-                          cotTrabajo: []
-                      };
-              } else {
-                  currentView.value='PPC_FORM';
-                  google.script.run.withSuccessHandler(res => { if(res.success) ppcExistingData.value = res.data; }).apiFetchPPCData();
-              }
+              currentView.value='PPC_FORM';
+              google.script.run.withSuccessHandler(res => { if(res.success) ppcExistingData.value = res.data; }).apiFetchPPCData();
+          }
+          else if(m.type==='work_order_form') {
+              currentView.value = 'WORKORDER_FORM';
+              fetchNextSequence();
+              workorderData.value = {
+                  cliente: '', planta: '', requisitor: '', newRequisitor: '', contactName: '', contacto: '', celular: '', fechaCotizacion: '', proyecto: '',
+                  cotizador: [], departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
+                  prioridad: 'AAA - Alta Prioridad', conceptoDesc: '',
+                  checkList: { libreta: false, cinta: false, bernier: false, chaleco: false, laser: false, epp: false, casco: false, credencial: false, zapato: false, sua: false, lentes: false },
+                  restricciones: { produccion: '', seguridad: '', dificultad: '', horarios: '', especificidad: '' },
+                  files: [],
+                  designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] }
+              };
+              projectProgram.value = {
+                  timeEstimated: 1,
+                  timeUnit: 'dias',
+                  visita: [{ description: '', date: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, responsable: [] }],
+                  reqCotizacion: JSON.parse(JSON.stringify(defaultReqCotizacion)),
+                  cotPreconstruccion: JSON.parse(JSON.stringify(defaultCotPreconstruccion)),
+                  cotTrabajo: []
+              };
           }
           else if(m.type==='ppc_dynamic_view') { currentView.value='PPC_DINAMICO'; dynamicPpc.value = { especialidad: '', clasificacion: 'A', concepto: '', riesgos: 'BAJO', prioridad: 'MEDIA', fechaFin: '', comentarios: '', archivoUrl: '' }; selectedResponsables.value = []; uploadSuccess.value = false; }
           else if(m.type==='weekly_plan_view') { currentView.value='WEEKLY_PLAN'; loadWeeklyPlan(); }
