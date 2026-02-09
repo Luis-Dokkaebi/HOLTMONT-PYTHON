@@ -67,16 +67,10 @@ class GoogleScriptRunAdapter {
     }
 
     getSystemConfig(role) {
-        // This is complex logic in GAS. For now, we might need to implement it in backend too.
-        // Or return a mock config.
-        console.warn("getSystemConfig not fully implemented in backend yet.");
-        // Mock response for testing UI
-        this._successHandler({
-            departments: { "TEST": { label: "Test Dept", icon: "fa-cogs", color: "blue" } },
-            staff: [],
-            directory: [],
-            specialModules: []
-        });
+        fetch(`${API_BASE_URL}/api/config?role=${encodeURIComponent(role)}`)
+            .then(res => res.json())
+            .then(data => this._successHandler(data))
+            .catch(err => this._failureHandler(err));
     }
 
     apiFetchPPCData() {
