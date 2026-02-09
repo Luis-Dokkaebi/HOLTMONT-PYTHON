@@ -14,6 +14,7 @@
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="api_service.js"></script>
 
   <style>
     /* VARIABLES Y ESTILOS GLOBALES */
@@ -3442,6 +3443,11 @@
 </div>
 
 <script>
+  // Initialize Google Script Run Adapter
+  if (!window.google) window.google = {};
+  if (!window.google.script) window.google.script = {};
+  if (!window.google.script.run) window.google.script.run = new GoogleScriptRunAdapter();
+
   window.onerror = function(msg, url, line, col, error) { if(String(msg).toLowerCase().includes("script error")) return; Swal.fire({ icon: 'error', title: 'Error de Renderizado', text: 'Ocurrió un error visual: ' + (error ? error.message : msg) }); };
 
 function enviarAudioAGemini(inputElement) {

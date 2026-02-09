@@ -106,6 +106,103 @@ class GoogleScriptRunAdapter {
         .then(seq => this._successHandler(seq))
         .catch(err => this._failureHandler(err));
     }
+
+    // --- Stubs to prevent crashes ---
+
+    apiFetchCombinedCalendarData(target) {
+        console.warn("apiFetchCombinedCalendarData stub called");
+        this._successHandler({ success: true, data: [] });
+    }
+
+    apiFetchCascadeTree() {
+        console.warn("apiFetchCascadeTree stub called");
+        this._successHandler({ success: true, data: [] });
+    }
+
+    apiFetchDrafts() {
+        console.warn("apiFetchDrafts stub called");
+        this._successHandler({ success: true, data: [] });
+    }
+
+    apiFetchInfoBankData(year, month, company, folder) {
+        console.warn("apiFetchInfoBankData stub called");
+        this._successHandler({ success: true, data: [] });
+    }
+
+    uploadFileToDrive(data, type, name) {
+        console.warn("uploadFileToDrive stub called");
+        this._successHandler({ success: true, fileUrl: "http://mock.url/file" });
+    }
+
+    apiAddEmployee(employee) {
+        console.warn("apiAddEmployee stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiDeleteEmployee(name) {
+        console.warn("apiDeleteEmployee stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiFetchProjectTasks(projectName) {
+        console.warn("apiFetchProjectTasks stub called");
+        this._successHandler({ success: true, data: [], headers: [] });
+    }
+
+    apiSaveProjectTask(row, projectName, username) {
+        console.warn("apiSaveProjectTask stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiSaveSubProject(data) {
+        console.warn("apiSaveSubProject stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiSaveSite(data) {
+        console.warn("apiSaveSite stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiFetchWeeklyPlanData(username) {
+        console.warn("apiFetchWeeklyPlanData stub called");
+        this._successHandler({ success: true, data: [], headers: [] });
+    }
+
+    apiUpdatePPCV3(row, username) {
+        console.warn("apiUpdatePPCV3 stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiFetchSalesHistory() {
+        console.warn("apiFetchSalesHistory stub called");
+        this._successHandler({ success: true, data: {} });
+    }
+
+    apiSaveTrackerBatch(sheetName, data, username) {
+        console.warn("apiSaveTrackerBatch stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiSaveHabitLog(payload) {
+        console.warn("apiSaveHabitLog stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiSavePersonalEvent(payload) {
+        console.warn("apiSavePersonalEvent stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiSyncDrafts(drafts) {
+        console.warn("apiSyncDrafts stub called");
+        this._successHandler({ success: true });
+    }
+
+    apiClearDrafts() {
+        console.warn("apiClearDrafts stub called");
+        this._successHandler({ success: true });
+    }
 }
 
 // Expose to window
