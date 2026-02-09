@@ -27,6 +27,77 @@ SCOPES = [
 CREDENTIALS_FILE = "credentials.json"
 SPREADSHEET_ID = None # Can be set via env var or config. If None, mock gspread will look for "Holtmont Workspace" by name or create a mock.
 
+# --- Constants ---
+INITIAL_DIRECTORY = [
+    { "name": "ANTONIA_VENTAS", "dept": "VENTAS", "type": "VENTAS" },
+    { "name": "JUDITH ECHAVARRIA", "dept": "VENTAS", "type": "ESTANDAR" },
+    { "name": "EDUARDO MANZANARES", "dept": "VENTAS", "type": "ESTANDAR" },
+    { "name": "RAMIRO RODRIGUEZ", "dept": "VENTAS", "type": "HIBRIDO" },
+    { "name": "SEBASTIAN PADILLA", "dept": "VENTAS", "type": "ESTANDAR" },
+    { "name": "CESAR GOMEZ", "dept": "VENTAS", "type": "ESTANDAR" },
+    { "name": "ALFONSO CORREA", "dept": "VENTAS", "type": "ESTANDAR" },
+    { "name": "TERESA GARZA", "dept": "VENTAS", "type": "HIBRIDO" },
+    { "name": "GUILLERMO DAMICO", "dept": "VENTAS", "type": "ESTANDAR" },
+    { "name": "ANGEL SALINAS", "dept": "VENTAS", "type": "HIBRIDO" },
+    { "name": "JUAN JOSE SANCHEZ", "dept": "VENTAS", "type": "ESTANDAR" },
+    { "name": "LUIS CARLOS", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "ANTONIO SALAZAR", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "ROCIO CASTRO", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "DANIA GONZALEZ", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "JUANY RODRIGUEZ", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "LAURA HUERTA", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "LILIANA MARTINEZ", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "DANIELA CASTRO", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "EDUARDO BENITEZ", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "ANTONIO CABRERA", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
+    { "name": "ADMINISTRADOR", "dept": "ADMINISTRACION", "type": "HIBRIDO" },
+    { "name": "EDUARDO MANZANARES", "dept": "HVAC", "type": "ESTANDAR" },
+    { "name": "JUAN JOSE SANCHEZ", "dept": "HVAC", "type": "ESTANDAR" },
+    { "name": "SELENE BALDONADO", "dept": "HVAC", "type": "ESTANDAR" },
+    { "name": "ROLANDO MORENO", "dept": "HVAC", "type": "ESTANDAR" },
+    { "name": "MIGUEL GALLARDO", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
+    { "name": "SEBASTIAN PADILLA", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
+    { "name": "JEHU MARTINEZ", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
+    { "name": "MIGUEL GONZALEZ", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
+    { "name": "ALICIA RIVERA", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
+    { "name": "RICARDO MENDO", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
+    { "name": "CARLOS MENDEZ", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
+    { "name": "REYNALDO GARCIA", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
+    { "name": "INGE OLIVO", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
+    { "name": "EDUARDO TERAN", "dept": "CONSTRUCCION", "type": "HIBRIDO" },
+    { "name": "EDGAR HOLT", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
+    { "name": "ALEXIS TORRES", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
+    { "name": "TERESA GARZA", "dept": "CONSTRUCCION", "type": "HIBRIDO" },
+    { "name": "RAMIRO RODRIGUEZ", "dept": "CONSTRUCCION", "type": "HIBRIDO" },
+    { "name": "GUILLERMO DAMICO", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
+    { "name": "RUBEN PESQUEDA", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
+    { "name": "JUDITH ECHAVARRIA", "dept": "COMPRAS", "type": "ESTANDAR" },
+    { "name": "GISELA DOMINGUEZ", "dept": "COMPRAS", "type": "ESTANDAR" },
+    { "name": "VANESSA DE LARA", "dept": "COMPRAS", "type": "ESTANDAR" },
+    { "name": "NELSON MALDONADO", "dept": "COMPRAS", "type": "ESTANDAR" },
+    { "name": "VICTOR ALMACEN", "dept": "COMPRAS", "type": "ESTANDAR" },
+    { "name": "DIMAS RAMOS", "dept": "EHS", "type": "ESTANDAR" },
+    { "name": "CITLALI GOMEZ", "dept": "EHS", "type": "ESTANDAR" },
+    { "name": "AIMEE RAMIREZ", "dept": "EHS", "type": "ESTANDAR" },
+    { "name": "EDGAR HOLT", "dept": "MAQUINARIA", "type": "ESTANDAR" },
+    { "name": "ALEXIS TORRES", "dept": "MAQUINARIA", "type": "ESTANDAR" },
+    { "name": "ANGEL SALINAS", "dept": "DISEÑO", "type": "HIBRIDO" },
+    { "name": "EDGAR HOLT", "dept": "DISEÑO", "type": "ESTANDAR" },
+    { "name": "EDGAR LOPEZ", "dept": "DISEÑO", "type": "HIBRIDO" }
+]
+
+ALL_DEPTS = {
+    "CONSTRUCCION": { "label": "Construcción", "icon": "fa-hard-hat", "color": "#e83e8c" },
+    "COMPRAS": { "label": "Compras/Almacén", "icon": "fa-shopping-cart", "color": "#198754" },
+    "EHS": { "label": "Seguridad (EHS)", "icon": "fa-shield-alt", "color": "#dc3545" },
+    "DISEÑO": { "label": "Diseño & Ing.", "icon": "fa-drafting-compass", "color": "#0d6efd" },
+    "ELECTROMECANICA": { "label": "Electromecánica", "icon": "fa-bolt", "color": "#ffc107" },
+    "HVAC": { "label": "HVAC", "icon": "fa-fan", "color": "#fd7e14" },
+    "ADMINISTRACION": { "label": "Administración", "icon": "fa-briefcase", "color": "#6f42c1" },
+    "VENTAS": { "label": "Ventas", "icon": "fa-handshake", "color": "#0dcaf0" },
+    "MAQUINARIA": { "label": "Maquinaria", "icon": "fa-truck", "color": "#20c997" }
+}
+
 # --- Helpers ---
 
 SEQUENCES_FILE = "sequences.json"
@@ -81,6 +152,10 @@ class MockSpreadsheet:
             return MockSheet(name, self.sheets[name])
         raise gspread.WorksheetNotFound(name)
 
+    def add_worksheet(self, title, rows=100, cols=20):
+        self.sheets[title] = []
+        return MockSheet(title, self.sheets[title])
+
 class GSheetsManager:
     def __init__(self):
         self.client = None
@@ -121,7 +196,7 @@ class GSheetsManager:
             sheet = self.ss.worksheet(sheet_name)
             return sheet.get_all_values()
         except Exception as e:
-            print(f"Error fetching sheet {sheet_name}: {e}")
+            # print(f"Error fetching sheet {sheet_name}: {e}")
             return None
 
     def append_row(self, sheet_name, values):
@@ -183,6 +258,30 @@ def find_header_row(values):
         if "ID" in row_str and "HABITO" in row_str and "USUARIO" in row_str: return i
 
     return -1
+
+def get_directory_from_db():
+    values = gs_manager.get_sheet_values("DB_DIRECTORY")
+    if not values or len(values) < 2:
+        return INITIAL_DIRECTORY
+
+    # Simple parse assuming headers [NOMBRE, DEPARTAMENTO, TIPO_HOJA]
+    headers = [str(h).upper().strip() for h in values[0]]
+    try:
+        name_idx = headers.index("NOMBRE")
+        dept_idx = headers.index("DEPARTAMENTO")
+        type_idx = headers.index("TIPO_HOJA")
+    except ValueError:
+        return INITIAL_DIRECTORY # Headers not matching
+
+    directory = []
+    for row in values[1:]:
+        if len(row) > name_idx and row[name_idx].strip():
+            directory.append({
+                "name": row[name_idx].strip(),
+                "dept": row[dept_idx].strip() if len(row) > dept_idx else "GENERAL",
+                "type": row[type_idx].strip() if len(row) > type_idx else "ESTANDAR"
+            })
+    return directory
 
 def format_date_value(val):
     if not val:
@@ -288,6 +387,83 @@ class LoginRequest(BaseModel):
 class SavePPCRequest(BaseModel):
     payload: List[Dict[str, Any]]
     activeUser: str
+
+@app.get("/api/config")
+def api_get_system_config(role: str = Query(..., description="User Role")):
+    full_directory = get_directory_from_db()
+
+    ppc_module_master = { "id": "PPC_MASTER", "label": "PPC Maestro", "icon": "fa-tasks", "color": "#fd7e14", "type": "ppc_native" }
+    ppc_module_weekly = { "id": "WEEKLY_PLAN", "label": "Planeación Semanal", "icon": "fa-calendar-alt", "color": "#6f42c1", "type": "weekly_plan_view" }
+    kpi_module = { "id": "KPI_DASHBOARD", "label": "KPI Performance", "icon": "fa-chart-line", "color": "#d63384", "type": "kpi_dashboard_view" }
+
+    if role == 'WORKORDER_USER':
+        wo_module = ppc_module_master.copy()
+        wo_module["label"] = "Pre Work Order"
+        return {
+            "departments": {},
+            "allDepartments": ALL_DEPTS,
+            "staff": [],
+            "directory": full_directory,
+            "specialModules": [ wo_module ],
+            "accessProjects": False
+        }
+
+    # Default Logic for other roles (Partial Implementation)
+    ppc_modules = [ ppc_module_master, ppc_module_weekly ]
+
+    special_modules = []
+
+    if role == 'TONITA':
+        special_modules = [ ppc_module_master, ppc_module_weekly ]
+        return {
+            "departments": { "VENTAS": ALL_DEPTS["VENTAS"] },
+            "allDepartments": ALL_DEPTS,
+            "staff": [ { "name": "ANTONIA_VENTAS", "dept": "VENTAS" } ],
+            "directory": full_directory,
+            "specialModules": special_modules,
+            "accessProjects": False
+        }
+
+    if role == 'PPC_ADMIN':
+        special_modules = ppc_modules
+        return {
+            "departments": {},
+            "allDepartments": ALL_DEPTS,
+            "staff": [],
+            "directory": full_directory,
+            "specialModules": special_modules,
+            "accessProjects": True
+        }
+
+    if role == 'ADMIN_CONTROL':
+        special_modules = [
+            { "id": "PPC_DINAMICO", "label": "Tracker", "icon": "fa-layer-group", "color": "#e83e8c", "type": "ppc_dynamic_view" },
+            *ppc_modules,
+            { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" },
+            { "id": "ADMIN_TRACKER", "label": "Control", "icon": "fa-clipboard-list", "color": "#6f42c1", "type": "mirror_staff", "target": "ADMINISTRADOR" }
+        ]
+        return {
+            "departments": ALL_DEPTS,
+            "allDepartments": ALL_DEPTS,
+            "staff": full_directory,
+            "directory": full_directory,
+            "specialModules": special_modules,
+            "accessProjects": True
+        }
+
+    # Default ADMIN
+    default_modules = [ *ppc_modules, { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" } ]
+    if role == 'ADMIN':
+        default_modules.append(kpi_module)
+
+    return {
+        "departments": ALL_DEPTS,
+        "allDepartments": ALL_DEPTS,
+        "staff": full_directory,
+        "directory": full_directory,
+        "specialModules": default_modules,
+        "accessProjects": True
+    }
 
 @app.get("/api/nextSeq")
 def api_get_next_seq():
