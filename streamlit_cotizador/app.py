@@ -1,6 +1,7 @@
 import streamlit as st
 import io
 import os
+import sys
 
 # Load environment variables from .env file manually since python-dotenv is not installed
 def load_env_file(filepath=".env"):
@@ -22,14 +23,11 @@ if os.path.exists(".env"):
 elif os.path.exists("../.env"):
     load_env_file("../.env")
 
-# Add root to sys.path if needed, though running via `streamlit run streamlit_cotizador/app.py` from root works usually.
-# But for imports to work inside the package, we might need relative imports or package structure.
-# Since I'm running `streamlit run streamlit_cotizador/app.py`, `streamlit_cotizador` is a package if I have __init__.py.
-# But usually adding to path is safer.
-import sys
+# Add root to sys.path
 sys.path.append(os.getcwd())
 
 from streamlit_cotizador.utils import ExtractionSchema, ItemMaterial, ItemPersonal, ItemActividad, transcribir_audio, extraer_informacion, llenar_pdf, enviar_correos
+from streamlit_cotizador.work_order_view import render_work_order_view
 
 # Constants
 DEFAULT_QUOTE = {
@@ -43,9 +41,7 @@ DEFAULT_QUOTE = {
     "pdf_generated": False
 }
 
-def main():
-    st.set_page_config(page_title="Cotizador por Voz", layout="wide")
-    
+def render_pdf_quoter(groq_api_key, pdf_template):
     # Initialize Session State
     if "quotes" not in st.session_state:
         st.session_state.quotes = [DEFAULT_QUOTE.copy()]
@@ -57,28 +53,7 @@ def main():
     def get_current_quote():
         return st.session_state.quotes[st.session_state.current_quote_index]
 
-    # Sidebar
     with st.sidebar:
-        st.header("Configuración")
-        
-        # API Key
-        # Check environment variable first, then secrets
-        env_key = os.environ.get("GROQ_API_KEY", "")
-        if not env_key:
-            try:
-                env_key = st.secrets.get("GROQ_API_KEY", "")
-            except FileNotFoundError:
-                pass
-
-        groq_api_key = st.text_input("GROQ API Key", value=env_key, type="password", help="Ingresa tu API Key de Groq")
-        
-        if not groq_api_key:
-            st.warning("Se requiere API Key para continuar.")
-            st.stop()
-            
-        # PDF Template
-        pdf_template = st.file_uploader("Plantilla PDF Base", type=["pdf"])
-        
         st.divider()
         st.subheader("Configuración Correo")
         email_sender = st.text_input("Gmail Sender")
@@ -100,7 +75,6 @@ def main():
         )
         
         # Update current index based on selection
-        # We use the key callback or check manually
         new_index = quote_options.index(selected_quote_str)
         if new_index != st.session_state.current_quote_index:
             st.session_state.current_quote_index = new_index
@@ -124,26 +98,17 @@ def main():
     # --- 1. Audio Recording & Playback ---
     st.header("1. Grabación de Audio")
     
-    # Unique key for each quote's audio input
     audio_val = st.audio_input("Grabar Audio", key=f"audio_input_{current_quote['id']}")
     
-    # If new audio is recorded, update session state
     if audio_val:
-        # Read bytes only if not already saved or if it changed
-        # st.audio_input returns a file-like object.
-        # We need to handle this carefully.
-        # If we read it, we should store it.
-        # But st.audio_input re-runs on interaction.
         audio_val.seek(0)
         bytes_data = audio_val.read()
         if current_quote['audio_bytes'] != bytes_data:
             current_quote['audio_bytes'] = bytes_data
-            # Reset extraction status if audio changes
             current_quote['is_analyzed'] = False
             current_quote['transcription'] = ""
             st.rerun()
 
-    # Display persistent audio player if bytes exist
     if current_quote['audio_bytes']:
         st.write("Audio grabado:")
         st.audio(current_quote['audio_bytes'], format="audio/wav")
@@ -154,7 +119,6 @@ def main():
     if current_quote['audio_bytes']:
         if st.button("📝 Transcribir Audio", key=f"btn_transcribe_{current_quote['id']}"):
             with st.spinner("Transcribiendo con Groq/Whisper..."):
-                # Create a file-like object from bytes for the API
                 audio_file = io.BytesIO(current_quote['audio_bytes'])
                 audio_file.name = "audio.wav"
                 
@@ -167,7 +131,6 @@ def main():
                     st.success("Transcripción completada.")
                     st.rerun()
 
-    # Editable Text Area
     if current_quote['transcription']:
         transcription_val = st.text_area(
             "Edita la transcripción si es necesario:",
@@ -176,12 +139,8 @@ def main():
             key=f"text_area_{current_quote['id']}"
         )
         
-        # Update session state on change
         if transcription_val != current_quote['transcription']:
             current_quote['transcription'] = transcription_val
-            # If text changes, we might want to reset analysis or just keep it?
-            # Let's keep analysis but maybe warn user? Or reset?
-            # Resetting analysis is safer to ensure consistency.
             if current_quote['is_analyzed']:
                 st.warning("Has modificado el texto. Recuerda volver a 'Procesar/Analizar' para actualizar los datos.")
 
@@ -200,8 +159,6 @@ def main():
                     current_quote['extraction_data'] = extraction
                     current_quote['is_analyzed'] = True
                     
-                    # Prepare initial edited data from extraction
-                    # Convert pydantic models to dicts for data_editor
                     current_quote['edited_data'] = {
                         "lista_materiales": [m.dict() for m in extraction.lista_materiales],
                         "lista_personal": [p.dict() for p in extraction.lista_personal]
@@ -209,14 +166,11 @@ def main():
                     st.success("Análisis completado. Revisa y edita los datos abajo.")
                     st.rerun()
 
-    # Data Editor Section
     if current_quote['is_analyzed'] and current_quote['edited_data']:
         st.divider()
         st.subheader("🛠️ Edición de Materiales y Costos")
         
-        # --- MATERIALES ---
         st.markdown("**Lista de Materiales**")
-        
         edited_materiales = st.data_editor(
             current_quote['edited_data']['lista_materiales'],
             num_rows="dynamic",
@@ -231,9 +185,7 @@ def main():
             }
         )
         
-        # --- PERSONAL ---
         st.markdown("**Lista de Personal / Mano de Obra**")
-        
         edited_personal = st.data_editor(
             current_quote['edited_data']['lista_personal'],
             num_rows="dynamic",
@@ -248,12 +200,9 @@ def main():
             }
         )
 
-        # --- DYNAMIC RECALCULATION ---
-        # Update session state with edited values
         current_quote['edited_data']['lista_materiales'] = edited_materiales
         current_quote['edited_data']['lista_personal'] = edited_personal
         
-        # Calculate Totals
         total_materiales = 0.0
         for item in edited_materiales:
             try:
@@ -279,13 +228,6 @@ def main():
             except (ValueError, TypeError):
                 item["salario_neto"] = "Error"
 
-        # Update totals in extraction_data (for PDF generation)
-        # Note: We are updating the Pydantic model in extraction_data roughly, 
-        # or we should just use edited_data for PDF generation.
-        # The prompt says: "El botón de descarga ... debe tomar los datos finales de las tablas editadas"
-        # So we should rely on edited_data.
-        
-        # Display Calculated Totals
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Materiales", f"${total_materiales:,.2f}")
         c2.metric("Total Mano de Obra", f"${total_personal:,.2f}")
@@ -297,39 +239,17 @@ def main():
     st.header("4. Exportar y Enviar")
     
     if current_quote['is_analyzed'] and current_quote['edited_data']:
-        # Prepare data for export
-        # We need to reconstruct the ExtractionSchema with edited values
-        # We take the original extraction data and update the lists
-        
-        # Use copy() to avoid modifying original schema in place if we want to revert?
-        # Pydantic models are mutable. 
-        # But extraction_data is stored in session_state.
-        # It's safer to create a new object or modify a copy.
-        # But copy() on pydantic v1 is different from v2. Here we use pydantic v2 (from pip install).
-        # v2 uses model_copy() or standard copy.
-        # Let's just create a new instance or modify a copy.
         final_data = current_quote['extraction_data'].model_copy(deep=True)
-        
-        # Update lists from edited data
-        # Note: edited_data items are dicts, we need to convert back to Pydantic models
         final_data.lista_materiales = [ItemMaterial(**m) for m in current_quote['edited_data']['lista_materiales']]
         final_data.lista_personal = [ItemPersonal(**p) for p in current_quote['edited_data']['lista_personal']]
-        
-        # Update totals in schema (important for PDF)
-        # These variables (total_materiales, total_personas_count) come from the calculation block above
-        # We need to ensure they are available in this scope. They are local variables in main(), so yes.
         final_data.total_general_materiales = f"{total_materiales:,.2f}"
         final_data.total_personas_count = str(total_personas_count)
-        
-        # ASSIGN FOLIO FROM SESSION (Review Fix)
         final_data.folio = str(current_quote['folio'])
 
-        # PDF Generation
         if pdf_template:
             if st.button("📄 Generar PDF de Cotización", key=f"btn_pdf_{current_quote['id']}"):
                 with st.spinner("Generando PDF..."):
                     output_buffer = io.BytesIO()
-                    # Reset template file pointer
                     pdf_template.seek(0)
                     success = llenar_pdf(final_data, pdf_template, output_buffer)
                     
@@ -343,9 +263,7 @@ def main():
         elif not pdf_template:
              st.info("⚠️ Carga una plantilla PDF en la barra lateral para habilitar la generación de PDF.")
 
-        # Download Button
         if current_quote.get('pdf_generated') and current_quote.get('pdf_buffer'):
-            # Filename logic
             clean_name = "".join(c for c in final_data.requisitor if c.isalnum() or c in (' ', '_', '-')).strip()
             if not clean_name: clean_name = "Cotizacion"
             filename = f"{clean_name}.pdf"
@@ -358,7 +276,6 @@ def main():
                 key=f"dl_pdf_{current_quote['id']}"
             )
 
-        # Email Sending
         st.divider()
         st.subheader("📧 Enviar por Correo")
         
@@ -373,6 +290,38 @@ def main():
                         st.success(res_email)
                     else:
                         st.error(res_email)
+
+def main():
+    st.set_page_config(page_title="Holtmont Workspace", layout="wide")
+
+    with st.sidebar:
+        st.header("Holtmont Workspace")
+
+        # Mode Selection
+        mode = st.radio("Módulo", ["Cotizador PDF", "Pre Work Order"])
+
+        st.divider()
+        st.subheader("Configuración Global")
+        env_key = os.environ.get("GROQ_API_KEY", "")
+        if not env_key:
+            try:
+                env_key = st.secrets.get("GROQ_API_KEY", "")
+            except FileNotFoundError:
+                pass
+        groq_api_key = st.text_input("GROQ API Key", value=env_key, type="password")
+
+        pdf_template = None
+        if mode == "Cotizador PDF":
+            pdf_template = st.file_uploader("Plantilla PDF Base", type=["pdf"])
+
+        if not groq_api_key:
+            st.warning("Se requiere API Key para continuar.")
+            return
+
+    if mode == "Cotizador PDF":
+        render_pdf_quoter(groq_api_key, pdf_template)
+    elif mode == "Pre Work Order":
+        render_work_order_view()
 
 if __name__ == "__main__":
     main()
