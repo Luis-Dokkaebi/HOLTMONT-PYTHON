@@ -1,0 +1,8 @@
+127.0.0.1 - - [10/Feb/2026 14:38:26] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 14:38:26] "GET /api_service.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 14:39:03] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 14:39:03] "GET /api_service.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 14:40:09] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 14:40:09] "GET /api_service.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 14:41:04] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 14:41:04] "GET /api_service.js HTTP/1.1" 200 -
