@@ -129,19 +129,22 @@ def main():
     
     # If new audio is recorded, update session state
     if audio_val:
-        # Read bytes only if not already saved or if it changed
-        # st.audio_input returns a file-like object.
-        # We need to handle this carefully.
-        # If we read it, we should store it.
-        # But st.audio_input re-runs on interaction.
-        audio_val.seek(0)
-        bytes_data = audio_val.read()
-        if current_quote['audio_bytes'] != bytes_data:
-            current_quote['audio_bytes'] = bytes_data
-            # Reset extraction status if audio changes
-            current_quote['is_analyzed'] = False
-            current_quote['transcription'] = ""
-            st.rerun()
+        try:
+            # Read bytes only if not already saved or if it changed
+            # st.audio_input returns a file-like object.
+            # We need to handle this carefully.
+            # If we read it, we should store it.
+            # But st.audio_input re-runs on interaction.
+            audio_val.seek(0)
+            bytes_data = audio_val.read()
+            if current_quote['audio_bytes'] != bytes_data:
+                current_quote['audio_bytes'] = bytes_data
+                # Reset extraction status if audio changes
+                current_quote['is_analyzed'] = False
+                current_quote['transcription'] = ""
+                # st.rerun()  <-- Removed to prevent double reload/loop issues
+        except Exception as e:
+            st.error(f"Error al procesar el audio: {e}")
 
     # Display persistent audio player if bytes exist
     if current_quote['audio_bytes']:
