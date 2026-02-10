@@ -1905,12 +1905,12 @@
 
                                             <button
                                                 class="btn position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
-                                                :class="isRecording ? 'btn-danger animate__animated animate__pulse animate__infinite' : 'btn-primary'"
+                                                :class="isDictating(workorderData, 'conceptoDesc') ? 'btn-danger animate__animated animate__pulse animate__infinite' : 'btn-primary'"
                                                 style="width: 50px; height: 50px; transition: all 0.3s ease;"
-                                                @click="toggleDictation"
+                                                @click="toggleDictation(workorderData, 'conceptoDesc')"
                                                 title="Dictar voz a texto">
 
-                                                <i class="fas" :class="isRecording ? 'fa-stop' : 'fa-microphone'" style="font-size: 1.2rem;"></i>
+                                                <i class="fas" :class="isDictating(workorderData, 'conceptoDesc') ? 'fa-stop' : 'fa-microphone'" style="font-size: 1.2rem;"></i>
                                             </button>
                                          </div>
                                     </div>
@@ -1953,23 +1953,48 @@
                                         </div>
                                         <div class="col-12">
                                             <label class="small fw-bold text-muted">Producción</label>
-                                            <input v-model="workorderData.restricciones.produccion" class="form-control" placeholder="Restricciones de producción...">
+                                            <div class="input-group input-group-sm">
+                                                <input v-model="workorderData.restricciones.produccion" class="form-control" placeholder="Restricciones de producción...">
+                                                <button class="btn btn-outline-secondary" type="button" @click="toggleDictation(workorderData.restricciones, 'produccion')">
+                                                    <i class="fas" :class="isDictating(workorderData.restricciones, 'produccion') ? 'fa-stop text-danger' : 'fa-microphone'"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                         <div class="col-md-6">
                                             <label class="small fw-bold text-muted">Seguridad</label>
-                                            <input v-model="workorderData.restricciones.seguridad" class="form-control" placeholder="Ej: permiso de chispa, trabajo en altura, espacios confinados...">
+                                            <div class="input-group input-group-sm">
+                                                <input v-model="workorderData.restricciones.seguridad" class="form-control" placeholder="Ej: permiso de chispa, trabajo en altura, espacios confinados...">
+                                                <button class="btn btn-outline-secondary" type="button" @click="toggleDictation(workorderData.restricciones, 'seguridad')">
+                                                    <i class="fas" :class="isDictating(workorderData.restricciones, 'seguridad') ? 'fa-stop text-danger' : 'fa-microphone'"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                         <div class="col-md-6">
                                             <label class="small fw-bold text-muted">Dificultad</label>
-                                            <input v-model="workorderData.restricciones.dificultad" class="form-control" placeholder="Ej: espacios reducidos, maquinaria, químicos...">
+                                            <div class="input-group input-group-sm">
+                                                <input v-model="workorderData.restricciones.dificultad" class="form-control" placeholder="Ej: espacios reducidos, maquinaria, químicos...">
+                                                <button class="btn btn-outline-secondary" type="button" @click="toggleDictation(workorderData.restricciones, 'dificultad')">
+                                                    <i class="fas" :class="isDictating(workorderData.restricciones, 'dificultad') ? 'fa-stop text-danger' : 'fa-microphone'"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                         <div class="col-md-6">
                                             <label class="small fw-bold text-muted">Horarios</label>
-                                            <input v-model="workorderData.restricciones.horarios" class="form-control" placeholder="Ej: nocturnos o fines de semana">
+                                            <div class="input-group input-group-sm">
+                                                <input v-model="workorderData.restricciones.horarios" class="form-control" placeholder="Ej: nocturnos o fines de semana">
+                                                <button class="btn btn-outline-secondary" type="button" @click="toggleDictation(workorderData.restricciones, 'horarios')">
+                                                    <i class="fas" :class="isDictating(workorderData.restricciones, 'horarios') ? 'fa-stop text-danger' : 'fa-microphone'"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                         <div class="col-md-6">
                                             <label class="small fw-bold text-muted">Especificidad Trabajo</label>
-                                            <input v-model="workorderData.restricciones.especificidad" class="form-control" placeholder="Detalles específicos...">
+                                            <div class="input-group input-group-sm">
+                                                <input v-model="workorderData.restricciones.especificidad" class="form-control" placeholder="Detalles específicos...">
+                                                <button class="btn btn-outline-secondary" type="button" @click="toggleDictation(workorderData.restricciones, 'especificidad')">
+                                                    <i class="fas" :class="isDictating(workorderData.restricciones, 'especificidad') ? 'fa-stop text-danger' : 'fa-microphone'"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -2270,7 +2295,14 @@
                                                 <td><input type="number" v-model="item.quantity" @input="updateMaterialRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center px-1" placeholder="0" style="min-width: 60px;"></td>
                                                 <td><input v-model="item.unit" class="form-control form-control-sm border-0 bg-transparent text-center px-1" placeholder="-" style="min-width: 60px;"></td>
                                                 <td><input v-model="item.type" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-" style="min-width: 80px;"></td>
-                                                <td><input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-" style="min-width: 150px;"></td>
+                                                <td>
+                                                    <div class="input-group input-group-sm border-0" style="flex-wrap: nowrap;">
+                                                        <input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-" style="min-width: 150px;">
+                                                        <button class="btn btn-link btn-sm p-0 text-secondary ms-1" @click="toggleDictation(item, 'description')">
+                                                            <i class="fas" :class="isDictating(item, 'description') ? 'fa-stop text-danger' : 'fa-microphone'" style="font-size: 0.8rem;"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
                                                 <td><input type="number" v-model="item.cost" @input="updateMaterialRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-end px-1" placeholder="0.00" style="min-width: 80px;"></td>
                                                 <td><input v-model="item.spec" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-" style="min-width: 100px;"></td>
                                                 <td class="fw-bold text-end px-1" style="min-width: 80px;">{{ formatCurrency(item.total) }}</td>
@@ -3625,6 +3657,9 @@ async function toggleVoiceRecording(btnElement) {
       // ESTADO GLOBAL
       const isRecording = ref(false);
       let recognition = null;
+      const dictationTarget = ref(null);
+      const isDictating = (obj, key) => isRecording.value && dictationTarget.value && dictationTarget.value.obj === obj && dictationTarget.value.key === key;
+
       const isLoggedIn = ref(false); const loginPass = ref(''); const loginUser = ref(''); const loggingIn = ref(false); const currentUser = ref(''); const currentUsername = ref('');
       const currentRole = ref(''); // NUEVO: Estado para el rol del usuario
       const currentView = ref('DASHBOARD'); const currentDept = ref('');
@@ -5913,7 +5948,7 @@ async function toggleVoiceRecording(btnElement) {
           if(el) el.focus();
       };
 
-      const toggleDictation = () => {
+      const toggleDictation = (obj, key) => {
           // 1. Verificar soporte del navegador (El Chakra del Navegador)
           const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -5922,12 +5957,20 @@ async function toggleVoiceRecording(btnElement) {
               return;
           }
 
-          // 2. Si ya estamos grabando, detenemos el jutsu
+          // 2. Si ya estamos grabando, detenemos el jutsu o cambiamos de objetivo
           if (isRecording.value) {
               if (recognition) recognition.stop();
               isRecording.value = false;
-              return;
+
+              // Si pulsamos el mismo boton, solo detenemos
+              if (dictationTarget.value && dictationTarget.value.obj === obj && dictationTarget.value.key === key) {
+                  dictationTarget.value = null;
+                  return;
+              }
+              // Si es otro botón, continuamos para iniciar la nueva grabación
           }
+
+          dictationTarget.value = { obj, key };
 
           // 3. Iniciar el Jutsu de Escucha
           try {
@@ -5949,9 +5992,14 @@ async function toggleVoiceRecording(btnElement) {
               recognition.onresult = (event) => {
                   const transcript = event.results[0][0].transcript;
 
-                  // Concatenamos el texto con un espacio si ya hay algo escrito
-                  const currentText = workorderData.value.conceptoDesc || '';
-                  workorderData.value.conceptoDesc = currentText + (currentText.length > 0 ? ' ' : '') + transcript;
+                  if (dictationTarget.value && dictationTarget.value.obj) {
+                      const target = dictationTarget.value.obj;
+                      const k = dictationTarget.value.key;
+                      const currentText = target[k] || '';
+                      // Capitalizar primera letra
+                      const finalText = transcript.charAt(0).toUpperCase() + transcript.slice(1);
+                      target[k] = currentText + (currentText.length > 0 ? ' ' : '') + finalText;
+                  }
               };
 
               recognition.onerror = (event) => {
@@ -5977,7 +6025,7 @@ async function toggleVoiceRecording(btnElement) {
           requiredMaterials.value.items[idx].description = text;
       };
 
-      return { focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation,
+      return { focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,
       showTimePopup, timePopupValue, openTimePopup, saveTimePopup,
