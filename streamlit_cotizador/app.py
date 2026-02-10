@@ -1,6 +1,27 @@
 import streamlit as st
 import io
 import os
+
+# Load environment variables from .env file manually since python-dotenv is not installed
+def load_env_file(filepath=".env"):
+    if os.path.exists(filepath):
+        with open(filepath, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    # Don't overwrite existing environment variables
+                    if key.strip() not in os.environ:
+                        os.environ[key.strip()] = value.strip()
+
+# Attempt to load from .env in current directory or parent directory
+if os.path.exists(".env"):
+    load_env_file(".env")
+elif os.path.exists("../.env"):
+    load_env_file("../.env")
+
 # Add root to sys.path if needed, though running via `streamlit run streamlit_cotizador/app.py` from root works usually.
 # But for imports to work inside the package, we might need relative imports or package structure.
 # Since I'm running `streamlit run streamlit_cotizador/app.py`, `streamlit_cotizador` is a package if I have __init__.py.
