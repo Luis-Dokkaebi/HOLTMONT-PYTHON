@@ -16,6 +16,11 @@ except ImportError:
     Groq = None
 
 try:
+    import ffmpeg
+except ImportError:
+    ffmpeg = None
+
+try:
     from langchain_groq import ChatGroq
     from langchain_core.prompts import ChatPromptTemplate
     from langgraph.graph import StateGraph, END
@@ -128,21 +133,37 @@ def transcribir_audio(api_key: str, audio_file) -> str:
         return "Error: Falta GROQ_API_KEY."
     
     try:
-        client = Groq(api_key=api_key)
-        # Assuming audio_file is a file-like object with a name or we can give it one
-        # If it comes from st.audio_input, it usually has a name. 
-        # If it's pure bytes, we might need to wrap it.
-        
-        # Ensure the file cursor is at the beginning
+        # Prepare audio bytes
         audio_file.seek(0)
-        
-        # Create a tuple (filename, file_content) if needed, 
-        # but Groq client handles file-like objects if they have a name attribute usually.
-        # Let's be safe and provide a tuple with a dummy filename if needed.
+        audio_bytes = audio_file.read()
         filename = getattr(audio_file, "name", "audio.wav")
+
+        # --- FFMPEG CONVERSION ---
+        if ffmpeg:
+            try:
+                # Normalize to 16kHz mono wav
+                process = (
+                    ffmpeg
+                    .input('pipe:0')
+                    .output('pipe:1', format='wav', ac=1, ar='16000')
+                    .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
+                )
+                out, err = process.communicate(input=audio_bytes)
+
+                if process.returncode == 0:
+                    audio_bytes = out
+                    filename = "converted_audio.wav"
+                else:
+                    print(f"FFmpeg warning: {err.decode('utf-8') if err else 'Unknown error'}")
+            except Exception as e:
+                print(f"FFmpeg error: {e}")
+                # Continue with original content
+        # -------------------------
+
+        client = Groq(api_key=api_key)
         
         transcription = client.audio.transcriptions.create(
-            file=(filename, audio_file.read()),
+            file=(filename, audio_bytes),
             model="whisper-large-v3",
             response_format="json",
             language="es",

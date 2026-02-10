@@ -10,6 +10,11 @@ except ImportError:
     Groq = None
 
 try:
+    import ffmpeg
+except ImportError:
+    ffmpeg = None
+
+try:
     from langchain_groq import ChatGroq
     from langchain_core.prompts import ChatPromptTemplate
     from langgraph.graph import StateGraph, END
@@ -149,6 +154,29 @@ def transcribir_audio(api_key: str, audio_file_content: bytes, filename: str = "
 
     if not api_key:
         return "Error: Falta GROQ_API_KEY."
+
+    # --- FFMPEG CONVERSION ---
+    if ffmpeg:
+        try:
+            # Normalize to 16kHz mono wav
+            process = (
+                ffmpeg
+                .input('pipe:0')
+                .output('pipe:1', format='wav', ac=1, ar='16000')
+                .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
+            )
+            out, err = process.communicate(input=audio_file_content)
+
+            if process.returncode == 0:
+                audio_file_content = out
+                filename = "converted_audio.wav"
+            else:
+                # Log error but continue with original file if possible
+                print(f"FFmpeg warning: {err.decode('utf-8') if err else 'Unknown error'}")
+        except Exception as e:
+            print(f"FFmpeg error: {e}")
+            # Continue with original content
+    # -------------------------
     
     try:
         client = Groq(api_key=api_key)
