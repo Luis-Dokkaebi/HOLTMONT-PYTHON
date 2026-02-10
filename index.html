@@ -3486,7 +3486,24 @@
   // Initialize Google Script Run Adapter
   if (!window.google) window.google = {};
   if (!window.google.script) window.google.script = {};
-  if (!window.google.script.run) window.google.script.run = new GoogleScriptRunAdapter();
+  
+  try {
+      if (!window.google.script.run) window.google.script.run = new GoogleScriptRunAdapter();
+  } catch (e) {
+      console.error("Initialization Error:", e);
+      // Wait for Swal to load
+      setTimeout(() => {
+          if (typeof Swal !== 'undefined') {
+              Swal.fire({
+                  icon: 'error',
+                  title: 'Error de Carga',
+                  text: 'No se pudo cargar api_service.js. Verifique que el archivo exista y no tenga errores. Detalle: ' + e.message
+              });
+          } else {
+              alert("Error critico: api_service.js no cargado. " + e.message);
+          }
+      }, 1000);
+  }
 
   window.onerror = function(msg, url, line, col, error) { if(String(msg).toLowerCase().includes("script error")) return; Swal.fire({ icon: 'error', title: 'Error de Renderizado', text: 'Ocurrió un error visual: ' + (error ? error.message : msg) }); };
 
@@ -4039,9 +4056,15 @@ async function toggleVoiceRecording(btnElement) {
       let aiChunks = [];
 
       const openAIQuoteModal = (targetObj = null, targetKey = null) => { 
-          aiContext.value = (targetObj && targetKey) ? { obj: targetObj, key: targetKey } : null;
-          showAIModal.value = true; 
-          resetAI(); 
+          console.log("Opening AI Modal", targetObj, targetKey);
+          try {
+              aiContext.value = (targetObj && targetKey) ? { obj: targetObj, key: targetKey } : null;
+              showAIModal.value = true; 
+              resetAI(); 
+          } catch (e) {
+              console.error("Error opening AI Modal:", e);
+              Swal.fire("Error Interno", "No se pudo abrir el modal: " + e.message, "error");
+          }
       };
       const closeAIModal = () => { showAIModal.value = false; resetAI(); aiContext.value = null; };
       
@@ -4089,7 +4112,9 @@ async function toggleVoiceRecording(btnElement) {
           // formData.append('apiKey', '...'); // If we want to override from frontend, but better keep it backend env
 
           try {
-              const response = await fetch(`${API_BASE_URL}/api/transcribe_and_analyze`, {
+              // Ensure API_BASE_URL is available
+              const apiUrl = (typeof window.API_BASE_URL !== 'undefined' ? window.API_BASE_URL : '') + '/api/transcribe_and_analyze';
+              const response = await fetch(apiUrl, {
                   method: 'POST',
                   body: formData
               });
