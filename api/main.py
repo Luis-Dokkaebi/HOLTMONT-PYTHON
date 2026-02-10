@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Body, Query
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import gspread
@@ -410,13 +411,13 @@ def generate_work_order_folio(client_name, dept_name):
 
 # --- Endpoints ---
 
-@app.get("/")
-def home():
-    return {
-        "status": "online",
-        "message": "API de Holtmont-Python funcionando correctamente",
-        "version": "1.0.0"
-    }
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    # Buscamos el archivo index.html en la carpeta padre
+    path = os.path.join(os.path.dirname(__file__), "../index.html")
+    with open(path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
 
 class LoginRequest(BaseModel):
     username: str

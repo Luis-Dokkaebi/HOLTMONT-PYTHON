@@ -49,8 +49,6 @@ def test_fetch_data_missing():
 def test_home_route():
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "online",
-        "message": "API de Holtmont-Python funcionando correctamente",
-        "version": "1.0.0"
-    }
+    # The response should now be HTML content from index.html
+    assert "text/html" in response.headers["content-type"]
+    assert "<!DOCTYPE html>" in response.text
