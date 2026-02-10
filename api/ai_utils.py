@@ -144,6 +144,9 @@ def transcribir_audio(api_key: str, audio_file_content: bytes, filename: str = "
     Transcribes audio using Groq API.
     audio_file_content: bytes of the audio file.
     """
+    if Groq is None:
+        return "Error: La librería 'groq' no está instalada."
+
     if not api_key:
         return "Error: Falta GROQ_API_KEY."
     
@@ -151,11 +154,10 @@ def transcribir_audio(api_key: str, audio_file_content: bytes, filename: str = "
         client = Groq(api_key=api_key)
         
         # Use a BytesIO object with a name attribute
-        file_obj = io.BytesIO(audio_file_content)
-        file_obj.name = filename
+        # Note: Groq python client expects (filename, file_content) tuple or similar for 'file'
         
         transcription = client.audio.transcriptions.create(
-            file=(filename, file_obj.read()),
+            file=(filename, audio_file_content),
             model="whisper-large-v3",
             response_format="json",
             language="es",
@@ -170,6 +172,9 @@ def extraer_informacion(api_key: str, texto: str) -> dict:
     Extracts structured information from text using LangChain/Groq.
     Returns a dictionary with 'extraction' (ExtractionSchema object) and 'error'.
     """
+    if ChatGroq is None:
+        return {"error": "Error: La librería 'langchain_groq' no está instalada.", "extraction": None}
+
     if not api_key:
         return {"error": "Falta GROQ_API_KEY", "extraction": None}
     
