@@ -115,6 +115,28 @@ class ExtractionSchema(BaseModel):
         description="Suma de los totales de la lista de materiales."
     )
 
+    # RESTRICCIONES (NUEVO PARA WORK ORDER)
+    restricciones_produccion: str = Field(
+        default="",
+        description="Restricciones de producción mencionadas."
+    )
+    restricciones_seguridad: str = Field(
+        default="",
+        description="Restricciones de seguridad (permisos, EPP, alturas, espacios confinados)."
+    )
+    restricciones_dificultad: str = Field(
+        default="",
+        description="Dificultad técnica o logística (espacios reducidos, maquinaria, químicos)."
+    )
+    restricciones_horarios: str = Field(
+        default="",
+        description="Restricciones de horarios (nocturnos, fines de semana)."
+    )
+    restricciones_especificidad: str = Field(
+        default="",
+        description="Detalles específicos del trabajo."
+    )
+
 # --- FUNCTIONS ---
 
 def transcribir_audio(api_key: str, audio_file_content: bytes, filename: str = "audio.wav") -> str:
@@ -172,6 +194,7 @@ def extraer_informacion(api_key: str, texto: str) -> dict:
                 "\n3. Lista de Materiales (con precios y totales)."
                 "\n4. Recursos (Herramientas, Equipo Ligero, EPP)."
                 "\n5. MANO DE OBRA / PERSONAL."
+                "\n6. RESTRICCIONES (Producción, Seguridad, Dificultad, Horarios)."
                 "\n\nREGLAS IMPORTANTES:"
                 "\n- Extrae UNICAMENTE la información presente en el texto."
                 "\n- Si el usuario NO menciona algún dato, DEJA LOS CAMPOS VACÍOS o las listas vacías."
