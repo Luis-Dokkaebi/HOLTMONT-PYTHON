@@ -327,20 +327,11 @@
 
                                             <button
                                                 class="btn position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
-                                                :class="isDictating(workorderData, 'conceptoDesc') ? 'btn-danger animate__animated animate__pulse animate__infinite' : 'btn-primary'"
-                                                style="width: 50px; height: 50px; transition: all 0.3s ease; right: 70px !important;"
-                                                @click="toggleDictation(workorderData, 'conceptoDesc')"
-                                                title="Dictar voz a texto (Simple)">
-                                                <i class="fas" :class="isDictating(workorderData, 'conceptoDesc') ? 'fa-stop' : 'fa-microphone'" style="font-size: 1.2rem;"></i>
-                                            </button>
-
-                                            <!-- BOTON IA AVANZADA -->
-                                            <button
-                                                class="btn btn-warning position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
+                                                :class="isDictating(workorderData, 'conceptoDesc') ? 'btn-danger animate__animated animate__pulse animate__infinite' : 'btn-warning'"
                                                 style="width: 50px; height: 50px; transition: all 0.3s ease;"
-                                                @click="openAIQuoteModal"
-                                                title="Asistente IA Avanzado (Cotizar)">
-                                                <i class="fas fa-brain" style="font-size: 1.2rem;"></i>
+                                                @click="openAIQuoteModal(workorderData, 'conceptoDesc')"
+                                                title="Asistente IA: Dictar y Cotizar">
+                                                <i class="fas fa-microphone-alt" style="font-size: 1.2rem;"></i>
                                             </button>
                                          </div>
                                     </div>
@@ -482,8 +473,8 @@
                                 <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap">
                                     <span class="fw-bold text-muted small" style="width: 15px;">{{ idx + 1 }}.</span>
                                     <input v-model="item.description" class="form-control form-control-sm" placeholder="Descripción" style="flex: 2; min-width: 150px;">
-                                    <button class="btn btn-link btn-sm p-0 text-secondary ms-1" @click="toggleDictation(item, 'description')">
-                                        <i class="fas" :class="isDictating(item, 'description') ? 'fa-stop text-danger' : 'fa-microphone'" style="font-size: 0.8rem;"></i>
+                                    <button class="btn btn-link btn-sm p-0 text-warning ms-1" @click="openAIQuoteModal(item, 'description')" title="Dictar con IA">
+                                        <i class="fas fa-microphone-alt" style="font-size: 0.9rem;"></i>
                                     </button>
                                     <input type="date" v-model="item.date" class="form-control form-control-sm" style="width: 110px;">
 

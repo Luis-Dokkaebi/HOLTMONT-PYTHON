@@ -300,6 +300,9 @@ def main():
         final_data.total_general_materiales = f"{total_materiales:,.2f}"
         final_data.total_personas_count = str(total_personas_count)
 
+        # ASSIGN FOLIO FROM SESSION (Review Fix)
+        final_data.folio = str(current_quote['folio'])
+
         # PDF Generation
         if pdf_template:
             if st.button("📄 Generar PDF de Cotización", key=f"btn_pdf_{current_quote['id']}"):

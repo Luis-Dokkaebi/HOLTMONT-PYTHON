@@ -4026,11 +4026,16 @@ async function toggleVoiceRecording(btnElement) {
       const aiProcessing = ref(false);
       const aiAudioBlob = ref(null);
       const aiAudioUrl = ref(null);
+      const aiContext = ref(null); // { obj: ..., key: ... }
       let aiMediaRecorder = null;
       let aiChunks = [];
 
-      const openAIQuoteModal = () => { showAIModal.value = true; resetAI(); };
-      const closeAIModal = () => { showAIModal.value = false; resetAI(); };
+      const openAIQuoteModal = (targetObj = null, targetKey = null) => {
+          aiContext.value = (targetObj && targetKey) ? { obj: targetObj, key: targetKey } : null;
+          showAIModal.value = true;
+          resetAI();
+      };
+      const closeAIModal = () => { showAIModal.value = false; resetAI(); aiContext.value = null; };
 
       const resetAI = () => {
           aiAudioBlob.value = null;
@@ -4085,7 +4090,7 @@ async function toggleVoiceRecording(btnElement) {
               aiProcessing.value = false;
 
               if (result.success) {
-                  mapAIResponseToForm(result.data);
+                  mapAIResponseToForm(result.data, result.transcription);
                   closeAIModal();
                   Swal.fire({
                       icon: 'success',
@@ -4102,75 +4107,94 @@ async function toggleVoiceRecording(btnElement) {
           }
       };
 
-      const mapAIResponseToForm = (data) => {
-          // 1. General Data
-          if (data.descripcion_generica) workorderData.value.conceptoDesc = data.descripcion_generica;
-          if (data.cliente) workorderData.value.cliente = data.cliente;
-          if (data.requisitor) workorderData.value.newRequisitor = data.requisitor;
-          if (data.contacto) workorderData.value.contacto = data.contacto;
-          if (data.tipo_de_trabajo) {
-              // Try to match standard types
-              const type = workorderTypes.find(t => t.toUpperCase() === data.tipo_de_trabajo.toUpperCase());
-              if (type) workorderData.value.tipoTrabajo = type;
+      const mapAIResponseToForm = (data, transcription) => {
+          // A. CONTEXTUAL MAPPING (Where to put the main text?)
+          const mainText = data.descripcion_generica || transcription || '';
+
+          if (aiContext.value && aiContext.value.obj && aiContext.value.key) {
+              // Target Specific Field (e.g. Program Row or Main Description)
+              aiContext.value.obj[aiContext.value.key] = mainText;
+
+              // If context is Main Description, we ALSO fill global metadata
+              if (aiContext.value.key === 'conceptoDesc') {
+                  if (data.cliente) workorderData.value.cliente = data.cliente;
+                  if (data.requisitor) workorderData.value.newRequisitor = data.requisitor;
+                  if (data.contacto) workorderData.value.contacto = data.contacto;
+                  if (data.tipo_de_trabajo) {
+                      const type = workorderTypes.find(t => t.toUpperCase() === data.tipo_de_trabajo.toUpperCase());
+                      if (type) workorderData.value.tipoTrabajo = type;
+                  }
+                  // For main description, we might want to REPLACE lists or Append?
+                  // Usually main dictation means "Here is the quote", so replace might be better?
+                  // But let's Append to be safe, or check if empty.
+                  // For now: Append behavior is safer to avoid data loss.
+              }
+          } else {
+              // Fallback / Default Global Behavior
+              if (data.descripcion_generica) workorderData.value.conceptoDesc = data.descripcion_generica;
           }
 
-          // 2. Materials
+          // B. APPEND RESOURCES (Always, unless empty)
+
+          // 1. Materials
           if (data.lista_materiales && data.lista_materiales.length) {
-              requiredMaterials.value.items = data.lista_materiales.map(m => ({
-                  quantity: m.cantidad,
-                  unit: m.unidad,
-                  description: m.descripcion,
-                  cost: m.costo ? String(m.costo).replace(/[^0-9.]/g, '') : '',
-                  total: m.total ? String(m.total).replace(/[^0-9.]/g, '') : 0,
-                  type: '', spec: '', papaCaliente: {}
-              }));
+              data.lista_materiales.forEach(m => {
+                  requiredMaterials.value.items.push({
+                      quantity: m.cantidad,
+                      unit: m.unidad,
+                      description: m.descripcion,
+                      cost: m.costo ? String(m.costo).replace(/[^0-9.]/g, '') : '',
+                      total: m.total ? String(m.total).replace(/[^0-9.]/g, '') : 0,
+                      type: '', spec: '', papaCaliente: {}
+                  });
+              });
           }
 
-          // 3. Personnel (Labor)
+          // 2. Personnel (Labor)
           if (data.lista_personal && data.lista_personal.length) {
-              laborTable.value.items = data.lista_personal.map(p => ({
-                  category: p.categoria,
-                  salary: p.salario_semanal ? String(p.salario_semanal).replace(/[^0-9.]/g, '') : '',
-                  personnel: p.cantidad_personas,
-                  weeks: p.semanas_cotizadas,
-                  total: p.salario_neto ? String(p.salario_neto).replace(/[^0-9.]/g, '') : 0,
-                  overtime: '0', night: '0', weekend: '0', others: '0'
-              }));
+              data.lista_personal.forEach(p => {
+                  laborTable.value.items.push({
+                      category: p.categoria,
+                      salary: p.salario_semanal ? String(p.salario_semanal).replace(/[^0-9.]/g, '') : '',
+                      personnel: p.cantidad_personas,
+                      weeks: p.semanas_cotizadas,
+                      total: p.salario_neto ? String(p.salario_neto).replace(/[^0-9.]/g, '') : 0,
+                      overtime: '0', night: '0', weekend: '0', others: '0'
+                  });
+              });
           }
 
-          // 4. Tools & Equipment (Combined lists from extraction)
+          // 3. Tools & Equipment
           const allTools = [
               ...(data.lista_herramientas || []),
               ...(data.lista_equipo_ligero || []),
               ...(data.lista_equipo_proteccion || [])
           ];
-
           if (allTools.length) {
-              // The extraction returns strings for tools, not objects with cost
-              // We map them to simple rows
-              toolsRequired.value.items = allTools.map(t => ({
-                  quantity: '1',
-                  unit: 'pza',
-                  description: t,
-                  cost: '',
-                  total: 0,
-                  papaCaliente: {}
-              }));
+              allTools.forEach(t => {
+                  toolsRequired.value.items.push({
+                      quantity: '1',
+                      unit: 'pza',
+                      description: t,
+                      cost: '',
+                      total: 0,
+                      papaCaliente: {}
+                  });
+              });
           }
 
-          // 5. Timeline / Program
-          if (data.programa_del_proyecto && data.programa_del_proyecto.length) {
-              // Clear default generic items if we have AI data? Or append?
-              // Let's replace 'visita' or 'reqCotizacion'
-              // Putting it in 'visita' or a specific section is tricky.
-              // Let's add to 'visita' for simplicity
-              projectProgram.value.visita = data.programa_del_proyecto.map(act => ({
-                  description: act.descripcion,
-                  date: '',
-                  duration: act.tiempo,
-                  durationUnit: 'dias',
-                  unit: '', quantity: '', price: '', total: 0, responsable: []
-              }));
+          // 4. Timeline / Program (Only if Main Context or No Context, to avoid messing up when dictating a single row)
+          if ((!aiContext.value || aiContext.value.key === 'conceptoDesc') && data.programa_del_proyecto && data.programa_del_proyecto.length) {
+              // Append to 'visita' or similar
+              data.programa_del_proyecto.forEach(act => {
+                  projectProgram.value.visita.push({
+                      description: act.descripcion,
+                      date: '',
+                      duration: act.tiempo,
+                      durationUnit: 'dias',
+                      unit: '', quantity: '', price: '', total: 0, responsable: []
+                  });
+              });
           }
       };
 
