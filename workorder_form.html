@@ -327,12 +327,12 @@
 
                                             <button
                                                 class="btn position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
-                                                :class="isRecording ? 'btn-danger animate__animated animate__pulse animate__infinite' : 'btn-primary'"
+                                                :class="isDictating(workorderData, 'conceptoDesc') ? 'btn-danger animate__animated animate__pulse animate__infinite' : 'btn-primary'"
                                                 style="width: 50px; height: 50px; transition: all 0.3s ease;"
-                                                @click="toggleDictation"
+                                                @click="toggleDictation(workorderData, 'conceptoDesc')"
                                                 title="Dictar voz a texto">
 
-                                                <i class="fas" :class="isRecording ? 'fa-stop' : 'fa-microphone'" style="font-size: 1.2rem;"></i>
+                                                <i class="fas" :class="isDictating(workorderData, 'conceptoDesc') ? 'fa-stop' : 'fa-microphone'" style="font-size: 1.2rem;"></i>
                                             </button>
                                          </div>
                                     </div>
@@ -474,6 +474,9 @@
                                 <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap">
                                     <span class="fw-bold text-muted small" style="width: 15px;">{{ idx + 1 }}.</span>
                                     <input v-model="item.description" class="form-control form-control-sm" placeholder="Descripción" style="flex: 2; min-width: 150px;">
+                                    <button class="btn btn-link btn-sm p-0 text-secondary ms-1" @click="toggleDictation(item, 'description')">
+                                        <i class="fas" :class="isDictating(item, 'description') ? 'fa-stop text-danger' : 'fa-microphone'" style="font-size: 0.8rem;"></i>
+                                    </button>
                                     <input type="date" v-model="item.date" class="form-control form-control-sm" style="width: 110px;">
 
                                     <!-- Tiempo Estimado Row -->
