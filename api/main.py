@@ -6,6 +6,26 @@ from google.oauth2.service_account import Credentials
 import os
 import json
 from datetime import datetime
+
+# Load environment variables from .env file manually since python-dotenv is not installed
+def load_env_file(filepath=".env"):
+    if os.path.exists(filepath):
+        with open(filepath, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    # Don't overwrite existing environment variables
+                    if key.strip() not in os.environ:
+                        os.environ[key.strip()] = value.strip()
+
+# Attempt to load from .env in current directory or parent directory
+if os.path.exists(".env"):
+    load_env_file(".env")
+elif os.path.exists("../.env"):
+    load_env_file("../.env")
 from typing import List, Dict, Any, Optional
 from fastapi import UploadFile, File, Form
 
