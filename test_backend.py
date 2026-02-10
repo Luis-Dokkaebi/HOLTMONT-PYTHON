@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from main import app, gs_manager, MockSpreadsheet
+from api.main import app, gs_manager, MockSpreadsheet
 
 client = TestClient(app)
 
