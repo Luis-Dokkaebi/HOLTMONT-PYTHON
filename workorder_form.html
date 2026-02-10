@@ -326,12 +326,11 @@
                                             <input type="file" id="audioInputGemini" accept="audio/*" class="d-none" onchange="enviarAudioAGemini(this)">
 
                                             <button
-                                                class="btn position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
-                                                :class="isDictating(workorderData, 'conceptoDesc') ? 'btn-danger animate__animated animate__pulse animate__infinite' : 'btn-warning'"
+                                                class="btn btn-warning position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center text-dark"
                                                 style="width: 50px; height: 50px; transition: all 0.3s ease;"
                                                 @click="openAIQuoteModal(workorderData, 'conceptoDesc')"
                                                 title="Asistente IA: Dictar y Cotizar">
-                                                <i class="fas fa-microphone-alt" style="font-size: 1.2rem;"></i>
+                                                <i class="fas fa-brain" style="font-size: 1.2rem;"></i>
                                             </button>
                                          </div>
                                     </div>
