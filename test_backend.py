@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from main import app, gs_manager, MockSpreadsheet
+from api.main import app, gs_manager, MockSpreadsheet
 
 client = TestClient(app)
 
@@ -45,3 +45,12 @@ def test_fetch_data_missing():
     # In mock mode, we expect "Falta hoja" or similar message
     # Logic in main.py: if not values: return { ... message: "Falta hoja..." }
     assert "Falta hoja" in data.get("message", "")
+
+def test_home_route():
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "online",
+        "message": "API de Holtmont-Python funcionando correctamente",
+        "version": "1.0.0"
+    }
