@@ -72,7 +72,9 @@ def main():
 
         groq_api_key = st.text_input("GROQ API Key", value=env_key, type="password", help="Ingresa tu API Key de Groq")
         
-        if not groq_api_key:
+        if groq_api_key:
+            os.environ["GROQ_API_KEY"] = groq_api_key
+        else:
             st.warning("Se requiere API Key para continuar.")
             st.stop()
             
