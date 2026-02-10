@@ -4081,7 +4081,9 @@ async function toggleVoiceRecording(btnElement) {
           // formData.append('apiKey', '...'); // If we want to override from frontend, but better keep it backend env
 
           try {
-              const response = await fetch('/api/transcribe_and_analyze', {
+              // Localhost dev support: If running on port 3000, point to port 8000
+              const baseUrl = window.location.port === '3000' ? 'http://localhost:8000' : '';
+              const response = await fetch(`${baseUrl}/api/transcribe_and_analyze`, {
                   method: 'POST',
                   body: formData
               });

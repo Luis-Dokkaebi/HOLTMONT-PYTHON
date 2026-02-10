@@ -34,7 +34,8 @@ class ItemMaterial(BaseModel):
 
 class ItemActividad(BaseModel):
     descripcion: str = Field(default="", description="Descripción de la actividad.")
-    tiempo: str = Field(default="", description="Duración estimada.")
+    tiempo: str = Field(default="", description="Duración estimada (Sugerida por IA si no se menciona).")
+    costo_estimado: str = Field(default="", description="Costo estimado de mano de obra para esta actividad (Sugerido).")
 
 class ItemHerramienta(BaseModel):
     descripcion: str = Field(default="", description="Descripción de la herramienta.")
@@ -76,6 +77,16 @@ class ExtractionSchema(BaseModel):
         max_length=10
     )
 
+    # CHECKLIST EHS (NUEVO: Sugerencias de Seguridad)
+    checklist_ehs: List[str] = Field(
+        default_factory=list,
+        description="Lista de requerimientos de seguridad detectados (ej: 'Arnés', 'Permiso de Fuego', 'Extintor', 'Línea de Vida')."
+    )
+    riesgos_detectados: List[str] = Field(
+        default_factory=list,
+        description="Lista de riesgos potenciales inferidos (ej: 'Caída de altura', 'Proyección de partículas')."
+    )
+
     # LISTAS DE RECURSOS (Modified to include struct for tool mapping if needed, but simple strings work for now)
     # The frontend expects tools with quantity, cost, etc.
     # Let's try to extract structured tools if possible, or mapping strings.
@@ -83,7 +94,7 @@ class ExtractionSchema(BaseModel):
     # Original prompt had simple lists. Let's keep extraction consistent.
     lista_herramientas: List[str] = Field(
         default_factory=list,
-        description="Lista de herramientas requeridas.",
+        description="Lista de herramientas requeridas. (Sugiere si faltan obvias)",
         max_length=10
     )
     lista_equipo_ligero: List[str] = Field(
@@ -93,7 +104,7 @@ class ExtractionSchema(BaseModel):
     )
     lista_equipo_proteccion: List[str] = Field(
         default_factory=list,
-        description="Lista de EPP (Cascos, guantes, etc).",
+        description="Lista de EPP (Cascos, guantes, etc). Sugiere basado en la tarea.",
         max_length=5
     )
 
@@ -165,17 +176,18 @@ def extraer_informacion(api_key: str, texto: str) -> dict:
         fecha_actual = datetime.now().strftime("%d/%m/%Y")
         prompt = ChatPromptTemplate.from_messages([
             ("system", (
-                f"Hoy es {fecha_actual}. Eres un ingeniero de costos y proyectos."
-                "\n\nTU TAREA ES EXTRAER:"
+                f"Hoy es {fecha_actual}. Eres un ingeniero experto en costos, proyectos y seguridad industrial (EHS)."
+                "\n\nTU TAREA ES EXTRAER E INFERIR:"
                 "\n1. Datos del Cliente y Proyecto."
-                "\n2. Cronograma de actividades."
+                "\n2. Cronograma de actividades (ESTIMA tiempos si no se mencionan, basado en rendimientos estándar)."
                 "\n3. Lista de Materiales (con precios y totales)."
                 "\n4. Recursos (Herramientas, Equipo Ligero, EPP)."
-                "\n5. MANO DE OBRA / PERSONAL."
+                "\n5. MANO DE OBRA / PERSONAL (Estima costos si no se dan)."
+                "\n6. SEGURIDAD (EHS): Analiza la descripción para detectar riesgos (Altura, Caliente, Confinado) y SUGIERE el EPP y permisos necesarios en 'checklist_ehs'."
                 "\n\nREGLAS IMPORTANTES:"
-                "\n- Extrae UNICAMENTE la información presente en el texto."
-                "\n- Si el usuario NO menciona algún dato, DEJA LOS CAMPOS VACÍOS o las listas vacías."
-                "\n- NO INVENTES DATOS que no existen en la transcripción."
+                "\n- Prioriza la información explícita del usuario."
+                "\n- SI FALTA INFORMACIÓN TÉCNICA (tiempos, costos, seguridad): USA TU CONOCIMIENTO DE INGENIERÍA para sugerir valores realistas."
+                "\n- Si el trabajo implica altura (>1.8m), soldadura o electricidad, OBLIGATORIAMENTE sugiere el EPP correspondiente (Arnés, Careta, Dielectrico)."
             )),
             ("human", "{input}")
         ])
