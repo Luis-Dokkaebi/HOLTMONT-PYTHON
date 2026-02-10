@@ -4089,7 +4089,7 @@ async function toggleVoiceRecording(btnElement) {
           // formData.append('apiKey', '...'); // If we want to override from frontend, but better keep it backend env
 
           try {
-              const response = await fetch('/api/transcribe_and_analyze', {
+              const response = await fetch(`${API_BASE_URL}/api/transcribe_and_analyze`, {
                   method: 'POST',
                   body: formData
               });

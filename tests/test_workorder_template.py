@@ -15,27 +15,17 @@ class TestWorkOrderTemplate(unittest.TestCase):
         with open(filepath, 'r') as f:
             content = f.read()
 
-        # 1. Verify Main Description Button
-        # It should call toggleDictation(workorderData, 'conceptoDesc')
-        main_desc_click = r'toggleDictation\(workorderData,\s*\'conceptoDesc\'\)'
+        # 1. Verify Main Description Button (Now using AI Agent)
+        # It should call openAIQuoteModal(workorderData, 'conceptoDesc')
+        main_desc_click = r'openAIQuoteModal\(workorderData,\s*\'conceptoDesc\'\)'
         self.assertTrue(re.search(main_desc_click, content),
-                        "Main description button missing correct toggleDictation call.")
-
-        # It should use isDictating(workorderData, 'conceptoDesc')
-        main_desc_class = r'isDictating\(workorderData,\s*\'conceptoDesc\'\)'
-        self.assertTrue(re.search(main_desc_class, content),
-                        "Main description button missing correct isDictating class binding.")
+                        "Main description button missing correct openAIQuoteModal call.")
 
         # 2. Verify Item Description Buttons (in loop)
-        # It should call toggleDictation(item, 'description')
-        item_desc_click = r'toggleDictation\(item,\s*\'description\'\)'
+        # It should call openAIQuoteModal(item, 'description')
+        item_desc_click = r'openAIQuoteModal\(item,\s*\'description\'\)'
         self.assertTrue(re.search(item_desc_click, content),
-                        "Item description buttons missing correct toggleDictation call.")
-
-        # It should use isDictating(item, 'description')
-        item_desc_class = r'isDictating\(item,\s*\'description\'\)'
-        self.assertTrue(re.search(item_desc_class, content),
-                        "Item description buttons missing correct isDictating class binding.")
+                        "Item description buttons missing correct openAIQuoteModal call.")
 
 if __name__ == '__main__':
     unittest.main()
