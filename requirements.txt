@@ -9,3 +9,4 @@ langchain-groq
 langgraph
 pypdf
 ffmpeg-python
+streamlit
