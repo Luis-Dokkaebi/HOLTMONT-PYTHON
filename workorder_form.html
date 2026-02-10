@@ -319,19 +319,29 @@
                             <div class="card-body">
                                 <div class="row mb-4">
                                     <div :class="showWorkOrderLogic ? 'col-md-8' : 'col-12'">
-                                         <div class="position-relative h-100">
-                                            <textarea id="campoConcepto" v-model="workorderData.conceptoDesc" class="form-control border-0 bg-light p-3 h-100" rows="8" placeholder="Describe el trabajo a realizar..." style="resize: none;"></textarea>
+                                         <!-- AI AGENT BAR -->
+                                         <div class="d-flex align-items-center justify-content-between mb-2 p-3 rounded shadow-sm position-relative overflow-hidden" style="background: linear-gradient(135deg, #1c1c1c 0%, #2c3e50 100%); color: white; border-left: 5px solid #ffc107;">
+                                             <div class="d-flex align-items-center position-relative" style="z-index: 2;">
+                                                 <div class="rounded-circle bg-warning d-flex align-items-center justify-content-center me-3 shadow" style="width: 48px; height: 48px;">
+                                                     <i class="fas fa-robot text-dark fa-lg animate__animated animate__pulse animate__infinite"></i>
+                                                 </div>
+                                                 <div>
+                                                     <h6 class="m-0 fw-bold" style="letter-spacing: 0.5px;">AGENTE IA DE PRE-INGENIERÍA</h6>
+                                                     <small class="text-white-50" style="font-size: 11px;"><i class="fas fa-magic me-1 text-warning"></i>Dicta el trabajo, materiales, restricciones y riesgos.</small>
+                                                 </div>
+                                             </div>
+                                             <button class="btn btn-warning fw-bold btn-sm shadow px-4 py-2 rounded-pill position-relative" style="z-index: 2;" @click="openAIQuoteModal(workorderData, 'conceptoDesc')">
+                                                 <i class="fas fa-microphone me-2"></i> INICIAR DICTADO
+                                             </button>
 
+                                             <!-- Decorative Background Element -->
+                                             <i class="fas fa-brain position-absolute" style="right: -20px; bottom: -20px; font-size: 8rem; opacity: 0.05; transform: rotate(-15deg);"></i>
+                                         </div>
+
+                                         <div class="position-relative" style="height: calc(100% - 80px);">
+                                            <textarea id="campoConcepto" v-model="workorderData.conceptoDesc" class="form-control border-0 bg-light p-3 h-100" rows="8" placeholder="Describe el trabajo a realizar... (O usa el Agente IA arriba)" style="resize: none;"></textarea>
                                             <!-- INPUT OCULTO PARA GEMINI -->
                                             <input type="file" id="audioInputGemini" accept="audio/*" class="d-none" onchange="enviarAudioAGemini(this)">
-
-                                            <button
-                                                class="btn btn-warning position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center text-dark"
-                                                style="width: 50px; height: 50px; transition: all 0.3s ease;"
-                                                @click="openAIQuoteModal(workorderData, 'conceptoDesc')"
-                                                title="Asistente IA: Dictar y Cotizar">
-                                                <i class="fas fa-brain" style="font-size: 1.2rem;"></i>
-                                            </button>
                                          </div>
                                     </div>
                                     <div class="col-md-4" v-if="showWorkOrderLogic">
