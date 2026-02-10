@@ -328,11 +328,19 @@
                                             <button
                                                 class="btn position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
                                                 :class="isDictating(workorderData, 'conceptoDesc') ? 'btn-danger animate__animated animate__pulse animate__infinite' : 'btn-primary'"
-                                                style="width: 50px; height: 50px; transition: all 0.3s ease;"
+                                                style="width: 50px; height: 50px; transition: all 0.3s ease; right: 70px !important;"
                                                 @click="toggleDictation(workorderData, 'conceptoDesc')"
-                                                title="Dictar voz a texto">
-
+                                                title="Dictar voz a texto (Simple)">
                                                 <i class="fas" :class="isDictating(workorderData, 'conceptoDesc') ? 'fa-stop' : 'fa-microphone'" style="font-size: 1.2rem;"></i>
+                                            </button>
+
+                                            <!-- BOTON IA AVANZADA -->
+                                            <button
+                                                class="btn btn-warning position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
+                                                style="width: 50px; height: 50px; transition: all 0.3s ease;"
+                                                @click="openAIQuoteModal"
+                                                title="Asistente IA Avanzado (Cotizar)">
+                                                <i class="fas fa-brain" style="font-size: 1.2rem;"></i>
                                             </button>
                                          </div>
                                     </div>
@@ -930,3 +938,56 @@
                                          <tr>
                                              <td class="fw-bold bg-light">Evaluación de Manejo</td>
                                              <td><input v-model="vehicleControlData2.evaluacion" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="Alertas por alta velocidad"></td>
+                                         </tr>
+                                     </tbody>
+                                 </table>
+                             </div>
+                         </div>
+                    </div>
+                </div>
+
+                <!-- MODAL IA COTIZADOR -->
+                <div v-if="showAIModal" class="modal-backdrop fade show" style="background-color: rgba(0,0,0,0.5); z-index: 1050;"></div>
+                <div v-if="showAIModal" class="modal fade show d-block" tabindex="-1" style="z-index: 1060;">
+                    <div class="modal-dialog modal-dialog-centered modal-lg">
+                        <div class="modal-content border-0 shadow-lg">
+                            <div class="modal-header bg-dark text-white">
+                                <h5 class="modal-title"><i class="fas fa-brain text-warning me-2"></i>Asistente de Cotización IA</h5>
+                                <button type="button" class="btn-close btn-close-white" @click="closeAIModal"></button>
+                            </div>
+                            <div class="modal-body text-center p-5">
+                                <div v-if="!aiProcessing">
+                                    <h4 class="mb-4 text-muted">Graba tu solicitud de cotización</h4>
+
+                                    <div class="mb-4">
+                                        <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3"
+                                             :class="isRecordingAI ? 'bg-danger animate__animated animate__pulse animate__infinite' : 'bg-light'"
+                                             style="width: 120px; height: 120px; cursor: pointer; transition: all 0.3s;"
+                                             @click="toggleAIRecording">
+                                            <i class="fas fa-microphone fa-3x" :class="isRecordingAI ? 'text-white' : 'text-secondary'"></i>
+                                        </div>
+                                        <p class="lead" :class="isRecordingAI ? 'text-danger fw-bold' : 'text-muted'">
+                                            {{ isRecordingAI ? 'Grabando... (Click para detener)' : 'Click para empezar a grabar' }}
+                                        </p>
+                                    </div>
+
+                                    <div v-if="aiAudioBlob && !isRecordingAI" class="mb-4 animate__animated animate__fadeIn">
+                                        <audio controls :src="aiAudioUrl" class="w-100 mb-3"></audio>
+                                        <div class="d-grid gap-2">
+                                            <button class="btn btn-success btn-lg" @click="processAIQuote">
+                                                <i class="fas fa-magic me-2"></i> Procesar y Extraer Datos
+                                            </button>
+                                            <button class="btn btn-outline-secondary btn-sm" @click="resetAI">Grabar de nuevo</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-else class="py-5">
+                                    <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+                                    <h5 class="animate__animated animate__pulse animate__infinite">Analizando audio con IA...</h5>
+                                    <p class="text-muted small">Transcribiendo y extrayendo materiales, personal y herramientas.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
