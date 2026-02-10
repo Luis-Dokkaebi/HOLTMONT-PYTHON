@@ -1,4 +1,9 @@
 const API_BASE_URL = 'http://localhost:8000'; // Configure this for production
+window.API_BASE_URL = API_BASE_URL; // Ensure global visibility
+
+// Ensure window.google structure exists for localhost
+if (!window.google) window.google = {};
+if (!window.google.script) window.google.script = {};
 
 class ApiService {
     static async login(username, password) {
