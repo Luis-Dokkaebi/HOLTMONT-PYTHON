@@ -37,16 +37,18 @@ class GoogleScriptRunAdapter {
     }
 
     withSuccessHandler(fn) {
+        // Create a new adapter instance to support chaining without side effects
+        // But for simple chaining we can just clone handlers
         const newAdapter = new GoogleScriptRunAdapter();
-        newAdapter._successHandler = fn;
-        newAdapter._failureHandler = this._failureHandler;
+        newAdapter._successHandler = fn; // Set the success handler for this call
+        newAdapter._failureHandler = this._failureHandler; // Keep existing failure handler or default
         return newAdapter;
     }
 
     withFailureHandler(fn) {
         const newAdapter = new GoogleScriptRunAdapter();
         newAdapter._successHandler = this._successHandler;
-        newAdapter._failureHandler = fn;
+        newAdapter._failureHandler = fn; // Set failure handler
         return newAdapter;
     }
 
@@ -200,6 +202,29 @@ class GoogleScriptRunAdapter {
     apiClearDrafts() {
         console.warn("apiClearDrafts stub called");
         this._successHandler({ success: true });
+    }
+
+    apiTranscribeAndAnalyze(formData) {
+        fetch(`${API_BASE_URL}/api/transcribe_and_analyze`, {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => this._successHandler(data))
+        .catch(err => this._failureHandler(err));
+    }
+
+    apiFetchUnifiedAgenda(username) {
+         console.warn("apiFetchUnifiedAgenda stub called");
+         this._successHandler({
+             success: true,
+             data: {
+                 workTasks: [],
+                 personalEvents: [],
+                 habits: [],
+                 habitLogs: []
+             }
+         });
     }
 }
 
