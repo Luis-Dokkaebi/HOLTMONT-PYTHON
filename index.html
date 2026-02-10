@@ -3480,6 +3480,58 @@
       </div>
   </div>
 
+  <!-- MODAL IA COTIZADOR -->
+  <div v-if="showAIModal" class="modal-backdrop fade show" style="background-color: rgba(0,0,0,0.5); z-index: 1050;"></div>
+  <div v-if="showAIModal" class="modal fade show d-block" tabindex="-1" style="z-index: 1060;">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+          <div class="modal-content border-0 shadow-lg">
+              <div class="modal-header bg-dark text-white">
+                  <h5 class="modal-title"><i class="fas fa-brain text-warning me-2"></i>Asistente de Cotización IA</h5>
+                  <button type="button" class="btn-close btn-close-white" @click="closeAIModal"></button>
+              </div>
+              <div class="modal-body text-center p-5">
+                  <div v-if="!aiProcessing">
+                      <h4 class="mb-4 text-muted">Graba tu solicitud de cotización</h4>
+
+                      <div class="mb-4">
+                          <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3"
+                               :class="isRecordingAI ? 'bg-danger animate__animated animate__pulse animate__infinite' : 'bg-light'"
+                               style="width: 120px; height: 120px; cursor: pointer; transition: all 0.3s;"
+                               @click="toggleAIRecording">
+                              <i class="fas fa-microphone fa-3x" :class="isRecordingAI ? 'text-white' : 'text-secondary'"></i>
+                          </div>
+                          <p class="lead" :class="isRecordingAI ? 'text-danger fw-bold' : 'text-muted'">
+                              {{ isRecordingAI ? 'Grabando... (Click para detener)' : 'Click para empezar a grabar' }}
+                          </p>
+                      </div>
+
+                      <!-- NEW: API KEY INPUT -->
+                      <div class="mb-3 w-75 mx-auto">
+                          <input type="text" v-model="aiApiKey" class="form-control form-control-sm text-center" placeholder="Pegar API Key (Opcional)">
+                          <small class="text-muted" style="font-size: 10px;">Para uso personal, no se guarda en servidor.</small>
+                      </div>
+
+                      <div v-if="aiAudioBlob && !isRecordingAI" class="mb-4 animate__animated animate__fadeIn">
+                          <audio controls :src="aiAudioUrl" class="w-100 mb-3"></audio>
+                          <div class="d-grid gap-2">
+                              <button class="btn btn-success btn-lg" @click="processAIQuote">
+                                  <i class="fas fa-magic me-2"></i> Procesar y Extraer Datos
+                              </button>
+                              <button class="btn btn-outline-secondary btn-sm" @click="resetAI">Grabar de nuevo</button>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div v-else class="py-5">
+                      <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+                      <h5 class="animate__animated animate__pulse animate__infinite">Analizando audio con IA...</h5>
+                      <p class="text-muted small">Transcribiendo y extrayendo materiales, personal y herramientas.</p>
+                  </div>
+              </div>
+          </div>
+      </div>
+  </div>
+
 </div>
 
 <script>
@@ -4047,6 +4099,7 @@ async function toggleVoiceRecording(btnElement) {
 
       // AI ASSISTANT STATE
       const showAIModal = ref(false);
+      const aiApiKey = ref('');
       const isRecordingAI = ref(false);
       const aiProcessing = ref(false);
       const aiAudioBlob = ref(null);
@@ -4109,7 +4162,7 @@ async function toggleVoiceRecording(btnElement) {
           
           const formData = new FormData();
           formData.append('file', aiAudioBlob.value, 'audio_quote.wav');
-          // formData.append('apiKey', '...'); // If we want to override from frontend, but better keep it backend env
+          if (aiApiKey.value) formData.append('apiKey', aiApiKey.value);
 
           try {
               // Ensure API_BASE_URL is available
@@ -6265,7 +6318,7 @@ async function toggleVoiceRecording(btnElement) {
       dashboardCalendar, calendarLoading, calendarUserFilter, weekDays, currentMonthYearLabel, navigateCalendar, loadDashboardCalendar, getTasksForDay, getTaskColor, isTaskDone, animTaskHover, animTaskLeave, getResponsible,
       staffTrackerFilters, filteredStaffTrackerData, getUniqueValues,
       currentActivityContext, showResourceModal, currentResourceTab, openResourcePopup, addResourceToActivity, getActivityTotal, reqCotizacionTotal, cotPreconstruccionTotal, setCheckStatus,
-      showAIModal, isRecordingAI, aiProcessing, aiAudioBlob, aiAudioUrl, openAIQuoteModal, closeAIModal, toggleAIRecording, processAIQuote, resetAI };
+      showAIModal, aiApiKey, isRecordingAI, aiProcessing, aiAudioBlob, aiAudioUrl, openAIQuoteModal, closeAIModal, toggleAIRecording, processAIQuote, resetAI };
     }
   });
   app.config.errorHandler = (err) => { console.error(err); Swal.fire({ icon: 'error', title: 'Error de Renderizado', text: 'Ocurrió un error visual: ' + err.message }); };
