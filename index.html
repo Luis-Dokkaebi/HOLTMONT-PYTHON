@@ -4020,6 +4020,184 @@ async function toggleVoiceRecording(btnElement) {
       const showResourceModal = ref(false);
       const currentResourceTab = ref('MATERIALES');
 
+      // AI ASSISTANT STATE
+      const showAIModal = ref(false);
+      const isRecordingAI = ref(false);
+      const aiProcessing = ref(false);
+      const aiAudioBlob = ref(null);
+      const aiAudioUrl = ref(null);
+      const aiContext = ref(null); // { obj: ..., key: ... }
+      let aiMediaRecorder = null;
+      let aiChunks = [];
+
+      const openAIQuoteModal = (targetObj = null, targetKey = null) => { 
+          aiContext.value = (targetObj && targetKey) ? { obj: targetObj, key: targetKey } : null;
+          showAIModal.value = true; 
+          resetAI(); 
+      };
+      const closeAIModal = () => { showAIModal.value = false; resetAI(); aiContext.value = null; };
+      
+      const resetAI = () => {
+          aiAudioBlob.value = null;
+          aiAudioUrl.value = null;
+          isRecordingAI.value = false;
+          aiProcessing.value = false;
+          aiChunks = [];
+          if(aiMediaRecorder && aiMediaRecorder.state !== 'inactive') aiMediaRecorder.stop();
+      };
+
+      const toggleAIRecording = async () => {
+          if (isRecordingAI.value) {
+              if (aiMediaRecorder) aiMediaRecorder.stop();
+              isRecordingAI.value = false;
+          } else {
+              try {
+                  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                  aiMediaRecorder = new MediaRecorder(stream);
+                  aiChunks = [];
+                  
+                  aiMediaRecorder.ondataavailable = (e) => aiChunks.push(e.data);
+                  aiMediaRecorder.onstop = () => {
+                      const blob = new Blob(aiChunks, { type: 'audio/wav' }); // or webm
+                      aiAudioBlob.value = blob;
+                      aiAudioUrl.value = URL.createObjectURL(blob);
+                      stream.getTracks().forEach(track => track.stop());
+                  };
+                  
+                  aiMediaRecorder.start();
+                  isRecordingAI.value = true;
+              } catch (err) {
+                  Swal.fire('Error', 'No se pudo acceder al micrófono: ' + err.message, 'error');
+              }
+          }
+      };
+
+      const processAIQuote = async () => {
+          if (!aiAudioBlob.value) return;
+          aiProcessing.value = true;
+          
+          const formData = new FormData();
+          formData.append('file', aiAudioBlob.value, 'audio_quote.wav');
+          // formData.append('apiKey', '...'); // If we want to override from frontend, but better keep it backend env
+
+          try {
+              const response = await fetch('/api/transcribe_and_analyze', {
+                  method: 'POST',
+                  body: formData
+              });
+              const result = await response.json();
+              
+              aiProcessing.value = false;
+              
+              if (result.success) {
+                  mapAIResponseToForm(result.data, result.transcription);
+                  closeAIModal();
+                  Swal.fire({
+                      icon: 'success',
+                      title: '¡Análisis Completado!',
+                      text: 'Se han llenado los campos con la información detectada.',
+                      timer: 2000
+                  });
+              } else {
+                  Swal.fire('Error IA', result.message || 'Error desconocido', 'error');
+              }
+          } catch (e) {
+              aiProcessing.value = false;
+              Swal.fire('Error de Conexión', e.message, 'error');
+          }
+      };
+
+      const mapAIResponseToForm = (data, transcription) => {
+          // A. CONTEXTUAL MAPPING (Where to put the main text?)
+          const mainText = data.descripcion_generica || transcription || '';
+          
+          if (aiContext.value && aiContext.value.obj && aiContext.value.key) {
+              // Target Specific Field (e.g. Program Row or Main Description)
+              aiContext.value.obj[aiContext.value.key] = mainText;
+              
+              // If context is Main Description, we ALSO fill global metadata
+              if (aiContext.value.key === 'conceptoDesc') {
+                  if (data.cliente) workorderData.value.cliente = data.cliente;
+                  if (data.requisitor) workorderData.value.newRequisitor = data.requisitor;
+                  if (data.contacto) workorderData.value.contacto = data.contacto;
+                  if (data.tipo_de_trabajo) {
+                      const type = workorderTypes.find(t => t.toUpperCase() === data.tipo_de_trabajo.toUpperCase());
+                      if (type) workorderData.value.tipoTrabajo = type;
+                  }
+                  // For main description, we might want to REPLACE lists or Append? 
+                  // Usually main dictation means "Here is the quote", so replace might be better? 
+                  // But let's Append to be safe, or check if empty.
+                  // For now: Append behavior is safer to avoid data loss.
+              }
+          } else {
+              // Fallback / Default Global Behavior
+              if (data.descripcion_generica) workorderData.value.conceptoDesc = data.descripcion_generica;
+          }
+
+          // B. APPEND RESOURCES (Always, unless empty)
+          
+          // 1. Materials
+          if (data.lista_materiales && data.lista_materiales.length) {
+              data.lista_materiales.forEach(m => {
+                  requiredMaterials.value.items.push({
+                      quantity: m.cantidad,
+                      unit: m.unidad,
+                      description: m.descripcion,
+                      cost: m.costo ? String(m.costo).replace(/[^0-9.]/g, '') : '',
+                      total: m.total ? String(m.total).replace(/[^0-9.]/g, '') : 0,
+                      type: '', spec: '', papaCaliente: {}
+                  });
+              });
+          }
+
+          // 2. Personnel (Labor)
+          if (data.lista_personal && data.lista_personal.length) {
+              data.lista_personal.forEach(p => {
+                  laborTable.value.items.push({
+                      category: p.categoria,
+                      salary: p.salario_semanal ? String(p.salario_semanal).replace(/[^0-9.]/g, '') : '',
+                      personnel: p.cantidad_personas,
+                      weeks: p.semanas_cotizadas,
+                      total: p.salario_neto ? String(p.salario_neto).replace(/[^0-9.]/g, '') : 0,
+                      overtime: '0', night: '0', weekend: '0', others: '0'
+                  });
+              });
+          }
+
+          // 3. Tools & Equipment
+          const allTools = [
+              ...(data.lista_herramientas || []),
+              ...(data.lista_equipo_ligero || []),
+              ...(data.lista_equipo_proteccion || [])
+          ];
+          if (allTools.length) {
+              allTools.forEach(t => {
+                  toolsRequired.value.items.push({
+                      quantity: '1',
+                      unit: 'pza',
+                      description: t,
+                      cost: '',
+                      total: 0,
+                      papaCaliente: {}
+                  });
+              });
+          }
+          
+          // 4. Timeline / Program (Only if Main Context or No Context, to avoid messing up when dictating a single row)
+          if ((!aiContext.value || aiContext.value.key === 'conceptoDesc') && data.programa_del_proyecto && data.programa_del_proyecto.length) {
+              // Append to 'visita' or similar
+              data.programa_del_proyecto.forEach(act => {
+                  projectProgram.value.visita.push({
+                      description: act.descripcion,
+                      date: '', 
+                      duration: act.tiempo, 
+                      durationUnit: 'dias', 
+                      unit: '', quantity: '', price: '', total: 0, responsable: [] 
+                  });
+              });
+          }
+      };
+
       const setCheckStatus = (item, status) => {
           if (item.checkStatus === status) {
               item.checkStatus = null;
@@ -6045,7 +6223,8 @@ async function toggleVoiceRecording(btnElement) {
       infoBankState, ibYears, ibMonths, ibCompanies, ibFolders, filteredIbCompanies, selectIbYear, selectIbMonth, selectIbCompany, goBackInfoBank, resetInfoBank, openIbFolder, fetchInfoBankFiles, getBadgeClass,
       dashboardCalendar, calendarLoading, calendarUserFilter, weekDays, currentMonthYearLabel, navigateCalendar, loadDashboardCalendar, getTasksForDay, getTaskColor, isTaskDone, animTaskHover, animTaskLeave, getResponsible,
       staffTrackerFilters, filteredStaffTrackerData, getUniqueValues,
-      currentActivityContext, showResourceModal, currentResourceTab, openResourcePopup, addResourceToActivity, getActivityTotal, reqCotizacionTotal, cotPreconstruccionTotal, setCheckStatus };
+      currentActivityContext, showResourceModal, currentResourceTab, openResourcePopup, addResourceToActivity, getActivityTotal, reqCotizacionTotal, cotPreconstruccionTotal, setCheckStatus,
+      showAIModal, isRecordingAI, aiProcessing, aiAudioBlob, aiAudioUrl, openAIQuoteModal, closeAIModal, toggleAIRecording, processAIQuote, resetAI };
     }
   });
   app.config.errorHandler = (err) => { console.error(err); Swal.fire({ icon: 'error', title: 'Error de Renderizado', text: 'Ocurrió un error visual: ' + err.message }); };

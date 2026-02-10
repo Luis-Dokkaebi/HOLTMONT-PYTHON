@@ -126,21 +126,21 @@ def transcribir_audio(api_key: str, audio_file) -> str:
     """
     if not api_key:
         return "Error: Falta GROQ_API_KEY."
-
+    
     try:
         client = Groq(api_key=api_key)
         # Assuming audio_file is a file-like object with a name or we can give it one
-        # If it comes from st.audio_input, it usually has a name.
+        # If it comes from st.audio_input, it usually has a name. 
         # If it's pure bytes, we might need to wrap it.
-
+        
         # Ensure the file cursor is at the beginning
         audio_file.seek(0)
-
-        # Create a tuple (filename, file_content) if needed,
+        
+        # Create a tuple (filename, file_content) if needed, 
         # but Groq client handles file-like objects if they have a name attribute usually.
         # Let's be safe and provide a tuple with a dummy filename if needed.
         filename = getattr(audio_file, "name", "audio.wav")
-
+        
         transcription = client.audio.transcriptions.create(
             file=(filename, audio_file.read()),
             model="whisper-large-v3",
@@ -159,7 +159,7 @@ def extraer_informacion(api_key: str, texto: str) -> dict:
     """
     if not api_key:
         return {"error": "Falta GROQ_API_KEY", "extraction": None}
-
+    
     try:
         llm = ChatGroq(
             api_key=api_key,
@@ -170,7 +170,7 @@ def extraer_informacion(api_key: str, texto: str) -> dict:
             max_retries=2,
         )
         structured_llm = llm.with_structured_output(ExtractionSchema)
-
+        
         fecha_actual = datetime.now().strftime("%d/%m/%Y")
         prompt = ChatPromptTemplate.from_messages([
             ("system", (
@@ -188,11 +188,11 @@ def extraer_informacion(api_key: str, texto: str) -> dict:
             )),
             ("human", "{input}")
         ])
-
+        
         chain = prompt | structured_llm
         result = chain.invoke({"input": texto})
         return {"extraction": result, "error": ""}
-
+        
     except Exception as e:
         return {"error": str(e), "extraction": None}
 
@@ -260,7 +260,7 @@ def llenar_pdf(datos: ExtractionSchema, template_file, output_buffer: io.BytesIO
                 campos[ids_mat_desc[i]] = str(mat.descripcion)
                 campos[ids_mat_cost[i]] = str(mat.costo)
                 campos[ids_mat_tot[i]] = str(mat.total)
-
+                
                 # Assume total is already calculated correctly in the object
                 try:
                     # Clean currency symbols for sum if needed, but data should come clean or pre-calculated
@@ -312,7 +312,7 @@ def llenar_pdf(datos: ExtractionSchema, template_file, output_buffer: io.BytesIO
             "Inspección": "Text-HWEOklKxRk"
         }
         id_color = mapa_colores.get(datos.tipo_de_trabajo)
-
+        
         # This part is a bit tricky with pypdf and might need exact field names.
         # We'll attempt to replicate the logic if possible, but might skip if too complex for now.
         # Original code iterates annotations.

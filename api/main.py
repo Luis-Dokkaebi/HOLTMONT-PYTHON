@@ -7,6 +7,16 @@ import os
 import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from fastapi import UploadFile, File, Form
+
+# AI Utils
+try:
+    from api.ai_utils import transcribir_audio, extraer_informacion
+except ImportError:
+    # Fallback if running from root without api package context
+    import sys
+    sys.path.append("api")
+    from ai_utils import transcribir_audio, extraer_informacion
 
 app = FastAPI(title="Holtmont Workspace Backend")
 
@@ -486,6 +496,39 @@ def api_get_next_seq():
     # Let's align with helper for now or just take int and +1.
     next_val = int(seq_str) + 1
     return str(next_val).zfill(4)
+
+@app.post("/api/transcribe_and_analyze")
+async def api_transcribe_analyze(file: UploadFile = File(...), apiKey: Optional[str] = Form(None)):
+    """
+    Receives an audio file, transcribes it, and extracts structured data.
+    """
+    # Prefer provided API Key, otherwise env var
+    groq_key = apiKey or os.environ.get("GROQ_API_KEY")
+    if not groq_key:
+         raise HTTPException(status_code=400, detail="Falta GROQ_API_KEY")
+
+    try:
+        content = await file.read()
+        
+        # 1. Transcribe
+        transcription = transcribir_audio(groq_key, content, filename=file.filename)
+        if "Error" in transcription:
+            return {"success": False, "message": transcription}
+            
+        # 2. Extract
+        extraction_res = extraer_informacion(groq_key, transcription)
+        
+        if extraction_res.get("error"):
+             return {"success": False, "message": extraction_res["error"], "transcription": transcription}
+             
+        return {
+            "success": True,
+            "transcription": transcription,
+            "data": extraction_res["extraction"]
+        }
+
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 @app.post("/api/savePPC")
 def api_save_ppc_data(req: SavePPCRequest):

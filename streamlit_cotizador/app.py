@@ -24,11 +24,11 @@ DEFAULT_QUOTE = {
 
 def main():
     st.set_page_config(page_title="Cotizador por Voz", layout="wide")
-
+    
     # Initialize Session State
     if "quotes" not in st.session_state:
         st.session_state.quotes = [DEFAULT_QUOTE.copy()]
-
+    
     if "current_quote_index" not in st.session_state:
         st.session_state.current_quote_index = 0
 
@@ -39,7 +39,7 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("Configuración")
-
+        
         # API Key
         # Check environment variable first, then secrets
         env_key = os.environ.get("GROQ_API_KEY", "")
@@ -50,14 +50,14 @@ def main():
                 pass
 
         groq_api_key = st.text_input("GROQ API Key", value=env_key, type="password", help="Ingresa tu API Key de Groq")
-
+        
         if not groq_api_key:
             st.warning("Se requiere API Key para continuar.")
             st.stop()
-
+            
         # PDF Template
         pdf_template = st.file_uploader("Plantilla PDF Base", type=["pdf"])
-
+        
         st.divider()
         st.subheader("Configuración Correo")
         email_sender = st.text_input("Gmail Sender")
@@ -65,26 +65,26 @@ def main():
         dest1 = st.text_input("Destinatario 1")
         dest2 = st.text_input("Destinatario 2")
         dest3 = st.text_input("Destinatario 3")
-
+        
         st.divider()
         st.subheader("Gestión de Cotizaciones")
-
+        
         # Quote Selector
         quote_options = [f"Cotización #{q['folio']}" for q in st.session_state.quotes]
         selected_quote_str = st.selectbox(
-            "Seleccionar Cotización",
-            options=quote_options,
+            "Seleccionar Cotización", 
+            options=quote_options, 
             index=st.session_state.current_quote_index,
             key="quote_selector"
         )
-
+        
         # Update current index based on selection
         # We use the key callback or check manually
         new_index = quote_options.index(selected_quote_str)
         if new_index != st.session_state.current_quote_index:
             st.session_state.current_quote_index = new_index
             st.rerun()
-
+            
         # New Quote Button
         if st.button("➕ Nueva Cotización"):
             new_id = len(st.session_state.quotes)
@@ -102,10 +102,10 @@ def main():
 
     # --- 1. Audio Recording & Playback ---
     st.header("1. Grabación de Audio")
-
+    
     # Unique key for each quote's audio input
     audio_val = st.audio_input("Grabar Audio", key=f"audio_input_{current_quote['id']}")
-
+    
     # If new audio is recorded, update session state
     if audio_val:
         # Read bytes only if not already saved or if it changed
@@ -136,9 +136,9 @@ def main():
                 # Create a file-like object from bytes for the API
                 audio_file = io.BytesIO(current_quote['audio_bytes'])
                 audio_file.name = "audio.wav"
-
+                
                 text = transcribir_audio(groq_api_key, audio_file)
-
+                
                 if "Error" in text:
                     st.error(text)
                 else:
@@ -154,7 +154,7 @@ def main():
             height=300,
             key=f"text_area_{current_quote['id']}"
         )
-
+        
         # Update session state on change
         if transcription_val != current_quote['transcription']:
             current_quote['transcription'] = transcription_val
@@ -166,19 +166,19 @@ def main():
 
     # --- 3. Extraction & Analysis ---
     st.header("3. Análisis y Edición de Datos")
-
+    
     if current_quote['transcription']:
         if st.button("🔍 Procesar / Analizar Información", key=f"btn_analyze_{current_quote['id']}"):
             with st.spinner("Analizando texto con IA (LangChain)..."):
                 res = extraer_informacion(groq_api_key, current_quote['transcription'])
-
+                
                 if res.get("error"):
                     st.error(f"Error en análisis: {res['error']}")
                 else:
                     extraction = res["extraction"]
                     current_quote['extraction_data'] = extraction
                     current_quote['is_analyzed'] = True
-
+                    
                     # Prepare initial edited data from extraction
                     # Convert pydantic models to dicts for data_editor
                     current_quote['edited_data'] = {
@@ -192,10 +192,10 @@ def main():
     if current_quote['is_analyzed'] and current_quote['edited_data']:
         st.divider()
         st.subheader("🛠️ Edición de Materiales y Costos")
-
+        
         # --- MATERIALES ---
         st.markdown("**Lista de Materiales**")
-
+        
         edited_materiales = st.data_editor(
             current_quote['edited_data']['lista_materiales'],
             num_rows="dynamic",
@@ -209,10 +209,10 @@ def main():
                 "total": st.column_config.TextColumn("Total (Auto)", disabled=True)
             }
         )
-
+        
         # --- PERSONAL ---
         st.markdown("**Lista de Personal / Mano de Obra**")
-
+        
         edited_personal = st.data_editor(
             current_quote['edited_data']['lista_personal'],
             num_rows="dynamic",
@@ -231,7 +231,7 @@ def main():
         # Update session state with edited values
         current_quote['edited_data']['lista_materiales'] = edited_materiales
         current_quote['edited_data']['lista_personal'] = edited_personal
-
+        
         # Calculate Totals
         total_materiales = 0.0
         for item in edited_materiales:
@@ -259,46 +259,49 @@ def main():
                 item["salario_neto"] = "Error"
 
         # Update totals in extraction_data (for PDF generation)
-        # Note: We are updating the Pydantic model in extraction_data roughly,
+        # Note: We are updating the Pydantic model in extraction_data roughly, 
         # or we should just use edited_data for PDF generation.
         # The prompt says: "El botón de descarga ... debe tomar los datos finales de las tablas editadas"
         # So we should rely on edited_data.
-
+        
         # Display Calculated Totals
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Materiales", f"${total_materiales:,.2f}")
         c2.metric("Total Mano de Obra", f"${total_personal:,.2f}")
         c3.metric("Total Personas", f"{total_personas_count}")
-
+        
         st.caption("*Los totales se recalculan automáticamente al editar la tabla.*")
 
     # --- 4. Export & Email ---
     st.header("4. Exportar y Enviar")
-
+    
     if current_quote['is_analyzed'] and current_quote['edited_data']:
         # Prepare data for export
         # We need to reconstruct the ExtractionSchema with edited values
         # We take the original extraction data and update the lists
-
+        
         # Use copy() to avoid modifying original schema in place if we want to revert?
-        # Pydantic models are mutable.
+        # Pydantic models are mutable. 
         # But extraction_data is stored in session_state.
         # It's safer to create a new object or modify a copy.
         # But copy() on pydantic v1 is different from v2. Here we use pydantic v2 (from pip install).
         # v2 uses model_copy() or standard copy.
         # Let's just create a new instance or modify a copy.
         final_data = current_quote['extraction_data'].model_copy(deep=True)
-
+        
         # Update lists from edited data
         # Note: edited_data items are dicts, we need to convert back to Pydantic models
         final_data.lista_materiales = [ItemMaterial(**m) for m in current_quote['edited_data']['lista_materiales']]
         final_data.lista_personal = [ItemPersonal(**p) for p in current_quote['edited_data']['lista_personal']]
-
+        
         # Update totals in schema (important for PDF)
         # These variables (total_materiales, total_personas_count) come from the calculation block above
         # We need to ensure they are available in this scope. They are local variables in main(), so yes.
         final_data.total_general_materiales = f"{total_materiales:,.2f}"
         final_data.total_personas_count = str(total_personas_count)
+        
+        # ASSIGN FOLIO FROM SESSION (Review Fix)
+        final_data.folio = str(current_quote['folio'])
 
         # PDF Generation
         if pdf_template:
@@ -308,7 +311,7 @@ def main():
                     # Reset template file pointer
                     pdf_template.seek(0)
                     success = llenar_pdf(final_data, pdf_template, output_buffer)
-
+                    
                     if success:
                         current_quote['pdf_generated'] = True
                         current_quote['pdf_buffer'] = output_buffer
@@ -325,7 +328,7 @@ def main():
             clean_name = "".join(c for c in final_data.requisitor if c.isalnum() or c in (' ', '_', '-')).strip()
             if not clean_name: clean_name = "Cotizacion"
             filename = f"{clean_name}.pdf"
-
+            
             st.download_button(
                 label="⬇️ Descargar PDF",
                 data=current_quote['pdf_buffer'].getvalue(),
@@ -337,7 +340,7 @@ def main():
         # Email Sending
         st.divider()
         st.subheader("📧 Enviar por Correo")
-
+        
         if st.button("Enviar Reporte por Correo", key=f"btn_email_{current_quote['id']}"):
             if not (email_sender and email_password and dest1 and dest2 and dest3):
                 st.error("Faltan configuraciones de correo (Remitente, Password o Destinatarios).")
