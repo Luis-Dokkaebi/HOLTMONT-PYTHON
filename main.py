@@ -380,6 +380,14 @@ def generate_work_order_folio(client_name, dept_name):
 
 # --- Endpoints ---
 
+@app.get("/")
+def home():
+    return {
+        "status": "online",
+        "message": "API de Holtmont-Python funcionando correctamente",
+        "version": "1.0.0"
+    }
+
 class LoginRequest(BaseModel):
     username: str
     password: str
