@@ -2184,6 +2184,7 @@
                                             <tr><td class="fw-bold">HERRAMIENTAS REQUERIDAS</td><td class="text-end fw-bold">{{ formatCurrency(toolsTotal) }}</td></tr>
                                             <tr><td class="fw-bold">MANO DE OBRA</td><td class="text-end fw-bold">{{ formatCurrency(laborTableTotal) }}</td></tr>
                                             <tr><td class="fw-bold">EQUIPOS ESPECIALES Y ACCESORIOS</td><td class="text-end fw-bold">{{ formatCurrency(specialEquipTotal) }}</td></tr>
+                                            <tr><td class="fw-bold">TURNOS Y EXTRAS</td><td class="text-end fw-bold">{{ formatCurrency(turnosTotal) }}</td></tr>
                                             <tr><td class="fw-bold">INSUMOS</td><td class="text-end fw-bold">{{ formatCurrency(additionalCosts.insumos) }}</td></tr>
                                             <tr><td class="fw-bold">VIÁTICOS</td><td class="text-end fw-bold">{{ formatCurrency(additionalCosts.viaticos) }}</td></tr>
                                             <tr><td class="fw-bold">TRANSPORTE DE EQUIPO Y PERSONAL</td><td class="text-end fw-bold">{{ formatCurrency(additionalCosts.transporte) }}</td></tr>
@@ -2195,22 +2196,23 @@
                             </div>
 
                             <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-danger pb-1">
-                                <span class="fw-bold text-danger small text-uppercase">Detalle de Actividades (Recursos)</span>
+                                <span class="fw-bold text-danger small text-uppercase">Cotización Trabajo</span>
                                 <button class="btn btn-danger btn-sm py-0 px-2 fw-bold" style="font-size: 10px;" @click="addProjectItem('cotTrabajo')"><i class="fas fa-plus"></i></button>
                             </div>
                             <div v-for="(item, idx) in projectProgram.cotTrabajo" :key="item.id || idx" class="card mb-2 border shadow-sm" style="border-left: 3px solid #dc3545 !important;">
                                 <div class="card-body p-2">
                                     <div class="row g-2 align-items-center">
                                         <!-- Buttons (Resources) -->
-                                        <div class="col-12 col-lg-2 d-flex flex-wrap gap-1">
+                                        <div class="col-12 col-lg-3 d-flex flex-wrap gap-1">
                                             <button class="btn btn-sm btn-primary rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MANO_OBRA'">MO</button>
-                                            <button class="btn btn-sm btn-info text-white rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='HERRAMIENTAS'">Her</button>
+                                            <button class="btn btn-sm btn-info text-white rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='HERRAMIENTAS'">Herra</button>
                                             <button class="btn btn-sm btn-success rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MATERIALES'">Mat</button>
-                                            <button class="btn btn-sm btn-warning text-dark rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='EQUIPOS'">Equ</button>
+                                            <button class="btn btn-sm btn-warning text-dark rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='EQUIPOS'">Equip</button>
+                                            <button class="btn btn-sm btn-secondary text-white rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='TURNOS_EXTRAS'">Turno y Extras</button>
                                         </div>
 
                                         <!-- Description -->
-                                        <div class="col-12 col-md-5 col-lg-4">
+                                        <div class="col-12 col-md-5 col-lg-3">
                                             <input v-model="item.description" class="form-control form-control-sm fw-bold" placeholder="Descripción de Actividad">
                                         </div>
 
@@ -3300,8 +3302,26 @@
               <button class="btn btn-sm fw-bold" :class="currentResourceTab === 'MATERIALES' ? 'btn-success' : 'btn-outline-secondary'" @click="currentResourceTab = 'MATERIALES'">Materiales</button>
               <button class="btn btn-sm fw-bold" :class="currentResourceTab === 'HERRAMIENTAS' ? 'btn-info text-white' : 'btn-outline-secondary'" @click="currentResourceTab = 'HERRAMIENTAS'">Herramientas</button>
               <button class="btn btn-sm fw-bold" :class="currentResourceTab === 'EQUIPOS' ? 'btn-warning text-dark' : 'btn-outline-secondary'" @click="currentResourceTab = 'EQUIPOS'">Equipos</button>
+              <button class="btn btn-sm fw-bold" :class="currentResourceTab === 'TURNOS_EXTRAS' ? 'btn-secondary text-white' : 'btn-outline-secondary'" @click="currentResourceTab = 'TURNOS_EXTRAS'">Turnos y Extras</button>
           </div>
           <div class="custom-modal-body bg-white flex-fill overflow-auto p-3">
+              <!-- TURNOS Y EXTRAS -->
+              <div v-if="currentResourceTab === 'TURNOS_EXTRAS'">
+                  <div class="d-flex justify-content-end mb-2"><button class="btn btn-sm btn-secondary text-white" @click="addResourceToActivity('TURNOS_EXTRAS')"><i class="fas fa-plus"></i> Agregar Extra</button></div>
+                  <table class="table table-bordered table-sm small">
+                      <thead class="table-light"><tr><th>Descripción / Tipo</th><th>Horas</th><th>Costo/Hora</th><th>Total</th><th></th></tr></thead>
+                      <tbody>
+                          <tr v-for="(item, i) in turnosExtras.items.filter(x => x.activityId === currentActivityContext.id)" :key="i">
+                              <td><input v-model="item.description" class="form-control form-control-sm border-0" placeholder="Ej: Turno nocturno, Fin de semana"></td>
+                              <td><input type="number" v-model="item.hours" @input="updateTurnosRowTotal(item)" class="form-control form-control-sm border-0 text-center"></td>
+                              <td><input type="number" v-model="item.costPerHour" @input="updateTurnosRowTotal(item)" class="form-control form-control-sm border-0 text-center"></td>
+                              <td class="text-end fw-bold">{{ formatCurrency(item.total) }}</td>
+                              <td class="text-center"><i class="fas fa-trash text-danger cursor-pointer" @click="turnosExtras.items.splice(turnosExtras.items.indexOf(item), 1)"></i></td>
+                          </tr>
+                      </tbody>
+                  </table>
+              </div>
+
               <!-- MANO DE OBRA -->
               <div v-if="currentResourceTab === 'MANO_OBRA'">
                   <div class="d-flex justify-content-end mb-2"><button class="btn btn-sm btn-primary" @click="addResourceToActivity('MANO_OBRA')"><i class="fas fa-plus"></i> Agregar Personal</button></div>
@@ -4256,6 +4276,8 @@ async function toggleVoiceRecording(btnElement) {
               laborTable.value.items.push({ category: '', salary: '', personnel: '1', weeks: '1', overtime: '0', night: '0', weekend: '0', others: '0', total: 0, activityId: actId });
           } else if (type === 'EQUIPOS') {
               specialEquipment.value.items.push({ quantity: '1', unit: 'unidad', type: '', description: '', spec: '', days: '1', hours: '0', cost: '', total: 0, activityId: actId });
+          } else if (type === 'TURNOS_EXTRAS') {
+              turnosExtras.value.items.push({ description: '', hours: '', costPerHour: '', total: 0, activityId: actId });
           }
       };
 
@@ -4266,6 +4288,7 @@ async function toggleVoiceRecording(btnElement) {
           total += toolsRequired.value.items.filter(i => i.activityId === activityId).reduce((acc, i) => acc + (parseFloat(i.total)||0), 0);
           total += laborTable.value.items.filter(i => i.activityId === activityId).reduce((acc, i) => acc + (parseFloat(i.total)||0), 0);
           total += specialEquipment.value.items.filter(i => i.activityId === activityId).reduce((acc, i) => acc + (parseFloat(i.total)||0), 0);
+          total += turnosExtras.value.items.filter(i => i.activityId === activityId).reduce((acc, i) => acc + (parseFloat(i.total)||0), 0);
           return total;
       };
 
@@ -4421,12 +4444,18 @@ async function toggleVoiceRecording(btnElement) {
       const updateSpecialEquipRowTotal = (item) => { item.total = (parseFloat(item.quantity)||0) * (parseFloat(item.days)||0) * (parseFloat(item.cost)||0); };
       const specialEquipTotal = computed(() => specialEquipment.value.items.reduce((acc, item) => acc + (parseFloat(item.total)||0), 0));
 
+      const turnosExtras = ref({ items: [{ description: '', hours: '', costPerHour: '', total: 0 }] });
+      const addTurnosItem = () => turnosExtras.value.items.push({ description: '', hours: '', costPerHour: '', total: 0 });
+      const removeTurnosItem = (idx) => turnosExtras.value.items.splice(idx, 1);
+      const updateTurnosRowTotal = (item) => { item.total = (parseFloat(item.hours)||0) * (parseFloat(item.costPerHour)||0); };
+      const turnosTotal = computed(() => turnosExtras.value.items.reduce((acc, item) => acc + (parseFloat(item.total)||0), 0));
+
       const additionalCosts = ref({ insumos: 0, viaticos: 0, transporte: 0 });
 
       // const laborTotal = computed(() => projectProgram.value.items.reduce((acc, item) => acc + (parseFloat(item.total)||0), 0));
       const laborTotal = computed(() => laborTableTotal.value); // Use new Labor Table
       const dashboardSubtotal = computed(() => {
-          return materialsTotal.value + laborTotal.value + toolsTotal.value + specialEquipTotal.value +
+          return materialsTotal.value + laborTotal.value + toolsTotal.value + specialEquipTotal.value + turnosTotal.value +
                  (parseFloat(additionalCosts.value.insumos)||0) + (parseFloat(additionalCosts.value.viaticos)||0) + (parseFloat(additionalCosts.value.transporte)||0) +
                  reqCotizacionTotal.value + cotPreconstruccionTotal.value;
       });
@@ -5535,6 +5564,7 @@ async function toggleVoiceRecording(btnElement) {
             manoObra: JSON.parse(JSON.stringify(laborTable.value.items)),
             herramientas: JSON.parse(JSON.stringify(toolsRequired.value.items)),
             equipos: JSON.parse(JSON.stringify(specialEquipment.value.items)),
+            turnosExtras: JSON.parse(JSON.stringify(turnosExtras.value.items)),
             programa: [
                 ...projectProgram.value.visita.map(i => ({...i, seccion: 'VISITA'})),
                 ...projectProgram.value.reqCotizacion.map(i => ({...i, seccion: 'REQUERIMIENTO'})),
@@ -6235,6 +6265,7 @@ async function toggleVoiceRecording(btnElement) {
       requiredMaterials, addMaterialItem, removeMaterialItem, updateMaterialRowTotal, materialsTotal,
       toolsRequired, addToolItem, removeToolItem, updateToolRowTotal, toolsTotal,
       specialEquipment, addSpecialEquipItem, removeSpecialEquipItem, updateSpecialEquipRowTotal, specialEquipTotal,
+      turnosExtras, addTurnosItem, removeTurnosItem, updateTurnosRowTotal, turnosTotal,
       additionalCosts, laborTotal, dashboardSubtotal, dashboardUtility, dashboardTotal, animatedTotals,
       selectedFinancing,
       addDesignRow, removeDesignRow, triggerDesignUpload, designFileInput, handleDesignFileSelect,
