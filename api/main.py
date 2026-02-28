@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Body, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -57,6 +57,13 @@ async def home():
     with open(path, "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
+
+@app.get("/api_service.js")
+async def serve_api_service():
+    path = os.path.join(os.path.dirname(__file__), "../api_service.js")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="File not found")
 
 class LoginRequest(BaseModel):
     username: str
@@ -287,4 +294,5 @@ def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
