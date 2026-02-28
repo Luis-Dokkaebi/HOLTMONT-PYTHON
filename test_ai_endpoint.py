@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
-from api.main import app, gs_manager, MockSpreadsheet
+from api.main import app, gs_manager
+from api.services.sheets import MockSpreadsheet
 import os
 
 client = TestClient(app)
