@@ -1,4 +1,6 @@
-const API_BASE_URL = 'http://localhost:8000'; // Configure this for production
+const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:8000'
+    : window.location.origin; // Configure this for production
 window.API_BASE_URL = API_BASE_URL; // Ensure global visibility
 
 // Ensure window.google structure exists for localhost
