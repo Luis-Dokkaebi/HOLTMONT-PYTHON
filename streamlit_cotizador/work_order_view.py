@@ -32,6 +32,9 @@ def render_work_order_view():
             "herramientas": [],
             "equipos": [],
             "programa": [], # Unified list for simplicity or separated sections
+            "viaticos": [],
+            "transporte": [],
+            "ingenieria": [],
             "restricciones": {
                 "produccion": "", "seguridad": "", "dificultad": "", "horarios": "", "especificidad": ""
             }
@@ -52,6 +55,9 @@ def render_work_order_view():
 
         audio_val = st.audio_input("Grabar Instrucciones")
 
+        # Botón: "Procesar Audio"
+        # Propósito: Enviar el audio grabado para ser convertido en texto y rellenar automáticamente el formulario.
+        # Acción Backend: Llama a `transcribir_audio` para usar la API de Groq (speech-to-text) y luego a `extraer_informacion` para mapear el texto a JSON.
         if audio_val and st.button("Procesar Audio"):
             if not groq_key:
                 st.error("Falta API Key")
@@ -154,7 +160,7 @@ def render_work_order_view():
     # --- Tables (Resources) ---
     st.subheader("Recursos")
 
-    tab_mat, tab_mo, tab_tool = st.tabs(["Materiales", "Mano de Obra", "Herramientas"])
+    tab_mat, tab_mo, tab_tool, tab_viat, tab_trans, tab_ing = st.tabs(["Materiales", "Mano de Obra", "Herramientas", "Insumos/Viáticos", "Transporte", "Ingeniería"])
 
     with tab_mat:
         # Data Editor for Materials
@@ -181,8 +187,11 @@ def render_work_order_view():
                 "category": "Categoría",
                 "salary": "Salario Semanal",
                 "personnel": "Personal",
-                "weeks": "Semanas",
-                "total": "Total"
+                "weeks": "Semanas Requeridas",
+                "total": "Total",
+                "epp_6_porciento": "6% EPP",
+                "costo_hora": "Costo x Hora",
+                "horas_requeridas": "Hrs Requeridas"
             },
             key="editor_mo"
         )
@@ -201,8 +210,55 @@ def render_work_order_view():
         )
         st.session_state.wo_data["herramientas"] = edited_tools
 
+    with tab_viat:
+        edited_viat = st.data_editor(
+            st.session_state.wo_data["viaticos"],
+            num_rows="dynamic",
+            column_config={
+                "concepto": "Concepto",
+                "cantidad": "Cantidad",
+                "costo_unitario": "Costo Unitario",
+                "total": "Total"
+            },
+            key="editor_viat"
+        )
+        st.session_state.wo_data["viaticos"] = edited_viat
+
+    with tab_trans:
+        edited_trans = st.data_editor(
+            st.session_state.wo_data["transporte"],
+            num_rows="dynamic",
+            column_config={
+                "vehiculo": "Vehículo Asignado",
+                "chofer": "Chofer",
+                "tiempo": "Tiempo (Meses/Días)",
+                "lts_gasolina": "Lts Gasolina",
+                "costo_total": "Costo Total",
+                "notas_control": "Notas/Control"
+            },
+            key="editor_trans"
+        )
+        st.session_state.wo_data["transporte"] = edited_trans
+
+    with tab_ing:
+        edited_ing = st.data_editor(
+            st.session_state.wo_data["ingenieria"],
+            num_rows="dynamic",
+            column_config={
+                "entregable": "Entregable/Plano",
+                "horas_diseno": "Hrs Diseño",
+                "costo_hora": "Costo x Hora",
+                "total": "Costo Total"
+            },
+            key="editor_ing"
+        )
+        st.session_state.wo_data["ingenieria"] = edited_ing
+
     # --- Actions ---
     st.divider()
+    # Botón: "💾 GUARDAR PRE WORK ORDER"
+    # Propósito: Enviar toda la información recopilada en la interfaz hacia la base de datos y limpiar el formulario al terminar.
+    # Acción Backend: Llama a `process_and_save_work_order`, que genera un folio predictivo y distribuye el payload JSON a las distintas pestañas de Google Sheets (ej. PPCV3, DB_WO_MATERIALES, etc.).
     if st.button("💾 GUARDAR PRE WORK ORDER", type="primary", use_container_width=True):
         if not st.session_state.wo_data["cliente"] or not st.session_state.wo_data["conceptoDesc"]:
             st.warning("Falta Cliente o Descripción.")
@@ -219,6 +275,9 @@ def render_work_order_view():
                     "materiales": st.session_state.wo_data["materiales"],
                     "manoObra": st.session_state.wo_data["manoObra"],
                     "herramientas": st.session_state.wo_data["herramientas"],
+                    "viaticos": st.session_state.wo_data["viaticos"],
+                    "transporte": st.session_state.wo_data["transporte"],
+                    "ingenieria": st.session_state.wo_data["ingenieria"],
                     "restricciones": str(st.session_state.wo_data["restricciones"]),
                     # Add other fields as needed
                 }
@@ -231,6 +290,9 @@ def render_work_order_view():
                         st.session_state.wo_data["conceptoDesc"] = ""
                         st.session_state.wo_data["materiales"] = []
                         st.session_state.wo_data["manoObra"] = []
+                        st.session_state.wo_data["viaticos"] = []
+                        st.session_state.wo_data["transporte"] = []
+                        st.session_state.wo_data["ingenieria"] = []
                     else:
                         st.error(f"Error: {res.get('message')}")
                 except Exception as e:

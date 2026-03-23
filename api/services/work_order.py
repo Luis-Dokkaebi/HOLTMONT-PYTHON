@@ -117,6 +117,9 @@ def process_and_save_work_order(items, active_user):
     WO_TOOLS_SHEET = "DB_WO_HERRAMIENTAS"
     WO_EQUIP_SHEET = "DB_WO_EQUIPOS"
     WO_PROGRAM_SHEET = "DB_WO_PROGRAMA"
+    WO_VIATICOS_SHEET = "DB_WO_VIATICOS"
+    WO_TRANSPORTE_SHEET = "DB_WO_TRANSPORTE"
+    WO_INGENIERIA_SHEET = "DB_WO_INGENIERIA"
 
     # Ensure main sheet exists
     current_ppc = gs_manager.get_sheet_values(PPC_SHEET_NAME)
@@ -181,8 +184,11 @@ def process_and_save_work_order(items, active_user):
                 new_l["FIN_SEMANA"] = l.get("weekend", "")
                 new_l["OTROS"] = l.get("others", "")
                 new_l["TOTAL"] = l.get("total", "")
+                new_l["EPP_6_PORCIENTO"] = l.get("epp_6_porciento", "")
+                new_l["COSTO_HORA"] = l.get("costo_hora", "")
+                new_l["HORAS_REQUERIDAS"] = l.get("horas_requeridas", "")
                 labor_items.append(new_l)
-            save_child_data(WO_LABOR_SHEET, labor_items, ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "TOTAL"])
+            save_child_data(WO_LABOR_SHEET, labor_items, ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "TOTAL", "EPP_6_PORCIENTO", "COSTO_HORA", "HORAS_REQUERIDAS"])
 
         # C. Herramientas
         if item.get("herramientas"):
@@ -236,6 +242,11 @@ def process_and_save_work_order(items, active_user):
                 new_p["SECCION"] = p.get("seccion", "")
                 new_p["ESTATUS"] = p.get("checkStatus") or ('APPLY' if p.get("isActive") else 'PENDING')
 
+                avance = str(p.get("avance", "")).strip()
+                archivo = p.get("archivoSubido") or p.get("archivo") or ""
+                if avance == "100%" and not archivo:
+                    new_p["ESTATUS"] = "BLOQUEADO_SIN_ARCHIVO"
+
                 # Map Keys
                 new_p["DESCRIPCION"] = p.get("description", "")
                 new_p["FECHA"] = p.get("date", "")
@@ -254,7 +265,48 @@ def process_and_save_work_order(items, active_user):
                 prog_items.append(new_p)
             save_child_data(WO_PROGRAM_SHEET, prog_items, ["FOLIO", "DESCRIPCION", "FECHA", "DURACION", "UNIDAD_DURACION", "UNIDAD", "CANTIDAD", "PRECIO", "TOTAL", "RESPONSABLE", "SECCION", "ESTATUS"])
 
-        # F. Detalles Extra JSON
+        # F. Viáticos
+        if item.get("viaticos"):
+            viat_items = []
+            for v in item["viaticos"]:
+                new_v = v.copy()
+                new_v["FOLIO"] = item_id
+                new_v["CONCEPTO"] = v.get("concepto", "")
+                new_v["CANTIDAD"] = v.get("cantidad", "")
+                new_v["COSTO_UNITARIO"] = v.get("costo_unitario", "")
+                new_v["TOTAL"] = v.get("total", "")
+                viat_items.append(new_v)
+            save_child_data(WO_VIATICOS_SHEET, viat_items, ["FOLIO", "CONCEPTO", "CANTIDAD", "COSTO_UNITARIO", "TOTAL"])
+
+        # G. Transporte
+        if item.get("transporte"):
+            trans_items = []
+            for t in item["transporte"]:
+                new_t = t.copy()
+                new_t["FOLIO"] = item_id
+                new_t["VEHICULO"] = t.get("vehiculo", "")
+                new_t["CHOFER"] = t.get("chofer", "")
+                new_t["TIEMPO"] = t.get("tiempo", "")
+                new_t["LTS_GASOLINA"] = t.get("lts_gasolina", "")
+                new_t["COSTO_TOTAL"] = t.get("costo_total", "")
+                new_t["NOTAS_CONTROL"] = t.get("notas_control", "")
+                trans_items.append(new_t)
+            save_child_data(WO_TRANSPORTE_SHEET, trans_items, ["FOLIO", "VEHICULO", "CHOFER", "TIEMPO", "LTS_GASOLINA", "COSTO_TOTAL", "NOTAS_CONTROL"])
+
+        # H. Ingeniería
+        if item.get("ingenieria"):
+            ing_items = []
+            for i in item["ingenieria"]:
+                new_i = i.copy()
+                new_i["FOLIO"] = item_id
+                new_i["ENTREGABLE"] = i.get("entregable", "")
+                new_i["HORAS_DISENO"] = i.get("horas_diseno", "")
+                new_i["COSTO_HORA"] = i.get("costo_hora", "")
+                new_i["TOTAL"] = i.get("total", "")
+                ing_items.append(new_i)
+            save_child_data(WO_INGENIERIA_SHEET, ing_items, ["FOLIO", "ENTREGABLE", "HORAS_DISENO", "COSTO_HORA", "TOTAL"])
+
+        # I. Detalles Extra JSON
         detalles_extra = ""
         if item.get("checkList") or item.get("additionalCosts"):
             detalles_extra = json.dumps({
