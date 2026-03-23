@@ -55,6 +55,9 @@ def render_work_order_view():
 
         audio_val = st.audio_input("Grabar Instrucciones")
 
+        # Botón: "Procesar Audio"
+        # Propósito: Enviar el audio grabado para ser convertido en texto y rellenar automáticamente el formulario.
+        # Acción Backend: Llama a `transcribir_audio` para usar la API de Groq (speech-to-text) y luego a `extraer_informacion` para mapear el texto a JSON.
         if audio_val and st.button("Procesar Audio"):
             if not groq_key:
                 st.error("Falta API Key")
@@ -253,6 +256,9 @@ def render_work_order_view():
 
     # --- Actions ---
     st.divider()
+    # Botón: "💾 GUARDAR PRE WORK ORDER"
+    # Propósito: Enviar toda la información recopilada en la interfaz hacia la base de datos y limpiar el formulario al terminar.
+    # Acción Backend: Llama a `process_and_save_work_order`, que genera un folio predictivo y distribuye el payload JSON a las distintas pestañas de Google Sheets (ej. PPCV3, DB_WO_MATERIALES, etc.).
     if st.button("💾 GUARDAR PRE WORK ORDER", type="primary", use_container_width=True):
         if not st.session_state.wo_data["cliente"] or not st.session_state.wo_data["conceptoDesc"]:
             st.warning("Falta Cliente o Descripción.")
