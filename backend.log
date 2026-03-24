@@ -1,14 +1,30 @@
-INFO:     Started server process [4526]
+INFO:     Started server process [3632]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 credentials.json not found. Using Mock mode.
-INFO:     127.0.0.1:54190 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54190 - "GET /api_service.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54190 - "POST /api/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54190 - "GET /api/config?role=ADMIN HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52144 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52144 - "GET /api_service.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52144 - "POST /api/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52144 - "GET /api/config?role=ADMIN HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52144 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36794 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36794 - "GET /api_service.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36794 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36794 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36794 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39576 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39586 - "GET /api_service.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39586 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39586 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39586 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49728 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49728 - "GET /api_service.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49728 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49728 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49728 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45736 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45736 - "GET /api_service.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45736 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45736 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45736 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59226 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59226 - "GET /api_service.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59226 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59226 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59226 - "GET /api/nextSeq HTTP/1.1" 200 OK
