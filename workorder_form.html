@@ -321,8 +321,11 @@
                                     <div :class="showWorkOrderLogic ? 'col-md-8' : 'col-12'">
                                          <div class="position-relative h-100">
                                             <textarea id="campoConcepto" v-model="workorderData.conceptoDesc" class="form-control border-0 bg-light p-3 h-100" rows="8" placeholder="Describe el trabajo a realizar..." style="resize: none;"></textarea>
-                                            <button class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleDictation(workorderData, 'conceptoDesc')">
-                                                <i class="fas fa-lg" :class="isDictating(workorderData, 'conceptoDesc') ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-dark'"></i>
+                                            <button v-if="isGeneratingQuestions" class="btn btn-primary position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" disabled>
+                                                <i class="fas fa-spinner fa-spin text-white fa-lg"></i>
+                                            </button>
+                                            <button v-else class="btn btn-primary position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleAIAgentRecording()">
+                                                <i class="fas fa-lg" :class="isRecordingAIAgent ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-white'"></i>
                                             </button>
                                          </div>
                                     </div>
@@ -345,6 +348,17 @@
                                             <i class="fas" :class="uploadSuccess ? 'fa-check text-success' : 'fa-cloud-upload-alt'"></i> {{ uploadSuccess ? 'Archivo Cargado' : 'Subir Archivos' }}
                                         </button>
                                         <input type="file" ref="fileInput" class="file-input-hidden" accept="*" @change="handleFileSelect">
+                                    </div>
+                                </div>
+
+                                <div class="mt-4" v-if="engineeringQuestions">
+                                    <div class="card border border-primary shadow-sm">
+                                        <div class="card-header bg-primary text-white fw-bold">
+                                            <i class="fas fa-robot me-2"></i> CUESTIONARIO TÉCNICO DE INGENIERÍA CIVIL (GENERADO POR AI)
+                                        </div>
+                                        <div class="card-body bg-light" style="max-height: 400px; overflow-y: auto;">
+                                            <div v-html="formattedEngineeringQuestions" class="markdown-content"></div>
+                                        </div>
                                     </div>
                                 </div>
 
