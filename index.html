@@ -2011,10 +2011,10 @@
                     <!-- BOTTOM: DESCRIPTION & MEDIA -->
                     <div class="col-12">
                         <div class="card border-0 shadow-sm">
-                            <div class="card-header bg-light border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
-                                <h6 class="fw-bold text-primary mb-0"><i class="fas fa-align-left me-2"></i>Descripción del Trabajo a Realizar</h6>
+                            <div class="card-header bg-dark text-white border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
+                                <h6 class="fw-bold mb-0"><i class="fas fa-robot me-2"></i>Descripción del Trabajo a Realizar basado en visita e información proporcionada por el cliente / Scope of work based on site visit and client information</h6>
                                 <!-- [MAPEO IA] BUTTON ID=sin-id VAR=showWorkOrderLogic = true PROPOSITO=Integracion -->
-<button v-if="!showWorkOrderLogic" @click="showWorkOrderLogic = true" class="btn btn-sm btn-outline-info" title="Mostrar Ayuda"><i class="fas fa-info-circle"></i></button>
+<button v-if="!showWorkOrderLogic" @click="showWorkOrderLogic = true" class="btn btn-sm btn-outline-warning" title="Mostrar Ayuda"><i class="fas fa-lightbulb"></i></button>
                             </div>
                             <div class="card-body">
                                 <div class="row mb-4">
@@ -2022,21 +2022,25 @@
                                          <div class="position-relative h-100">
                                             <textarea id="campoConcepto" v-model="workorderData.conceptoDesc" class="form-control border-0 bg-light p-3 h-100" rows="8" placeholder="Describe el trabajo a realizar..." style="resize: none;"></textarea>
 
-                                            <button v-if="isGeneratingQuestions" class="btn btn-primary position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" disabled>
-                                                <i class="fas fa-spinner fa-spin text-white fa-lg"></i>
+                                            <button v-if="isGeneratingQuestions" class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" disabled>
+                                                <i class="fas fa-spinner fa-spin text-dark fa-lg"></i>
                                             </button>
-                                            <button v-else class="btn btn-primary position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleAIAgentRecording()">
-                                                <i class="fas fa-lg" :class="isRecordingAIAgent ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-white'"></i>
+                                            <button v-else class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleAIAgentRecording()">
+                                                <i class="fas fa-lg" :class="isRecordingAIAgent ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-dark'"></i>
                                             </button>
                                          </div>
                                     </div>
                                     <div class="col-md-4" v-if="showWorkOrderLogic">
-                                        <div class="logic-card h-100 position-relative fade show">
+                                        <div class="logic-card h-100 position-relative fade show" style="background-color: #f8f9fa; border: 2px dashed #dc3545; color: #000;">
                                             <!-- [MAPEO IA] BUTTON ID=sin-id VAR=showWorkOrderLogic = false PROPOSITO=Integracion -->
-<button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showWorkOrderLogic = false"></button>
-                                    <div class="logic-header"><span class="logic-icon"><i class="fas fa-info"></i></span> LÓGICA: CAPTURA DE DESCRIPCIÓN</div>
-                                            <div class="logic-content text-justify">
-                                                Este punto es el más crítico al momento de realizar una cotización, ya que en los recorridos con el cliente son muy cortos, y uno no alcanza a escribir porque va caminando para proyectos A y AA, por lo que se requiere el poder capturar el mayor número de detalles que el cliente menciona así como la confidencialidad de observaciones que el cotizador de Holtmont alcanza a ver y se requiere que la competencia no se entere. Por ello el requerimiento de la diadema y de poder cuestionar puntos.
+<button type="button" class="btn-close position-absolute top-0 end-0 m-2" aria-label="Close" @click="showWorkOrderLogic = false"></button>
+                                    <div class="p-3">
+                                                <h6 class="fw-bold mb-1">Función:</h6>
+                                                <p class="small mb-2 text-justify">1.- Grabación de Descripción del trabajo a cotizar mediante grabación de audio cuyo responsable sera el cotizador, esta información sera basada la información entregada por el cliente así como la información recabada de la Bitacora inteligente y Preguntas realizadas</p>
+                                                <h6 class="fw-bold mb-1">Entregable:</h6>
+                                                <p class="small mb-2 text-justify">2.- Generación de Preguntas derivadas de la Bitacora de Inteligente de Voz para levantamiento de cotización derivadas de los entregable<br>3.- Texto por Agente 2 de estructuración inteligente de Audio</p>
+                                                <h6 class="fw-bold mb-1">Alcances Adicionales:</h6>
+                                                <p class="small mb-0 text-justify">1.- Información adicional que se quiera agregar por parte del cotizador</p>
                                             </div>
                                         </div>
                                     </div>
