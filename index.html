@@ -1657,6 +1657,18 @@
 
                 <div v-if="currentView === 'WORKORDER_FORM'" class="h-100 d-flex flex-column" style="overflow-y:auto;">
             <div class="p-4" style="max-width: 1400px; margin: 0 auto; width: 100%;">
+                <!-- CUESTIONARIO TÉCNICO DE INGENIERÍA CIVIL (GENERADO POR AI) TOP -->
+                <div class="mb-4" v-if="engineeringQuestions">
+                    <div class="card border border-primary shadow-sm">
+                        <div class="card-header bg-primary text-white fw-bold">
+                            <i class="fas fa-robot me-2"></i> PREGUNTAS DEL AGENTE GROQ
+                        </div>
+                        <div class="card-body bg-light" style="max-height: 400px; overflow-y: auto;">
+                            <div v-html="formattedEngineeringQuestions" class="markdown-content"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- NOMBRE DE COTIZADOR TOP -->
                 <div class="card border-0 shadow-sm mb-4">
                     <div class="card-body p-3">
@@ -2054,19 +2066,6 @@
 <input type="file" ref="fileInput" class="file-input-hidden" accept="*" @change="handleFileSelect">
                                     </div>
                                 </div>
-
-                                <div class="mt-4" v-if="engineeringQuestions">
-                                    <div class="card border border-primary shadow-sm">
-                                        <div class="card-header bg-primary text-white fw-bold">
-                                            <i class="fas fa-robot me-2"></i> CUESTIONARIO TÉCNICO DE INGENIERÍA CIVIL (GENERADO POR AI)
-                                        </div>
-                                        <div class="card-body bg-light" style="max-height: 400px; overflow-y: auto;">
-                                            <div v-html="formattedEngineeringQuestions" class="markdown-content"></div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <hr class="border-light my-4">
 
                                 <!-- RESTRICCIONES Section (Merged) -->
                                 <div>
