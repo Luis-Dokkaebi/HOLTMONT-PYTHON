@@ -1853,6 +1853,15 @@
                     </div>
                 </div>
 
+                <!-- ALERTA DE COTIZACION EXTERNA (IA) -->
+                <div v-if="workorderData.cotizacion_externa" class="alert alert-info d-flex align-items-center mb-4 shadow-sm border-0" style="background-color: #e3f2fd; color: #0d47a1; border-left: 5px solid #1976d2 !important;" role="alert">
+                    <i class="fas fa-info-circle fa-2x me-3"></i>
+                    <div>
+                        <h6 class="alert-heading fw-bold mb-1">Cotización Externa Detectada</h6>
+                        <p class="mb-0" style="font-size: 13px;">La IA detectó que la cotización será enviada por correo o WhatsApp. Se ha omitido automáticamente el llenado de los apartados de Recursos (Mano de Obra, Materiales, Herramientas, etc.).</p>
+                    </div>
+                </div>
+
                 <div class="row g-4">
                     <!-- LEFT COL: CLIENT INFO -->
                     <div class="col-md-6">
@@ -4622,6 +4631,11 @@ async function toggleVoiceRecording(btnElement) {
           if (data.restricciones_horarios) workorderData.value.restricciones.horarios = data.restricciones_horarios;
           if (data.restricciones_especificidad) workorderData.value.restricciones.especificidad = data.restricciones_especificidad;
 
+          // Bind cotizacion_externa to the UI state
+          if (data.cotizacion_externa !== undefined) {
+              workorderData.value.cotizacion_externa = data.cotizacion_externa;
+          }
+
           if (data.cotizacion_externa === true) {
               Swal.fire({
                   toast: true,
@@ -5651,7 +5665,8 @@ async function toggleVoiceRecording(btnElement) {
                   checkList: { libreta: false, cinta: false, bernier: false, chaleco: false, laser: false, epp: false, casco: false, credencial: false, zapato: false, sua: false, lentes: false },
                   restricciones: { produccion: '', seguridad: '', dificultad: '', horarios: '', especificidad: '' },
                   files: [],
-                  designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] }
+                  designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] },
+                  cotizacion_externa: false
               };
               projectProgram.value = {
                   timeEstimated: 1,
@@ -6176,7 +6191,8 @@ async function toggleVoiceRecording(btnElement) {
                       checkList: { libreta: false, cinta: false, bernier: false, chaleco: false, laser: false, epp: false, casco: false, credencial: false, zapato: false, sua: false, lentes: false },
                       restricciones: { produccion: '', seguridad: '', dificultad: '', horarios: '', especificidad: '' },
                       files: [],
-                      designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] }
+                      designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] },
+                      cotizacion_externa: false
                         };
                         currentWorkorderId.value = null;
                     });
