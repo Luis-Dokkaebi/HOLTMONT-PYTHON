@@ -1899,8 +1899,12 @@
                                     <div :class="showWorkOrderLogic ? 'col-md-8' : 'col-12'">
                                          <div class="position-relative h-100">
                                             <textarea id="campoConcepto" v-model="workorderData.conceptoDesc" class="form-control border-0 bg-light p-3 h-100" rows="8" placeholder="Describe el trabajo a realizar..." style="resize: none;"></textarea>
-                                            <button class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleDictation(workorderData, 'conceptoDesc')">
-                                                <i class="fas fa-lg" :class="isDictating(workorderData, 'conceptoDesc') ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-dark'"></i>
+
+                                            <button v-if="isGeneratingQuestions" class="btn btn-primary position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" disabled>
+                                                <i class="fas fa-spinner fa-spin text-white fa-lg"></i>
+                                            </button>
+                                            <button v-else class="btn btn-primary position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleAIAgentRecording()">
+                                                <i class="fas fa-lg" :class="isRecordingAIAgent ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-white'"></i>
                                             </button>
                                          </div>
                                     </div>
@@ -1923,6 +1927,17 @@
                                             <i class="fas" :class="uploadSuccess ? 'fa-check text-success' : 'fa-cloud-upload-alt'"></i> {{ uploadSuccess ? 'Archivo Cargado' : 'Subir Archivos' }}
                                         </button>
                                         <input type="file" ref="fileInput" class="file-input-hidden" accept="*" @change="handleFileSelect">
+                                    </div>
+                                </div>
+
+                                <div class="mt-4" v-if="engineeringQuestions">
+                                    <div class="card border border-primary shadow-sm">
+                                        <div class="card-header bg-primary text-white fw-bold">
+                                            <i class="fas fa-robot me-2"></i> CUESTIONARIO TÉCNICO DE INGENIERÍA CIVIL (GENERADO POR AI)
+                                        </div>
+                                        <div class="card-body bg-light" style="max-height: 400px; overflow-y: auto;">
+                                            <div v-html="formattedEngineeringQuestions" class="markdown-content"></div>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -3666,6 +3681,12 @@ async function toggleVoiceRecording(btnElement) {
       let recognition = null;
       const dictationTarget = ref(null);
       const isDictating = (obj, key) => isRecording.value && dictationTarget.value && dictationTarget.value.obj === obj && dictationTarget.value.key === key;
+
+      const isRecordingAIAgent = ref(false);
+      const isGeneratingQuestions = ref(false);
+      const engineeringQuestions = ref('');
+      let aiAgentMediaRecorder = null;
+      let aiAgentChunks = [];
 
       const isLoggedIn = ref(false); const loginPass = ref(''); const loginUser = ref(''); const loggingIn = ref(false); const currentUser = ref(''); const currentUsername = ref('');
       const currentRole = ref(''); // NUEVO: Estado para el rol del usuario
@@ -6219,6 +6240,78 @@ async function toggleVoiceRecording(btnElement) {
           }
       };
 
+      const toggleAIAgentRecording = async () => {
+          if (isRecordingAIAgent.value) {
+              if (aiAgentMediaRecorder) aiAgentMediaRecorder.stop();
+              isRecordingAIAgent.value = false;
+          } else {
+              try {
+                  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                  aiAgentMediaRecorder = new MediaRecorder(stream);
+                  aiAgentChunks = [];
+
+                  aiAgentMediaRecorder.ondataavailable = (e) => aiAgentChunks.push(e.data);
+                  aiAgentMediaRecorder.onstop = async () => {
+                      const blob = new Blob(aiAgentChunks, { type: 'audio/webm;codecs=opus' });
+                      stream.getTracks().forEach(track => track.stop());
+
+                      isGeneratingQuestions.value = true;
+
+                      const formData = new FormData();
+                      formData.append('file', blob, 'audio_agent.webm');
+
+                      try {
+                          const apiUrl = (typeof window.API_BASE_URL !== 'undefined' ? window.API_BASE_URL : '') + '/api/generate-engineering-questions';
+                          const response = await fetch(apiUrl, {
+                              method: 'POST',
+                              body: formData
+                          });
+                          const result = await response.json();
+
+                          if (result.success) {
+                              const existingText = workorderData.value.conceptoDesc || '';
+                              workorderData.value.conceptoDesc = existingText + (existingText ? "\n\n" : "") + result.transcription;
+                              engineeringQuestions.value = result.data || '';
+
+                              Swal.fire({
+                                  icon: 'success',
+                                  title: 'Análisis IA Completado',
+                                  text: 'Se han generado las preguntas técnicas basadas en tu audio.',
+                                  timer: 2500
+                              });
+                          } else {
+                              Swal.fire('Error IA', result.message || 'Error en el procesamiento', 'error');
+                          }
+                      } catch (e) {
+                          Swal.fire('Error de Conexión', e.message, 'error');
+                      } finally {
+                          isGeneratingQuestions.value = false;
+                      }
+                  };
+
+                  aiAgentMediaRecorder.start();
+                  isRecordingAIAgent.value = true;
+              } catch (err) {
+                  Swal.fire('Error', 'No se pudo acceder al micrófono: ' + err.message, 'error');
+              }
+          }
+      };
+
+      const formattedEngineeringQuestions = computed(() => {
+          if (!engineeringQuestions.value) return '';
+          let html = engineeringQuestions.value;
+          // Simple markdown to HTML conversion
+          html = html.replace(/^### (.*$)/gim, '<h6>$1</h6>');
+          html = html.replace(/^## (.*$)/gim, '<h5>$1</h5>');
+          html = html.replace(/^# (.*$)/gim, '<h4>$1</h4>');
+          html = html.replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>');
+          html = html.replace(/\*(.*?)\*/gim, '<em>$1</em>');
+          html = html.replace(/^\s*-\s(.*)/gim, '<ul><li>$1</li></ul>');
+          html = html.replace(/<\/ul>\n<ul>/gim, ''); // merge lists
+          html = html.replace(/\n/gim, '<br />');
+          return html;
+      });
+
       const syncReqToMat = (idx, text) => {
           while (requiredMaterials.value.items.length <= idx) {
               addMaterialItem();
@@ -6226,7 +6319,7 @@ async function toggleVoiceRecording(btnElement) {
           requiredMaterials.value.items[idx].description = text;
       };
 
-      return { focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
+      return { toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,
       showTimePopup, timePopupValue, openTimePopup, saveTimePopup,

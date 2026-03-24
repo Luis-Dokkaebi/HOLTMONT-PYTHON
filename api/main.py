@@ -11,10 +11,12 @@ from fastapi import UploadFile, File, Form
 # AI Utils
 try:
     from api.ai_utils import transcribir_audio, extraer_informacion
+    from api.engineering_agent import process_audio
 except ImportError:
     import sys
     sys.path.append("api")
     from ai_utils import transcribir_audio, extraer_informacion
+    from engineering_agent import process_audio
 
 # Services
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
@@ -177,6 +179,25 @@ async def api_transcribe_analyze(file: UploadFile = File(...), apiKey: Optional[
             "data": extraction_res["extraction"]
         }
 
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+@app.post("/api/generate-engineering-questions")
+async def api_generate_engineering_questions(file: UploadFile = File(...), apiKey: Optional[str] = Form(None)):
+    if apiKey:
+        os.environ["GROQ_API_KEY"] = apiKey
+
+    try:
+        content = await file.read()
+        result = process_audio(content, filename=file.filename)
+        if result.get("success"):
+            return {
+                "success": True,
+                "transcription": result["transcription"],
+                "data": result["questions"]
+            }
+        else:
+            return {"success": False, "message": result.get("message", "Error desconocido")}
     except Exception as e:
         return {"success": False, "message": str(e)}
 
