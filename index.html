@@ -4622,6 +4622,30 @@ async function toggleVoiceRecording(btnElement) {
           if (data.restricciones_horarios) workorderData.value.restricciones.horarios = data.restricciones_horarios;
           if (data.restricciones_especificidad) workorderData.value.restricciones.especificidad = data.restricciones_especificidad;
 
+          if (data.cotizacion_externa === true) {
+              Swal.fire({
+                  toast: true,
+                  position: 'top-end',
+                  icon: 'info',
+                  title: 'Aviso IA',
+                  text: 'La IA detectó que la cotización se enviará por Correo/WhatsApp. Se ha omitido el llenado de Recursos.',
+                  showConfirmButton: false,
+                  timer: 5000
+              });
+
+              // Vaciar las tablas/arreglos de Recursos
+              requiredMaterials.value.items = [];
+              laborTable.value.items = [];
+              toolsRequired.value.items = [];
+              specialEquipment.value.items = [];
+              viaticosTable.value.items = [];
+              transporteTable.value.items = [];
+              ingenieriaTable.value.items = [];
+
+              // Detener la inyección de recursos mapeados
+              return;
+          }
+
           // B. APPEND RESOURCES (Always, unless empty)
           
           // 1. Materials

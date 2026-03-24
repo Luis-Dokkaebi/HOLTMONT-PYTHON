@@ -15,11 +15,11 @@ class TestWorkOrderTemplate(unittest.TestCase):
         with open(filepath, 'r') as f:
             content = f.read()
 
-        # 1. Verify Main Description Button (Now using native dictation)
-        # It should call toggleDictation(workorderData, 'conceptoDesc')
-        main_desc_click = r'toggleDictation\(workorderData,\s*\'conceptoDesc\'\)'
+        # 1. Verify Main Description Button uses AI Agent Recording
+        # It should call toggleAIAgentRecording() for 'conceptoDesc'
+        main_desc_click = r'toggleAIAgentRecording\(\)'
         self.assertTrue(re.search(main_desc_click, content),
-                        "Main description button missing correct toggleDictation call.")
+                        "Main description button missing correct toggleAIAgentRecording call.")
 
         # 2. Verify Item Description Buttons (in loop)
         # It should call openAIQuoteModal(item, 'description')

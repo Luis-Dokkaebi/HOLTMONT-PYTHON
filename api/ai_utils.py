@@ -68,6 +68,11 @@ class ExtractionSchema(BaseModel):
         description="Resumen global técnico (Alcance general)."
     )
 
+    cotizacion_externa: bool = Field(
+        default=False,
+        description="Si detectas que la cotización se enviará por correo/WhatsApp, establece 'cotizacion_externa': true y deja las listas de recursos vacías. Si no se menciona, establécelo en false y extrae los recursos normalmente."
+    )
+
     # LISTAS PRINCIPALES
     programa_del_proyecto: List[ItemActividad] = Field(
         default_factory=list,
@@ -220,7 +225,8 @@ def extraer_informacion(api_key: str, texto: str) -> dict:
         fecha_actual = datetime.now().strftime("%d/%m/%Y")
         prompt = ChatPromptTemplate.from_messages([
             ("system", (
-                f"Hoy es {fecha_actual}. Eres un ingeniero de costos y proyectos."
+                f"Hoy es {fecha_actual}. Rol: Asistente virtual de Holtmont para el llenado del Pre Work order."
+                "\n\nTareas principales: Extraer toda la información relevante de la nota de voz sobre la visita de levantamiento y organizarla en un formato JSON estructurado."
                 "\n\nTU TAREA ES EXTRAER:"
                 "\n1. Datos del Cliente y Proyecto."
                 "\n2. Cronograma de actividades."
@@ -228,7 +234,8 @@ def extraer_informacion(api_key: str, texto: str) -> dict:
                 "\n4. Recursos (Herramientas, Equipo Ligero, EPP)."
                 "\n5. MANO DE OBRA / PERSONAL."
                 "\n6. RESTRICCIONES (Producción, Seguridad, Dificultad, Horarios)."
-                "\n\nREGLAS IMPORTANTES:"
+                "\n\nREGLA CRÍTICA: Debes identificar si la nota de voz indica que la cotización o presupuesto será enviada por correo electrónico o WhatsApp. Si se indica esto, NO ES NECESARIO extraer ni inventar apartados de Recursos. En su lugar, debes cambiar una bandera en tu respuesta."
+                "\n\nOTRAS REGLAS IMPORTANTES:"
                 "\n- Extrae UNICAMENTE la información presente en el texto."
                 "\n- Si el usuario NO menciona algún dato, DEJA LOS CAMPOS VACÍOS o las listas vacías."
                 "\n- NO INVENTES DATOS que no existen en la transcripción."
