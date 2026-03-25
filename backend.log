@@ -28,3 +28,22 @@ INFO:     127.0.0.1:59226 - "GET /api_service.js HTTP/1.1" 200 OK
 INFO:     127.0.0.1:59226 - "POST /api/login HTTP/1.1" 200 OK
 INFO:     127.0.0.1:59226 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
 INFO:     127.0.0.1:59226 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39892 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39892 - "GET /api_service.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39892 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39892 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39892 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33276 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33276 - "GET /api_service.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33276 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33276 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33276 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38754 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38754 - "GET /api_service.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38754 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38754 - "GET /api/config?role=WORKORDER_USER HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38754 - "GET /api/nextSeq HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [3632]
