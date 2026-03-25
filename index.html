@@ -4694,6 +4694,7 @@ async function toggleVoiceRecording(btnElement) {
 
       // AI ASSISTANT STATE
       const showAIModal = ref(false);
+      const aiApiKey = ref('');
       const isRecordingAI = ref(false);
       const aiProcessing = ref(false);
       const aiAudioBlob = ref(null);
