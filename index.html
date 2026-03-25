@@ -2003,6 +2003,61 @@
                     </div>
                 </div>
 
+                <!-- PREGUNTAS INTELIGENTES POSTERIORES A LA VISITA -->
+                <div class="mb-4">
+                    <div class="d-flex align-items-center p-2 rounded-top" style="background-color: #000; color: #fff; border: 1px solid #000;">
+                        <button class="btn btn-sm btn-dark border-secondary me-2 px-2 py-1"><i class="fas fa-chevron-down" style="font-size: 0.8rem;"></i></button>
+                        <h5 class="m-0 fw-bold d-flex align-items-center" style="font-size: 1.1rem; letter-spacing: 0.5px;">
+                            Preguntas Inteligentes Posteriores a la Visita
+                            <span class="ms-4 text-white" style="font-size: 1.1rem; letter-spacing: 0.5px; opacity: 0.9;">Smart Post-Field Questions</span>
+                        </h5>
+                        <div class="ms-auto bg-white p-1 rounded d-flex align-items-center justify-content-center">
+                            <i class="fas fa-lightbulb text-warning" style="font-size: 1.2rem;"></i>
+                        </div>
+                    </div>
+
+                    <div class="row g-0 border-start border-end border-bottom bg-white" style="border-color: #dee2e6;">
+                        <div class="col-md-8 p-3 pe-md-4">
+                            <div class="d-flex align-items-stretch mb-3">
+                                <div class="bg-dark text-white p-2 d-flex flex-column align-items-center justify-content-center text-center fw-bold me-2 rounded" style="width: 140px; font-size: 0.75rem; line-height: 1.2; border: 2px solid #000;">
+                                    Procesamiento<br>Automatico de<br>Texto de<br>Bitacora para<br>Generar<br>Preguntas
+                                </div>
+                                <div class="flex-grow-1 position-relative">
+                                    <!-- [MAPEO IA] TEXTAREA ID=sin-id VAR=workorderData.preguntasInteligentesTexto PROPOSITO=Integracion -->
+                                    <textarea v-model="workorderData.preguntasInteligentesTexto" class="form-control border-dark rounded w-100 h-100" placeholder="Espacio para el texto" style="resize: none; min-height: 100px; font-size: 1.2rem;"></textarea>
+                                </div>
+                            </div>
+
+                            <div class="d-flex align-items-stretch mb-3">
+                                <div class="bg-dark text-white p-2 d-flex flex-column align-items-center justify-content-center text-center fw-bold me-2 rounded position-relative" style="width: 140px; font-size: 0.8rem; line-height: 1.2; border: 2px solid #000;">
+                                    Preguntas<br>Adicional
+                                    <button class="btn btn-sm btn-warning mt-2 rounded-circle" @click.prevent="toggleDictation(workorderData, 'preguntasAdicionalesPosterioresTexto')" style="width: 25px; height: 25px; padding: 0; display: flex; align-items: center; justify-content: center;" title="Dictar alcance adicional">
+                                        <i class="fas" :class="isRecording && dictationTarget && dictationTarget.key === 'preguntasAdicionalesPosterioresTexto' ? 'fa-stop-circle fa-beat text-danger' : 'fa-microphone'" style="font-size: 0.7rem;"></i>
+                                    </button>
+                                </div>
+                                <div class="flex-grow-1 position-relative">
+                                    <!-- [MAPEO IA] TEXTAREA ID=sin-id VAR=workorderData.preguntasAdicionalesPosterioresTexto PROPOSITO=Integracion -->
+                                    <textarea v-model="workorderData.preguntasAdicionalesPosterioresTexto" class="form-control border-dark rounded w-100 h-100" placeholder="Espacio para el texto" style="resize: none; min-height: 100px; font-size: 1.2rem;"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4 p-3 d-flex flex-column">
+                            <div class="p-3 bg-white" style="border: 2px dashed #dc3545; border-radius: 4px; flex-grow: 1;">
+                                <p class="mb-2 text-dark" style="font-size: 0.85rem; line-height: 1.5;">
+                                    <span class="fw-bold fs-6">Función:</span><br>1.- Procesamiento en automático de los entregables de<br>la Bitacora Inteligente por voz para levantamiento de<br>voz por medio de Agente 1 y 2
+                                </p>
+                                <p class="mb-2 text-dark" style="font-size: 0.85rem; line-height: 1.5;">
+                                    <span class="fw-bold fs-6">Entregable:</span><br>2.- Generación de Preguntas derivadas de la Bitácora<br>Inteligente de Voz para levantamiento de cotización<br>derivadas de los entregable<br>3.- Texto por Agente 2 de estructuración inteligente<br>de Audio
+                                </p>
+                                <p class="mb-0 text-dark" style="font-size: 0.85rem; line-height: 1.5;">
+                                    <span class="fw-bold fs-6">Alcances Adicionales:</span><br>1.- Información adicional que se quiera agregar por parte<br>del cotizador
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="row g-4">
                     <!-- LEFT COL: CLIENT INFO -->
                     <div class="col-md-6">
@@ -6217,6 +6272,14 @@ async function toggleVoiceRecording(btnElement) {
             conceptoStr += `\n\n[ALCANCE ADICIONAL]\n${workorderData.value.alcanceAdicionalText}`;
         }
 
+        if (workorderData.value.preguntasInteligentesTexto) {
+            conceptoStr += `\n\n[PREGUNTAS INTELIGENTES POSTERIORES A LA VISITA]\n${workorderData.value.preguntasInteligentesTexto}`;
+        }
+
+        if (workorderData.value.preguntasAdicionalesPosterioresTexto) {
+            conceptoStr += `\n\n[PREGUNTAS ADICIONALES (POST VISITA)]\n${workorderData.value.preguntasAdicionalesPosterioresTexto}`;
+        }
+
         // Serialize Vehicle Control Data
         const vCtrl = vehicleControlData.value;
         if (Object.keys(vCtrl).length > 0) {
@@ -6342,7 +6405,9 @@ async function toggleVoiceRecording(btnElement) {
                       cotizacion_externa: false,
                       preguntasAdicionales: '',
                       estructuracionAudioText: '',
-                      alcanceAdicionalText: ''
+                      alcanceAdicionalText: '',
+                      preguntasInteligentesTexto: '',
+                      preguntasAdicionalesPosterioresTexto: ''
                         };
                         currentWorkorderId.value = null;
                     });
@@ -7023,6 +7088,7 @@ async function toggleVoiceRecording(btnElement) {
                               workorderData.value.estructuracionAudioText = existingAudioText + (existingAudioText ? "\n\n" : "") + result.transcription;
 
                               engineeringQuestions.value = result.data || '';
+                              workorderData.value.preguntasInteligentesTexto = result.data || '';
 
                               Swal.fire({
                                   icon: 'success',
