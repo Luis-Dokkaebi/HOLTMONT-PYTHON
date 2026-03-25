@@ -1,0 +1,20 @@
+--- index.html
++++ index.html
+@@ -6173,7 +6173,15 @@
+                     showExtraModal.value = false;
+                     workorderData.value = {
+                         cliente: '', planta: '', requisitor: '', newRequisitor: '', contactName: '', contacto: '', celular: '', fechaCotizacion: '', proyecto: '',
+                         cotizador: '', departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
+-                        prioridad: 'AAA - Alta Prioridad', conceptoDesc: ''
++                        prioridad: 'AAA - Alta Prioridad', conceptoDesc: '',
++                        checkList: { libreta: false, cinta: false, bernier: false, chaleco: false, laser: false, epp: false, casco: false, credencial: false, zapato: false, sua: false, lentes: false },
++                        restricciones: { produccion: '', seguridad: '', dificultad: '', horarios: '', especificidad: '' },
++                        files: [],
++                        designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] },
++                        cotizacion_externa: false,
++                        preguntasAdicionales: '',
++                        estructuracionAudioText: '',
++                        alcanceAdicionalText: ''
+                     };
+                     currentWorkorderId.value = null;
+                 } else {
