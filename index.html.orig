@@ -1867,7 +1867,7 @@
                     <div class="d-flex align-items-center p-2 rounded-top" style="background-color: #000; color: #fff; border: 1px solid #000;">
                         <button class="btn btn-sm btn-dark border-secondary me-2 px-2 py-1"><i class="fas fa-chevron-down" style="font-size: 0.8rem;"></i></button>
                         <h5 class="m-0 fw-bold d-flex align-items-center" style="font-size: 1.1rem; letter-spacing: 0.5px;">
-                            Preguntas Precargadas Previas a Visita (IA) 
+                            Preguntas Precargadas Previas a Visita (IA)
                             <span class="badge bg-light text-dark rounded-circle ms-2 me-2" style="font-size: 0.8rem; padding: 0.35em 0.55em;">3</span>
                             Pre-Visit Preloaded Questions
                         </h5>
@@ -1875,7 +1875,7 @@
                             <i class="fas fa-lightbulb text-warning" style="font-size: 1.2rem;"></i>
                         </div>
                     </div>
-                    
+
                     <div class="row g-0 border-start border-end border-bottom bg-white" style="border-color: #dee2e6;">
                         <div class="col-md-8 p-3 pe-md-4">
                             <!-- Procesamiento Automatico -->
@@ -1902,7 +1902,7 @@
                                     <textarea v-model="workorderData.preguntasAdicionales" class="form-control border-secondary rounded-end w-100 h-100" placeholder="Espacio para el texto" style="resize: none; min-height: 80px;"></textarea>
                                 </div>
                             </div>
-                            
+
                             <!-- Botones Inferiores -->
                             <div class="mt-4">
                                 <div class="bg-dark text-white px-3 py-1 fw-bold rounded-top" style="font-size: 0.85rem; border-bottom: 2px solid #000; display: inline-block;">
@@ -1916,7 +1916,7 @@
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div class="col-md-4 p-3 d-flex flex-column">
                             <div class="p-3 bg-white" style="border: 2px dashed #dc3545; border-radius: 4px; flex-grow: 1;">
                                 <p class="mb-0 text-muted" style="font-size: 0.85rem; line-height: 1.5;">
@@ -1934,7 +1934,7 @@
                         <h5 class="m-0 fw-bold d-flex align-items-center" style="font-size: 1.1rem; letter-spacing: 0.5px;">
                             Bitácora Inteligente por Voz para Levantamientos de Cotización
                             <span class="badge bg-light text-dark rounded-circle ms-4 me-2" style="font-size: 0.9rem; padding: 0.4em 0.6em;">4</span>
-                            Sistema de Registro de Inteligencia por Voz
+                            Voice Intelligence Logging System
                         </h5>
                         <div class="ms-auto bg-white p-1 rounded d-flex align-items-center justify-content-center">
                             <i class="fas fa-lightbulb text-warning" style="font-size: 1.2rem;"></i>
@@ -4067,7 +4067,7 @@
   // Initialize Google Script Run Adapter
   if (!window.google) window.google = {};
   if (!window.google.script) window.google.script = {};
-  
+
   try {
       if (!window.google.script.run) window.google.script.run = new GoogleScriptRunAdapter();
   } catch (e) {
@@ -4642,19 +4642,19 @@ async function toggleVoiceRecording(btnElement) {
       let aiMediaRecorder = null;
       let aiChunks = [];
 
-      const openAIQuoteModal = (targetObj = null, targetKey = null) => { 
+      const openAIQuoteModal = (targetObj = null, targetKey = null) => {
           console.log("Opening AI Modal", targetObj, targetKey);
           try {
               aiContext.value = (targetObj && targetKey) ? { obj: targetObj, key: targetKey } : null;
-              showAIModal.value = true; 
-              resetAI(); 
+              showAIModal.value = true;
+              resetAI();
           } catch (e) {
               console.error("Error opening AI Modal:", e);
               Swal.fire("Error Interno", "No se pudo abrir el modal: " + e.message, "error");
           }
       };
       const closeAIModal = () => { showAIModal.value = false; resetAI(); aiContext.value = null; };
-      
+
       const resetAI = () => {
           aiAudioBlob.value = null;
           aiAudioUrl.value = null;
@@ -4673,7 +4673,7 @@ async function toggleVoiceRecording(btnElement) {
                   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                   aiMediaRecorder = new MediaRecorder(stream);
                   aiChunks = [];
-                  
+
                   aiMediaRecorder.ondataavailable = (e) => aiChunks.push(e.data);
                   aiMediaRecorder.onstop = () => {
                       const blob = new Blob(aiChunks, { type: 'audio/wav' }); // or webm
@@ -4681,7 +4681,7 @@ async function toggleVoiceRecording(btnElement) {
                       aiAudioUrl.value = URL.createObjectURL(blob);
                       stream.getTracks().forEach(track => track.stop());
                   };
-                  
+
                   aiMediaRecorder.start();
                   isRecordingAI.value = true;
               } catch (err) {
@@ -4693,7 +4693,7 @@ async function toggleVoiceRecording(btnElement) {
       const processAIQuote = async () => {
           if (!aiAudioBlob.value) return;
           aiProcessing.value = true;
-          
+
           const formData = new FormData();
           formData.append('file', aiAudioBlob.value, 'audio_quote.wav');
           // formData.append('apiKey', '...'); // If we want to override from frontend, but better keep it backend env
@@ -4706,9 +4706,9 @@ async function toggleVoiceRecording(btnElement) {
                   body: formData
               });
               const result = await response.json();
-              
+
               aiProcessing.value = false;
-              
+
               if (result.success) {
                   mapAIResponseToForm(result.data, result.transcription);
                   closeAIModal();
@@ -4730,11 +4730,11 @@ async function toggleVoiceRecording(btnElement) {
       const mapAIResponseToForm = (data, transcription) => {
           // A. CONTEXTUAL MAPPING (Where to put the main text?)
           const mainText = data.descripcion_generica || transcription || '';
-          
+
           if (aiContext.value && aiContext.value.obj && aiContext.value.key) {
               // Target Specific Field (e.g. Program Row or Main Description)
               aiContext.value.obj[aiContext.value.key] = mainText;
-              
+
               // If context is Main Description, we ALSO fill global metadata
               if (aiContext.value.key === 'conceptoDesc') {
                   if (data.cliente) workorderData.value.cliente = data.cliente;
@@ -4744,8 +4744,8 @@ async function toggleVoiceRecording(btnElement) {
                       const type = workorderTypes.find(t => t.toUpperCase() === data.tipo_de_trabajo.toUpperCase());
                       if (type) workorderData.value.tipoTrabajo = type;
                   }
-                  // For main description, we might want to REPLACE lists or Append? 
-                  // Usually main dictation means "Here is the quote", so replace might be better? 
+                  // For main description, we might want to REPLACE lists or Append?
+                  // Usually main dictation means "Here is the quote", so replace might be better?
                   // But let's Append to be safe, or check if empty.
                   // For now: Append behavior is safer to avoid data loss.
               }
@@ -4792,7 +4792,7 @@ async function toggleVoiceRecording(btnElement) {
           }
 
           // B. APPEND RESOURCES (Always, unless empty)
-          
+
           // 1. Materials
           if (data.lista_materiales && data.lista_materiales.length) {
               data.lista_materiales.forEach(m => {
@@ -4932,17 +4932,17 @@ async function toggleVoiceRecording(btnElement) {
                   });
               });
           }
-          
+
           // 4. Timeline / Program (Only if Main Context or No Context, to avoid messing up when dictating a single row)
           if ((!aiContext.value || aiContext.value.key === 'conceptoDesc') && data.programa_del_proyecto && data.programa_del_proyecto.length) {
               // Append to 'visita' or similar
               data.programa_del_proyecto.forEach(act => {
                   projectProgram.value.visita.push({
                       description: act.descripcion,
-                      date: '', 
-                      duration: act.tiempo, 
-                      durationUnit: 'dias', 
-                      unit: '', quantity: '', price: '', total: 0, responsable: [] 
+                      date: '',
+                      duration: act.tiempo,
+                      durationUnit: 'dias',
+                      unit: '', quantity: '', price: '', total: 0, responsable: []
                   });
               });
           }
@@ -5527,14 +5527,14 @@ async function toggleVoiceRecording(btnElement) {
 
       const calculateDiasCounter = (row) => {
           // Permite ejecutar en cualquier hoja que tenga las columnas
-          // if (!staffTracker.value.name.toUpperCase().includes('ANTONIA_VENTAS')) return; 
-          
+          // if (!staffTracker.value.name.toUpperCase().includes('ANTONIA_VENTAS')) return;
+
           const hDias = staffTracker.value.headers.find(h => isCol(h, ['DIAS','RELOJ']));
           if (!hDias) return;
-          
+
           const hFecha = staffTracker.value.headers.find(h => isCol(h, ['FECHA','FECHA ALTA','ALTA','FECHA DE ALTA','FECHA INICIO','FECHA DE INICIO']));
           if (!hFecha || !row[hFecha]) return;
-          
+
           let dObj = null;
           const val = row[hFecha];
           if (val instanceof Date) dObj = val;
@@ -5586,11 +5586,11 @@ async function toggleVoiceRecording(btnElement) {
 
       const getHeaderLabel = (h) => { const up = String(h).toUpperCase().trim(); if (up === 'CLASIFICACION') return 'CLASI'; if (up === 'FECHA ESTIMADA DE FIN') return 'FEC. EST. FIN'; if (up === 'HORA ESTIMADA DE FIN') return 'HR. EST. FIN'; return h; };
       const isMediaColumn = (h) => ['F2','COTIZACION','COT','COTIZACIÓN','TIMEOUT','TIME OUT','LAYOUT','TIMELINE','INFO CLIENTE'].includes(String(h).toUpperCase());
-      const getTrafficStyle = (row) => { 
-          const t = String(row['CLASIFICACION']||'').trim().toUpperCase(); 
-          const d = parseInt(row['DIAS']||row['RELOJ']||0); 
-          if (isNaN(d)) return {}; 
-          
+      const getTrafficStyle = (row) => {
+          const t = String(row['CLASIFICACION']||'').trim().toUpperCase();
+          const d = parseInt(row['DIAS']||row['RELOJ']||0);
+          if (isNaN(d)) return {};
+
           let limit = 0, buffer = 0;
           if(t==='A') { limit=3; buffer=1; }
           else if(t==='AA') { limit=15; buffer=3; }
@@ -6212,10 +6212,6 @@ async function toggleVoiceRecording(btnElement) {
         let conceptoStr = workorderData.value.conceptoDesc || '';
         conceptoStr += `\n[TIPO: ${workorderData.value.tipoTrabajo || 'N/A'}]`;
         if (workorderData.value.tiempoEstimado) conceptoStr += ` [TIEMPO: ${workorderData.value.tiempoEstimado}]`;
-
-        if (workorderData.value.alcanceAdicionalText) {
-            conceptoStr += `\n\n[ALCANCE ADICIONAL]\n${workorderData.value.alcanceAdicionalText}`;
-        }
 
         // Serialize Vehicle Control Data
         const vCtrl = vehicleControlData.value;
@@ -7115,7 +7111,7 @@ function iniciarDictadoNativo(campoDestinoId) {
 
     // 2. Invocamos al espíritu del reconocimiento
     const recognition = new SpeechRecognition();
-    
+
     // Configuración del Jutsu
     recognition.lang = 'es-MX'; // Español de México (puedes cambiarlo a es-ES, etc.)
     recognition.continuous = false; // Se detiene cuando dejas de hablar
@@ -7125,11 +7121,11 @@ function iniciarDictadoNativo(campoDestinoId) {
     recognition.onstart = function() {
         // Aquí puedes cambiar el icono del micrófono a "Escuchando..." o ponerlo rojo
         // Ejemplo visual simple:
-        const btn = document.getElementById('btn-micro-' + campoDestinoId); 
-        if(btn) btn.style.color = 'red'; 
-        
+        const btn = document.getElementById('btn-micro-' + campoDestinoId);
+        if(btn) btn.style.color = 'red';
+
         // Usamos Toast de Google si está disponible, o un console.log
-        try { google.script.host.editor.focus(); } catch(e){} 
+        try { google.script.host.editor.focus(); } catch(e){}
         console.log("🎤 Escuchando... habla ahora.");
     };
 
@@ -7153,7 +7149,7 @@ function iniciarDictadoNativo(campoDestinoId) {
 
         // Obtenemos el texto sagrado
         const transcript = event.results[0][0].transcript;
-        
+
         // Capitalizamos la primera letra (estética ninja)
         const textoFinal = transcript.charAt(0).toUpperCase() + transcript.slice(1);
 
@@ -7174,7 +7170,7 @@ function iniciarDictadoNativo(campoDestinoId) {
 
     // ¡EJECUTAR!
     recognition.start();
-}  
+}
 </script>
 </body>
 </html>

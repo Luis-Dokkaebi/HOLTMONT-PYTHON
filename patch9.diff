@@ -1,0 +1,21 @@
+--- index.html
++++ index.html
+@@ -1954,7 +1954,7 @@
+                         <h5 class="m-0 fw-bold d-flex align-items-center" style="font-size: 1.1rem; letter-spacing: 0.5px;">
+                             Bitácora Inteligente por Voz para Levantamientos de Cotización
+                             <span class="badge bg-light text-dark rounded-circle ms-4 me-2" style="font-size: 0.9rem; padding: 0.4em 0.6em;">4</span>
+-                            Voice Intelligence Logging System
++                            Sistema de Registro de Inteligencia por Voz
+                         </h5>
+                         <div class="ms-auto bg-white p-1 rounded d-flex align-items-center justify-content-center">
+                             <i class="fas fa-lightbulb text-warning" style="font-size: 1.2rem;"></i>
+@@ -6289,6 +6289,10 @@
+         if (workorderData.value.tiempoEstimado) conceptoStr += ` [TIEMPO: ${workorderData.value.tiempoEstimado}]`;
+
++        if (workorderData.value.alcanceAdicionalText) {
++            conceptoStr += `\n\n[ALCANCE ADICIONAL]\n${workorderData.value.alcanceAdicionalText}`;
++        }
++
+         // Serialize Vehicle Control Data
+         const vCtrl = vehicleControlData.value;
+         if (Object.keys(vCtrl).length > 0) {
