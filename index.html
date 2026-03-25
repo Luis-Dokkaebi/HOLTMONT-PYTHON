@@ -2003,6 +2003,62 @@
                     </div>
                 </div>
 
+                <!-- PREGUNTAS INTELIGENTES POSTERIORES A LA VISITA (IA) -->
+                <div class="mb-4">
+                    <div class="d-flex align-items-center p-2 rounded-top" style="background-color: #000; color: #fff; border: 1px solid #000;">
+                        <button class="btn btn-sm btn-dark border-secondary me-2 px-2 py-1"><i class="fas fa-chevron-down" style="font-size: 0.8rem;"></i></button>
+                        <h5 class="m-0 fw-bold d-flex align-items-center" style="font-size: 1.1rem; letter-spacing: 0.5px;">
+                            Preguntas Inteligentes Posteriores a la Visita <span class="text-white-50 ms-3 fw-normal" style="font-size: 0.95rem;">Smart Post-Field Questions</span>
+                        </h5>
+                        <div class="ms-auto bg-white p-1 rounded d-flex align-items-center justify-content-center">
+                            <i class="fas fa-lightbulb text-warning" style="font-size: 1.2rem;"></i>
+                        </div>
+                    </div>
+
+                    <div class="row g-0 border-start border-end border-bottom bg-white" style="border-color: #dee2e6;">
+                        <div class="col-md-8 p-3 pe-md-4">
+                            <!-- Procesamiento Automatico -->
+                            <div class="d-flex align-items-stretch mb-3">
+                                <div class="bg-dark text-white p-2 d-flex flex-column align-items-center justify-content-center text-center fw-bold me-2 rounded position-relative" style="width: 140px; font-size: 0.8rem; line-height: 1.2; border: 2px solid #000;">
+                                    Procesamiento<br>Automatico de<br>Texto de<br>Bitacora para<br>Generar<br>Preguntas
+                                </div>
+                                <div class="flex-grow-1 position-relative">
+                                    <!-- [MAPEO IA] TEXTAREA ID=sin-id VAR=workorderData.preguntasPosterioresAutomaticas PROPOSITO=Integracion -->
+                                    <textarea v-model="workorderData.preguntasPosterioresAutomaticas" class="form-control border-dark rounded w-100 h-100" placeholder="Espacio para el texto" style="resize: none; min-height: 100px; font-size: 1.2rem;"></textarea>
+                                </div>
+                            </div>
+
+                            <!-- Preguntas Adicional -->
+                            <div class="d-flex align-items-stretch mb-3">
+                                <div class="bg-dark text-white p-2 d-flex flex-column align-items-center justify-content-center text-center fw-bold me-2 rounded position-relative" style="width: 140px; font-size: 0.8rem; line-height: 1.2; border: 2px solid #000;">
+                                    Preguntas<br>Adicional
+                                    <button class="btn btn-sm btn-warning mt-2 rounded-circle" @click.prevent="toggleDictation(workorderData, 'preguntasPosterioresAdicionales')" style="width: 25px; height: 25px; padding: 0; display: flex; align-items: center; justify-content: center;" title="Dictar preguntas adicionales">
+                                        <i class="fas" :class="isRecording && dictationTarget && dictationTarget.key === 'preguntasPosterioresAdicionales' ? 'fa-stop-circle fa-beat text-danger' : 'fa-microphone'" style="font-size: 0.7rem;"></i>
+                                    </button>
+                                </div>
+                                <div class="flex-grow-1 position-relative">
+                                    <!-- [MAPEO IA] TEXTAREA ID=sin-id VAR=workorderData.preguntasPosterioresAdicionales PROPOSITO=Integracion -->
+                                    <textarea v-model="workorderData.preguntasPosterioresAdicionales" class="form-control border-dark rounded w-100 h-100" placeholder="Espacio para el texto" style="resize: none; min-height: 100px; font-size: 1.2rem;"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4 p-3 d-flex flex-column">
+                            <div class="p-3 bg-white" style="border: 2px dashed #dc3545; border-radius: 4px; flex-grow: 1;">
+                                <p class="mb-2 text-dark" style="font-size: 0.85rem; line-height: 1.5;">
+                                    <span class="fw-bold fs-6">Función:</span><br>1.- Procesamiento en automático de los entregables de<br>la Bitacora Inteligente por voz para levantamiento de<br>voz por medio de Agente 1 y 2
+                                </p>
+                                <p class="mb-2 text-dark" style="font-size: 0.85rem; line-height: 1.5;">
+                                    <span class="fw-bold fs-6">Entregable:</span><br>2.- Generación de Preguntas derivadas de la Bitacora<br>Inteligente de Voz para levantamiento de cotización<br>derivadas de los entregable<br>3.- Texto por Agente 2 de estructuración inteligente<br>de Audio
+                                </p>
+                                <p class="mb-0 text-dark" style="font-size: 0.85rem; line-height: 1.5;">
+                                    <span class="fw-bold fs-6">Alcances Adicionales:</span><br>1.- Información adicional que se quiera agregar por parte<br>del cotizador
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="row g-4">
                     <!-- LEFT COL: CLIENT INFO -->
                     <div class="col-md-6">
@@ -4479,7 +4535,9 @@ async function toggleVoiceRecording(btnElement) {
           checkList: { libreta: false, cinta: false, bernier: false, chaleco: false, laser: false, epp: false, casco: false, credencial: false, zapato: false, sua: false, lentes: false },
           restricciones: { produccion: '', seguridad: '', dificultad: '', horarios: '', especificidad: '' },
           files: [],
-          designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] }
+          designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] },
+          preguntasPosterioresAutomaticas: '',
+          preguntasPosterioresAdicionales: ''
       });
       const workorderTypes = ['Construcción', 'Remodelación', 'Reparación', 'Mantenimiento', 'Reconfiguración', 'Póliza', 'Inspección'];
       const currentWorkorderId = ref(null);
