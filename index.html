@@ -4319,6 +4319,7 @@ async function toggleVoiceRecording(btnElement) {
   const app = createApp({
     setup() {
       // ESTADO GLOBAL
+      const aiApiKey = ref('');
       const isRecording = ref(false);
       let recognition = null;
       const dictationTarget = ref(null);
