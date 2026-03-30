@@ -204,8 +204,8 @@ def process_audio(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
     2. Runs the engineering multi-agent LangGraph workflow
     3. Returns both transcription and draft questions
     """
-    groq_api_key = os.environ.get("GROQ_API_KEY")
-    tavily_api_key = os.environ.get("TAVILY_API_KEY")
+    groq_api_key = os.environ.get("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")
+    tavily_api_key = os.environ.get("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")
 
     if not groq_api_key:
         return {"success": False, "message": "Falta GROQ_API_KEY en el entorno"}
