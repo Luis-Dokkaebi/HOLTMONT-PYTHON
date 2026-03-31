@@ -6,7 +6,9 @@ pydantic
 python-multipart
 groq
 langchain-groq
+langchain-community
 langgraph
+tavily-python
 pypdf
 ffmpeg-python
 streamlit
