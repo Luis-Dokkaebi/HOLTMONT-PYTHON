@@ -199,11 +199,7 @@ def transcribir_con_groq(api_key: str, audio_file_content: bytes, filename: str 
         return f"Error en transcripción: {str(e)}"
 
 def process_audio(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
-    """
-    1. Transcribes audio bytes to text
-    2. Runs the engineering multi-agent LangGraph workflow
-    3. Returns both transcription and draft questions
-    """
+    # Busca el NOMBRE de la variable, no el valor
     groq_api_key = os.environ.get("GROQ_API_KEY")
     tavily_api_key = os.environ.get("TAVILY_API_KEY")
 
