@@ -1,0 +1,16 @@
+<<<<<<< SEARCH
+                                <div class="flex-grow-1 border border-secondary p-3 bg-light rounded-end" style="min-height: 80px; overflow-y: auto;">
+                                    <h6 class="text-muted mb-0 fw-bold" v-if="!engineeringQuestions">Preguntas Precargadas</h6>
+                                    <div v-html="formattedEngineeringQuestions" class="markdown-content" v-if="engineeringQuestions"></div>
+                                </div>
+=======
+                                <div class="flex-grow-1 border border-secondary p-3 bg-light rounded-end position-relative" style="min-height: 80px; overflow-y: auto;">
+                                    <h6 class="text-muted mb-0 fw-bold" v-if="!engineeringQuestions">Preguntas Precargadas</h6>
+                                    <div v-html="formattedEngineeringQuestions" class="markdown-content" v-if="engineeringQuestions"></div>
+                                    <div class="position-absolute bottom-0 end-0 p-1 d-flex align-items-center bg-white border border-secondary rounded-top-start" style="font-size: 0.7rem; border-bottom: none; border-right: none;">
+                                        <span class="me-1 fw-bold text-muted">Lectura</span>
+                                        <div class="rounded-circle bg-danger me-1" style="width: 12px; height: 12px; border: 1px solid #333;"></div>
+                                        <div class="rounded-circle bg-success" style="width: 12px; height: 12px; border: 1px solid #333;"></div>
+                                    </div>
+                                </div>
+>>>>>>> REPLACE
