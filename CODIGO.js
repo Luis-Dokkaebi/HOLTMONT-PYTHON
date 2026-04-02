@@ -1434,10 +1434,13 @@ function apiSavePPCData(payload, activeUser) {
              const progItems = item.programa.map(p => ({
                  FOLIO: id,
                  ...p,
+                 FECHA_INICIO: p.fechaInicio || "",
+                 FECHA_ENTREGA: p.fechaEntrega || "",
+                 ARCHIVO: p.fileUrl || "",
                  SECCION: p.seccion || "",
                  ESTATUS: p.checkStatus || (p.isActive ? 'APPLY' : 'PENDING')
              }));
-             saveChildData(APP_CONFIG.woProgramSheet, progItems, ["FOLIO", "DESCRIPCION", "FECHA", "DURACION", "UNIDAD_DURACION", "UNIDAD", "CANTIDAD", "PRECIO", "TOTAL", "RESPONSABLE", "SECCION", "ESTATUS"]);
+             saveChildData(APP_CONFIG.woProgramSheet, progItems, ["FOLIO", "DESCRIPCION", "FECHA", "DURACION", "UNIDAD_DURACION", "UNIDAD", "CANTIDAD", "PRECIO", "TOTAL", "RESPONSABLE", "FECHA_INICIO", "FECHA_ENTREGA", "ARCHIVO", "SECCION", "ESTATUS"]);
           }
 
           // F. Detalles Extra (Checklist, Costos Adicionales) - JSON
