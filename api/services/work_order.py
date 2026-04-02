@@ -252,6 +252,10 @@ def process_and_save_work_order(items, active_user):
                 new_p["PRECIO"] = p.get("price", "")
                 new_p["TOTAL"] = p.get("total", "")
 
+                new_p["FECHA_INICIO"] = p.get("fechaInicio", "")
+                new_p["FECHA_ENTREGA"] = p.get("fechaEntrega", "")
+                new_p["ARCHIVO"] = p.get("fileUrl", "")
+
                 resp = p.get("responsable", "")
                 if isinstance(resp, list):
                     resp = ", ".join(resp)
@@ -263,7 +267,7 @@ def process_and_save_work_order(items, active_user):
                     new_p["ESTATUS"] = "BLOQUEADO_SIN_ARCHIVO"
 
                 prog_items.append(new_p)
-            save_child_data(WO_PROGRAM_SHEET, prog_items, ["FOLIO", "DESCRIPCION", "FECHA", "DURACION", "UNIDAD_DURACION", "UNIDAD", "CANTIDAD", "PRECIO", "TOTAL", "RESPONSABLE", "SECCION", "ESTATUS"])
+            save_child_data(WO_PROGRAM_SHEET, prog_items, ["FOLIO", "DESCRIPCION", "FECHA", "DURACION", "UNIDAD_DURACION", "UNIDAD", "CANTIDAD", "PRECIO", "TOTAL", "RESPONSABLE", "FECHA_INICIO", "FECHA_ENTREGA", "ARCHIVO", "SECCION", "ESTATUS"])
 
         # F. Viaticos
         if item.get("viaticos"):

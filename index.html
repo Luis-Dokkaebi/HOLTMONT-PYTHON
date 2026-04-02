@@ -2510,8 +2510,23 @@
                                         </div>
 
                                         <template v-if="item.isActive">
-                                            <div class="col-4 col-md-2 col-lg-2">
-                                                 <div class="input-group input-group-sm">
+                                            <div class="col-12 col-md-7 col-lg-7 d-flex gap-1 align-items-center">
+                                                <div class="position-relative">
+                                                     <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openRespDropdown(idx, item) PROPOSITO=Integracion -->
+<button class="btn btn-sm btn-outline-secondary py-0 px-2" @click="openRespDropdown(idx, item)" title="Responsables" style="font-size:10px;"><i class="fas fa-users"></i></button>
+                                                     <div v-if="projectRespDropdownOpen === idx" class="position-absolute bg-white border shadow-sm p-2 z-3" style="min-width: 150px; top:100%; left:0;">
+                                                          <div v-for="p in config.directory" :key="p.name" class="form-check form-check-sm mb-1">
+                                                              <!-- [MAPEO IA] INPUT ID=sin-id VAR=toggleProjectResponsable(item, p.name) PROPOSITO=Integracion -->
+<input class="form-check-input" type="checkbox" :checked="(item.responsable || []).includes(p.name)" @change="toggleProjectResponsable(item, p.name)">
+                                                              <label class="form-check-label small" style="font-size:10px;">{{ p.name }}</label>
+                                                          </div>
+                                                     </div>
+                                                </div>
+                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.fechaInicio PROPOSITO=Integracion -->
+<input type="date" v-model="item.fechaInicio" class="form-control form-control-sm px-1 text-center" title="Fecha Inicio" style="font-size: 11px; max-width: 100px;">
+                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.fechaEntrega PROPOSITO=Integracion -->
+<input type="date" v-model="item.fechaEntrega" class="form-control form-control-sm px-1 text-center" title="Fecha Entrega" style="font-size: 11px; max-width: 100px;">
+                                                 <div class="input-group input-group-sm" style="max-width: 80px;">
                                                      <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.duration PROPOSITO=Integracion -->
 <input type="number" v-model="item.duration" class="form-control px-1 text-center" placeholder="T" style="font-size: 11px;">
                                                      <select v-model="item.durationUnit" class="form-select px-0 text-center" style="font-size: 10px;">
@@ -2520,22 +2535,10 @@
                                                          <option value="semanas">Sem</option>
                                                      </select>
                                                  </div>
-                                            </div>
-                                            <div class="col-2 col-md-1 col-lg-1">
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.unit PROPOSITO=Integracion -->
-<input v-model="item.unit" class="form-control form-control-sm px-0 text-center" placeholder="Und" style="font-size: 11px;">
-                                            </div>
-                                            <div class="col-2 col-md-1 col-lg-1">
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.quantity PROPOSITO=Integracion -->
-<input type="number" v-model="item.quantity" @input="updateProjectRowTotal(item)" class="form-control form-control-sm px-0 text-center" placeholder="Cant" style="font-size: 11px;">
-                                            </div>
-                                            <div class="col-2 col-md-1 col-lg-1">
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.price PROPOSITO=Integracion -->
-<input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm px-0 text-center" placeholder="P.U." style="font-size: 11px;">
-                                            </div>
-                                            <div class="col-2 col-md-1 col-lg-1">
+                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.fileUrl PROPOSITO=Integracion -->
+<input v-model="item.fileUrl" class="form-control form-control-sm px-1" placeholder="URL Archivo Adjunto" style="font-size: 11px; max-width: 120px;">
                                                 <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.total PROPOSITO=Integracion -->
-<input v-model="item.total" class="form-control form-control-sm px-0 text-end fw-bold text-success bg-light" placeholder="Total" style="font-size: 11px;" readonly>
+<input type="number" v-model="item.total" class="form-control form-control-sm px-0 text-end fw-bold text-success bg-light" placeholder="Total" style="font-size: 11px; max-width: 70px;">
                                             </div>
                                         </template>
                                     </div>
@@ -2552,7 +2555,7 @@
                             <div v-for="(item, idx) in projectProgram.cotPreconstruccion" :key="idx" class="card mb-1 border-0 border-bottom bg-white" :style="{opacity: item.isActive ? 1 : 0.6}">
                                 <div class="card-body p-1">
                                     <div class="row g-2 align-items-center">
-                                        <div class="col-12 col-md-6 d-flex align-items-center gap-2">
+                                        <div class="col-12 col-lg-5 d-flex align-items-center gap-2">
                                              <div class="d-flex gap-2" style="min-width: 50px;">
                                                  <i class="fas fa-check-square fa-lg cursor-pointer" :class="item.checkStatus === 'APPLY' ? 'text-success' : 'text-muted opacity-50'" @click="setCheckStatus(item, 'APPLY')"></i>
                                                  <i class="fas fa-window-close fa-lg cursor-pointer" :class="item.checkStatus === 'NO_APPLY' ? 'text-danger' : 'text-muted opacity-50'" @click="setCheckStatus(item, 'NO_APPLY')"></i>
@@ -2560,23 +2563,23 @@
                                              <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.description PROPOSITO=Integracion -->
 <input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent fw-bold" style="font-size: 12px;">
                                         </div>
-                                        <div class="col-8 col-md-4">
-                                            <div style="position:relative; width: 100%;">
-                                                <div class="form-control form-control-sm p-1 text-center text-truncate" style="font-size: 10px; cursor:pointer; height: 28px;" @click="openRespDropdown('pre'+idx, item)">{{ Array.isArray(item.responsable) ? (item.responsable.length ? item.responsable[0].substring(0,8)+'...' : '-') : (item.responsable || '-') }}</div>
-                                                <div v-if="projectRespDropdownOpen === ('pre'+idx)" class="position-absolute bg-white border shadow rounded p-2" style="z-index: 1000; width: 250px; max-height: 200px; overflow-y: auto; right: 0;">
-                                                    <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-1"><small class="fw-bold">Resp:</small><!-- [MAPEO IA] BUTTON ID=sin-id VAR=N/A PROPOSITO=Integracion -->
-<button class="btn btn-sm btn-link p-0 text-secondary" @click.stop="projectRespDropdownOpen = null"><i class="fas fa-times"></i></button></div>
-                                                    <div v-for="p in (config.directory || config.staff)" :key="p.name" class="d-flex align-items-center p-1 rounded hover-bg-light" style="cursor:pointer;" @click.stop="toggleProjectResponsable(item, p.name)">
-                                                        <div class="form-check m-0"><!-- [MAPEO IA] INPUT ID=sin-id VAR=N/A PROPOSITO=Integracion -->
-<input class="form-check-input" type="checkbox" :checked="item.responsable.includes(p.name)" style="pointer-events: none;"><label class="form-check-label small ms-2" style="cursor:pointer;">{{ p.name }}</label></div>
-                                                    </div>
-                                                </div>
+                                        <template v-if="item.isActive">
+                                            <div class="col-12 col-md-7 col-lg-7 d-flex gap-1 align-items-center">
+                                                 <div class="input-group input-group-sm" style="max-width: 120px;">
+                                                     <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.duration PROPOSITO=Integracion -->
+<input type="number" v-model="item.duration" @input="updateProjectRowTotal(item)" class="form-control px-1 text-center" placeholder="Dias Hrs Trabajo" style="font-size: 11px;">
+                                                     <select v-model="item.durationUnit" class="form-select px-0 text-center" style="font-size: 10px;">
+                                                         <option value="dias">Días</option>
+                                                         <option value="horas">Hrs</option>
+                                                         <option value="semanas">Sem</option>
+                                                     </select>
+                                                 </div>
+                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.price PROPOSITO=Integracion -->
+<input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm text-end" placeholder="Costo $" style="font-size: 11px; max-width: 100px;">
+                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.total PROPOSITO=Integracion -->
+<input type="number" v-model="item.total" class="form-control form-control-sm px-0 text-end fw-bold text-success bg-light" placeholder="Total" style="font-size: 11px; max-width: 70px;" readonly>
                                             </div>
-                                        </div>
-                                        <div class="col-4 col-md-2">
-                                            <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.price PROPOSITO=Integracion -->
-<input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm text-end" placeholder="$ Cost" style="font-size: 11px;">
-                                        </div>
+                                        </template>
                                     </div>
                                 </div>
                             </div>
@@ -4687,26 +4690,26 @@ async function toggleVoiceRecording(btnElement) {
       // PROTOTYPES STATE
       // DEFAULTS FOR FIXED SECTIONS
       const defaultReqCotizacion = [
-          { description: 'Pre diseño Arquitectura para definir el cuarto 6x6 con 2 ventanas, doble puerta, y plafón', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'pre Diseño Eléctrico estudio de iluminación, calculo eléctrico para instalación de Equipo', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Pre Diseño de HVAC, calculo de cargas térmicas, tomado encuenta si la nave tiene clima', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Pre Analisis de Riesgo', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Precios Unitarios Gerente mapear la cotización', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Cotizador Jr Hvac', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Cotizador Jr Eléctrico', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Cotizador Jr Construcción', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 }
+          { description: 'Pre diseño Arquitectura para definir el cuarto 6x6 con 2 ventanas, doble puerta, y plafón', isActive: false, checkStatus: null, responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' },
+          { description: 'pre Diseño Eléctrico estudio de iluminación, calculo eléctrico para instalación de Equipo', isActive: false, checkStatus: null, responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' },
+          { description: 'Pre Diseño de HVAC, calculo de cargas térmicas, tomado encuenta si la nave tiene clima', isActive: false, checkStatus: null, responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' },
+          { description: 'Pre Analisis de Riesgo', isActive: false, checkStatus: null, responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' },
+          { description: 'Precios Unitarios Gerente mapear la cotización', isActive: false, checkStatus: null, responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' },
+          { description: 'Cotizador Jr Hvac', isActive: false, checkStatus: null, responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' },
+          { description: 'Cotizador Jr Eléctrico', isActive: false, checkStatus: null, responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' },
+          { description: 'Cotizador Jr Construcción', isActive: false, checkStatus: null, responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' }
       ];
       const defaultCotPreconstruccion = [
-          { description: 'Junta Preoperativa Work Order', isActive: false, checkStatus: null },
-          { description: 'Realizar cursos de seguridad', isActive: false, checkStatus: null },
-          { description: 'Realizar Analisis de Riesgo', isActive: false, checkStatus: null },
-          { description: 'Comprar de Materiales', isActive: false, checkStatus: null },
-          { description: 'Paquete de Herramientas para el proyecto / listado de herramien', isActive: false, checkStatus: null },
-          { description: 'logistica para llevar herramientas a la obra y materiales', isActive: false, checkStatus: null },
-          { description: 'logistica de trabajadoes a la obra', isActive: false, checkStatus: null },
-          { description: 'permismso de seguridad', isActive: false, checkStatus: null },
-          { description: 'sua', isActive: false, checkStatus: null },
-          { description: 'preparacion en sitio para arranque', isActive: false, checkStatus: null }
+          { description: 'Junta Preoperativa Work Order', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
+          { description: 'Realizar cursos de seguridad', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
+          { description: 'Realizar Analisis de Riesgo', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
+          { description: 'Comprar de Materiales', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
+          { description: 'Paquete de Herramientas para el proyecto / listado de herramien', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
+          { description: 'logistica para llevar herramientas a la obra y materiales', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
+          { description: 'logistica de trabajadoes a la obra', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
+          { description: 'permismso de seguridad', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
+          { description: 'sua', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
+          { description: 'preparacion en sitio para arranque', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 }
       ];
 
       const projectProgram = ref({
@@ -5111,7 +5114,7 @@ async function toggleVoiceRecording(btnElement) {
           if (idx > -1) item.responsable.splice(idx, 1);
           else item.responsable.push(name);
       };
-      const updateProjectRowTotal = (item) => { item.total = (parseFloat(item.quantity)||0) * (parseFloat(item.price)||0); };
+      const updateProjectRowTotal = (item) => { item.total = (parseFloat(item.quantity || item.duration)||0) * (parseFloat(item.price)||0); };
 
       // MANO DE OBRA STATE
       const laborTable = ref({ items: [{ category: 'Albañil', salary: '1200', personnel: '1', weeks: '1', overtime: '0', night: '0', weekend: '0', others: '0', total: 1200 }] });
@@ -6408,7 +6411,10 @@ async function toggleVoiceRecording(btnElement) {
                 CANTIDAD: i.quantity,
                 PRECIO: i.price,
                 TOTAL: i.total,
-                RESPONSABLE: Array.isArray(i.responsable) ? i.responsable.join(', ') : i.responsable
+                RESPONSABLE: Array.isArray(i.responsable) ? i.responsable.join(', ') : i.responsable,
+                FECHA_INICIO: i.fechaInicio,
+                FECHA_ENTREGA: i.fechaEntrega,
+                ARCHIVO: i.fileUrl
             })),
             checkList: JSON.parse(JSON.stringify(workorderData.value.checkList)),
             additionalCosts: JSON.parse(JSON.stringify(additionalCosts.value))
