@@ -2039,9 +2039,14 @@
                                 <div class="bg-dark text-white p-2 d-flex align-items-center justify-content-center text-center fw-bold me-2 rounded-start" style="width: 140px; font-size: 0.8rem; line-height: 1.2;">
                                     Procesamiento Automático de Preguntas
                                 </div>
-                                <div class="flex-grow-1 border border-secondary p-3 bg-light rounded-end" style="min-height: 80px; overflow-y: auto;">
-                                    <h6 class="text-muted mb-0 fw-bold" v-if="!engineeringQuestions">Preguntas Precargadas</h6>
+                                <div class="flex-grow-1 border border-secondary p-3 bg-light rounded-end position-relative" style="min-height: 80px; overflow-y: auto;">
+                                    <h6 class="text-muted mb-0 fw-bold text-dark" v-if="!engineeringQuestions" style="font-size: 1.2rem;">Preguntas Precargadas en Automático</h6>
                                     <div v-html="formattedEngineeringQuestions" class="markdown-content" v-if="engineeringQuestions"></div>
+                                    <div class="position-absolute bottom-0 end-0 p-1 mb-2 me-2 d-flex align-items-center bg-white" style="font-size: 0.75rem; border: 1px solid #999; border-radius: 2px;">
+                                        <span class="me-2 fw-bold text-dark" style="font-size: 0.8rem;">Lectura</span>
+                                        <div class="rounded-circle bg-danger me-1" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                        <div class="rounded-circle bg-success" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -2053,9 +2058,14 @@
                                         <i class="fas" :class="isDictating && dictationTarget === 'preguntasAdicionales' ? 'fa-stop-circle fa-beat text-danger' : 'fa-microphone'"></i>
                                     </button>
                                 </div>
-                                <div class="flex-grow-1 position-relative">
+                                <div class="flex-grow-1 position-relative d-flex flex-column">
                                     <!-- [MAPEO IA] TEXTAREA ID=sin-id VAR=workorderData.preguntasAdicionales PROPOSITO=Integracion -->
-                                    <textarea v-model="workorderData.preguntasAdicionales" class="form-control border-secondary rounded-end w-100 h-100" placeholder="Espacio para el texto" style="resize: none; min-height: 80px;"></textarea>
+                                    <textarea v-model="workorderData.preguntasAdicionales" class="form-control border-secondary rounded-end w-100 h-100" placeholder="Captura de Preguntas Adicionales de Cotizador" style="resize: none; min-height: 80px; font-size: 1.2rem;"></textarea>
+                                    <div class="position-absolute bottom-0 end-0 p-1 mb-2 me-2 d-flex align-items-center bg-white" style="font-size: 0.75rem; border: 1px solid #999; border-radius: 2px;">
+                                        <span class="me-2 fw-bold text-dark" style="font-size: 0.8rem;">Realizo</span>
+                                        <div class="rounded-circle bg-danger me-1" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                        <div class="rounded-circle bg-success" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                    </div>
                                 </div>
                             </div>
                             
@@ -2064,11 +2074,42 @@
                                 <div class="bg-dark text-white px-3 py-1 fw-bold rounded-top" style="font-size: 0.85rem; border-bottom: 2px solid #000; display: inline-block;">
                                     Scope del clientes y planos
                                 </div>
-                                <div class="d-flex gap-2 pt-2 border-top border-dark border-2 w-100" style="margin-top: -2px;">
-                                    <button class="btn btn-outline-secondary bg-light text-dark fw-bold btn-sm px-3" style="font-size: 0.75rem;" @click="triggerUpload('FOTOS')"><i class="fas fa-camera me-1"></i> FOTOS</button>
-                                    <button class="btn btn-outline-secondary bg-light text-dark fw-bold btn-sm px-3" style="font-size: 0.75rem;" @click="triggerUpload('VIDEOS')"><i class="fas fa-video me-1"></i> VIDEOS</button>
-                                    <button class="btn btn-outline-secondary bg-light text-dark fw-bold btn-sm px-3" style="font-size: 0.75rem;" @click="triggerUpload('LAYOUT_DIBUJO')"><i class="fas fa-drafting-compass me-1"></i> LAYOUT / DIBUJO <i class="fas fa-paperclip ms-1"></i></button>
-                                    <button class="btn btn-outline-secondary bg-light text-dark fw-bold btn-sm px-3" style="font-size: 0.75rem;" @click="triggerUpload('PLANOS')"><i class="fas fa-map me-1"></i> PLANOS <i class="fas fa-paperclip ms-1"></i></button>
+                                <div class="d-flex gap-4 pt-3 pb-3 border-top border-dark border-2 w-100" style="margin-top: -2px;">
+                                    <div class="position-relative" style="margin-bottom: 30px;">
+                                        <button class="btn btn-primary text-white fw-bold btn-sm px-4 py-2 position-relative d-flex align-items-center" style="font-size: 0.9rem; background-color: #5b9bd5; border-color: #333; z-index: 1;" @click="triggerUpload('FOTOS')">
+                                            Correo de Cliente
+                                        </button>
+                                        <div class="position-absolute top-100 start-50 translate-middle-x p-1 d-flex align-items-center bg-white" style="font-size: 0.75rem; border: 1px solid #999; border-radius: 2px; margin-top: -5px; z-index: 2;">
+                                            <span class="me-2 fw-bold text-dark" style="font-size: 0.8rem;">Lectura</span>
+                                            <div class="rounded-circle bg-danger me-1" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                            <div class="rounded-circle bg-success" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                            <i class="fas fa-paperclip ms-2 text-dark fs-5"></i>
+                                        </div>
+                                    </div>
+
+                                    <div class="position-relative" style="margin-bottom: 30px;">
+                                        <button class="btn btn-outline-secondary bg-white text-dark fw-bold btn-sm px-4 py-2 position-relative d-flex align-items-center" style="font-size: 0.9rem; border-color: #333; z-index: 1;" @click="triggerUpload('LAYOUT_DIBUJO')">
+                                            <i class="fas fa-map me-2"></i> PLANOS
+                                        </button>
+                                        <div class="position-absolute top-100 start-50 translate-middle-x p-1 d-flex align-items-center bg-white" style="font-size: 0.75rem; border: 1px solid #999; border-radius: 2px; margin-top: -5px; z-index: 2;">
+                                            <span class="me-2 fw-bold text-dark" style="font-size: 0.8rem;">Lectura</span>
+                                            <div class="rounded-circle bg-danger me-1" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                            <div class="rounded-circle bg-success" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                            <i class="fas fa-paperclip ms-2 text-dark fs-5"></i>
+                                        </div>
+                                    </div>
+
+                                    <div class="position-relative" style="margin-bottom: 30px;">
+                                        <button class="btn btn-primary text-white fw-bold btn-sm px-4 py-2 position-relative d-flex align-items-center" style="font-size: 0.9rem; background-color: #5b9bd5; border-color: #333; z-index: 1;" @click="triggerUpload('PLANOS')">
+                                            Scope del Trabajo
+                                        </button>
+                                        <div class="position-absolute top-100 start-50 translate-middle-x p-1 d-flex align-items-center bg-white" style="font-size: 0.75rem; border: 1px solid #999; border-radius: 2px; margin-top: -5px; z-index: 2;">
+                                            <span class="me-2 fw-bold text-dark" style="font-size: 0.8rem;">Lectura</span>
+                                            <div class="rounded-circle bg-danger me-1" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                            <div class="rounded-circle bg-success" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
+                                            <i class="fas fa-paperclip ms-2 text-dark fs-5"></i>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
