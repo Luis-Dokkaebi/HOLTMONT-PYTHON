@@ -7,7 +7,7 @@
                          <div class="position-relative">
                              <div class="input-group input-group-sm" @click="cotizadorSearchTop = ''">
                                  <span class="input-group-text bg-light"><i class="fas fa-user-tie text-muted"></i></span>
-                                 <input v-model="cotizadorSearchTop" class="form-control" placeholder="Buscar..." @focus="cotizadorSearchTop = ''">
+                                 <input v-model="cotizadorSearchTop" class="form-control" placeholder="Buscar..." @focus="cotizadorSearchTop = ''" @keyup.enter="if(cotizadorSearchTop.trim()) { addCotizadorTop(cotizadorSearchTop.trim()); }">
                              </div>
                              <ul class="list-group position-absolute w-100 shadow-sm" style="z-index: 1000; max-height: 200px; overflow-y: auto;" v-if="cotizadorSearchTop">
                                  <li v-for="p in filteredCotizadoresTop" :key="p.name" class="list-group-item list-group-item-action small py-1" style="cursor: pointer;" @click="addCotizadorTop(p.name)">
@@ -287,7 +287,7 @@
                                                 <span v-for="(name, idx) in workorderData.cotizador" :key="idx" class="user-chip">
                                                     {{ name }} <i class="fas fa-times ms-1 text-danger" style="cursor:pointer" @click.stop="removeCotizador(idx)"></i>
                                                 </span>
-                                                <input ref="cotizadorInput" v-model="cotizadorSearch" placeholder="Buscar..." style="border:none; outline:none; background:transparent; font-size: 0.8rem; flex: 1; min-width: 60px;">
+                                                <input ref="cotizadorInput" v-model="cotizadorSearch" placeholder="Buscar..." style="border:none; outline:none; background:transparent; font-size: 0.8rem; flex: 1; min-width: 60px;" @keyup.enter="if(cotizadorSearch.trim()) { addCotizador(cotizadorSearch.trim()); }">
                                             </div>
                                         </div>
                                         <ul class="list-group position-absolute shadow" style="z-index:100; max-height:200px; overflow:auto; width: 90%; margin-top: 2px;" v-if="cotizadorSearch && filteredCotizadores.length">
