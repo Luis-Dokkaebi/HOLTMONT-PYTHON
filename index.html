@@ -2493,54 +2493,41 @@
                         <!-- 2. REQUERIMIENTO PARA COTIZACION -->
                         <div class="mb-4">
                             <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-dark pb-1" style="background: #ffffcc;">
-                                <span class="fw-bold text-dark small text-uppercase ps-2">2. Requerimiento para Cotización</span>
+                                <span class="fw-bold text-dark small text-uppercase ps-2">2. REQUERIMIENTOS PRE DISEÑOS</span>
                                 <span class="fw-bold text-dark pe-2 small">Total: {{ formatCurrency(reqCotizacionTotal) }}</span>
                             </div>
-                            <div v-for="(item, idx) in projectProgram.reqCotizacion" :key="idx" class="card mb-1 border-0 border-bottom bg-white" :style="{opacity: item.isActive ? 1 : 0.6}">
-                                <div class="card-body p-1">
-                                    <div class="row g-1 align-items-center">
-                                        <div class="col-12 col-lg-5 d-flex align-items-center gap-2">
-                                             <div class="d-flex gap-1" style="min-width: 60px;">
-                                                 <i class="fas fa-check-square fa-lg cursor-pointer" :class="item.checkStatus === 'APPLY' ? 'text-success' : 'text-muted opacity-50'" @click="setCheckStatus(item, 'APPLY')"></i>
-                                                 <i class="fas fa-window-close fa-lg cursor-pointer" :class="item.checkStatus === 'NO_APPLY' ? 'text-danger' : 'text-muted opacity-50'" @click="setCheckStatus(item, 'NO_APPLY')"></i>
-                                                 <i class="fas fa-lg cursor-pointer ms-1" :class="isDictating(item, 'description') ? 'fa-stop text-danger' : 'fa-microphone text-primary opacity-75'" @click="toggleDictation(item, 'description')" title="Dictar"></i>
-                                             </div>
-                                             <!-- [MAPEO IA] INPUT ID='req-desc-' + idx VAR=item.description PROPOSITO=Integracion -->
-<input :id="'req-desc-' + idx" v-model="item.description" @input="syncReqToMat(idx, item.description)" class="form-control form-control-sm border-0 bg-transparent fw-bold" style="font-size: 12px;">
-                                        </div>
-
-                                        <template v-if="item.isActive">
-                                            <div class="col-12 col-md-7 col-lg-7 d-flex gap-1 align-items-center">
-                                                <div class="position-relative">
-                                                     <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openRespDropdown(idx, item) PROPOSITO=Integracion -->
-<button class="btn btn-sm btn-outline-secondary py-0 px-2" @click="openRespDropdown(idx, item)" title="Responsables" style="font-size:10px;"><i class="fas fa-users"></i></button>
-                                                     <div v-if="projectRespDropdownOpen === idx" class="position-absolute bg-white border shadow-sm p-2 z-3" style="min-width: 150px; top:100%; left:0;">
-                                                          <div v-for="p in config.directory" :key="p.name" class="form-check form-check-sm mb-1">
-                                                              <!-- [MAPEO IA] INPUT ID=sin-id VAR=toggleProjectResponsable(item, p.name) PROPOSITO=Integracion -->
-<input class="form-check-input" type="checkbox" :checked="(item.responsable || []).includes(p.name)" @change="toggleProjectResponsable(item, p.name)">
-                                                              <label class="form-check-label small" style="font-size:10px;">{{ p.name }}</label>
-                                                          </div>
-                                                     </div>
-                                                </div>
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.fechaInicio PROPOSITO=Integracion -->
-<input type="date" v-model="item.fechaInicio" class="form-control form-control-sm px-1 text-center" title="Fecha Inicio" style="font-size: 11px; max-width: 100px;">
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.fechaEntrega PROPOSITO=Integracion -->
-<input type="date" v-model="item.fechaEntrega" class="form-control form-control-sm px-1 text-center" title="Fecha Entrega" style="font-size: 11px; max-width: 100px;">
-                                                 <div class="input-group input-group-sm" style="max-width: 80px;">
-                                                     <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.duration PROPOSITO=Integracion -->
-<input type="number" v-model="item.duration" class="form-control px-1 text-center" placeholder="T" style="font-size: 11px;">
-                                                     <select v-model="item.durationUnit" class="form-select px-0 text-center" style="font-size: 10px;">
-                                                         <option value="dias">Días</option>
-                                                         <option value="horas">Hrs</option>
-                                                         <option value="semanas">Sem</option>
-                                                     </select>
-                                                 </div>
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.fileUrl PROPOSITO=Integracion -->
-<input v-model="item.fileUrl" class="form-control form-control-sm px-1" placeholder="URL Archivo Adjunto" style="font-size: 11px; max-width: 120px;">
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.total PROPOSITO=Integracion -->
-<input type="number" v-model="item.total" class="form-control form-control-sm px-0 text-end fw-bold text-success bg-light" placeholder="Total" style="font-size: 11px; max-width: 70px;">
-                                            </div>
-                                        </template>
+                            <div v-for="(item, idx) in projectProgram.reqCotizacion" :key="'req-'+idx" class="d-flex align-items-center mb-1 pb-1 border-bottom" :style="{opacity: item.isActive ? 1 : 0.6}">
+                                <div class="d-flex gap-1 align-items-center px-2" style="min-width: 50px;">
+                                    <div class="form-check m-0">
+                                        <input class="form-check-input shadow-none rounded-1" type="checkbox" :checked="item.checkStatus === 'APPLY'" @change="setCheckStatus(item, 'APPLY')" style="width: 16px; height: 16px; cursor: pointer;">
+                                    </div>
+                                    <div class="form-check m-0">
+                                        <input class="form-check-input shadow-none rounded-1" type="checkbox" :checked="item.checkStatus === 'NO_APPLY'" @change="setCheckStatus(item, 'NO_APPLY')" style="width: 16px; height: 16px; cursor: pointer;" :class="{'bg-danger border-danger': item.checkStatus === 'NO_APPLY'}">
+                                    </div>
+                                </div>
+                                <div class="fw-bold text-secondary text-truncate px-2" style="font-size: 12px; width: 35%;">
+                                    {{ item.description }}
+                                </div>
+                                <div class="flex-grow-1 px-2 d-flex align-items-center">
+                                    <!-- [MAPEO IA] INPUT ID='req-detail-' + idx VAR=item.detail PROPOSITO=Integracion -->
+<input :id="'req-detail-' + idx" v-model="item.detalle" class="form-control form-control-sm border rounded-1 shadow-none" style="font-size: 12px; height: 28px;">
+                                    <span class="mx-2 text-muted fw-bold">-</span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2 pe-2" style="min-width: 380px; justify-content: flex-end;">
+                                     <div class="input-group input-group-sm" style="width: 130px;">
+                                         <!-- [MAPEO IA] INPUT ID='req-duration-' + idx VAR=item.duration PROPOSITO=Integracion -->
+<input type="number" v-model="item.duration" @input="updateProjectRowTotal(item)" class="form-control text-center shadow-none border-dark" placeholder="Dias Hrs Trabajo" style="font-size: 11px; height: 28px;">
+                                     </div>
+                                    <div class="input-group input-group-sm" style="width: 100px;">
+                                        <!-- [MAPEO IA] INPUT ID='req-price-' + idx VAR=item.price PROPOSITO=Integracion -->
+<input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control text-center shadow-none border-dark" placeholder="Costo $" style="font-size: 11px; height: 28px;">
+                                    </div>
+                                    <div class="text-center" style="width: 25px;">
+                                        <!-- [MAPEO IA] BUTTON ID=sin-id VAR=removeProjectItem('reqCotizacion', idx) PROPOSITO=Integracion -->
+<i class="fas fa-trash-alt text-danger cursor-pointer" @click="removeProjectItem('reqCotizacion', idx)" title="Eliminar"></i>
+                                    </div>
+                                    <div class="text-end text-muted px-2" style="font-size: 12px; width: 90px;">
+                                        {{ item.total ? formatCurrency(item.total) : '$ Cost' }}
                                     </div>
                                 </div>
                             </div>
@@ -2549,37 +2536,41 @@
                         <!-- 3. COTIZACION PRECONSTRUCCION -->
                         <div class="mb-4">
                             <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-dark pb-1" style="background: #ffffcc;">
-                                <span class="fw-bold text-dark small text-uppercase ps-2">3. Cotización Preconstrucción</span>
+                                <span class="fw-bold text-dark small text-uppercase ps-2">3. COTIZACIÓN PRECONSTRUCCIÓN</span>
                                 <span class="fw-bold text-dark pe-2 small">Total: {{ formatCurrency(cotPreconstruccionTotal) }}</span>
                             </div>
-                            <div v-for="(item, idx) in projectProgram.cotPreconstruccion" :key="idx" class="card mb-1 border-0 border-bottom bg-white" :style="{opacity: item.isActive ? 1 : 0.6}">
-                                <div class="card-body p-1">
-                                    <div class="row g-2 align-items-center">
-                                        <div class="col-12 col-lg-5 d-flex align-items-center gap-2">
-                                             <div class="d-flex gap-2" style="min-width: 50px;">
-                                                 <i class="fas fa-check-square fa-lg cursor-pointer" :class="item.checkStatus === 'APPLY' ? 'text-success' : 'text-muted opacity-50'" @click="setCheckStatus(item, 'APPLY')"></i>
-                                                 <i class="fas fa-window-close fa-lg cursor-pointer" :class="item.checkStatus === 'NO_APPLY' ? 'text-danger' : 'text-muted opacity-50'" @click="setCheckStatus(item, 'NO_APPLY')"></i>
-                                             </div>
-                                             <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.description PROPOSITO=Integracion -->
-<input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent fw-bold" style="font-size: 12px;">
-                                        </div>
-                                        <template v-if="item.isActive">
-                                            <div class="col-12 col-md-7 col-lg-7 d-flex gap-1 align-items-center">
-                                                 <div class="input-group input-group-sm" style="max-width: 120px;">
-                                                     <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.duration PROPOSITO=Integracion -->
-<input type="number" v-model="item.duration" @input="updateProjectRowTotal(item)" class="form-control px-1 text-center" placeholder="Dias Hrs Trabajo" style="font-size: 11px;">
-                                                     <select v-model="item.durationUnit" class="form-select px-0 text-center" style="font-size: 10px;">
-                                                         <option value="dias">Días</option>
-                                                         <option value="horas">Hrs</option>
-                                                         <option value="semanas">Sem</option>
-                                                     </select>
-                                                 </div>
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.price PROPOSITO=Integracion -->
-<input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm text-end" placeholder="Costo $" style="font-size: 11px; max-width: 100px;">
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.total PROPOSITO=Integracion -->
-<input type="number" v-model="item.total" class="form-control form-control-sm px-0 text-end fw-bold text-success bg-light" placeholder="Total" style="font-size: 11px; max-width: 70px;" readonly>
-                                            </div>
-                                        </template>
+                            <div v-for="(item, idx) in projectProgram.cotPreconstruccion" :key="'cot-'+idx" class="d-flex align-items-center mb-1 pb-1 border-bottom" :style="{opacity: item.isActive ? 1 : 0.6}">
+                                <div class="d-flex gap-1 align-items-center px-2" style="min-width: 50px;">
+                                    <div class="form-check m-0">
+                                        <input class="form-check-input shadow-none rounded-1" type="checkbox" :checked="item.checkStatus === 'APPLY'" @change="setCheckStatus(item, 'APPLY')" style="width: 16px; height: 16px; cursor: pointer;">
+                                    </div>
+                                    <div class="form-check m-0">
+                                        <input class="form-check-input shadow-none rounded-1" type="checkbox" :checked="item.checkStatus === 'NO_APPLY'" @change="setCheckStatus(item, 'NO_APPLY')" style="width: 16px; height: 16px; cursor: pointer;" :class="{'bg-danger border-danger': item.checkStatus === 'NO_APPLY'}">
+                                    </div>
+                                </div>
+                                <div class="fw-bold text-secondary text-truncate px-2" style="font-size: 12px; width: 35%;">
+                                    {{ item.description }}
+                                </div>
+                                <div class="flex-grow-1 px-2 d-flex align-items-center">
+                                    <!-- [MAPEO IA] INPUT ID='cot-detail-' + idx VAR=item.detalle PROPOSITO=Integracion -->
+<input :id="'cot-detail-' + idx" v-model="item.detalle" class="form-control form-control-sm border rounded-1 shadow-none" style="font-size: 12px; height: 28px;">
+                                    <span class="mx-2 text-muted fw-bold">-</span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2 pe-2" style="min-width: 380px; justify-content: flex-end;">
+                                     <div class="input-group input-group-sm" style="width: 130px;">
+                                         <!-- [MAPEO IA] INPUT ID='cot-duration-' + idx VAR=item.duration PROPOSITO=Integracion -->
+<input type="number" v-model="item.duration" @input="updateProjectRowTotal(item)" class="form-control text-center shadow-none border-dark" placeholder="Dias Hrs Trabajo" style="font-size: 11px; height: 28px;">
+                                     </div>
+                                    <div class="input-group input-group-sm" style="width: 100px;">
+                                        <!-- [MAPEO IA] INPUT ID='cot-price-' + idx VAR=item.price PROPOSITO=Integracion -->
+<input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control text-center shadow-none border-dark" placeholder="Costo $" style="font-size: 11px; height: 28px;">
+                                    </div>
+                                    <div class="text-center" style="width: 25px;">
+                                        <!-- [MAPEO IA] BUTTON ID=sin-id VAR=removeProjectItem('cotPreconstruccion', idx) PROPOSITO=Integracion -->
+<i class="fas fa-trash-alt text-danger cursor-pointer" @click="removeProjectItem('cotPreconstruccion', idx)" title="Eliminar"></i>
+                                    </div>
+                                    <div class="text-end text-muted px-2" style="font-size: 12px; width: 90px;">
+                                        {{ item.total ? formatCurrency(item.total) : '$ Cost' }}
                                     </div>
                                 </div>
                             </div>
