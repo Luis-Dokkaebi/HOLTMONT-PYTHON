@@ -2624,8 +2624,8 @@
                                 </div>
                             </div>
 
-                            <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-danger pb-1">
-                                <span class="fw-bold text-danger small text-uppercase">Detalle de Actividades (Recursos)</span>
+                            <div class="d-flex justify-content-between align-items-center mb-2 bg-black text-white p-2 border-bottom border-danger">
+                                <span class="fw-bold fs-5">4. Catálogo de Conceptos ( Paso 4 )</span>
                                 <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addProjectItem('cotTrabajo') PROPOSITO=Integracion -->
 <button class="btn btn-danger btn-sm py-0 px-2 fw-bold" style="font-size: 10px;" @click="addProjectItem('cotTrabajo')"><i class="fas fa-plus"></i></button>
                             </div>
@@ -2633,53 +2633,42 @@
                                 <div class="card-body p-2">
                                     <div class="row g-2 align-items-center">
                                         <!-- Buttons (Resources) -->
-                                        <div class="col-12 col-lg-2 d-flex flex-wrap gap-1">
-                                            <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='MANO_OBRA' PROPOSITO=Integracion -->
+                                        <div class="col-12 col-lg-3">
+                                            <div class="text-center mb-1"><small class="fw-bold bg-white px-2 py-0 border rounded" style="font-size: 10px; margin-top:-10px; display:inline-block; position:relative; z-index:1;">Pop Up</small></div>
+                                            <div class="d-flex flex-wrap gap-1 p-1 border rounded" style="margin-top:-15px;">
+                                                <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='MANO_OBRA' PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-primary rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MANO_OBRA'">MO</button>
-                                            <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='HERRAMIENTAS' PROPOSITO=Integracion -->
+                                                <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='HERRAMIENTAS' PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-info text-white rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='HERRAMIENTAS'">Her</button>
-                                            <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='MATERIALES' PROPOSITO=Integracion -->
+                                                <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='MATERIALES' PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-success rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MATERIALES'">Mat</button>
-                                            <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='EQUIPOS' PROPOSITO=Integracion -->
+                                                <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='EQUIPOS' PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-warning text-dark rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='EQUIPOS'">Equ</button>
+                                            </div>
                                         </div>
 
                                         <!-- Description -->
-                                        <div class="col-12 col-md-5 col-lg-4">
+                                        <div class="col-12 col-md-5 col-lg-5">
                                             <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.description PROPOSITO=Integracion -->
 <input v-model="item.description" class="form-control form-control-sm fw-bold" placeholder="Descripción de Actividad">
                                         </div>
 
                                         <!-- Time -->
-                                        <div class="col-6 col-md-3 col-lg-2">
+                                        <div class="col-6 col-md-4 col-lg-2">
                                             <div class="input-group input-group-sm w-100">
+                                                <span class="input-group-text bg-light text-muted fw-bold">T</span>
                                                 <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.duration PROPOSITO=Integracion -->
-<input type="number" v-model="item.duration" class="form-control" placeholder="T">
-                                                <select v-model="item.durationUnit" class="form-select px-0 text-center" style="max-width: 50px;">
+<input type="number" v-model="item.duration" class="form-control" placeholder="">
+                                                <select v-model="item.durationUnit" class="form-select px-1 text-center" style="max-width: 60px;">
                                                     <option value="min">min</option>
-                                                    <option value="horas">hr</option>
-                                                    <option value="dias">d</option>
+                                                    <option value="horas">hrs</option>
+                                                    <option value="dias">días</option>
                                                 </select>
                                             </div>
                                         </div>
 
-                                        <!-- Resp -->
-                                        <div class="col-6 col-md-4 col-lg-2">
-                                            <div style="position:relative; width: 100%;">
-                                                <div class="form-control form-control-sm bg-light text-truncate" style="font-size: 0.75rem; cursor:pointer;" @click="openRespDropdown('work'+idx, item)">{{ Array.isArray(item.responsable) ? (item.responsable.length ? item.responsable.join(', ') : 'Resp...') : (item.responsable || 'Resp...') }}</div>
-                                                <div v-if="projectRespDropdownOpen === ('work'+idx)" class="position-absolute bg-white border shadow rounded p-2" style="z-index: 1000; width: 100%; min-width: 200px; max-height: 200px; overflow-y: auto;">
-                                                    <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-1"><small class="fw-bold">Seleccionar:</small><!-- [MAPEO IA] BUTTON ID=sin-id VAR=N/A PROPOSITO=Integracion -->
-<button class="btn btn-sm btn-link p-0 text-secondary" @click.stop="projectRespDropdownOpen = null"><i class="fas fa-times"></i></button></div>
-                                                    <div v-for="p in (config.directory || config.staff)" :key="p.name" class="d-flex align-items-center p-1 rounded hover-bg-light" style="cursor:pointer;" @click.stop="toggleProjectResponsable(item, p.name)">
-                                                        <div class="form-check m-0"><!-- [MAPEO IA] INPUT ID=sin-id VAR=N/A PROPOSITO=Integracion -->
-<input class="form-check-input" type="checkbox" :checked="item.responsable.includes(p.name)" style="pointer-events: none;"><label class="form-check-label small ms-2" style="cursor:pointer;">{{ p.name }}</label></div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
                                         <!-- Cost & Delete -->
-                                        <div class="col-12 col-lg-2 d-flex justify-content-between align-items-center">
+                                        <div class="col-6 col-lg-2 d-flex justify-content-between align-items-center">
                                             <div class="text-end me-2">
                                                 <small class="d-block text-muted" style="font-size: 9px;">Recursos</small>
                                                 <span class="fw-bold fs-6 text-primary">{{ formatCurrency(getActivityTotal(item.id)) }}</span>
@@ -3957,25 +3946,42 @@
 
   <!-- RESOURCE MANAGEMENT MODAL -->
   <div v-if="showResourceModal && currentActivityContext" class="custom-modal-overlay" style="z-index: 2000;">
-      <div class="custom-modal" style="width: 800px; max-width: 95vw; height: 80vh; display: flex; flex-direction: column;">
+      <div class="custom-modal" style="width: 800px; max-width: 95vw; height: 85vh; display: flex; flex-direction: column;">
           <div class="custom-modal-header bg-dark text-white">
               <div>
-                  <span class="fw-bold"><i class="fas fa-cubes me-2"></i>Recursos para: {{ currentActivityContext.description || 'Actividad Sin Nombre' }}</span>
+                  <span class="fw-bold"><i class="fas fa-cubes me-2"></i>Detalle de Actividad</span>
               </div>
               <!-- [MAPEO IA] BUTTON ID=sin-id VAR=showResourceModal = false PROPOSITO=Integracion -->
 <button type="button" class="btn-close btn-close-white" @click="showResourceModal = false"></button>
           </div>
-          <div class="p-2 bg-light border-bottom d-flex gap-2 overflow-auto">
-              <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'MANO_OBRA' PROPOSITO=Integracion -->
-<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'MANO_OBRA' ? 'btn-primary' : 'btn-outline-secondary'" @click="currentResourceTab = 'MANO_OBRA'">Mano de Obra</button>
-              <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'MATERIALES' PROPOSITO=Integracion -->
-<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'MATERIALES' ? 'btn-success' : 'btn-outline-secondary'" @click="currentResourceTab = 'MATERIALES'">Materiales</button>
-              <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'HERRAMIENTAS' PROPOSITO=Integracion -->
-<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'HERRAMIENTAS' ? 'btn-info text-white' : 'btn-outline-secondary'" @click="currentResourceTab = 'HERRAMIENTAS'">Herramientas</button>
-              <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'EQUIPOS' PROPOSITO=Integracion -->
-<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'EQUIPOS' ? 'btn-warning text-dark' : 'btn-outline-secondary'" @click="currentResourceTab = 'EQUIPOS'">Equipos</button>
-          </div>
           <div class="custom-modal-body bg-white flex-fill overflow-auto p-3">
+              <!-- ACTIVITY DETAILS & DICTATION -->
+              <div class="mb-4 border-bottom pb-3 border-2 border-danger">
+                  <div class="mb-3">
+                      <label class="form-label fw-bold">Descripción de Actividad</label>
+                      <input v-model="currentActivityContext.description" class="form-control" placeholder="Ej: Construccion de Pared de Block 10 x 3 m altura...">
+                  </div>
+                  <div class="mb-2 position-relative">
+                      <label class="form-label fw-bold text-muted small d-block">Dictado de Pared (Mano de obra, materiales, herramientas, equipos):</label>
+                      <textarea :id="'dictado-' + currentActivityContext.id" v-model="currentActivityContext.dictado" class="form-control shadow-sm" rows="3" placeholder="Dicta los detalles aquí..."></textarea>
+                      <button :id="'btn-micro-dictado-' + currentActivityContext.id" class="btn btn-danger btn-sm position-absolute rounded-circle shadow" style="bottom: 10px; right: 10px; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center;" @click="iniciarDictadoNativo('dictado-' + currentActivityContext.id)" title="Iniciar Dictado">
+                          <i class="fas fa-microphone"></i>
+                      </button>
+                  </div>
+              </div>
+
+              <!-- RESOURCE TABS -->
+              <div class="d-flex gap-2 mb-3">
+                  <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'MANO_OBRA' PROPOSITO=Integracion -->
+<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'MANO_OBRA' ? 'btn-primary' : 'btn-outline-secondary'" @click="currentResourceTab = 'MANO_OBRA'">MO</button>
+                  <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'HERRAMIENTAS' PROPOSITO=Integracion -->
+<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'HERRAMIENTAS' ? 'btn-info text-white' : 'btn-outline-secondary'" @click="currentResourceTab = 'HERRAMIENTAS'">Her</button>
+                  <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'MATERIALES' PROPOSITO=Integracion -->
+<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'MATERIALES' ? 'btn-success' : 'btn-outline-secondary'" @click="currentResourceTab = 'MATERIALES'">Mat</button>
+                  <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'EQUIPOS' PROPOSITO=Integracion -->
+<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'EQUIPOS' ? 'btn-warning text-dark' : 'btn-outline-secondary'" @click="currentResourceTab = 'EQUIPOS'">Equ</button>
+              </div>
+
               <!-- MANO DE OBRA -->
               <div v-if="currentResourceTab === 'MANO_OBRA'">
                   <div class="d-flex justify-content-end mb-2"><!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('MANO_OBRA') PROPOSITO=Integracion -->
@@ -5076,7 +5082,7 @@ async function toggleVoiceRecording(btnElement) {
               newRow = { description: '', isActive: true, checkStatus: 'APPLY', responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', fechaInicio2: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' };
           } else {
               // Unique ID for Cotización Trabajo rows to link resources
-              newRow = { id: Date.now() + Math.random().toString(16).slice(2), description: '', date: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, responsable: [] };
+              newRow = { id: Date.now() + Math.random().toString(16).slice(2), description: '', dictado: '', date: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, responsable: [] };
           }
           projectProgram.value[section].push(newRow);
       };
@@ -6334,6 +6340,13 @@ async function toggleVoiceRecording(btnElement) {
             conceptoStr += `\n\n[ALCANCE ADICIONAL]\n${workorderData.value.alcanceAdicionalText}`;
         }
 
+        // Append Dictation details from Work Catalog to Concepto string
+        projectProgram.value.cotTrabajo.forEach((trabajo, index) => {
+            if (trabajo.dictado && trabajo.dictado.trim() !== '') {
+                conceptoStr += `\n\n[DICTADO CONCEPTO ${index + 1}: ${trabajo.description || 'Sin Titulo'}]\n${trabajo.dictado.trim()}`;
+            }
+        });
+
         // Serialize Vehicle Control Data
         const vCtrl = vehicleControlData.value;
         if (Object.keys(vCtrl).length > 0) {
@@ -7214,7 +7227,7 @@ async function toggleVoiceRecording(btnElement) {
       dashboardCalendar, calendarLoading, calendarUserFilter, weekDays, currentMonthYearLabel, navigateCalendar, loadDashboardCalendar, getTasksForDay, getTaskColor, isTaskDone, animTaskHover, animTaskLeave, getResponsible,
       staffTrackerFilters, filteredStaffTrackerData, getUniqueValues,
       currentActivityContext, showResourceModal, currentResourceTab, openResourcePopup, addResourceToActivity, getActivityTotal, reqCotizacionTotal, cotPreconstruccionTotal, setCheckStatus,
-      showAIModal, isRecordingAI, aiProcessing, aiAudioBlob, aiAudioUrl, openAIQuoteModal, closeAIModal, toggleAIRecording, processAIQuote, resetAI };
+      showAIModal, isRecordingAI, aiProcessing, aiAudioBlob, aiAudioUrl, openAIQuoteModal, closeAIModal, toggleAIRecording, processAIQuote, resetAI, iniciarDictadoNativo };
     }
   });
   app.config.errorHandler = (err) => { console.error(err); Swal.fire({ icon: 'error', title: 'Error de Renderizado', text: 'Ocurrió un error visual: ' + err.message }); };
