@@ -47,13 +47,13 @@ class TestPreDisenos(unittest.TestCase):
             self.assertRegex(self.content, placeholder, f"No se encontró el placeholder {placeholder}")
 
     def test_default_data_structure(self):
-        """Verifica que el modelo por defecto ahora incluye fechaInicio2"""
-        # Busca el bloque de defaultReqCotizacion y verifica que tenga fechaInicio2
+        """Verifica que el modelo por defecto está vacío como se requirió"""
+        # Busca el bloque de defaultReqCotizacion y verifica que esté vacío
         default_data_block_match = re.search(r'const defaultReqCotizacion = \[(.*?)\];', self.content, re.DOTALL)
         self.assertIsNotNone(default_data_block_match, "No se encontró el bloque defaultReqCotizacion")
 
-        default_data = default_data_block_match.group(1)
-        self.assertIn("fechaInicio2: ''", default_data, "Falta el campo fechaInicio2 en defaultReqCotizacion")
+        default_data = default_data_block_match.group(1).strip()
+        self.assertEqual(default_data, "", "El bloque defaultReqCotizacion no está vacío")
 
     def test_add_remove_buttons(self):
         """Verifica que el botón de añadir y remover fila están presentes con la sintaxis correcta"""
