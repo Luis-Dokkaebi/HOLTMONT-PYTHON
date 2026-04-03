@@ -2560,7 +2560,10 @@
                         <!-- 3. COTIZACION PRECONSTRUCCION -->
                         <div class="mb-4">
                             <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-dark pb-1" style="background: #ffffcc;">
-                                <span class="fw-bold text-dark small text-uppercase ps-2">3. Cotización Preconstrucción</span>
+                                <div class="d-flex align-items-center">
+                                    <span class="fw-bold text-dark small text-uppercase ps-2">3. Cotización Preconstrucción</span>
+                                    <button class="btn btn-primary btn-sm py-0 px-2 fw-bold ms-2" style="font-size: 10px;" @click="addProjectItem('cotPreconstruccion')" title="Agregar Fila"><i class="fas fa-plus"></i></button>
+                                </div>
                                 <span class="fw-bold text-dark pe-2 small">Total: {{ formatCurrency(cotPreconstruccionTotal) }}</span>
                             </div>
                             <div v-for="(item, idx) in projectProgram.cotPreconstruccion" :key="idx" class="card mb-1 border-0 border-bottom bg-white" :style="{opacity: item.isActive ? 1 : 0.6}">
@@ -2574,23 +2577,23 @@
                                              <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.description PROPOSITO=Integracion -->
 <input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent fw-bold" style="font-size: 12px;">
                                         </div>
-                                        <template v-if="item.isActive">
-                                            <div class="col-12 col-md-7 col-lg-7 d-flex gap-1 align-items-center">
-                                                 <div class="input-group input-group-sm" style="max-width: 120px;">
-                                                     <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.duration PROPOSITO=Integracion -->
-<input type="number" v-model="item.duration" @input="updateProjectRowTotal(item)" class="form-control px-1 text-center" placeholder="Dias Hrs Trabajo" style="font-size: 11px;">
-                                                     <select v-model="item.durationUnit" class="form-select px-0 text-center" style="font-size: 10px;">
-                                                         <option value="dias">Días</option>
-                                                         <option value="horas">Hrs</option>
-                                                         <option value="semanas">Sem</option>
-                                                     </select>
-                                                 </div>
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.price PROPOSITO=Integracion -->
-<input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm text-end" placeholder="Costo $" style="font-size: 11px; max-width: 100px;">
-                                                <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.total PROPOSITO=Integracion -->
-<input type="number" v-model="item.total" class="form-control form-control-sm px-0 text-end fw-bold text-success bg-light" placeholder="Total" style="font-size: 11px; max-width: 70px;" readonly>
-                                            </div>
-                                        </template>
+                                        <!-- Columns always visible -->
+                                        <div class="col-12 col-md-7 col-lg-7 d-flex gap-2 align-items-center justify-content-end">
+                                             <input type="text" v-model="item.notes" class="form-control form-control-sm text-center" placeholder="-" style="font-size: 11px; max-width: 150px;">
+
+                                             <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.duration PROPOSITO=Integracion -->
+                                             <input type="number" v-model="item.duration" @input="updateProjectRowTotal(item)" class="form-control form-control-sm text-center border-dark rounded-0" placeholder="Dias Hrs Trabajo" style="font-size: 11px; max-width: 110px; border-width: 1.5px;">
+
+                                             <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.price PROPOSITO=Integracion -->
+                                             <input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm text-center border-dark rounded-0" placeholder="Costo $" style="font-size: 11px; max-width: 100px; border-width: 1.5px;">
+
+                                             <div class="d-flex flex-column align-items-center justify-content-center" style="min-width: 60px;">
+                                                 <button class="btn btn-danger btn-sm p-1 mb-1" @click="removeProjectItem('cotPreconstruccion', idx)" title="Eliminar" style="line-height: 1;">
+                                                     <i class="fas fa-trash-alt"></i>
+                                                 </button>
+                                                 <span class="text-muted small fw-bold" style="font-size: 10px;">{{ formatCurrency(item.total) }}</span>
+                                             </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -4711,16 +4714,16 @@ async function toggleVoiceRecording(btnElement) {
           { description: 'Cotizador Jr Construcción', isActive: false, checkStatus: null, responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', fechaInicio2: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' }
       ];
       const defaultCotPreconstruccion = [
-          { description: 'Junta Preoperativa Work Order', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
-          { description: 'Realizar cursos de seguridad', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
-          { description: 'Realizar Analisis de Riesgo', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
-          { description: 'Comprar de Materiales', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
-          { description: 'Paquete de Herramientas para el proyecto / listado de herramien', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
-          { description: 'logistica para llevar herramientas a la obra y materiales', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
-          { description: 'logistica de trabajadoes a la obra', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
-          { description: 'permismso de seguridad', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
-          { description: 'sua', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 },
-          { description: 'preparacion en sitio para arranque', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', total: 0 }
+          { description: 'Junta Interdisciplinaria', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' },
+          { description: 'Realizar cursos de seguridad', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' },
+          { description: 'Realizar Analisis de Riesgo', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' },
+          { description: 'Comprar de Materiales', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' },
+          { description: 'Paquete de Herramientas para el proyecto / listado de herramien', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' },
+          { description: 'logistica para llevar herramientas a la obra y materiales', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' },
+          { description: 'logistica de trabajadoes a la obra', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' },
+          { description: 'permismso de seguridad', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' },
+          { description: 'sua', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' },
+          { description: 'preparacion en sitio para arranque', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '' }
       ];
 
       const projectProgram = ref({
