@@ -1406,8 +1406,8 @@ function apiSavePPCData(payload, activeUser) {
 
           // B. Mano de Obra
           if (item.manoObra && item.manoObra.length > 0) {
-             const laborItems = item.manoObra.map(l => ({ FOLIO: id, ...l }));
-             saveChildData(APP_CONFIG.woLaborSheet, laborItems, ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "TOTAL"]);
+             const laborItems = item.manoObra.map(l => ({ FOLIO: id, UNIDAD: l.unit || "", ...l }));
+             saveChildData(APP_CONFIG.woLaborSheet, laborItems, ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "UNIDAD", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "TOTAL"]);
           }
 
           // C. Herramientas
