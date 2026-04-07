@@ -2800,6 +2800,8 @@
                          <h6 class="fw-bold mb-0 text-primary text-uppercase">MANO DE OBRA <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click="showLogic.labor = !showLogic.labor" title="Ver Lógica"></i></h6>
                          <div class="d-flex align-items-center gap-3">
                             <span class="fw-bold text-dark">Total: {{ formatCurrency(laborTotal) }}</span>
+                            <!-- [MAPEO IA] BUTTON ID=sin-id VAR=clearLaborTable PROPOSITO=Integracion -->
+<button class="btn btn-outline-danger btn-sm fw-bold" @click="clearLaborTable"><i class="fas fa-trash"></i> Limpiar Todo</button>
                             <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addLaborItem PROPOSITO=Integracion -->
 <button class="btn btn-primary btn-sm fw-bold" @click="addLaborItem"><i class="fas fa-plus"></i> Agregar</button>
                          </div>
@@ -2815,6 +2817,7 @@
                             <table class="table table-bordered mb-0 small align-middle bg-white">
                                 <thead class="table-light text-muted text-uppercase" style="font-size: 10px;">
                                     <tr>
+                                        <th style="width:40px"></th>
                                         <th style="width:40px" class="text-center">No.</th>
                                         <th>CATEGORÍA</th>
                                         <th class="text-center">SALARIO SEMANAL</th>
@@ -2828,11 +2831,11 @@
                                         <th class="text-center">COSTO x HORA</th>
                                         <th class="text-center">HRS REQUERIDAS</th>
                                         <th class="text-end">TOTAL</th>
-                                        <th style="width:40px"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-for="(item, idx) in laborTable.items" :key="idx">
+                                        <td class="text-center"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeLaborItem(idx)"></i></td>
                                         <td class="text-center fw-bold">{{ idx + 1 }}</td>
                                         <td><!-- [MAPEO IA] INPUT ID=sin-id VAR=item.category PROPOSITO=Integracion -->
 <input v-model="item.category" class="form-control form-control-sm border-0 bg-transparent" placeholder="Puesto" style="min-width: 120px;"></td>
@@ -2857,7 +2860,6 @@
                                         <td><!-- [MAPEO IA] INPUT ID='input-labor-horas_req-' + idx VAR=item.horas_req PROPOSITO=Integracion -->
 <input :id="'input-labor-horas_req-' + idx" type="number" v-model="item.horas_req" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0" style="min-width: 80px;"></td>
                                         <td class="fw-bold text-end" style="min-width: 80px;">{{ formatCurrency(item.total) }}</td>
-                                        <td class="text-center"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeLaborItem(idx)"></i></td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -5147,9 +5149,10 @@ async function toggleVoiceRecording(btnElement) {
       const updateProjectRowTotal = (item) => { item.total = (parseFloat(item.quantity || item.duration)||0) * (parseFloat(item.price)||0); };
 
       // MANO DE OBRA STATE
-      const laborTable = ref({ items: [{ category: 'Albañil', salary: '1200', personnel: '1', weeks: '1', unit: 'semana', overtime: '0', night: '0', weekend: '0', others: '0', total: 1200 }] });
+      const laborTable = ref({ items: [{ category: '', salary: '', personnel: '', weeks: '', unit: 'semana', overtime: '0', night: '0', weekend: '0', others: '0', total: 0 }] });
       const addLaborItem = () => laborTable.value.items.push({ category: '', salary: '', personnel: '', weeks: '', unit: 'semana', overtime: '0', night: '0', weekend: '0', others: '0', total: 0 });
       const removeLaborItem = (idx) => laborTable.value.items.splice(idx, 1);
+      const clearLaborTable = () => laborTable.value.items = [{ category: '', salary: '', personnel: '', weeks: '', unit: 'semana', overtime: '0', night: '0', weekend: '0', others: '0', total: 0 }];
       const updateLaborRowTotal = (item) => {
            const salary = parseFloat(item.salary) || 0;
            const personnel = parseFloat(item.personnel) || 0;
@@ -6468,6 +6471,7 @@ async function toggleVoiceRecording(btnElement) {
                         confirmButtonText: 'Aceptar'
                     }).then(() => {
                         // Reset Form
+                        clearLaborTable();
                         workorderData.value = {
                             cliente: '', planta: '', requisitor: '', newRequisitor: '', contactName: '', contacto: '', celular: '', fechaCotizacion: '', proyecto: '',
                             cotizador: [''], departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
@@ -7212,7 +7216,7 @@ async function toggleVoiceRecording(btnElement) {
       saveAllTrackerRows,
       showTimePopup, timePopupValue, openTimePopup, saveTimePopup,
       projectProgram, addProjectItem, removeProjectItem, updateProjectRowTotal,
-      laborTable, addLaborItem, removeLaborItem, updateLaborRowTotal, laborTableTotal, totalPersonnel, costPerWeekCrew, weeksRequired,
+      laborTable, addLaborItem, removeLaborItem, clearLaborTable, updateLaborRowTotal, laborTableTotal, totalPersonnel, costPerWeekCrew, weeksRequired,
       viaticosTable, addViaticosItem, removeViaticosItem, updateViaticosRowTotal, viaticosTotal,
       transporteTable, addTransporteItem, removeTransporteItem, transporteTotal,
       ingenieriaTable, addIngenieriaItem, removeIngenieriaItem, updateIngenieriaRowTotal,
