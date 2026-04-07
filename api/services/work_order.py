@@ -179,6 +179,7 @@ def process_and_save_work_order(items, active_user):
                 new_l["SALARIO"] = l.get("salary", "")
                 new_l["PERSONAL"] = l.get("personnel", "")
                 new_l["SEMANAS"] = l.get("weeks", "")
+                new_l["UNIDAD"] = l.get("unit", "")
                 new_l["EXTRAS"] = l.get("overtime", "")
                 new_l["NOCTURNO"] = l.get("night", "")
                 new_l["FIN_SEMANA"] = l.get("weekend", "")
@@ -188,7 +189,7 @@ def process_and_save_work_order(items, active_user):
                 new_l["HORAS_REQUERIDAS"] = l.get("horas_req", "")
                 new_l["TOTAL"] = l.get("total", "")
                 labor_items.append(new_l)
-            save_child_data(WO_LABOR_SHEET, labor_items, ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "EPP_6_PORCIENTO", "COSTO_HORA", "HORAS_REQUERIDAS", "TOTAL"])
+            save_child_data(WO_LABOR_SHEET, labor_items, ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "UNIDAD", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "EPP_6_PORCIENTO", "COSTO_HORA", "HORAS_REQUERIDAS", "TOTAL"])
 
         # C. Herramientas
         if item.get("herramientas"):

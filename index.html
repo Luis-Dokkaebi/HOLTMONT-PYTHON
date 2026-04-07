@@ -3992,7 +3992,7 @@
                   <div class="d-flex justify-content-end mb-2"><!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('MANO_OBRA') PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-primary" @click="addResourceToActivity('MANO_OBRA')"><i class="fas fa-plus"></i> Agregar Personal</button></div>
                   <table class="table table-bordered table-sm small">
-                      <thead class="table-light"><tr><th>Categoría</th><th>Salario</th><th>Pers</th><th>Sem</th><th>6% EPP</th><th>Costo x Hora</th><th>Hrs Req</th><th>Total</th><th></th></tr></thead>
+                      <thead class="table-light"><tr><th>Categoría</th><th>Sueldo</th><th>Pers</th><th>Tiempo</th><th>Unidad</th><th>6% EPP</th><th>Costo x Hora</th><th>Hrs Req</th><th>Total</th><th></th></tr></thead>
                       <tbody>
                           <tr v-for="(item, i) in laborTable.items.filter(x => x.activityId === currentActivityContext.id)" :key="i">
                               <td><!-- [MAPEO IA] INPUT ID=sin-id VAR=item.category PROPOSITO=Integracion -->
@@ -4003,6 +4003,13 @@
 <input type="number" v-model="item.personnel" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 text-center"></td>
                               <td><!-- [MAPEO IA] INPUT ID=sin-id VAR=item.weeks PROPOSITO=Integracion -->
 <input type="number" v-model="item.weeks" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 text-center"></td>
+                              <td>
+                                  <select v-model="item.unit" @change="updateLaborRowTotal(item)" class="form-select form-select-sm border-0 text-center px-1">
+                                      <option value="hora">Hr</option>
+                                      <option value="dia">Día</option>
+                                      <option value="semana">Sem</option>
+                                  </select>
+                              </td>
                               <td><!-- [MAPEO IA] INPUT ID='modal-input-labor-epp-' + i VAR=item.epp_6 PROPOSITO=Integracion -->
 <input :id="'modal-input-labor-epp-' + i" type="number" v-model="item.epp_6" @input="updateLaborRowTotal(item)" class="form-control form-control-sm border-0 text-center"></td>
                               <td><!-- [MAPEO IA] INPUT ID='modal-input-labor-costo_hora-' + i VAR=item.costo_hora PROPOSITO=Integracion -->
@@ -4927,6 +4934,7 @@ async function toggleVoiceRecording(btnElement) {
                       salary: p.salario_semanal ? String(p.salario_semanal).replace(/[^0-9.]/g, '') : '',
                       personnel: p.cantidad_personas,
                       weeks: p.semanas_cotizadas,
+                      unit: 'semana',
                       total: p.salario_neto ? String(p.salario_neto).replace(/[^0-9.]/g, '') : 0,
                       overtime: '0', night: '0', weekend: '0', others: '0',
                       epp_6: p.epp_6 || '0', costo_hora: p.costo_hora || '0', horas_req: p.horas_req || '0'
@@ -5098,7 +5106,7 @@ async function toggleVoiceRecording(btnElement) {
           } else if (type === 'HERRAMIENTAS') {
               toolsRequired.value.items.push({ quantity: '', unit: '', description: '', cost: '', total: 0, activityId: actId });
           } else if (type === 'MANO_OBRA') {
-              laborTable.value.items.push({ category: '', salary: '', personnel: '1', weeks: '1', overtime: '0', night: '0', weekend: '0', others: '0', total: 0, activityId: actId });
+              laborTable.value.items.push({ category: '', salary: '', personnel: '1', weeks: '1', unit: 'semana', overtime: '0', night: '0', weekend: '0', others: '0', total: 0, activityId: actId });
           } else if (type === 'EQUIPOS') {
               specialEquipment.value.items.push({ quantity: '1', unit: 'unidad', type: '', description: '', spec: '', days: '1', hours: '0', cost: '', total: 0, activityId: actId });
           }
@@ -5139,8 +5147,8 @@ async function toggleVoiceRecording(btnElement) {
       const updateProjectRowTotal = (item) => { item.total = (parseFloat(item.quantity || item.duration)||0) * (parseFloat(item.price)||0); };
 
       // MANO DE OBRA STATE
-      const laborTable = ref({ items: [{ category: 'Albañil', salary: '1200', personnel: '1', weeks: '1', overtime: '0', night: '0', weekend: '0', others: '0', total: 1200 }] });
-      const addLaborItem = () => laborTable.value.items.push({ category: '', salary: '', personnel: '', weeks: '', overtime: '0', night: '0', weekend: '0', others: '0', total: 0 });
+      const laborTable = ref({ items: [{ category: 'Albañil', salary: '1200', personnel: '1', weeks: '1', unit: 'semana', overtime: '0', night: '0', weekend: '0', others: '0', total: 1200 }] });
+      const addLaborItem = () => laborTable.value.items.push({ category: '', salary: '', personnel: '', weeks: '', unit: 'semana', overtime: '0', night: '0', weekend: '0', others: '0', total: 0 });
       const removeLaborItem = (idx) => laborTable.value.items.splice(idx, 1);
       const updateLaborRowTotal = (item) => {
            const salary = parseFloat(item.salary) || 0;
