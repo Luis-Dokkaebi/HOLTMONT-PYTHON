@@ -1679,7 +1679,11 @@
                          </datalist>
 
                          <div class="mt-3">
-                             <label class="small text-muted fw-bold mb-1">COTIZACION PRELIMINAR:</label>
+                             <label class="small text-muted fw-bold mb-1">COTIZACION PRELIMINAR: <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click="showLogic.cotizacionPreliminar = !showLogic.cotizacionPreliminar" title="Ver Lógica"></i></label>
+                             <div class="logic-card mb-3 position-relative" v-if="showLogic.cotizacionPreliminar">
+                                 <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showLogic.cotizacionPreliminar = false"></button>
+                                 Instrucción: El objetivo es tener preguntas precargadas basadas en el proyecto a realizar, lo cual se tomara en base al: nombre del proyecto a ir a cotizar, es responsabilidad del Departamento de Control de Presupuestos y Servicio al Cliente el de obterner lo más que se pueda de información previo a la visita para que se pueda precargar las preguntas realacionadas y ayude a la persona que haga el levantamiento a poder realizar preguntas que ayuden a estructurar una buena cotización
+                             </div>
                              <!-- [MAPEO IA] INPUT ID=sin-id VAR=vehicleControlData.cotizacion PROPOSITO=Integracion -->
 <input v-model="vehicleControlData.cotizacion" class="form-control text-danger fw-bold" placeholder="Ej: Cuarto de Metrología...">
                          </div>
@@ -4701,7 +4705,8 @@ async function toggleVoiceRecording(btnElement) {
           docs: false,
           vehicle: false,
           labor: false,
-          design: false
+          design: false,
+          cotizacionPreliminar: false
       });
 
       // SECTION VISIBILITY STATE
