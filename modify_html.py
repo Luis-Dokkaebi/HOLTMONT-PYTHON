@@ -1,42 +1,79 @@
-import re
+with open("index_backup.html", "r", encoding="utf-8") as f:
+    lines = f.readlines()
 
-html_content = open('index.html', 'r', encoding='utf-8').read()
+# The description section spans from line 2262 (<div class="card border-0 shadow-sm">)
+# up to line 2311 (</div> before <!-- Multimedia Section (Merged) -->)
+# Oh wait, the visual reference shows "Descripción del Trabajo" next to "Nombre de cotizador".
+# Let's extract the card-header and card-body (which contains the textarea and logic card).
+# It starts at:
+# <div class="card border-0 shadow-sm">
+#     <div class="card-header bg-dark text-white border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
+#         <h6 class="fw-bold mb-0"><i class="fas fa-robot me-2"></i>Descripción del Trabajo a Realizar...
+# and ends right before Multimedia Section.
 
-# Box 1
-search1 = """<div class="flex-grow-1 border border-secondary p-3 bg-light rounded-end" style="min-height: 80px; overflow-y: auto;">
-                                    <h6 class="text-muted mb-0 fw-bold" v-if="!engineeringQuestions">Preguntas Precargadas</h6>
-                                    <div v-html="formattedEngineeringQuestions" class="markdown-content" v-if="engineeringQuestions"></div>
-                                </div>"""
+desc_block = []
+in_desc = False
+start_idx = 0
+end_idx = 0
 
-replace1 = """<div class="flex-grow-1 border border-secondary p-3 bg-light rounded-end position-relative" style="min-height: 80px; overflow-y: auto;">
-                                    <h6 class="text-muted mb-0 fw-bold text-dark" v-if="!engineeringQuestions" style="font-size: 1.2rem;">Preguntas Precargadas en Automático</h6>
-                                    <div v-html="formattedEngineeringQuestions" class="markdown-content" v-if="engineeringQuestions"></div>
-                                    <div class="position-absolute bottom-0 end-0 p-1 mb-2 me-2 d-flex align-items-center bg-white" style="font-size: 0.75rem; border: 1px solid #999; border-radius: 2px;">
-                                        <span class="me-2 fw-bold text-dark" style="font-size: 0.8rem;">Lectura</span>
-                                        <div class="rounded-circle bg-danger me-1" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
-                                        <div class="rounded-circle bg-success" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
-                                    </div>
-                                </div>"""
+for i, line in enumerate(lines):
+    if '<!-- BOTTOM: DESCRIPTION & MEDIA -->' in line:
+        pass
+    if '<h6 class="fw-bold mb-0"><i class="fas fa-robot me-2"></i>Descripción del Trabajo a Realizar' in line:
+        # Step back to the <div class="card border-0 shadow-sm">
+        start_idx = i - 2
+        in_desc = True
 
-html_content = html_content.replace(search1, replace1)
+    if in_desc and '<!-- Multimedia Section (Merged) -->' in line:
+        # the closing divs for the row mb-4
+        end_idx = i - 1
+        break
 
-# Box 2
-search2 = """<div class="flex-grow-1 position-relative">
-                                    <!-- [MAPEO IA] TEXTAREA ID=sin-id VAR=workorderData.preguntasAdicionales PROPOSITO=Integracion -->
-                                    <textarea v-model="workorderData.preguntasAdicionales" class="form-control border-secondary rounded-end w-100 h-100" placeholder="Espacio para el texto" style="resize: none; min-height: 80px;"></textarea>
-                                </div>"""
+extracted_desc = lines[start_idx:end_idx]
+# Since we extracted up to the row mb-4 closing div, we need to add </div></div> for card-body and card
+extracted_desc.append("                            </div>\n")
+extracted_desc.append("                        </div>\n")
 
-replace2 = """<div class="flex-grow-1 position-relative d-flex flex-column">
-                                    <!-- [MAPEO IA] TEXTAREA ID=sin-id VAR=workorderData.preguntasAdicionales PROPOSITO=Integracion -->
-                                    <textarea v-model="workorderData.preguntasAdicionales" class="form-control border-secondary rounded-end w-100 h-100" placeholder="Captura de Preguntas Adicionales de Cotizador" style="resize: none; min-height: 80px; font-size: 1.2rem;"></textarea>
-                                    <div class="position-absolute bottom-0 end-0 p-1 mb-2 me-2 d-flex align-items-center bg-white" style="font-size: 0.75rem; border: 1px solid #999; border-radius: 2px;">
-                                        <span class="me-2 fw-bold text-dark" style="font-size: 0.8rem;">Realizo</span>
-                                        <div class="rounded-circle bg-danger me-1" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
-                                        <div class="rounded-circle bg-success" style="width: 15px; height: 15px; border: 1px solid #333;"></div>
-                                    </div>
-                                </div>"""
+# Now we need to remove this from the bottom
+lines_bottom_removed = lines[:start_idx] + lines[end_idx:]
 
-html_content = html_content.replace(search2, replace2)
+# Now insert it at the top, inside a row.
+# The top block starts at line 1661: <!-- NOMBRE DE COTIZADOR TOP -->
+# It goes to line 1692 (</div> before <!-- CHECKLIST VISITA -->)
 
-with open('index.html', 'w', encoding='utf-8') as f:
-    f.write(html_content)
+# Let's build the new top block
+top_start = -1
+top_end = -1
+for i, line in enumerate(lines_bottom_removed):
+    if "<!-- NOMBRE DE COTIZADOR TOP -->" in line:
+        top_start = i
+    if top_start != -1 and "<!-- CHECKLIST VISITA -->" in line:
+        top_end = i
+        break
+
+top_block_lines = lines_bottom_removed[top_start+1:top_end] # the card border-0 shadow-sm mb-4
+
+# Build new top section
+new_top_section = [
+    '                <!-- TOP ROW SECTION -->\n',
+    '                <div class="row mb-4">\n',
+    '                    <div class="col-md-6">\n',
+]
+new_top_section.extend(["                        " + l for l in top_block_lines])
+new_top_section.extend([
+    '                    </div>\n',
+    '                    <div class="col-md-6">\n',
+])
+# Clean indentation for extracted_desc
+for l in extracted_desc:
+    new_top_section.append("    " + l)
+new_top_section.extend([
+    '                    </div>\n',
+    '                </div>\n',
+])
+
+final_lines = lines_bottom_removed[:top_start] + new_top_section + lines_bottom_removed[top_end:]
+
+with open("index.html", "w", encoding="utf-8") as f:
+    f.writelines(final_lines)
+

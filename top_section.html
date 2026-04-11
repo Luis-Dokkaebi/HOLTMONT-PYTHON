@@ -1,0 +1,151 @@
+                                 <!-- [MAPEO IA] BUTTON ID=sin-id VAR=triggerUpload('VEHICULO_ANTES_GASOLINA') PROPOSITO=Integracion -->
+<button class="btn btn-sm btn-outline-secondary w-100 h-100 py-2" @click="triggerUpload('VEHICULO_ANTES_GASOLINA')"><i class="fas fa-camera me-1"></i> ANTES GASOLINA</button>
+                             </div>
+                             <div class="col-6 col-md-4">
+                                 <!-- [MAPEO IA] BUTTON ID=sin-id VAR=triggerUpload('VEHICULO_DESPUES_GASOLINA') PROPOSITO=Integracion -->
+<button class="btn btn-sm btn-outline-secondary w-100 h-100 py-2" @click="triggerUpload('VEHICULO_DESPUES_GASOLINA')"><i class="fas fa-camera me-1"></i> DESPUES GASOLINA</button>
+                             </div>
+
+                             <div class="col-12">
+                                 <label class="small fw-bold text-muted">Verificación de Ruta</label>
+                                 <!-- [MAPEO IA] INPUT ID=sin-id VAR=vehicleControlData.ruta PROPOSITO=Integracion -->
+<input v-model="vehicleControlData.ruta" class="form-control form-control-sm bg-light border-0" placeholder="de Oficina a Planta">
+                             </div>
+                             <div class="col-12">
+                                 <label class="small fw-bold text-muted">Verificación Vehículo</label>
+                                 <!-- [MAPEO IA] INPUT ID=sin-id VAR=vehicleControlData.verifVehiculo PROPOSITO=Integracion -->
+<input v-model="vehicleControlData.verifVehiculo" class="form-control form-control-sm bg-light border-0" placeholder="con Video">
+                             </div>
+                         </div>
+                    </div>
+                </div>
+
+                <!-- HEADER (MOVED DOWN) -->
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-center px-4 py-3 mb-4 rounded gap-3" style="background: #1c1c1c; color: white;">
+                    <div class="d-flex align-items-center mb-2 mb-md-0">
+                        <img src="https://drive.google.com/thumbnail?id=1tmNuwauWNjOhv0JwX6ug9pzvsrBCNX7z&sz=w1000" style="height:40px; margin-right:15px; filter: brightness(0) invert(1);">
+                        <div>
+                            <h4 class="fw-bold m-0" style="font-family: 'Roboto', sans-serif;">Holtmont Services</h4>
+                            <small style="letter-spacing: 2px; opacity: 0.7;">PRE WORK ORDER</small>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap justify-content-center justify-content-md-end gap-3 align-items-center">
+                        <!-- Folio Widget -->
+                        <div class="bg-dark rounded px-3 py-2 border border-secondary position-relative">
+                            <small class="d-block text-white" style="font-size: 10px;">FOLIO <i class="fas fa-info-circle text-info ms-1" title="Instr. El folio debe ayudar a identificar el trabajo, un número, el nombre del cliente, departamento días, mes y año"></i></small>
+                            <span class="fw-bold text-white">{{ currentWorkorderId || generatedFolio }}</span>
+                        </div>
+                        <!-- Date Widget -->
+                        <div class="bg-dark rounded px-3 py-2 border border-secondary">
+                            <small class="d-block text-white" style="font-size: 10px;">FECHA <i class="fas fa-info-circle text-info ms-1" title="En automático se pasa al folio"></i></small>
+                            <span class="fw-bold text-white">{{ new Date().toLocaleDateString() }}</span>
+                        </div>
+                        <!-- Delivery Date Widget -->
+                        <div class="bg-dark rounded px-3 py-2 border border-secondary">
+                            <small class="d-block text-white" style="font-size: 10px;">FECHA DE ENTREGA</small>
+                            <!-- [MAPEO IA] INPUT ID=sin-id VAR=workorderData.fechaEntrega PROPOSITO=Integracion -->
+<input type="date" v-model="workorderData.fechaEntrega" class="bg-transparent border-0 text-white p-0 fw-bold" style="font-size: 13px; width: 110px;">
+                        </div>
+                        <!-- Priority -->
+                        <select v-model="workorderData.prioridad" class="btn btn-success fw-bold border-0" :class="{'bg-danger': workorderData.prioridad.includes('Alta'), 'bg-warning text-dark': workorderData.prioridad.includes('Media')}">
+                            <option value="AAA - Alta Prioridad">AAA - Alta Prioridad</option>
+                            <option value="AA - Media Prioridad">AA - Media Prioridad</option>
+                            <option value="A - Baja Prioridad">A - Baja Prioridad</option>
+                        </select>
+                        <!-- [MAPEO IA] BUTTON ID=sin-id VAR=goHome PROPOSITO=Integracion -->
+<button class="btn btn-outline-secondary btn-sm ms-2" @click="goHome">Cerrar</button>
+                    </div>
+                </div>
+
+                <div class="row g-4">
+                    <!-- LEFT COL: CLIENT INFO -->
+                    <div class="col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-light border-0 pt-3 ps-3">
+                                <h6 class="fw-bold text-primary mb-0"><i class="fas fa-building me-2"></i>Información del Cliente</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Nombre de Cliente</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-industry text-muted"></i></span>
+                                            <!-- [MAPEO IA] INPUT ID=sin-id VAR=workorderData.cliente PROPOSITO=Integracion -->
+<input v-model="workorderData.cliente" class="form-control" placeholder="Ej: Corning Optical...">
+                                        </div>
+                                        <div class="d-flex align-items-center mt-1">
+                                            <i class="fas fa-info-circle text-muted" style="cursor:pointer" @click="showInstr.client = !showInstr.client" :class="{'text-info': showInstr.client}" title="Ver Instrucción"></i>
+                                            <small v-if="showInstr.client" class="logic-inline ms-2 my-0 animate__animated animate__fadeIn">Instr: en automatico se va al folio</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Número de Proyecto Cliente o RFQ</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-hashtag text-muted"></i></span>
+                                            <!-- [MAPEO IA] INPUT ID=sin-id VAR=workorderData.proyecto PROPOSITO=Integracion -->
+<input v-model="workorderData.proyecto" class="form-control" placeholder="RFQ-XXXXX">
+                                        </div>
+                                        <div class="d-flex align-items-center mt-1">
+                                            <i class="fas fa-info-circle text-muted" style="cursor:pointer" @click="showInstr.rfq = !showInstr.rfq" :class="{'text-info': showInstr.rfq}" title="Ver Instrucción"></i>
+                                            <small v-if="showInstr.rfq" class="logic-inline ms-2 my-0 animate__animated animate__fadeIn">Instr: sirve para la comunicación con el cliente con su RFQ para que lo identifique el cliente</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Fecha de Entrega de Cotización</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-calendar-alt text-muted"></i></span>
+                                            <!-- [MAPEO IA] INPUT ID=sin-id VAR=workorderData.fechaCotizacion PROPOSITO=Integracion -->
+<input type="date" v-model="workorderData.fechaCotizacion" class="form-control">
+                                        </div>
+                                        <div class="d-flex align-items-center mt-1">
+                                            <i class="fas fa-info-circle text-muted" style="cursor:pointer" @click="showInstr.date = !showInstr.date" :class="{'text-info': showInstr.date}" title="Ver Instrucción"></i>
+                                            <small v-if="showInstr.date" class="logic-inline ms-2 my-0 animate__animated animate__fadeIn">Instr: se iria a sistema de Cotizaciones en automático</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Requisitor</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-user-tie text-muted"></i></span>
+                                            <!-- [MAPEO IA] INPUT ID=sin-id VAR=workorderData.newRequisitor PROPOSITO=Integracion -->
+<input v-model="workorderData.newRequisitor" class="form-control" placeholder="Nombre requisitor">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Contacto</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-user text-muted"></i></span>
+                                            <!-- [MAPEO IA] INPUT ID=sin-id VAR=workorderData.contactName PROPOSITO=Integracion -->
+<input v-model="workorderData.contactName" class="form-control" placeholder="Nombre contacto">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small text-muted fw-bold mb-1">Correo Electrónico</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-envelope text-muted"></i></span>
+                                            <!-- [MAPEO IA] INPUT ID=sin-id VAR=workorderData.contacto PROPOSITO=Integracion -->
+<input v-model="workorderData.contacto" class="form-control" placeholder="email@empresa.com">
+                                        </div>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="small text-muted fw-bold mb-1">Teléfono</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-phone text-muted"></i></span>
+                                            <!-- [MAPEO IA] INPUT ID=sin-id VAR=workorderData.celular PROPOSITO=Integracion -->
+<input v-model="workorderData.celular" class="form-control" placeholder="+52 ...">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT COL: WORK TYPE -->
+                    <div class="col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-light border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
+                                <h6 class="fw-bold text-primary mb-0"><i class="fas fa-tools me-2"></i>Tipo de Trabajo <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click="showLogic.workType = !showLogic.workType" title="Ver Lógica"></i></h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="logic-card mb-3 position-relative" v-if="showLogic.workType">
+                                    <!-- [MAPEO IA] BUTTON ID=sin-id VAR=showLogic.workType = false PROPOSITO=Integracion -->
+<button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showLogic.workType = false"></button>
