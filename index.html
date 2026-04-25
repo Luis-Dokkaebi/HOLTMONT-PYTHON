@@ -4423,7 +4423,56 @@ async function toggleVoiceRecording(btnElement) {
 
       const isLoggedIn = ref(false); const loginPass = ref(''); const loginUser = ref(''); const loggingIn = ref(false); const currentUser = ref(''); const currentUsername = ref('');
       const currentRole = ref(''); // NUEVO: Estado para el rol del usuario
-      const currentView = ref('DASHBOARD'); const currentDept = ref('');
+      const currentView = ref('DASHBOARD');
+
+                // Pascal Editor variables
+                const pascalEditorUrl = Vue.ref('http://localhost:3000'); // URL local/vercel
+                const iframeLoaded = Vue.ref(false);
+                const design3DStatus = Vue.ref('PENDING'); // 'PENDING', 'SAVED', 'ERROR'
+                const saved3DProjectData = Vue.ref(null);
+
+                const onIframeLoaded = () => {
+                  iframeLoaded.value = true;
+                  console.log("Iframe de Pascal Editor ha sido cargado en el DOM.");
+                  setTimeout(() => {
+                      if (saved3DProjectData.value) {
+                        console.log("Enviando diseño existente al iFrame para su renderización...");
+                        const iframe = document.getElementById('pascal-editor-iframe');
+                        if (iframe && iframe.contentWindow) {
+                          iframe.contentWindow.postMessage({
+                            type: 'HOLTMONT_3D_IMPORT',
+                            projectData: typeof saved3DProjectData.value === 'string' ? JSON.parse(saved3DProjectData.value) : saved3DProjectData.value
+                          }, '*');
+                        }
+                      }
+                  }, 1500);
+                };
+
+                Vue.onMounted(() => {
+                  window.addEventListener('message', (event) => {
+                    const data = event.data;
+                    if (data && data.type === 'HOLTMONT_3D_EXPORT') {
+                      console.log('Recibiendo datos de arquitectura de Pascal Editor (PostMessage)', data);
+                      saved3DProjectData.value = data.data;
+                      design3DStatus.value = 'SAVED';
+
+                      if (window.Swal) {
+                          Swal.fire({
+                            icon: 'success',
+                            title: 'Diseño Capturado con Éxito',
+                            text: 'El diseño 3D se ha adjuntado a la memoria. Se guardará permanentemente cuando presiones Guardar Work Order.',
+                            timer: 3500,
+                            showConfirmButton: false,
+                            position: 'top-end',
+                            toast: true
+                          });
+                      } else {
+                          alert('Diseño Capturado con éxito y listo para ser guardado.');
+                      }
+                    }
+                  });
+                });
+ const currentDept = ref('');
       const config = ref({ departments: {}, staff: [], directory: [], specialModules: [] });
       const staffTracker = ref({ name: '', data: [], history: [], headers: [], isLoading: false, previousView: 'DEPT' });
       const staffTrackerFilters = ref({});
@@ -7229,6 +7278,7 @@ async function toggleVoiceRecording(btnElement) {
       };
 
       return { aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
+      pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,
       showTimePopup, timePopupValue, openTimePopup, saveTimePopup,

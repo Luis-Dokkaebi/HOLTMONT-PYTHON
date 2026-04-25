@@ -2,3 +2,4 @@ __pycache__/
 .pytest_cache/
 uvicorn.log
 .env
+pascal_editor_fork/
