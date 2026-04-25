@@ -1,6 +1,6 @@
 # Guía de Arquitectura e Integración Completa: Pascal Editor y REAL-HOLTMONT
 
-Este documento constituye la guía definitiva, detallada y paso a paso para lograr la integración entre nuestra plataforma de cotizaciones (REAL-HOLTMONT, construida en Vue.js y FastAPI) y el **Pascal Editor** (una potente herramienta open-source de diseño arquitectónico 3D en la nube construida en React, Next.js, React Three Fiber y WebGPU).
+Este documento constituye la guía definitiva, detallada y paso a paso para lograr la integración entre nuestra plataforma de cotizaciones (REAL-HOLTMONT, construida en Vue.js y FastAPI) y el **Pascal Editor** (una potente herramienta open-source de diseño arquitectónico 3D en la nube construida en React, Next.js, React Three Fiber y WebGPU). 
 
 El objetivo principal de esta integración es proporcionar a los cotizadores y clientes una interfaz visual, alojada en una "vista separada", que permita realizar "Pre-Diseños". El gran reto resuelto en este documento es la **comunicación segura y asíncrona (extracción de datos)** entre el iframe que contiene el Pascal Editor y nuestra aplicación principal, lo cual permitirá almacenar el JSON arquitectónico directamente en la base de datos de Work Orders de Google Sheets.
 
@@ -29,7 +29,7 @@ La plataforma de Pascal Editor está basada en Next.js. Funciona de manera autó
 
 ### ¿Por qué la estrategia de iFrame + Fork?
 
-Las restricciones de seguridad "Same-Origin Policy" (SOP) dictaminadas por los navegadores modernos impiden que una página web primaria (nuestro Vue.js) extraiga el DOM, las variables o el almacenamiento interno de un iFrame si este proviene de un dominio diferente.
+Las restricciones de seguridad "Same-Origin Policy" (SOP) dictaminadas por los navegadores modernos impiden que una página web primaria (nuestro Vue.js) extraiga el DOM, las variables o el almacenamiento interno de un iFrame si este proviene de un dominio diferente. 
 
 **Mala práctica:** Intentar hacer un `iframe.contentWindow.document.getElementById(...)`. Esto lanzará un error de CORS inmediatamente.
 **Solución adoptada:** Un esquema de **Mensajería Bidireccional Segura** usando el API nativa de la web `window.postMessage`. Para que el iFrame pueda enviar estos mensajes, es OBLIGATORIO que tengamos control sobre su código fuente. Por eso, alojar el repositorio de Pascal Editor bajo nuestra propia cuenta y modificarlo es el único camino viable.
@@ -55,7 +55,7 @@ Para comenzar la integración real, lo primero es aislar el código fuente de Pa
    # Cambiar TU_USUARIO por el usuario de la cuenta que hizo el fork
    git clone https://github.com/TU_USUARIO/pascal-editor-holtmont.git
    cd pascal-editor-holtmont
-
+   
    # Pascal Editor usa un gestor de paquetes (puede ser pnpm, yarn o npm, revisa su documentación)
    # Asumiendo npm:
    npm install
@@ -93,20 +93,20 @@ import { useStore } from '../../store/useStore'; // IMPORTANTE: Ajustar ruta al 
 
 export const HoltmontExportButton: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
-
+  
   // Extraemos la función o el estado completo de la arquitectura
   // Zustand normalmente permite obtener todo el estado usando getState() o un selector
   const getFullProjectState = useStore((state) => state.exportProjectJSON);
-
+  
   const handleExport = useCallback(() => {
     setIsExporting(true);
-
+    
     try {
       // 1. Obtener la serialización JSON del edificio actual
       // Si la función exportProjectJSON no existe, puede que necesites extraer estado por estado:
       // const projectData = { walls: state.walls, floors: state.floors, ... };
       const projectData = getFullProjectState();
-
+      
       // 2. Preparar el payload de comunicación segura
       const payload = {
         type: 'HOLTMONT_3D_EXPORT',
@@ -114,12 +114,12 @@ export const HoltmontExportButton: React.FC = () => {
         version: '1.0',
         timestamp: new Date().toISOString()
       };
-
+      
       // 3. Enviar mensaje asíncrono al componente "Padre" (nuestro Vue.js en index.html)
       // Usamos "*" temporalmente para dev, pero en PROD debe ser "https://nuestro-dominio-holtmont.com"
       // window.parent hace referencia a la ventana que contiene el iFrame
       window.parent.postMessage(payload, '*');
-
+      
       // Feedback visual
       alert('Diseño exportado correctamente a REAL-HOLTMONT');
     } catch (error) {
@@ -131,7 +131,7 @@ export const HoltmontExportButton: React.FC = () => {
   }, [getFullProjectState]);
 
   return (
-    <button
+    <button 
       onClick={handleExport}
       disabled={isExporting}
       style={{
@@ -173,14 +173,14 @@ export default function AppLayout({ children }) {
       // Validar origen por seguridad (Descomentar en producción)
       // const allowedOrigins = ["https://tu-sitio-vue.com", "http://localhost:8000"];
       // if (!allowedOrigins.includes(event.origin)) return;
-
+      
       if (event.data && event.data.type === 'HOLTMONT_3D_IMPORT') {
         console.log('Recibiendo payload de diseño desde base de datos Holtmont', event.data.projectData);
-
+        
         try {
           // Asumiendo que el store tiene una función loadProjectJSON
           // useStore.getState().loadProjectJSON(event.data.projectData);
-
+          
           // O si es usando acciones expuestas:
           const actions = useStore.getState().actions;
           if (actions && actions.loadProject) {
@@ -196,7 +196,7 @@ export default function AppLayout({ children }) {
 
     // Suscribir al evento 'message' global
     window.addEventListener('message', handleIncomingMessage);
-
+    
     // Cleanup function: desuscribirse cuando el componente se desmonte
     return () => window.removeEventListener('message', handleIncomingMessage);
   }, []);
@@ -234,7 +234,7 @@ En la sección donde se renderizan las vistas basadas en `v-if` (probablemente d
 ```html
 <!-- VISTA DEL EDITOR PASCAL 3D -->
 <div v-if="currentView === 'PASCAL_DESIGNER'" class="pascal-designer-view h-100 p-3">
-
+  
   <!-- Header de la vista -->
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h2><i class="fas fa-pencil-ruler text-primary me-2"></i> Pre-Diseños 3D Arquitectónicos</h2>
@@ -242,7 +242,7 @@ En la sección donde se renderizan las vistas basadas en `v-if` (probablemente d
       <button class="btn btn-outline-secondary me-3 shadow-sm" @click="currentView = 'WORKORDER_FORM'">
         <i class="fas fa-arrow-left"></i> Volver a Work Order
       </button>
-
+      
       <!-- Indicadores visuales de estado del diseño -->
       <span class="badge bg-success p-2 text-white shadow-sm" v-if="design3DStatus === 'SAVED'">
         <i class="fas fa-check-circle me-1"></i> Diseño Anexado a Work Order
@@ -255,11 +255,11 @@ En la sección donde se renderizan las vistas basadas en `v-if` (probablemente d
       </span>
     </div>
   </div>
-
+  
   <!-- Contenedor Principal del IFrame -->
   <div class="card shadow border-0 h-100" style="border-radius: 12px; overflow: hidden;">
     <div class="card-body p-0 m-0" style="height: 85vh; min-height: 700px; position: relative;">
-
+      
       <!-- Overlay de Pantalla de carga mientras levanta el iFrame -->
       <div v-if="!iframeLoaded" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center bg-light z-index-2">
         <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
@@ -270,9 +270,9 @@ En la sección donde se renderizan las vistas basadas en `v-if` (probablemente d
       </div>
 
       <!-- El Iframe en sí. Apuntando a tu fork alojado y referenciado reactivamente -->
-      <iframe
+      <iframe 
         id="pascal-editor-iframe"
-        :src="pascalEditorUrl"
+        :src="pascalEditorUrl" 
         style="width: 100%; height: 100%; border: none; display: block;"
         @load="onIframeLoaded"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; webgl"
@@ -293,7 +293,7 @@ Dentro del `<script>` del `index.html`, en la función `setup()` de Vue. Debes a
 // ==========================================
 
 // CAMBIAR POR TU URL REAL DE VERCEL o RENDER
-const pascalEditorUrl = Vue.ref('https://pascal-holtmont.vercel.app');
+const pascalEditorUrl = Vue.ref('https://pascal-holtmont.vercel.app'); 
 const iframeLoaded = Vue.ref(false);
 const design3DStatus = Vue.ref('PENDING'); // 'PENDING', 'SAVED', 'ERROR'
 const saved3DProjectData = Vue.ref(null); // Aquí vivirá el JSON masivo
@@ -304,7 +304,7 @@ const saved3DProjectData = Vue.ref(null); // Aquí vivirá el JSON masivo
 const onIframeLoaded = () => {
   iframeLoaded.value = true;
   console.log("Iframe de Pascal Editor ha sido cargado en el DOM.");
-
+  
   // Opcional: Pequeño retraso para asegurar que la app de React dentro terminó de arrancar
   setTimeout(() => {
       // Si tenemos un diseño guardado previamente (porque estamos editando una WO existente)
@@ -336,17 +336,17 @@ Vue.onMounted(() => {
     // }
 
     const data = event.data;
-
+    
     // 2. Procesar el evento esperado de exportación
     if (data && data.type === 'HOLTMONT_3D_EXPORT') {
       console.log('Recibiendo datos de arquitectura de Pascal Editor (PostMessage)', data);
-
+      
       // Guardamos la geometría profunda en la memoria local de Vue
       saved3DProjectData.value = data.data;
-
+      
       // Actualizamos el estado visual de la UI
       design3DStatus.value = 'SAVED';
-
+      
       // Notificación amigable al usuario (asumiendo uso de SweetAlert)
       if (window.Swal) {
           Swal.fire({
@@ -361,7 +361,7 @@ Vue.onMounted(() => {
       } else {
           alert('Diseño Capturado con éxito y listo para ser guardado.');
       }
-
+      
       // Opcional: Redirigir automáticamente de vuelta al formulario tras guardar
       // currentView.value = 'WORKORDER_FORM';
     }
@@ -376,17 +376,17 @@ Vue.onMounted(() => {
 /* Ejemplo simplificado de lo que debes encontrar y modificar:
 const saveWorkOrder = async () => {
   ... lógica previa de validación ...
-
+  
   const payload = {
     // ... campos existentes (cliente, folio, materiales, etc) ...
     folio: workorderData.folio,
-
+    
     // NUEVA INYECCIÓN DE DATOS 3D
-    // Lo convertimos a string porque es mucho más fácil transportarlo y guardarlo
+    // Lo convertimos a string porque es mucho más fácil transportarlo y guardarlo 
     // en una sola celda de Google Sheets.
     arquitectura_3d_json: saved3DProjectData.value ? JSON.stringify(saved3DProjectData.value) : ""
   };
-
+  
   ... continuar con apiService.submitWorkOrder(payload) ...
 }
 */
@@ -425,13 +425,13 @@ class WorkOrderCreate(BaseModel):
     folio: str
     cliente: str
     descripcion: str
-
+    
     # NUEVO CAMPO AGREGADO:
     # Usamos string asumiendo que el JSON fue "stringificado" en Vue.
     # Puede ser muy largo, pydantic lo aceptará.
     arquitectura_3d_json: Optional[str] = Field(default="", description="JSON serializado del proyecto de Pascal Editor 3D")
-
-    # Alternativa: Si decidiste no usar JSON.stringify en Vue,
+    
+    # Alternativa: Si decidiste no usar JSON.stringify en Vue, 
     # FastAPI lo puede recibir como un diccionario anidado puro:
     # arquitectura_3d_data: Optional[Dict[str, Any]] = None
 ```
@@ -444,31 +444,31 @@ El destino final de los datos es la hoja de cálculo de Google Sheets. Aquí gua
 
 ### 6.1 Backend (`api/services/sheets.py`)
 
-Localiza la función donde se formatea la fila (`row_data`) que se inyectará (append) a gspread.
+Localiza la función donde se formatea la fila (`row_data`) que se inyectará (append) a gspread. 
 
 ```python
 def append_work_order_to_sheet(sheet_service, wo_data: dict):
     # Extraemos la data 3D del diccionario enviado
     arq_3d_string = wo_data.get('arquitectura_3d_json', '')
-
+    
     # ADVERTENCIA DE TAMAÑO:
     # Google Sheets tiene un límite de 50,000 caracteres por celda individual.
-    # Si los diseños de Pascal Editor superan este límite con regularidad,
+    # Si los diseños de Pascal Editor superan este límite con regularidad, 
     # la mejor arquitectura a futuro será:
     # 1. Guardar arq_3d_string en un archivo JSON en AWS S3, Google Cloud Storage, o en el disco del servidor.
     # 2. Guardar únicamente la URL del archivo en Google Sheets.
-
+    
     # Para la fase de prueba, asumiremos que cabe dentro de los 50K chars:
-
+    
     row_data = [
         wo_data.get('folio', ''),
         wo_data.get('cliente', ''),
         # ... demás columnas existentes mapeadas en el orden correcto ...
-
+        
         # NUEVA COLUMNA INYECTADA (Añadir al final del array)
-        arq_3d_string
+        arq_3d_string 
     ]
-
+    
     # Insertar en la hoja principal
     sheet_service.append_row('BASE GENERAL', row_data)
 ```
@@ -509,7 +509,7 @@ El método `postMessage` es increíblemente útil, pero también es el principal
 Cuando envíes los datos desde el iFrame de Pascal, **nunca** uses el asterisco en un entorno productivo.
 ```javascript
 // PELIGROSO EN PRODUCCIÓN
-window.parent.postMessage(payload, '*');
+window.parent.postMessage(payload, '*'); 
 
 // CORRECTO EN PRODUCCIÓN
 // Asegura que el JSON solo sea leído si el dominio padre es el oficial de Holtmont.
@@ -522,12 +522,12 @@ En el frontend principal (`index.html`), **nunca** aceptes mensajes sin validar 
 window.addEventListener('message', (event) => {
     // Si la solicitud de mensaje no proviene de tu clon de Vercel, abortar de inmediato.
     const expectedOrigin = 'https://pascal-holtmont.vercel.app';
-
+    
     if (event.origin !== expectedOrigin) {
         console.error('ALERTA DE SEGURIDAD: Mensaje ignorado de origen no confiable:', event.origin);
-        return;
+        return; 
     }
-
+    
     // Ahora es seguro procesar event.data
 });
 ```
