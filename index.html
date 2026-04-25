@@ -2510,6 +2510,10 @@
                                 <span class="fw-bold text-white fs-5 ps-2">2. Requerimiento Pre-Diseños , Pre-Analisis de Riesgos y Precios Unitarios( Paso 2 )</span>
                                 <div class="d-flex align-items-center gap-2 pe-2">
                                     <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addProjectItem('reqCotizacion') PROPOSITO=Integracion -->
+                                    <!-- BOTON PASCAL 3D -->
+                                    <button class="btn btn-info fw-bold text-white shadow-sm" @click="currentView = 'PASCAL_DESIGNER'" title="Abrir Editor 3D" style="display: flex; align-items: center; gap: 8px;">
+                                        <i class="fas fa-cube"></i> Editor 3D Pascal
+                                    </button>
                                     <button class="btn btn-primary fw-bold text-white fs-4 py-0 px-3" @click="addProjectItem('reqCotizacion')" title="Agregar Requerimiento">+</button>
                                     <div class="bg-white border border-dark px-2 py-1 fw-bold text-dark">
                                         Total: {{ formatCurrency(reqCotizacionTotal) }}
@@ -4470,7 +4474,7 @@ async function toggleVoiceRecording(btnElement) {
       const currentView = ref('DASHBOARD');
 
                 // Pascal Editor variables
-                const pascalEditorUrl = Vue.ref('http://localhost:3000'); // URL local/vercel
+                const pascalEditorUrl = Vue.ref('https://holtmont-3d-editor-editor.vercel.app'); // URL local/vercel
                 const iframeLoaded = Vue.ref(false);
                 const design3DStatus = Vue.ref('PENDING'); // 'PENDING', 'SAVED', 'ERROR'
                 const saved3DProjectData = Vue.ref(null);
