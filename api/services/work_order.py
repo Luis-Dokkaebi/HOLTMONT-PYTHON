@@ -321,6 +321,7 @@ def process_and_save_work_order(items, active_user):
 
         # Main Task Data
         now_str = datetime.now().strftime("%d/%m/%y")
+        arq_3d = item.get("arquitectura_3d_json", "")
 
         task_data = {
             'FOLIO': item_id,
@@ -346,11 +347,12 @@ def process_and_save_work_order(items, active_user):
             'FECHA_COTIZACION': item.get("fechaCotizacion", ""),
             'CLIENTE': item.get("cliente", ""),
             'TRABAJO': item.get("TRABAJO", ""),
-            'DETALLES_EXTRA': detalles_extra
+            'DETALLES_EXTRA': detalles_extra,
+            'ARQUITECTURA_3D': arq_3d
         }
 
         # Save to PPCV3
-        ppc_headers = ["ID", "ESPECIALIDAD", "DESCRIPCION", "RESPONSABLE", "FECHA", "RELOJ", "CUMPLIMIENTO", "ARCHIVO", "COMENTARIOS", "COMENTARIOS PREVIOS", "ESTATUS", "AVANCE", "CLASIFICACION", "PRIORIDAD", "RIESGOS", "FECHA_RESPUESTA", "DETALLES_EXTRA", "CLIENTE", "TRABAJO", "REQUISITOR", "CONTACTO", "CELULAR", "FECHA_COTIZACION"]
+        ppc_headers = ["ID", "ESPECIALIDAD", "DESCRIPCION", "RESPONSABLE", "FECHA", "RELOJ", "CUMPLIMIENTO", "ARCHIVO", "COMENTARIOS", "COMENTARIOS PREVIOS", "ESTATUS", "AVANCE", "CLASIFICACION", "PRIORIDAD", "RIESGOS", "FECHA_RESPUESTA", "DETALLES_EXTRA", "CLIENTE", "TRABAJO", "REQUISITOR", "CONTACTO", "CELULAR", "FECHA_COTIZACION", "ARQUITECTURA_3D"]
 
         ppc_row = []
         for h in ppc_headers:
