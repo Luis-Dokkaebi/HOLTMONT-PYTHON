@@ -3632,7 +3632,7 @@
           </div>
       </div>
 
-
+      
       <!-- VISTA DEL EDITOR PASCAL 3D -->
       <div v-if="currentView === 'PASCAL_DESIGNER'" class="pascal-designer-view h-100 p-3">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -3652,7 +3652,7 @@
             </span>
           </div>
         </div>
-
+        
         <div class="card shadow border-0 h-100" style="border-radius: 12px; overflow: hidden;">
           <div class="card-body p-0 m-0" style="height: 85vh; min-height: 700px; position: relative;">
             <div v-if="!iframeLoaded" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center bg-light" style="z-index: 2;">
@@ -3664,9 +3664,9 @@
             </div>
 
             <!-- El Iframe en sí. -->
-            <iframe
+            <iframe 
               id="pascal-editor-iframe"
-              :src="pascalEditorUrl"
+              :src="pascalEditorUrl" 
               style="width: 100%; height: 100%; border: none; display: block;"
               @load="onIframeLoaded"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; webgl"
@@ -4499,7 +4499,7 @@ async function toggleVoiceRecording(btnElement) {
                       console.log('Recibiendo datos de arquitectura de Pascal Editor (PostMessage)', data);
                       saved3DProjectData.value = data.data;
                       design3DStatus.value = 'SAVED';
-
+                      
                       if (window.Swal) {
                           Swal.fire({
                             icon: 'success',
