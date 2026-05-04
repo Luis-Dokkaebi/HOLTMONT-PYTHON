@@ -23,9 +23,30 @@ class MaterialItem(BaseModel):
     quantity: str = Field(description="Cantidad estimada a utilizar")
     cost: str = Field(description="Costo unitario estimado del material")
 
+class ToolItem(BaseModel):
+    description: str = Field(description="Descripción de la herramienta requerida")
+    unit: str = Field(description="Unidad de medida (Ej. pza, lote)")
+    quantity: str = Field(description="Cantidad estimada")
+    cost: str = Field(description="Costo estimado")
+
+class EquipmentItem(BaseModel):
+    description: str = Field(description="Descripción del equipo especial, maquinaria o accesorio")
+    unit: str = Field(description="Unidad de medida (Ej. hora, dia, unidad)")
+    quantity: str = Field(description="Cantidad de equipos")
+    days: str = Field(description="Días estimados de uso o renta")
+    cost: str = Field(description="Costo unitario o de renta estimado")
+
+class TravelItem(BaseModel):
+    concepto: str = Field(description="Concepto del viático (Ej. Hotel, Casetas, Comidas)")
+    cantidad: str = Field(description="Cantidad de noches, comidas o viajes")
+    costo_unitario: str = Field(description="Costo unitario estimado")
+
 class StructuredAgencyData(BaseModel):
     laborTable: List[LaborItem] = Field(description="Lista estructurada de mano de obra estimada")
     requiredMaterials: List[MaterialItem] = Field(description="Lista estructurada de materiales e insumos estimados")
+    toolsRequired: List[ToolItem] = Field(description="Lista de herramientas menores requeridas")
+    specialEquipment: List[EquipmentItem] = Field(description="Lista de maquinaria y equipo especial requerido")
+    viaticosTable: List[TravelItem] = Field(description="Lista de viáticos requeridos si aplica")
 
 # --- STATE DEFINITION ---
 class PaperclipState(TypedDict):
@@ -101,7 +122,7 @@ def integrador_node(state: PaperclipState, llm) -> dict:
         return {"structured_data": json_str}
     except Exception as e:
         print(f"Error en extracción estructurada: {e}")
-        empty_data = StructuredAgencyData(laborTable=[], requiredMaterials=[])
+        empty_data = StructuredAgencyData(laborTable=[], requiredMaterials=[], toolsRequired=[], specialEquipment=[], viaticosTable=[])
         return {"structured_data": empty_data.model_dump_json()}
 
 # --- GRAPH BUILDER ---

@@ -7295,6 +7295,29 @@ async function toggleVoiceRecording(btnElement) {
                                       total: (parseFloat(item.quantity) || 0) * (parseFloat(item.cost) || 0)
                                   }));
                               }
+
+                              if (structuredObj.toolsRequired && structuredObj.toolsRequired.length > 0) {
+                                  toolsRequired.value.items = structuredObj.toolsRequired.map(item => ({
+                                      ...item,
+                                      papaCaliente: { residente: '', controller: '', almacen: '', logistica: '', residenteFin: '' },
+                                      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.cost) || 0)
+                                  }));
+                              }
+
+                              if (structuredObj.specialEquipment && structuredObj.specialEquipment.length > 0) {
+                                  specialEquipment.value.items = structuredObj.specialEquipment.map(item => ({
+                                      ...item,
+                                      type: '', spec: '', hours: '0',
+                                      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.days) || 0) * (parseFloat(item.cost) || 0)
+                                  }));
+                              }
+
+                              if (structuredObj.viaticosTable && structuredObj.viaticosTable.length > 0) {
+                                  viaticosTable.value.items = structuredObj.viaticosTable.map(item => ({
+                                      ...item,
+                                      total: (parseFloat(item.cantidad) || 0) * (parseFloat(item.costo_unitario) || 0)
+                                  }));
+                              }
                           } catch (e) {
                               console.warn("Could not parse structured data from Paperclip agents", e);
                           }
