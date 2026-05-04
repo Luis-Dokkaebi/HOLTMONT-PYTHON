@@ -1,12 +1,31 @@
 import os
-from typing import TypedDict
+from typing import TypedDict, List
 import json
 try:
+    from pydantic import BaseModel, Field
     from langchain_groq import ChatGroq
     from langchain_core.prompts import ChatPromptTemplate
     from langgraph.graph import StateGraph, START, END
 except ImportError:
     ChatGroq = None
+
+# --- PYDANTIC SCHEMAS FOR STRUCTURED EXTRACTION ---
+class LaborItem(BaseModel):
+    category: str = Field(description="Rol o puesto de la persona (Ej. Operario, Ingeniero, Albañil)")
+    personnel: str = Field(description="Cantidad de personas requeridas con este rol")
+    unit: str = Field(description="Unidad de tiempo a contratar (debe ser: 'hora', 'dia', o 'semana')")
+    weeks: str = Field(description="Duración o cantidad de la unidad de tiempo (Ej. 3, 5, 10)")
+    salary: str = Field(description="Salario o costo unitario estimado por la unidad de tiempo")
+
+class MaterialItem(BaseModel):
+    description: str = Field(description="Descripción clara del material o insumo")
+    unit: str = Field(description="Unidad de medida (Ej. pza, bulto, m2, m3, lote)")
+    quantity: str = Field(description="Cantidad estimada a utilizar")
+    cost: str = Field(description="Costo unitario estimado del material")
+
+class StructuredAgencyData(BaseModel):
+    laborTable: List[LaborItem] = Field(description="Lista estructurada de mano de obra estimada")
+    requiredMaterials: List[MaterialItem] = Field(description="Lista estructurada de materiales e insumos estimados")
 
 # --- STATE DEFINITION ---
 class PaperclipState(TypedDict):
@@ -14,6 +33,7 @@ class PaperclipState(TypedDict):
     levantamiento_data: str
     calculo_data: str
     precios_data: str
+    structured_data: str
 
 # --- NODES ---
 def levantamiento_node(state: PaperclipState, llm) -> dict:
@@ -58,6 +78,32 @@ def precios_node(state: PaperclipState, llm) -> dict:
 
     return {"precios_data": response.content}
 
+def integrador_node(state: PaperclipState, llm) -> dict:
+    """Agente 4: Integrador. Extrae los recursos en formato JSON estricto."""
+    print("--- [Agente Integrador] Estructurando JSON ---")
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "Eres un Analista de Datos experto. Extrae la mano de obra y los materiales de los reportes anteriores en el formato JSON estricto solicitado."),
+        ("human", "Cálculo y Diseño:\n{calculo}\n\nPrecios:\n{precios}")
+    ])
+
+    # Use structured output
+    structured_llm = llm.with_structured_output(StructuredAgencyData)
+    chain = prompt | structured_llm
+
+    try:
+        result: StructuredAgencyData = chain.invoke({
+            "calculo": state["calculo_data"],
+            "precios": state["precios_data"]
+        })
+        # Serialize Pydantic model to dict, then to json string to store in state
+        json_str = result.model_dump_json()
+        return {"structured_data": json_str}
+    except Exception as e:
+        print(f"Error en extracción estructurada: {e}")
+        empty_data = StructuredAgencyData(laborTable=[], requiredMaterials=[])
+        return {"structured_data": empty_data.model_dump_json()}
+
 # --- GRAPH BUILDER ---
 def build_paperclip_graph(llm):
     builder = StateGraph(PaperclipState)
@@ -65,11 +111,13 @@ def build_paperclip_graph(llm):
     builder.add_node("levantamiento", lambda state: levantamiento_node(state, llm))
     builder.add_node("calculo", lambda state: calculo_node(state, llm))
     builder.add_node("precios", lambda state: precios_node(state, llm))
+    builder.add_node("integrador", lambda state: integrador_node(state, llm))
 
     builder.add_edge(START, "levantamiento")
     builder.add_edge("levantamiento", "calculo")
     builder.add_edge("calculo", "precios")
-    builder.add_edge("precios", END)
+    builder.add_edge("precios", "integrador")
+    builder.add_edge("integrador", END)
 
     return builder.compile()
 
@@ -89,7 +137,8 @@ def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
         "user_request": user_request,
         "levantamiento_data": "",
         "calculo_data": "",
-        "precios_data": ""
+        "precios_data": "",
+        "structured_data": ""
     }
 
     try:
@@ -98,7 +147,8 @@ def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
             "success": True,
             "levantamiento": final_state.get("levantamiento_data", ""),
             "calculo": final_state.get("calculo_data", ""),
-            "precios": final_state.get("precios_data", "")
+            "precios": final_state.get("precios_data", ""),
+            "structured_data": final_state.get("structured_data", "{}")
         }
     except Exception as e:
         return {"success": False, "error": f"Error ejecutando la agencia: {str(e)}"}

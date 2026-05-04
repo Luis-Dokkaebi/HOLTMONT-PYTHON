@@ -7271,6 +7271,34 @@ async function toggleVoiceRecording(btnElement) {
                       appendedText += "** 3. PRECIOS UNITARIOS **\n" + res.precios + "\n";
 
                       workorderData.value.conceptoDesc += appendedText;
+
+                      // Parse and assign structured data to tables
+                      if (res.structured_data) {
+                          try {
+                              const structuredObj = JSON.parse(res.structured_data);
+
+                              if (structuredObj.laborTable && structuredObj.laborTable.length > 0) {
+                                  // Map and calculate row totals
+                                  laborTable.value.items = structuredObj.laborTable.map(item => ({
+                                      ...item,
+                                      overtime: '0', night: '0', weekend: '0', others: '0',
+                                      total: (parseFloat(item.weeks) || 0) * (parseFloat(item.salary) || 0) * (parseFloat(item.personnel) || 1)
+                                  }));
+                              }
+
+                              if (structuredObj.requiredMaterials && structuredObj.requiredMaterials.length > 0) {
+                                  // Map and calculate row totals
+                                  requiredMaterials.value.items = structuredObj.requiredMaterials.map(item => ({
+                                      ...item,
+                                      type: '', spec: '',
+                                      papaCaliente: { residente: '', compras: '', controller: '', ordenCompra: '', pagos: '', almacen: '', logistica: '', residenteObra: '' },
+                                      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.cost) || 0)
+                                  }));
+                              }
+                          } catch (e) {
+                              console.warn("Could not parse structured data from Paperclip agents", e);
+                          }
+                      }
                   } else {
                       alert("Error en Agencia IA: " + (res.message || res.error || 'Error desconocido'));
                   }
