@@ -1713,6 +1713,13 @@
                                                     <i class="fas fa-lg" :class="isRecordingAIAgent ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-dark'"></i>
                                                 </button>
                                              </div>
+
+                                             <button @click="runPaperclipAgents()" class="btn btn-primary w-100 mt-2" :disabled="!workorderData.conceptoDesc || isPaperclipLoading">
+                                                <i class="fas fa-robot me-2"></i>
+                                                <span v-if="isPaperclipLoading">Analizando con Agencia IA (Paperclip)...</span>
+                                                <span v-else>Analizar con Agencia IA (Levantamiento, Cálculo y Costos)</span>
+                                             </button>
+
                                         </div>
                                         <div class="col-md-4" v-if="showWorkOrderLogic">
                                             <div class="logic-card h-100 position-relative fade show" style="background-color: #f8f9fa; border: 2px dashed #dc3545; color: #000;">
@@ -4465,6 +4472,7 @@ async function toggleVoiceRecording(btnElement) {
 
       const isRecordingAIAgent = ref(false);
       const isGeneratingQuestions = ref(false);
+      const isPaperclipLoading = ref(false);
       const engineeringQuestions = ref('');
       let aiAgentMediaRecorder = null;
       let aiAgentChunks = [];
@@ -7242,6 +7250,38 @@ async function toggleVoiceRecording(btnElement) {
           }
       };
 
+      const runPaperclipAgents = () => {
+          if (!workorderData.value.conceptoDesc) return;
+          isPaperclipLoading.value = true;
+          const apiKey = localStorage.getItem('GROQ_API_KEY') || null;
+
+          if (!window.google || !window.google.script || !window.google.script.run) {
+              alert("Error: No se pudo conectar con el backend.");
+              isPaperclipLoading.value = false;
+              return;
+          }
+
+          window.google.script.run
+              .withSuccessHandler(res => {
+                  isPaperclipLoading.value = false;
+                  if (res && res.success) {
+                      let appendedText = "\n\n--- ANÁLISIS AGENCIA IA (PAPERCLIP) ---\n\n";
+                      appendedText += "** 1. LEVANTAMIENTO **\n" + res.levantamiento + "\n\n";
+                      appendedText += "** 2. CÁLCULO Y DISEÑO **\n" + res.calculo + "\n\n";
+                      appendedText += "** 3. PRECIOS UNITARIOS **\n" + res.precios + "\n";
+
+                      workorderData.value.conceptoDesc += appendedText;
+                  } else {
+                      alert("Error en Agencia IA: " + (res.message || res.error || 'Error desconocido'));
+                  }
+              })
+              .withFailureHandler(err => {
+                  isPaperclipLoading.value = false;
+                  alert("Error conectando con la Agencia IA: " + err);
+              })
+              .apiRunPaperclipAgency(workorderData.value.conceptoDesc, apiKey);
+      };
+
       const toggleAIAgentRecording = async () => {
           if (isRecordingAIAgent.value) {
               if (aiAgentMediaRecorder) aiAgentMediaRecorder.stop();
@@ -7325,7 +7365,7 @@ async function toggleVoiceRecording(btnElement) {
           requiredMaterials.value.items[idx].description = text;
       };
 
-      return { aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
+      return { aiApiKey, runPaperclipAgents, isPaperclipLoading, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,

@@ -112,6 +112,17 @@ class GoogleScriptRunAdapter {
         .catch(err => this._failureHandler(err));
     }
 
+    apiRunPaperclipAgency(userRequest, apiKey) {
+        fetch(`${API_BASE_URL}/api/run_paperclip_agency`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_request: userRequest, api_key: apiKey || null })
+        })
+        .then(res => res.json())
+        .then(data => this._successHandler(data))
+        .catch(err => this._failureHandler(err));
+    }
+
     // --- Stubs to prevent crashes ---
 
     apiFetchCombinedCalendarData(target) {
