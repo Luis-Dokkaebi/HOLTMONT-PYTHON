@@ -12,3 +12,5 @@ tavily-python
 pypdf
 ffmpeg-python
 streamlit
+langchain-google-genai
+google-genai
