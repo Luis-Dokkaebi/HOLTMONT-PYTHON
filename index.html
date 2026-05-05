@@ -7318,6 +7318,12 @@ async function toggleVoiceRecording(btnElement) {
                                       total: (parseFloat(item.cantidad) || 0) * (parseFloat(item.costo_unitario) || 0)
                                   }));
                               }
+
+                              if (structuredObj.arquitectura_3d_json && structuredObj.arquitectura_3d_json.trim() !== '') {
+                                  // Save to Vue reactive variables for the iframe
+                                  saved3DProjectData.value = structuredObj.arquitectura_3d_json;
+                                  workorderData.value.arquitectura_3d_json = structuredObj.arquitectura_3d_json;
+                              }
                           } catch (e) {
                               console.warn("Could not parse structured data from Paperclip agents", e);
                           }

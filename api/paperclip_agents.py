@@ -47,11 +47,13 @@ class StructuredAgencyData(BaseModel):
     toolsRequired: List[ToolItem] = Field(description="Lista de herramientas menores requeridas")
     specialEquipment: List[EquipmentItem] = Field(description="Lista de maquinaria y equipo especial requerido")
     viaticosTable: List[TravelItem] = Field(description="Lista de viáticos requeridos si aplica")
+    arquitectura_3d_json: str = Field(default="", description="JSON stringified representando la base del diseño 3D para Pascal Editor")
 
 # --- STATE DEFINITION ---
 class PaperclipState(TypedDict):
     user_request: str
     levantamiento_data: str
+    architect_data: str
     calculo_data: str
     precios_data: str
     structured_data: str
@@ -70,6 +72,20 @@ def levantamiento_node(state: PaperclipState, llm) -> dict:
     response = chain.invoke({"user_request": state["user_request"]})
     
     return {"levantamiento_data": response.content}
+
+def architect_node(state: PaperclipState, llm) -> dict:
+    """Agente Arquitecto: Genera el código JSON base para el Pascal Editor 3D."""
+    print("--- [Agente Arquitecto 3D] Generando modelo volumétrico ---")
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "Eres un Arquitecto de Software 3D. Tu objetivo es leer el reporte de levantamiento y generar un JSON válido que represente la volumetría básica del proyecto. El JSON debe contener un arreglo de 'walls' (paredes) con coordenadas X, Y. Usa valores numéricos coherentes basados en los metros solicitados. Si no hay medidas, asume una habitación de 4x4. Entrega SOLO el JSON, sin bloques de código ni texto adicional."),
+        ("human", "Reporte de Levantamiento:\n{levantamiento_data}")
+    ])
+    
+    chain = prompt | llm
+    response = chain.invoke({"levantamiento_data": state["levantamiento_data"]})
+    
+    return {"architect_data": response.content}
 
 def calculo_node(state: PaperclipState, llm) -> dict:
     """Agente 2: Cálculo y Diseño. Genera requerimientos técnicos basados en el levantamiento."""
@@ -104,8 +120,8 @@ def integrador_node(state: PaperclipState, llm) -> dict:
     print("--- [Agente Integrador] Estructurando JSON ---")
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un Analista de Datos experto. Extrae la mano de obra y los materiales de los reportes anteriores en el formato JSON estricto solicitado."),
-        ("human", "Cálculo y Diseño:\n{calculo}\n\nPrecios:\n{precios}")
+        ("system", "Eres un Analista de Datos experto. Extrae la mano de obra y los materiales de los reportes anteriores en el formato JSON estricto solicitado. Asegúrate de incluir el JSON del modelo 3D en el campo arquitectura_3d_json."),
+        ("human", "Cálculo y Diseño:\n{calculo}\n\nPrecios:\n{precios}\n\nModelo 3D (Arquitecto):\n{arquitectura}")
     ])
     
     # Use structured output
@@ -115,14 +131,15 @@ def integrador_node(state: PaperclipState, llm) -> dict:
     try:
         result: StructuredAgencyData = chain.invoke({
             "calculo": state["calculo_data"],
-            "precios": state["precios_data"]
+            "precios": state["precios_data"],
+            "arquitectura": state.get("architect_data", "")
         })
         # Serialize Pydantic model to dict, then to json string to store in state
         json_str = result.model_dump_json()
         return {"structured_data": json_str}
     except Exception as e:
         print(f"Error en extracción estructurada: {e}")
-        empty_data = StructuredAgencyData(laborTable=[], requiredMaterials=[], toolsRequired=[], specialEquipment=[], viaticosTable=[])
+        empty_data = StructuredAgencyData(laborTable=[], requiredMaterials=[], toolsRequired=[], specialEquipment=[], viaticosTable=[], arquitectura_3d_json="")
         return {"structured_data": empty_data.model_dump_json()}
 
 # --- GRAPH BUILDER ---
@@ -130,12 +147,14 @@ def build_paperclip_graph(llm):
     builder = StateGraph(PaperclipState)
     
     builder.add_node("levantamiento", lambda state: levantamiento_node(state, llm))
+    builder.add_node("architect", lambda state: architect_node(state, llm))
     builder.add_node("calculo", lambda state: calculo_node(state, llm))
     builder.add_node("precios", lambda state: precios_node(state, llm))
     builder.add_node("integrador", lambda state: integrador_node(state, llm))
     
     builder.add_edge(START, "levantamiento")
-    builder.add_edge("levantamiento", "calculo")
+    builder.add_edge("levantamiento", "architect")
+    builder.add_edge("architect", "calculo")
     builder.add_edge("calculo", "precios")
     builder.add_edge("precios", "integrador")
     builder.add_edge("integrador", END)
@@ -157,6 +176,7 @@ def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
     initial_state = {
         "user_request": user_request,
         "levantamiento_data": "",
+        "architect_data": "",
         "calculo_data": "",
         "precios_data": "",
         "structured_data": ""
