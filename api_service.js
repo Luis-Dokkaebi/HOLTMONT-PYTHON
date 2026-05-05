@@ -8,6 +8,22 @@ if (!window.google) window.google = {};
 if (!window.google.script) window.google.script = {};
 
 class ApiService {
+    static async runPaperclipAgents(requestText) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/run_paperclip_agency`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: requestText })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || 'Error en Paperclip Agency');
+            return data;
+        } catch (error) {
+            console.error('Error running Paperclip Agency:', error);
+            throw error;
+        }
+    }
+
     static async login(username, password) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/login`, {

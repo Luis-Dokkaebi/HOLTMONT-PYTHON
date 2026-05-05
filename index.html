@@ -1712,6 +1712,14 @@
                                                 <button v-else class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleAIAgentRecording()">
                                                     <i class="fas fa-lg" :class="isRecordingAIAgent ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-dark'"></i>
                                                 </button>
+
+                                                <!-- NEW PAPERCLIP AGENCY BUTTON -->
+                                                <button v-if="isPaperclipRunning" class="btn btn-info position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10; right: 80px !important;" disabled>
+                                                    <span class="spinner-border spinner-border-sm text-white" role="status" aria-hidden="true"></span>
+                                                </button>
+                                                <button v-else @click="runPaperclipAgents" class="btn btn-info position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10; right: 80px !important;" title="Ejecutar Agencia Paperclip (Levantamiento, Cálculo y 3D)">
+                                                    <i class="fas fa-paperclip text-white fa-lg"></i>
+                                                </button>
                                              </div>
                                         </div>
                                         <div class="col-md-4" v-if="showWorkOrderLogic">
@@ -4465,6 +4473,45 @@ async function toggleVoiceRecording(btnElement) {
 
       const isRecordingAIAgent = ref(false);
       const isGeneratingQuestions = ref(false);
+      const isPaperclipRunning = ref(false);
+
+      // --- PAPERCLIP AGENCY LOGIC ---
+      const runPaperclipAgents = async () => {
+          if (!workorderData.value.conceptoDesc) {
+              alert("Por favor ingresa una descripción del trabajo primero para que la agencia lo analice.");
+              return;
+          }
+          isPaperclipRunning.value = true;
+          try {
+              const result = await ApiService.runPaperclipAgents(workorderData.value.conceptoDesc);
+              console.log("Paperclip Agency Result:", result);
+
+              if(result.structured_data) {
+                  let parsed;
+                  try { parsed = JSON.parse(result.structured_data); }
+                  catch(e){ console.error("Error parsing Paperclip JSON:", e); }
+
+                  if(parsed) {
+                      if(parsed.laborTable && parsed.laborTable.length > 0) laborTable.value = parsed.laborTable;
+                      if(parsed.requiredMaterials && parsed.requiredMaterials.length > 0) requiredMaterials.value = parsed.requiredMaterials;
+                      if(parsed.toolsRequired && parsed.toolsRequired.length > 0) toolsRequired.value = parsed.toolsRequired;
+                      if(parsed.specialEquipment && parsed.specialEquipment.length > 0) specialEquipment.value = parsed.specialEquipment;
+                      if(parsed.viaticosTable && parsed.viaticosTable.length > 0) viaticosTable.value = parsed.viaticosTable;
+
+                      if(parsed.arquitectura_3d_json) {
+                          saved3DProjectData.value = parsed.arquitectura_3d_json;
+                      }
+                      alert("¡La Agencia Paperclip ha terminado! Revisa las tablas de recursos y la sección 3D.");
+                  }
+              } else {
+                  alert("La agencia no devolvió datos estructurados.");
+              }
+          } catch(err) {
+              alert("Error ejecutando Agencia Paperclip: " + err.message);
+          } finally {
+              isPaperclipRunning.value = false;
+          }
+      };
       const engineeringQuestions = ref('');
       let aiAgentMediaRecorder = null;
       let aiAgentChunks = [];
@@ -7325,7 +7372,7 @@ async function toggleVoiceRecording(btnElement) {
           requiredMaterials.value.items[idx].description = text;
       };
 
-      return { aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
+      return { isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,

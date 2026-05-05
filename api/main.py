@@ -67,6 +67,21 @@ async def serve_api_service():
         return FileResponse(path, media_type="application/javascript")
     raise HTTPException(status_code=404, detail="File not found")
 
+from api.paperclip_agents import run_paperclip_agency
+
+class PaperclipRequest(BaseModel):
+    text: str
+
+@app.post("/api/run_paperclip_agency")
+async def api_run_paperclip_agency(req: PaperclipRequest):
+    try:
+        result = run_paperclip_agency(user_request=req.text)
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Error desconocido en Paperclip Agency"))
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 class LoginRequest(BaseModel):
     username: str
     password: str
