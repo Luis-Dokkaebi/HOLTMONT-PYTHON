@@ -12,13 +12,11 @@ from fastapi import UploadFile, File, Form
 try:
     from api.ai_utils import transcribir_audio, extraer_informacion
     from api.engineering_agent import process_audio
-    from api.paperclip_agents import run_paperclip_agency
 except ImportError:
     import sys
     sys.path.append("api")
     from ai_utils import transcribir_audio, extraer_informacion
     from engineering_agent import process_audio
-    from paperclip_agents import run_paperclip_agency
 
 # Services
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
@@ -76,10 +74,6 @@ class LoginRequest(BaseModel):
 class SavePPCRequest(BaseModel):
     payload: List[Dict[str, Any]]
     activeUser: str
-
-class PaperclipRequest(BaseModel):
-    user_request: str
-    api_key: Optional[str] = None
 
 @app.get("/api/config")
 def api_get_system_config(role: str = Query(..., description="User Role")):
@@ -206,14 +200,6 @@ async def api_generate_engineering_questions(file: UploadFile = File(...), apiKe
             return {"success": False, "message": result.get("message", "Error desconocido")}
     except Exception as e:
         return {"success": False, "message": str(e)}
-
-@app.post("/api/run_paperclip_agency")
-def api_run_paperclip_agency(request: PaperclipRequest):
-    result = run_paperclip_agency(request.user_request, api_key=request.api_key)
-    if result.get("success"):
-        return result
-    else:
-        raise HTTPException(status_code=500, detail=result.get("error", "Error desconocido en la agencia"))
 
 @app.post("/api/savePPC")
 def api_save_ppc_data(req: SavePPCRequest):
