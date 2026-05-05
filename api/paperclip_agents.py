@@ -4,11 +4,11 @@ from typing import TypedDict, List
 from pydantic import BaseModel, Field
 
 try:
-    from langchain_groq import ChatGroq
+    from langchain_google_genai import ChatGoogleGenerativeAI
     from langchain_core.prompts import ChatPromptTemplate
     from langgraph.graph import StateGraph, START, END
 except ImportError:
-    ChatGroq = None
+    ChatGoogleGenerativeAI = None
 
 # --- PYDANTIC SCHEMAS FOR STRUCTURED EXTRACTION ---
 class LaborItem(BaseModel):
@@ -171,14 +171,14 @@ def build_paperclip_graph(llm):
 
 # --- MAIN EXECUTION LOGIC ---
 def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
-    groq_api_key = api_key or os.environ.get("GROQ_API_KEY")
-    if not groq_api_key:
-        return {"success": False, "error": "Falta GROQ_API_KEY en el entorno"}
+    gemini_api_key = api_key or os.environ.get("Gemini_Key")
+    if not gemini_api_key:
+        return {"success": False, "error": "Falta Gemini_Key en el entorno"}
     
-    if ChatGroq is None:
-        return {"success": False, "error": "Falta la librería langchain_groq"}
+    if ChatGoogleGenerativeAI is None:
+        return {"success": False, "error": "Falta la librería langchain_google_genai"}
 
-    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2, api_key=groq_api_key)
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.2, google_api_key=gemini_api_key)
     graph = build_paperclip_graph(llm)
     
     initial_state = {
