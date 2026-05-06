@@ -4500,6 +4500,19 @@ async function toggleVoiceRecording(btnElement) {
 
                       if(parsed.arquitectura_3d_json) {
                           saved3DProjectData.value = parsed.arquitectura_3d_json;
+
+                          // Notificar al Pascal Editor "en vivo" si ya está abierto
+                          const iframe = document.getElementById('pascal-editor-iframe');
+                          if (iframe && iframe.contentWindow) {
+                              try {
+                                  iframe.contentWindow.postMessage({
+                                      type: 'HOLTMONT_3D_IMPORT',
+                                      projectData: typeof saved3DProjectData.value === 'string' ? JSON.parse(saved3DProjectData.value) : saved3DProjectData.value
+                                  }, '*');
+                              } catch(e) {
+                                  console.warn("No se pudo enviar el JSON directamente al iframe en vivo:", e);
+                              }
+                          }
                       }
                       alert("¡La Agencia Paperclip ha terminado! Revisa las tablas de recursos y la sección 3D.");
                   }
