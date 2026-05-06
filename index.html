@@ -1712,14 +1712,15 @@
                                                 <button v-else class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleAIAgentRecording()">
                                                     <i class="fas fa-lg" :class="isRecordingAIAgent ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-dark'"></i>
                                                 </button>
+
+                                                <!-- NEW PAPERCLIP AGENCY BUTTON -->
+                                                <button v-if="isPaperclipRunning" class="btn btn-info position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10; right: 80px !important;" disabled>
+                                                    <span class="spinner-border spinner-border-sm text-white" role="status" aria-hidden="true"></span>
+                                                </button>
+                                                <button v-else @click="runPaperclipAgents" class="btn btn-info position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10; right: 80px !important;" title="Ejecutar Agencia Paperclip (Levantamiento, Cálculo y 3D)">
+                                                    <i class="fas fa-paperclip text-white fa-lg"></i>
+                                                </button>
                                              </div>
-
-                                             <button @click="runPaperclipAgents()" class="btn btn-primary w-100 mt-2" :disabled="!workorderData.conceptoDesc || isPaperclipLoading">
-                                                <i class="fas fa-robot me-2"></i>
-                                                <span v-if="isPaperclipLoading">Analizando con Agencia IA (Paperclip)...</span>
-                                                <span v-else>Analizar con Agencia IA (Levantamiento, Cálculo y Costos)</span>
-                                             </button>
-
                                         </div>
                                         <div class="col-md-4" v-if="showWorkOrderLogic">
                                             <div class="logic-card h-100 position-relative fade show" style="background-color: #f8f9fa; border: 2px dashed #dc3545; color: #000;">
@@ -4472,7 +4473,45 @@ async function toggleVoiceRecording(btnElement) {
 
       const isRecordingAIAgent = ref(false);
       const isGeneratingQuestions = ref(false);
-      const isPaperclipLoading = ref(false);
+      const isPaperclipRunning = ref(false);
+
+      // --- PAPERCLIP AGENCY LOGIC ---
+      const runPaperclipAgents = async () => {
+          if (!workorderData.value.conceptoDesc) {
+              alert("Por favor ingresa una descripción del trabajo primero para que la agencia lo analice.");
+              return;
+          }
+          isPaperclipRunning.value = true;
+          try {
+              const result = await ApiService.runPaperclipAgents(workorderData.value.conceptoDesc);
+              console.log("Paperclip Agency Result:", result);
+              
+              if(result.structured_data) {
+                  let parsed;
+                  try { parsed = JSON.parse(result.structured_data); }
+                  catch(e){ console.error("Error parsing Paperclip JSON:", e); }
+                  
+                  if(parsed) {
+                      if(parsed.laborTable && parsed.laborTable.length > 0) laborTable.value = parsed.laborTable;
+                      if(parsed.requiredMaterials && parsed.requiredMaterials.length > 0) requiredMaterials.value = parsed.requiredMaterials;
+                      if(parsed.toolsRequired && parsed.toolsRequired.length > 0) toolsRequired.value = parsed.toolsRequired;
+                      if(parsed.specialEquipment && parsed.specialEquipment.length > 0) specialEquipment.value = parsed.specialEquipment;
+                      if(parsed.viaticosTable && parsed.viaticosTable.length > 0) viaticosTable.value = parsed.viaticosTable;
+                      
+                      if(parsed.arquitectura_3d_json) {
+                          saved3DProjectData.value = parsed.arquitectura_3d_json;
+                      }
+                      alert("¡La Agencia Paperclip ha terminado! Revisa las tablas de recursos y la sección 3D.");
+                  }
+              } else {
+                  alert("La agencia no devolvió datos estructurados.");
+              }
+          } catch(err) {
+              alert("Error ejecutando Agencia Paperclip: " + err.message);
+          } finally {
+              isPaperclipRunning.value = false;
+          }
+      };
       const engineeringQuestions = ref('');
       let aiAgentMediaRecorder = null;
       let aiAgentChunks = [];
@@ -7250,95 +7289,6 @@ async function toggleVoiceRecording(btnElement) {
           }
       };
 
-      const runPaperclipAgents = () => {
-          if (!workorderData.value.conceptoDesc) return;
-          isPaperclipLoading.value = true;
-          const apiKey = localStorage.getItem('GROQ_API_KEY') || null;
-
-          if (!window.google || !window.google.script || !window.google.script.run) {
-              alert("Error: No se pudo conectar con el backend.");
-              isPaperclipLoading.value = false;
-              return;
-          }
-
-          window.google.script.run
-              .withSuccessHandler(res => {
-                  isPaperclipLoading.value = false;
-                  if (res && res.success) {
-                      let appendedText = "\n\n--- ANÁLISIS AGENCIA IA (PAPERCLIP) ---\n\n";
-                      appendedText += "** 1. LEVANTAMIENTO **\n" + res.levantamiento + "\n\n";
-                      appendedText += "** 2. CÁLCULO Y DISEÑO **\n" + res.calculo + "\n\n";
-                      appendedText += "** 3. PRECIOS UNITARIOS **\n" + res.precios + "\n";
-                      
-                      workorderData.value.conceptoDesc += appendedText;
-
-                      // Parse and assign structured data to tables
-                      if (res.structured_data) {
-                          try {
-                              const structuredObj = JSON.parse(res.structured_data);
-                              
-                              if (structuredObj.laborTable && structuredObj.laborTable.length > 0) {
-                                  // Map and calculate row totals
-                                  laborTable.value.items = structuredObj.laborTable.map(item => ({
-                                      ...item,
-                                      overtime: '0', night: '0', weekend: '0', others: '0',
-                                      total: (parseFloat(item.weeks) || 0) * (parseFloat(item.salary) || 0) * (parseFloat(item.personnel) || 1)
-                                  }));
-                              }
-                              
-                              if (structuredObj.requiredMaterials && structuredObj.requiredMaterials.length > 0) {
-                                  // Map and calculate row totals
-                                  requiredMaterials.value.items = structuredObj.requiredMaterials.map(item => ({
-                                      ...item,
-                                      type: '', spec: '',
-                                      papaCaliente: { residente: '', compras: '', controller: '', ordenCompra: '', pagos: '', almacen: '', logistica: '', residenteObra: '' },
-                                      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.cost) || 0)
-                                  }));
-                              }
-                              
-                              if (structuredObj.toolsRequired && structuredObj.toolsRequired.length > 0) {
-                                  toolsRequired.value.items = structuredObj.toolsRequired.map(item => ({
-                                      ...item,
-                                      papaCaliente: { residente: '', controller: '', almacen: '', logistica: '', residenteFin: '' },
-                                      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.cost) || 0)
-                                  }));
-                              }
-                              
-                              if (structuredObj.specialEquipment && structuredObj.specialEquipment.length > 0) {
-                                  specialEquipment.value.items = structuredObj.specialEquipment.map(item => ({
-                                      ...item,
-                                      type: '', spec: '', hours: '0',
-                                      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.days) || 0) * (parseFloat(item.cost) || 0)
-                                  }));
-                              }
-                              
-                              if (structuredObj.viaticosTable && structuredObj.viaticosTable.length > 0) {
-                                  viaticosTable.value.items = structuredObj.viaticosTable.map(item => ({
-                                      ...item,
-                                      total: (parseFloat(item.cantidad) || 0) * (parseFloat(item.costo_unitario) || 0)
-                                  }));
-                              }
-
-                              if (structuredObj.arquitectura_3d_json && structuredObj.arquitectura_3d_json.trim() !== '') {
-                                  // Save to Vue reactive variables for the iframe
-                                  saved3DProjectData.value = structuredObj.arquitectura_3d_json;
-                                  workorderData.value.arquitectura_3d_json = structuredObj.arquitectura_3d_json;
-                              }
-                          } catch (e) {
-                              console.warn("Could not parse structured data from Paperclip agents", e);
-                          }
-                      }
-                  } else {
-                      alert("Error en Agencia IA: " + (res.message || res.error || 'Error desconocido'));
-                  }
-              })
-              .withFailureHandler(err => {
-                  isPaperclipLoading.value = false;
-                  alert("Error conectando con la Agencia IA: " + err);
-              })
-              .apiRunPaperclipAgency(workorderData.value.conceptoDesc, apiKey);
-      };
-
       const toggleAIAgentRecording = async () => {
           if (isRecordingAIAgent.value) {
               if (aiAgentMediaRecorder) aiAgentMediaRecorder.stop();
@@ -7422,7 +7372,7 @@ async function toggleVoiceRecording(btnElement) {
           requiredMaterials.value.items[idx].description = text;
       };
 
-      return { aiApiKey, runPaperclipAgents, isPaperclipLoading, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
+      return { isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,

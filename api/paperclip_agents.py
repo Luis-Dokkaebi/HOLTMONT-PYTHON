@@ -10,6 +10,11 @@ try:
 except ImportError:
     ChatGroq = None
 
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None
+
 # --- PYDANTIC SCHEMAS FOR STRUCTURED EXTRACTION ---
 class LaborItem(BaseModel):
     category: str = Field(description="Rol o puesto de la persona (Ej. Operario, Ingeniero, Albañil)")
@@ -151,14 +156,17 @@ def integrador_node(state: PaperclipState, llm) -> dict:
         return {"structured_data": json.dumps(empty_dict)}
 
 # --- GRAPH BUILDER ---
-def build_paperclip_graph(llm):
+def build_paperclip_graph(llm_text, llm_structured):
     builder = StateGraph(PaperclipState)
     
-    builder.add_node("levantamiento", lambda state: levantamiento_node(state, llm))
-    builder.add_node("architect", lambda state: architect_node(state, llm))
-    builder.add_node("calculo", lambda state: calculo_node(state, llm))
-    builder.add_node("precios", lambda state: precios_node(state, llm))
-    builder.add_node("integrador", lambda state: integrador_node(state, llm))
+    # Text agents use llm_text (e.g. Gemini)
+    builder.add_node("levantamiento", lambda state: levantamiento_node(state, llm_text))
+    builder.add_node("calculo", lambda state: calculo_node(state, llm_text))
+    builder.add_node("precios", lambda state: precios_node(state, llm_text))
+    
+    # Formatting/Structured agents use llm_structured (e.g. Groq)
+    builder.add_node("architect", lambda state: architect_node(state, llm_structured))
+    builder.add_node("integrador", lambda state: integrador_node(state, llm_structured))
     
     builder.add_edge(START, "levantamiento")
     builder.add_edge("levantamiento", "architect")
@@ -172,14 +180,25 @@ def build_paperclip_graph(llm):
 # --- MAIN EXECUTION LOGIC ---
 def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
     groq_api_key = api_key or os.environ.get("GROQ_API_KEY")
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    
     if not groq_api_key:
         return {"success": False, "error": "Falta GROQ_API_KEY en el entorno"}
     
     if ChatGroq is None:
-        return {"success": False, "error": "Falta la librería langchain_groq"}
+        return {"success": False, "error": "Falta la librería langchain_groq o langchain_google_genai"}
 
-    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2, api_key=groq_api_key)
-    graph = build_paperclip_graph(llm)
+    # Groq is strictly used for JSON formatting / Tool calling (Structured Outputs)
+    llm_structured = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2, api_key=groq_api_key)
+    
+    # Use Gemini for heavy text processing to save tokens. Fallback to Groq if missing.
+    if gemini_key and ChatGoogleGenerativeAI is not None:
+        llm_text = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.3, google_api_key=gemini_key)
+    else:
+        print("Aviso: GEMINI_API_KEY no detectada. Usando Groq para todos los agentes.")
+        llm_text = llm_structured
+
+    graph = build_paperclip_graph(llm_text, llm_structured)
     
     initial_state = {
         "user_request": user_request,
