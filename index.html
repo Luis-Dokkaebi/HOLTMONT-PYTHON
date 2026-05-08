@@ -2659,9 +2659,9 @@
                                 <div class="card-body p-2">
                                     <div class="row g-2 align-items-center">
                                         <!-- Buttons (Resources) -->
-                                        <div class="col-12 col-lg-3">
+                                        <div class="col-12 col-lg-1">
                                             <div class="text-center mb-1"><small class="fw-bold bg-white px-2 py-0 border rounded" style="font-size: 10px; margin-top:-10px; display:inline-block; position:relative; z-index:1;">Pop Up</small></div>
-                                            <div class="d-flex flex-wrap gap-1 p-1 border rounded" style="margin-top:-15px;">
+                                            <div class="d-flex flex-column gap-1 p-1 border rounded" style="margin-top:-15px;">
                                                 <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='MANO_OBRA' PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-primary rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MANO_OBRA'">MO</button>
                                                 <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='HERRAMIENTAS' PROPOSITO=Integracion -->
@@ -2674,13 +2674,13 @@
                                         </div>
 
                                         <!-- Description -->
-                                        <div class="col-12 col-md-5 col-lg-3">
+                                        <div class="col-12 col-md-5 col-lg-4">
                                             <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.description PROPOSITO=Integracion -->
 <input v-model="item.description" class="form-control form-control-sm fw-bold" placeholder="Descripción de Actividad">
                                         </div>
 
                                         <!-- Cotizador -->
-                                        <div class="col-12 col-md-3 col-lg-2">
+                                        <div class="col-12 col-md-3 col-lg-3">
                                             <input v-model="item.cotizador" class="form-control form-control-sm" placeholder="Cotizador...">
                                         </div>
 
