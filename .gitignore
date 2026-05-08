@@ -2,3 +2,7 @@ __pycache__/
 .pytest_cache/
 uvicorn.log
 .env
+node_modules/
+node_modules/
+package.json
+package-lock.json

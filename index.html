@@ -2659,9 +2659,9 @@
                                 <div class="card-body p-2">
                                     <div class="row g-2 align-items-center">
                                         <!-- Buttons (Resources) -->
-                                        <div class="col-12 col-lg-3">
+                                        <div class="col-12 col-lg-1">
                                             <div class="text-center mb-1"><small class="fw-bold bg-white px-2 py-0 border rounded" style="font-size: 10px; margin-top:-10px; display:inline-block; position:relative; z-index:1;">Pop Up</small></div>
-                                            <div class="d-flex flex-wrap gap-1 p-1 border rounded" style="margin-top:-15px;">
+                                            <div class="d-flex flex-column gap-1 p-1 border rounded" style="margin-top:-15px;">
                                                 <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='MANO_OBRA' PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-primary rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MANO_OBRA'">MO</button>
                                                 <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openResourcePopup(item); currentResourceTab='HERRAMIENTAS' PROPOSITO=Integracion -->
@@ -2674,13 +2674,13 @@
                                         </div>
 
                                         <!-- Description -->
-                                        <div class="col-12 col-md-5 col-lg-3">
+                                        <div class="col-12 col-md-5 col-lg-4">
                                             <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.description PROPOSITO=Integracion -->
 <input v-model="item.description" class="form-control form-control-sm fw-bold" placeholder="Descripción de Actividad">
                                         </div>
 
                                         <!-- Cotizador -->
-                                        <div class="col-12 col-md-3 col-lg-2">
+                                        <div class="col-12 col-md-3 col-lg-3">
                                             <input v-model="item.cotizador" class="form-control form-control-sm" placeholder="Cotizador...">
                                         </div>
 
@@ -4043,6 +4043,12 @@
                   <div class="mb-2 position-relative">
                       <label class="form-label fw-bold text-muted small d-block">Dictado de Pared (Mano de obra, materiales, herramientas, equipos):</label>
                       <textarea :id="'dictado-' + currentActivityContext.id" v-model="currentActivityContext.dictado" class="form-control shadow-sm" rows="3" placeholder="Dicta los detalles aquí..."></textarea>
+                      <button v-if="isActivityPaperclipRunning" class="btn btn-info btn-sm position-absolute rounded-circle shadow" style="bottom: 10px; right: 55px; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center;" disabled>
+                          <i class="fas fa-spinner fa-spin"></i>
+                      </button>
+                      <button v-else class="btn btn-info btn-sm position-absolute rounded-circle shadow" style="bottom: 10px; right: 55px; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center;" @click="runActivityPaperclipAgents" title="Procesar Dictado con IA">
+                          <i class="fas fa-paperclip"></i>
+                      </button>
                       <button :id="'btn-micro-dictado-' + currentActivityContext.id" class="btn btn-danger btn-sm position-absolute rounded-circle shadow" style="bottom: 10px; right: 10px; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center;" @click="iniciarDictadoNativo('dictado-' + currentActivityContext.id)" title="Iniciar Dictado">
                           <i class="fas fa-microphone"></i>
                       </button>
@@ -4474,6 +4480,48 @@ async function toggleVoiceRecording(btnElement) {
       const isRecordingAIAgent = ref(false);
       const isGeneratingQuestions = ref(false);
       const isPaperclipRunning = ref(false);
+      const isActivityPaperclipRunning = ref(false);
+
+      const runActivityPaperclipAgents = async () => {
+          if (!currentActivityContext.value || !currentActivityContext.value.dictado) {
+              alert("Por favor dicta o escribe una descripción de la actividad primero.");
+              return;
+          }
+          isActivityPaperclipRunning.value = true;
+          try {
+              const result = await ApiService.runPaperclipAgents(currentActivityContext.value.dictado);
+              console.log("Activity Paperclip Agency Result:", result);
+
+              if(result.structured_data) {
+                  let parsed;
+                  try { parsed = JSON.parse(result.structured_data); }
+                  catch(e){ console.error("Error parsing Paperclip JSON:", e); }
+
+                  if(parsed) {
+                      const actId = currentActivityContext.value.id;
+                      if(parsed.laborTable && parsed.laborTable.length > 0) {
+                          parsed.laborTable.forEach(item => { item.activityId = actId; laborTable.value.items.push(item); });
+                      }
+                      if(parsed.requiredMaterials && parsed.requiredMaterials.length > 0) {
+                          parsed.requiredMaterials.forEach(item => { item.activityId = actId; requiredMaterials.value.items.push(item); });
+                      }
+                      if(parsed.toolsRequired && parsed.toolsRequired.length > 0) {
+                          parsed.toolsRequired.forEach(item => { item.activityId = actId; toolsRequired.value.items.push(item); });
+                      }
+                      if(parsed.specialEquipment && parsed.specialEquipment.length > 0) {
+                          parsed.specialEquipment.forEach(item => { item.activityId = actId; specialEquipment.value.items.push(item); });
+                      }
+                      alert("¡Se han agregado los recursos estructurados a la actividad!");
+                  }
+              } else {
+                  alert("La agencia no devolvió datos estructurados para la actividad.");
+              }
+          } catch(err) {
+              alert("Error ejecutando Agencia Paperclip en actividad: " + err.message);
+          } finally {
+              isActivityPaperclipRunning.value = false;
+          }
+      };
 
       // --- PAPERCLIP AGENCY LOGIC ---
       const runPaperclipAgents = async () => {
@@ -7397,7 +7445,8 @@ async function toggleVoiceRecording(btnElement) {
       dashboardCalendar, calendarLoading, calendarUserFilter, weekDays, currentMonthYearLabel, navigateCalendar, loadDashboardCalendar, getTasksForDay, getTaskColor, isTaskDone, animTaskHover, animTaskLeave, getResponsible,
       staffTrackerFilters, filteredStaffTrackerData, getUniqueValues,
       currentActivityContext, showResourceModal, currentResourceTab, openResourcePopup, addResourceToActivity, getActivityTotal, reqCotizacionTotal, cotPreconstruccionTotal, setCheckStatus,
-      showAIModal, isRecordingAI, aiProcessing, aiAudioBlob, aiAudioUrl, openAIQuoteModal, closeAIModal, toggleAIRecording, processAIQuote, resetAI, iniciarDictadoNativo };
+      showAIModal, isRecordingAI, aiProcessing, aiAudioBlob, aiAudioUrl, openAIQuoteModal, closeAIModal, toggleAIRecording, processAIQuote, resetAI, iniciarDictadoNativo,
+      isActivityPaperclipRunning, runActivityPaperclipAgents };
     }
   });
   app.config.errorHandler = (err) => { console.error(err); Swal.fire({ icon: 'error', title: 'Error de Renderizado', text: 'Ocurrió un error visual: ' + err.message }); };
