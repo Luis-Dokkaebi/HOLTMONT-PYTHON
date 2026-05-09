@@ -152,7 +152,7 @@ def integrador_node(state: PaperclipState, llm) -> dict:
     print("--- [Agente Integrador] Estructurando JSON ---")
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un Analista de Datos experto. Extrae la mano de obra y los materiales de los reportes anteriores en el formato JSON estricto solicitado."),
+        ("system", "Eres un Analista de Datos experto. Extrae la mano de obra, materiales, equipos y herramientas de los reportes anteriores en el formato JSON estricto solicitado. Extrae explícitamente los costos unitarios, salarios y cantidades basándote en el reporte de 'Precios'. NUNCA dejes cantidades o costos en 0 a menos que el texto diga explícitamente que es gratis."),
         ("human", "Cálculo y Diseño:\n{calculo}\n\nPrecios:\n{precios}")
     ])
     

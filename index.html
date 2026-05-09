@@ -4540,11 +4540,36 @@ async function toggleVoiceRecording(btnElement) {
                   catch(e){ console.error("Error parsing Paperclip JSON:", e); }
                   
                   if(parsed) {
-                      if(parsed.laborTable && parsed.laborTable.length > 0) laborTable.value.items = parsed.laborTable;
-                      if(parsed.requiredMaterials && parsed.requiredMaterials.length > 0) requiredMaterials.value.items = parsed.requiredMaterials;
-                      if(parsed.toolsRequired && parsed.toolsRequired.length > 0) toolsRequired.value.items = parsed.toolsRequired;
-                      if(parsed.specialEquipment && parsed.specialEquipment.length > 0) specialEquipment.value.items = parsed.specialEquipment;
-                      if(parsed.viaticosTable && parsed.viaticosTable.length > 0) viaticosTable.value.items = parsed.viaticosTable;
+                      if(parsed.laborTable && parsed.laborTable.length > 0) {
+                          laborTable.value.items = parsed.laborTable.map(item => ({
+                              ...item,
+                              total: (parseFloat(item.salary)||0) * (parseFloat(item.personnel)||0) * (parseFloat(item.weeks)||0)
+                          }));
+                      }
+                      if(parsed.requiredMaterials && parsed.requiredMaterials.length > 0) {
+                          requiredMaterials.value.items = parsed.requiredMaterials.map(item => ({
+                              ...item,
+                              total: (parseFloat(item.quantity)||0) * (parseFloat(item.cost)||0)
+                          }));
+                      }
+                      if(parsed.toolsRequired && parsed.toolsRequired.length > 0) {
+                          toolsRequired.value.items = parsed.toolsRequired.map(item => ({
+                              ...item,
+                              total: (parseFloat(item.quantity)||0) * (parseFloat(item.cost)||0)
+                          }));
+                      }
+                      if(parsed.specialEquipment && parsed.specialEquipment.length > 0) {
+                          specialEquipment.value.items = parsed.specialEquipment.map(item => ({
+                              ...item,
+                              total: (parseFloat(item.quantity)||0) * (parseFloat(item.cost)||0) * (parseFloat(item.days)||0)
+                          }));
+                      }
+                      if(parsed.viaticosTable && parsed.viaticosTable.length > 0) {
+                          viaticosTable.value.items = parsed.viaticosTable.map(item => ({
+                              ...item,
+                              total: (parseFloat(item.cantidad)||0) * (parseFloat(item.costo_unitario)||0)
+                          }));
+                      }
                       
                       if(parsed.arquitectura_3d_json) {
                           saved3DProjectData.value = parsed.arquitectura_3d_json;
