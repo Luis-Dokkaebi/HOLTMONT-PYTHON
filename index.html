@@ -4602,9 +4602,11 @@ async function toggleVoiceRecording(btnElement) {
                 const onIframeLoaded = () => {
                   iframeLoaded.value = true;
                   console.log("Iframe de Pascal Editor ha sido cargado en el DOM.");
+
+                  // Siempre enviar mensaje cuando termina de cargar si hay data
                   setTimeout(() => {
                       if (saved3DProjectData.value) {
-                        console.log("Enviando diseño existente al iFrame para su renderización...");
+                        console.log("Enviando diseño existente al iFrame para su renderización post-carga...");
                         const iframe = document.getElementById('pascal-editor-iframe');
                         if (iframe && iframe.contentWindow) {
                           iframe.contentWindow.postMessage({
@@ -4614,6 +4616,21 @@ async function toggleVoiceRecording(btnElement) {
                         }
                       }
                   }, 1500);
+
+                  // Retry sending exactly what the React app expects after a larger delay
+                  // in case the React state store was not initialized in the first 1.5s
+                  setTimeout(() => {
+                      if (saved3DProjectData.value) {
+                        console.log("Segunda inyección asegurada...");
+                        const iframe = document.getElementById('pascal-editor-iframe');
+                        if (iframe && iframe.contentWindow) {
+                          iframe.contentWindow.postMessage({
+                            type: 'HOLTMONT_3D_IMPORT',
+                            projectData: typeof saved3DProjectData.value === 'string' ? JSON.parse(saved3DProjectData.value) : saved3DProjectData.value
+                          }, '*');
+                        }
+                      }
+                  }, 4000);
                 };
 
                 // Nueva reactividad para actualizar el editor cuando lleguen datos de IA (o cambie de vista si los datos estaban pero no se enviaron)
