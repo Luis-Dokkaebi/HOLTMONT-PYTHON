@@ -4591,6 +4591,36 @@ async function toggleVoiceRecording(btnElement) {
                   }, 1500);
                 };
 
+                // Nueva reactividad para actualizar el editor cuando lleguen datos de IA (o cambie de vista si los datos estaban pero no se enviaron)
+                Vue.watch(saved3DProjectData, (newData) => {
+                    if (newData && currentView.value === 'PASCAL_DESIGNER' && iframeLoaded.value) {
+                        console.log("Nuevos datos 3D recibidos, actualizando iframe en tiempo real...");
+                        const iframe = document.getElementById('pascal-editor-iframe');
+                        if (iframe && iframe.contentWindow) {
+                            iframe.contentWindow.postMessage({
+                                type: 'HOLTMONT_3D_IMPORT',
+                                projectData: typeof newData === 'string' ? JSON.parse(newData) : newData
+                            }, '*');
+                        }
+                    }
+                });
+
+                Vue.watch(currentView, (newView) => {
+                    if (newView === 'PASCAL_DESIGNER' && saved3DProjectData.value && iframeLoaded.value) {
+                        console.log("Entrando a PASCAL_DESIGNER con datos previos, inyectando...");
+                        // Usamos un ligero delay por si el navegador acaba de desocultar el div del iframe
+                        setTimeout(() => {
+                            const iframe = document.getElementById('pascal-editor-iframe');
+                            if (iframe && iframe.contentWindow) {
+                                iframe.contentWindow.postMessage({
+                                    type: 'HOLTMONT_3D_IMPORT',
+                                    projectData: typeof saved3DProjectData.value === 'string' ? JSON.parse(saved3DProjectData.value) : saved3DProjectData.value
+                                }, '*');
+                            }
+                        }, 500);
+                    }
+                });
+
                 Vue.onMounted(() => {
                   window.addEventListener('message', (event) => {
                     const data = event.data;

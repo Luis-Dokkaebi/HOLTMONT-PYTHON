@@ -95,7 +95,29 @@ def architect_node(state: PaperclipState, llm) -> dict:
     elif content.startswith("```"): content = content[3:]
     if content.endswith("```"): content = content[:-3]
     
-    return {"architect_data": content.strip()}
+    content = content.strip()
+
+    try:
+        import json
+        # Ensure it is parseable JSON.
+        parsed = json.loads(content)
+        # Re-dump to ensure it is a clean string
+        return {"architect_data": json.dumps(parsed)}
+    except Exception as e:
+        print(f"Error parsing architect JSON: {e}, Content: {content}")
+        # Default simple room for Pascal Editor fallback
+        default_room = {
+            "state": {
+                "nodes": [
+                    {"id": "n1", "type": "wall", "position": {"x": -2, "y": -2, "z": 0}},
+                    {"id": "n2", "type": "wall", "position": {"x": 2, "y": -2, "z": 0}},
+                    {"id": "n3", "type": "wall", "position": {"x": 2, "y": 2, "z": 0}},
+                    {"id": "n4", "type": "wall", "position": {"x": -2, "y": 2, "z": 0}}
+                ]
+            }
+        }
+        import json
+        return {"architect_data": json.dumps(default_room)}
 
 def calculo_node(state: PaperclipState, llm) -> dict:
     """Agente 2: Cálculo y Diseño. Genera requerimientos técnicos basados en el levantamiento."""
