@@ -2518,6 +2518,10 @@
                                 <span class="fw-bold text-white fs-5 ps-2">2. Requerimiento Pre-Diseños , Pre-Analisis de Riesgos y Precios Unitarios( Paso 2 )</span>
                                 <div class="d-flex align-items-center gap-2 pe-2">
                                     <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addProjectItem('reqCotizacion') PROPOSITO=Integracion -->
+                                    <!-- BOTON PLANO 2D IA -->
+                                    <button class="btn btn-warning fw-bold text-dark shadow-sm" @click="generateBlueprintFromDescription" title="Generar Plano 2D con IA" style="display: flex; align-items: center; gap: 8px;">
+                                        <i class="fas fa-map"></i> Plano 2D (IA)
+                                    </button>
                                     <!-- BOTON PASCAL 3D -->
                                     <button class="btn btn-info fw-bold text-white shadow-sm" @click="currentView = 'PASCAL_DESIGNER'" title="Abrir Editor 3D" style="display: flex; align-items: center; gap: 8px;">
                                         <i class="fas fa-cube"></i> Editor 3D Pascal
@@ -4219,6 +4223,36 @@
       </div>
   </div>
 
+  <!-- MODAL PLANO 2D (IA) -->
+  <div v-if="showBlueprintModal" class="custom-modal-overlay" style="z-index: 2000;">
+      <div class="custom-modal" style="width: 800px; max-width: 95vw; background: white; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column;">
+          <div class="custom-modal-header bg-dark text-white d-flex justify-content-between align-items-center" style="padding: 15px;">
+              <span class="fw-bold"><i class="fas fa-map me-2"></i>Plano 2D Generado (IA)</span>
+              <button class="btn btn-sm btn-outline-light" @click="showBlueprintModal = false"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="custom-modal-body text-center" style="padding: 20px; overflow-y: auto;">
+              <div v-if="isGeneratingBlueprint" class="d-flex flex-column align-items-center justify-content-center py-5">
+                  <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                      <span class="visually-hidden">Generando plano...</span>
+                  </div>
+                  <h5 class="text-secondary">Generando plano arquitectónico con IA...</h5>
+                  <p class="text-muted small">Esto puede tardar unos segundos.</p>
+              </div>
+              <div v-else-if="blueprintImageUrl" class="py-2">
+                  <img :src="blueprintImageUrl" alt="Plano Generado por IA" style="max-width: 100%; max-height: 65vh; object-fit: contain; border: 1px solid #dee2e6; border-radius: 4px;" />
+              </div>
+              <div v-else class="text-danger py-4">
+                  <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
+                  <p>No se pudo generar la imagen.</p>
+              </div>
+          </div>
+          <div class="custom-modal-footer text-end" style="padding: 15px; background: #f8f9fa; border-top: 1px solid #dee2e6;">
+              <button class="btn btn-secondary" @click="showBlueprintModal = false">Cerrar</button>
+              <a v-if="blueprintImageUrl && !isGeneratingBlueprint" :href="blueprintImageUrl" target="_blank" class="btn btn-primary ms-2"><i class="fas fa-external-link-alt me-1"></i> Abrir Original</a>
+          </div>
+      </div>
+  </div>
+
   <!-- NUEVA ACTIVIDAD MODAL -->
   <div v-if="showNewActivityModal" class="custom-modal-overlay">
       <div class="custom-modal" style="width: 400px;">
@@ -5026,6 +5060,11 @@ async function toggleVoiceRecording(btnElement) {
           cotPreconstruccion: [],
           cotTrabajo: []
       });
+
+      // PLANO 2D IA STATE
+      const showBlueprintModal = ref(false);
+      const isGeneratingBlueprint = ref(false);
+      const blueprintImageUrl = ref('');
 
       // RESOURCE MODAL STATE
       const currentActivityContext = ref(null);
@@ -6609,6 +6648,42 @@ async function toggleVoiceRecording(btnElement) {
       };
       const syncQueueToBackend = () => { google.script.run.apiSyncDrafts(JSON.parse(JSON.stringify(activityQueue.value))); };
 
+      const generateBlueprintFromDescription = () => {
+          const desc = workorderData.value.conceptoDesc;
+          if (!desc || desc.trim() === '') {
+              Swal.fire({
+                  icon: 'warning',
+                  title: 'Falta Descripción',
+                  text: 'Por favor, escribe una Descripción del Trabajo a Realizar en el Paso 1 antes de generar el plano.'
+              });
+              return;
+          }
+
+          showBlueprintModal.value = true;
+          isGeneratingBlueprint.value = true;
+          blueprintImageUrl.value = '';
+
+          const prompt = `Architectural floor plan blueprint, 2D top down view, precise lines, technical drawing, schematic, black and white or blueprint blue. Space description: ${desc}`;
+          const encodedPrompt = encodeURIComponent(prompt);
+          // Pollinations.ai generates the image and redirects to it or streams it.
+          // By appending a random seed we ensure it doesn't cache if called multiple times.
+          const seed = Math.floor(Math.random() * 100000);
+          const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&seed=${seed}`;
+
+          // Preload the image so the UI shows it only when it's fully downloaded
+          const img = new Image();
+          img.onload = () => {
+              blueprintImageUrl.value = url;
+              isGeneratingBlueprint.value = false;
+          };
+          img.onerror = () => {
+              isGeneratingBlueprint.value = false;
+              Swal.fire('Error', 'Hubo un problema al generar la imagen. Inténtalo de nuevo más tarde.', 'error');
+              showBlueprintModal.value = false;
+          };
+          img.src = url;
+      };
+
       const saveWorkOrder = () => {
         const hasCotizador = workorderData.value.cotizador && workorderData.value.cotizador.some(c => c && c.trim() !== '');
         if(!workorderData.value.cliente || !workorderData.value.tipoTrabajo || !hasCotizador) {
@@ -7492,7 +7567,7 @@ async function toggleVoiceRecording(btnElement) {
           requiredMaterials.value.items[idx].description = text;
       };
 
-      return { isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
+      return { showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription, isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,
