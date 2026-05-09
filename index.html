@@ -4540,11 +4540,36 @@ async function toggleVoiceRecording(btnElement) {
                   catch(e){ console.error("Error parsing Paperclip JSON:", e); }
                   
                   if(parsed) {
-                      if(parsed.laborTable && parsed.laborTable.length > 0) laborTable.value.items = parsed.laborTable;
-                      if(parsed.requiredMaterials && parsed.requiredMaterials.length > 0) requiredMaterials.value.items = parsed.requiredMaterials;
-                      if(parsed.toolsRequired && parsed.toolsRequired.length > 0) toolsRequired.value.items = parsed.toolsRequired;
-                      if(parsed.specialEquipment && parsed.specialEquipment.length > 0) specialEquipment.value.items = parsed.specialEquipment;
-                      if(parsed.viaticosTable && parsed.viaticosTable.length > 0) viaticosTable.value.items = parsed.viaticosTable;
+                      if(parsed.laborTable && parsed.laborTable.length > 0) {
+                          laborTable.value.items = parsed.laborTable.map(item => ({
+                              ...item, 
+                              total: (parseFloat(item.salary)||0) * (parseFloat(item.personnel)||0) * (parseFloat(item.weeks)||0)
+                          }));
+                      }
+                      if(parsed.requiredMaterials && parsed.requiredMaterials.length > 0) {
+                          requiredMaterials.value.items = parsed.requiredMaterials.map(item => ({
+                              ...item, 
+                              total: (parseFloat(item.quantity)||0) * (parseFloat(item.cost)||0)
+                          }));
+                      }
+                      if(parsed.toolsRequired && parsed.toolsRequired.length > 0) {
+                          toolsRequired.value.items = parsed.toolsRequired.map(item => ({
+                              ...item, 
+                              total: (parseFloat(item.quantity)||0) * (parseFloat(item.cost)||0)
+                          }));
+                      }
+                      if(parsed.specialEquipment && parsed.specialEquipment.length > 0) {
+                          specialEquipment.value.items = parsed.specialEquipment.map(item => ({
+                              ...item, 
+                              total: (parseFloat(item.quantity)||0) * (parseFloat(item.cost)||0) * (parseFloat(item.days)||0)
+                          }));
+                      }
+                      if(parsed.viaticosTable && parsed.viaticosTable.length > 0) {
+                          viaticosTable.value.items = parsed.viaticosTable.map(item => ({
+                              ...item, 
+                              total: (parseFloat(item.cantidad)||0) * (parseFloat(item.costo_unitario)||0)
+                          }));
+                      }
                       
                       if(parsed.arquitectura_3d_json) {
                           saved3DProjectData.value = parsed.arquitectura_3d_json;
@@ -4577,9 +4602,11 @@ async function toggleVoiceRecording(btnElement) {
                 const onIframeLoaded = () => {
                   iframeLoaded.value = true;
                   console.log("Iframe de Pascal Editor ha sido cargado en el DOM.");
+                  
+                  // Siempre enviar mensaje cuando termina de cargar si hay data
                   setTimeout(() => {
                       if (saved3DProjectData.value) {
-                        console.log("Enviando diseño existente al iFrame para su renderización...");
+                        console.log("Enviando diseño existente al iFrame para su renderización post-carga...");
                         const iframe = document.getElementById('pascal-editor-iframe');
                         if (iframe && iframe.contentWindow) {
                           iframe.contentWindow.postMessage({
@@ -4589,6 +4616,21 @@ async function toggleVoiceRecording(btnElement) {
                         }
                       }
                   }, 1500);
+                  
+                  // Retry sending exactly what the React app expects after a larger delay
+                  // in case the React state store was not initialized in the first 1.5s
+                  setTimeout(() => {
+                      if (saved3DProjectData.value) {
+                        console.log("Segunda inyección asegurada...");
+                        const iframe = document.getElementById('pascal-editor-iframe');
+                        if (iframe && iframe.contentWindow) {
+                          iframe.contentWindow.postMessage({
+                            type: 'HOLTMONT_3D_IMPORT',
+                            projectData: typeof saved3DProjectData.value === 'string' ? JSON.parse(saved3DProjectData.value) : saved3DProjectData.value
+                          }, '*');
+                        }
+                      }
+                  }, 4000);
                 };
 
                 // Nueva reactividad para actualizar el editor cuando lleguen datos de IA (o cambie de vista si los datos estaban pero no se enviaron)
