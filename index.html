@@ -6663,7 +6663,7 @@ async function toggleVoiceRecording(btnElement) {
           isGeneratingBlueprint.value = true;
           blueprintImageUrl.value = '';
 
-          const prompt = `Architectural floor plan blueprint, 2D top down view, precise lines, technical drawing, schematic, black and white or blueprint blue. Interpret and expand upon these basic instructions with professional architectural details. Space description: ${desc} (Variant: ${Math.floor(Math.random() * 1000000)})`;
+          const prompt = `Architectural floor plan blueprint, 2D top down view, precise lines, technical drawing, schematic, black and white or blueprint blue. Strictly adhere to the exact dimensions, shape, layout, and number of rooms requested. Do NOT add extra unrequested rooms, and do NOT expand simple single-room requests into complex multi-room structures. Space description: ${desc} (Variant: ${Math.floor(Math.random() * 1000000)})`;
           const encodedPrompt = encodeURIComponent(prompt);
           // Pollinations.ai generates the image and redirects to it or streams it.
           // By appending a random seed we ensure it doesn't cache if called multiple times.
