@@ -4059,21 +4059,11 @@
                   </div>
               </div>
 
-              <!-- RESOURCE TABS -->
-              <div class="d-flex gap-2 mb-3">
-                  <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'MANO_OBRA' PROPOSITO=Integracion -->
-<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'MANO_OBRA' ? 'btn-primary' : 'btn-outline-secondary'" @click="currentResourceTab = 'MANO_OBRA'">MO</button>
-                  <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'HERRAMIENTAS' PROPOSITO=Integracion -->
-<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'HERRAMIENTAS' ? 'btn-info text-white' : 'btn-outline-secondary'" @click="currentResourceTab = 'HERRAMIENTAS'">Her</button>
-                  <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'MATERIALES' PROPOSITO=Integracion -->
-<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'MATERIALES' ? 'btn-success' : 'btn-outline-secondary'" @click="currentResourceTab = 'MATERIALES'">Mat</button>
-                  <!-- [MAPEO IA] BUTTON ID=sin-id VAR=currentResourceTab = 'EQUIPOS' PROPOSITO=Integracion -->
-<button class="btn btn-sm fw-bold" :class="currentResourceTab === 'EQUIPOS' ? 'btn-warning text-dark' : 'btn-outline-secondary'" @click="currentResourceTab = 'EQUIPOS'">Equ</button>
-              </div>
-
               <!-- MANO DE OBRA -->
-              <div v-if="currentResourceTab === 'MANO_OBRA'">
-                  <div class="d-flex justify-content-end mb-2"><!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('MANO_OBRA') PROPOSITO=Integracion -->
+              <div class="mb-4 border border-light p-2 rounded">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                      <h6 class="fw-bold text-primary m-0"><i class="fas fa-users me-2"></i>Mano de Obra</h6>
+                      <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('MANO_OBRA') PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-primary" @click="addResourceToActivity('MANO_OBRA')"><i class="fas fa-plus"></i> Agregar Personal</button></div>
                   <table class="table table-bordered table-sm small">
                       <thead class="table-light"><tr><th>Categoría</th><th>Sueldo</th><th>Pers</th><th>Tiempo</th><th>Unidad</th><th>6% EPP</th><th>Costo x Hora</th><th>Hrs Req</th><th>Total</th><th></th></tr></thead>
@@ -4107,8 +4097,10 @@
                   </table>
               </div>
               <!-- MATERIALES -->
-              <div v-if="currentResourceTab === 'MATERIALES'">
-                  <div class="d-flex justify-content-end mb-2"><!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('MATERIALES') PROPOSITO=Integracion -->
+              <div class="mb-4 border border-light p-2 rounded">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                      <h6 class="fw-bold text-success m-0"><i class="fas fa-box me-2"></i>Materiales</h6>
+                      <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('MATERIALES') PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-success" @click="addResourceToActivity('MATERIALES')"><i class="fas fa-plus"></i> Agregar Material</button></div>
                   <table class="table table-bordered table-sm small">
                       <thead class="table-light"><tr><th>Cant</th><th>Uni</th><th>Desc</th><th>Costo</th><th>Total</th><th></th></tr></thead>
@@ -4129,8 +4121,10 @@
                   </table>
               </div>
               <!-- HERRAMIENTAS -->
-              <div v-if="currentResourceTab === 'HERRAMIENTAS'">
-                  <div class="d-flex justify-content-end mb-2"><!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('HERRAMIENTAS') PROPOSITO=Integracion -->
+              <div class="mb-4 border border-light p-2 rounded">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                      <h6 class="fw-bold text-info m-0"><i class="fas fa-tools me-2"></i>Herramientas</h6>
+                      <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('HERRAMIENTAS') PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-info text-white" @click="addResourceToActivity('HERRAMIENTAS')"><i class="fas fa-plus"></i> Agregar Herramienta</button></div>
                   <table class="table table-bordered table-sm small">
                       <thead class="table-light"><tr><th>Cant</th><th>Uni</th><th>Desc</th><th>Costo</th><th>Total</th><th></th></tr></thead>
@@ -4151,8 +4145,10 @@
                   </table>
               </div>
               <!-- EQUIPOS -->
-              <div v-if="currentResourceTab === 'EQUIPOS'">
-                  <div class="d-flex justify-content-end mb-2"><!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('EQUIPOS') PROPOSITO=Integracion -->
+              <div class="mb-4 border border-light p-2 rounded">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                      <h6 class="fw-bold text-warning m-0"><i class="fas fa-tractor me-2"></i>Equipos Especiales</h6>
+                      <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addResourceToActivity('EQUIPOS') PROPOSITO=Integracion -->
 <button class="btn btn-sm btn-warning" @click="addResourceToActivity('EQUIPOS')"><i class="fas fa-plus"></i> Agregar Equipo</button></div>
                   <table class="table table-bordered table-sm small">
                       <thead class="table-light"><tr><th>Cant</th><th>Uni</th><th>Desc</th><th>Días</th><th>Costo</th><th>Total</th><th></th></tr></thead>
