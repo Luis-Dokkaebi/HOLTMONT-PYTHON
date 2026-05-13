@@ -2681,6 +2681,7 @@
                                         <div class="col-12 col-md-5 col-lg-4">
                                             <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.description PROPOSITO=Integracion -->
 <input v-model="item.description" class="form-control form-control-sm fw-bold" placeholder="Descripción de Actividad">
+                                            <textarea v-if="item.dictado_detalle" v-model="item.dictado_detalle" class="form-control form-control-sm mt-1 text-muted" rows="3" style="font-size: 0.8rem; resize: vertical;" readonly></textarea>
                                         </div>
 
                                         <!-- Cotizador -->
@@ -4522,6 +4523,19 @@ async function toggleVoiceRecording(btnElement) {
               const result = await ApiService.runPaperclipAgents(currentActivityContext.value.dictado);
               console.log("Activity Paperclip Agency Result:", result);
 
+              // Concatenar textos detallados
+              let reportText = "";
+              if (result.levantamiento) reportText += "\n## LEVANTAMIENTO\n" + result.levantamiento + "\n";
+              if (result.calculo) reportText += "\n## CÁLCULO Y DISEÑO\n" + result.calculo + "\n";
+              if (result.precios) reportText += "\n## PRECIOS UNITARIOS\n" + result.precios + "\n";
+
+              if (reportText) {
+                  const actContext = projectProgram.value.cotTrabajo.find(item => item.id === currentActivityContext.value.id);
+                  if (actContext) {
+                      actContext.dictado_detalle = (actContext.dictado_detalle || "") + reportText;
+                  }
+              }
+
               if(result.structured_data) {
                   let parsed;
                   try { parsed = JSON.parse(result.structured_data); }
@@ -4530,16 +4544,32 @@ async function toggleVoiceRecording(btnElement) {
                   if(parsed) {
                       const actId = currentActivityContext.value.id;
                       if(parsed.laborTable && parsed.laborTable.length > 0) {
-                          parsed.laborTable.forEach(item => { item.activityId = actId; laborTable.value.items.push(item); });
+                          parsed.laborTable.forEach(item => {
+                              item.activityId = actId;
+                              updateLaborRowTotal(item);
+                              laborTable.value.items.push(item);
+                          });
                       }
                       if(parsed.requiredMaterials && parsed.requiredMaterials.length > 0) {
-                          parsed.requiredMaterials.forEach(item => { item.activityId = actId; requiredMaterials.value.items.push(item); });
+                          parsed.requiredMaterials.forEach(item => {
+                              item.activityId = actId;
+                              updateMaterialRowTotal(item);
+                              requiredMaterials.value.items.push(item);
+                          });
                       }
                       if(parsed.toolsRequired && parsed.toolsRequired.length > 0) {
-                          parsed.toolsRequired.forEach(item => { item.activityId = actId; toolsRequired.value.items.push(item); });
+                          parsed.toolsRequired.forEach(item => {
+                              item.activityId = actId;
+                              updateToolRowTotal(item);
+                              toolsRequired.value.items.push(item);
+                          });
                       }
                       if(parsed.specialEquipment && parsed.specialEquipment.length > 0) {
-                          parsed.specialEquipment.forEach(item => { item.activityId = actId; specialEquipment.value.items.push(item); });
+                          parsed.specialEquipment.forEach(item => {
+                              item.activityId = actId;
+                              updateSpecialEquipRowTotal(item);
+                              specialEquipment.value.items.push(item);
+                          });
                       }
                       alert("¡Se han agregado los recursos estructurados a la actividad!");
                   }
@@ -4587,28 +4617,28 @@ async function toggleVoiceRecording(btnElement) {
                   
                   if(parsed) {
                       if(parsed.laborTable && parsed.laborTable.length > 0) {
-                          laborTable.value.items = parsed.laborTable.map(item => ({
-                              ...item, 
-                              total: (parseFloat(item.salary)||0) * (parseFloat(item.personnel)||0) * (parseFloat(item.weeks)||0)
-                          }));
+                          laborTable.value.items = parsed.laborTable.map(item => {
+                              updateLaborRowTotal(item);
+                              return item;
+                          });
                       }
                       if(parsed.requiredMaterials && parsed.requiredMaterials.length > 0) {
-                          requiredMaterials.value.items = parsed.requiredMaterials.map(item => ({
-                              ...item, 
-                              total: (parseFloat(item.quantity)||0) * (parseFloat(item.cost)||0)
-                          }));
+                          requiredMaterials.value.items = parsed.requiredMaterials.map(item => {
+                              updateMaterialRowTotal(item);
+                              return item;
+                          });
                       }
                       if(parsed.toolsRequired && parsed.toolsRequired.length > 0) {
-                          toolsRequired.value.items = parsed.toolsRequired.map(item => ({
-                              ...item, 
-                              total: (parseFloat(item.quantity)||0) * (parseFloat(item.cost)||0)
-                          }));
+                          toolsRequired.value.items = parsed.toolsRequired.map(item => {
+                              updateToolRowTotal(item);
+                              return item;
+                          });
                       }
                       if(parsed.specialEquipment && parsed.specialEquipment.length > 0) {
-                          specialEquipment.value.items = parsed.specialEquipment.map(item => ({
-                              ...item, 
-                              total: (parseFloat(item.quantity)||0) * (parseFloat(item.cost)||0) * (parseFloat(item.days)||0)
-                          }));
+                          specialEquipment.value.items = parsed.specialEquipment.map(item => {
+                              updateSpecialEquipRowTotal(item);
+                              return item;
+                          });
                       }
                       if(parsed.viaticosTable && parsed.viaticosTable.length > 0) {
                           viaticosTable.value.items = parsed.viaticosTable.map(item => ({
