@@ -22,6 +22,9 @@ except ImportError:
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
 from api.services.work_order import process_and_save_work_order, get_next_sequence
 
+# MCP Server
+from api.mcp_server import mcp
+
 # Load environment variables from .env file manually
 def load_env_file(filepath=".env"):
     if os.path.exists(filepath):
@@ -50,6 +53,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount MCP Server SSE App
+try:
+    app.mount("/mcp", mcp.sse_app)
+except Exception as e:
+    print(f"Error mounting MCP server: {e}")
 
 # --- Endpoints ---
 
