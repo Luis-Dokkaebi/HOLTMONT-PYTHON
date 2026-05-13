@@ -138,7 +138,7 @@ def precios_node(state: PaperclipState, llm) -> dict:
     print("--- [Agente de Precios Unitarios] Estimando presupuesto ---")
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un Analista de Precios Unitarios experto. Tu objetivo es tomar los requerimientos técnicos y de materiales, y generar una estimación de presupuesto aproximada. Genera un desglose que incluya: 1) Costo estimado de materiales, 2) Costo estimado de mano de obra, 3) Costos de equipo, 4) Total estimado del proyecto. Debes presentar esto de manera profesional."),
+        ("system", "Eres un Analista de Precios Unitarios experto. Tu objetivo es tomar los requerimientos técnicos y de materiales, y generar una estimación de presupuesto aproximada. Genera un desglose que incluya: 1) Costo estimado de materiales, 2) Costo estimado de mano de obra, 3) Costos de equipo, 4) Total estimado del proyecto. Debes presentar esto de manera profesional e incluir los precios de manera unitaria, explícita y detallada en cada ítem, en lugar de sólo montos globales. Asigna un precio unitario o salario estimado razonable para CADA ítem que menciones."),
         ("human", "Requerimientos Técnicos (Cálculo y Diseño):\n{calculo_data}")
     ])
     
@@ -152,7 +152,7 @@ def integrador_node(state: PaperclipState, llm) -> dict:
     print("--- [Agente Integrador] Estructurando JSON ---")
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un Analista de Datos experto. Extrae la mano de obra, materiales, equipos y herramientas de los reportes anteriores en el formato JSON estricto solicitado. Extrae explícitamente los costos unitarios, salarios y cantidades basándote en el reporte de 'Precios'. NUNCA dejes cantidades o costos en 0 a menos que el texto diga explícitamente que es gratis."),
+        ("system", "Eres un Analista de Datos experto. Extrae la mano de obra, materiales, equipos y herramientas de los reportes anteriores en el formato JSON estricto solicitado. Extrae explícitamente los costos unitarios, salarios y cantidades basándote en el reporte de 'Precios'. ES CRÍTICO que extraigas explícitamente y llenes SIEMPRE los campos de costos y salarios (salary, cost, costo_unitario) basándote en el reporte de Precios. Si el reporte de Precios no tiene un costo exacto, invéntate una estimación razonable del mercado y úsala. NUNCA, bajo NINGUNA circunstancia dejes cantidades o costos en 0, nulos, vacíos o ausentes en el JSON resultante."),
         ("human", "Cálculo y Diseño:\n{calculo}\n\nPrecios:\n{precios}")
     ])
     

@@ -4564,6 +4564,22 @@ async function toggleVoiceRecording(btnElement) {
               const result = await ApiService.runPaperclipAgents(workorderData.value.conceptoDesc);
               console.log("Paperclip Agency Result:", result);
               
+              // Anexar los detalles generados por los agentes a la descripción
+              let reportText = "\n\n--- ANÁLISIS DETALLADO ---\n";
+              if (result.levantamiento) {
+                  reportText += "\n## LEVANTAMIENTO\n" + result.levantamiento + "\n";
+              }
+              if (result.calculo) {
+                  reportText += "\n## CÁLCULO Y DISEÑO\n" + result.calculo + "\n";
+              }
+              if (result.precios) {
+                  reportText += "\n## PRECIOS UNITARIOS\n" + result.precios + "\n";
+              }
+
+              if (result.levantamiento || result.calculo || result.precios) {
+                  workorderData.value.conceptoDesc += reportText;
+              }
+
               if(result.structured_data) {
                   let parsed;
                   try { parsed = JSON.parse(result.structured_data); }
