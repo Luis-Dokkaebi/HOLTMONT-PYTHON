@@ -133,12 +133,57 @@ def calculo_node(state: PaperclipState, llm) -> dict:
     
     return {"calculo_data": response.content}
 
+
+def get_obsidian_context(calculo_data=""):
+    import os
+    import re
+    vault_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Obsidian_Vault")
+    context = ""
+
+    # Extraer algunas palabras clave del calculo para filtrar
+    # Esto es una busqueda muy basica, pero previene cargar todas las notas
+    keywords = set([w.lower() for w in re.findall(r'\b\w{5,}\b', calculo_data)])
+
+    if os.path.exists(vault_path):
+        # List of notes sorted by modification time (newest first)
+        files = [f for f in os.listdir(vault_path) if f.endswith('.md')]
+        files.sort(key=lambda x: os.path.getmtime(os.path.join(vault_path, x)), reverse=True)
+
+        max_context_length = 3000
+
+        for filename in files:
+            if len(context) >= max_context_length:
+                break
+
+            filepath = os.path.join(vault_path, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+                    # Checar si la nota tiene alguna palabra clave relevante
+                    # Si no hay keywords o si hay match, la incluimos
+                    content_lower = content.lower()
+                    if not keywords or any(kw in content_lower for kw in keywords):
+                        # Truncate each note to 1000 chars to save space
+                        context += f"\n--- Archivo: {filename} ---\n{content[:1000]}\n"
+            except Exception as e:
+                pass
+
+        # Limitar tamaño maximo del historial a inyectar en el prompt
+        if len(context) > max_context_length:
+            context = context[:max_context_length] + "\n...[Historial Truncado]"
+
+    return context
+
 def precios_node(state: PaperclipState, llm) -> dict:
-    """Agente 3: Precios Unitarios. Estima costos basados en el cálculo y diseño."""
+    """Agente 3: Precios Unitarios. Estima costos basados en el cálculo y diseño y Obsidian."""
     print("--- [Agente de Precios Unitarios] Estimando presupuesto ---")
     
+    obsidian_context = get_obsidian_context(state.get("calculo_data", ""))
+
+
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un Analista de Precios Unitarios experto. Tu objetivo es tomar los requerimientos técnicos y de materiales, y generar una estimación de presupuesto aproximada. Genera un desglose que incluya: 1) Costo estimado de materiales, 2) Costo estimado de mano de obra, 3) Costos de equipo, 4) Total estimado del proyecto. Debes presentar esto de manera profesional e incluir los precios de manera unitaria, explícita y detallada en cada ítem, en lugar de sólo montos globales. Asigna un precio unitario o salario estimado razonable para CADA ítem que menciones."),
+        ("system", f"Eres un Analista de Precios Unitarios experto. Tu objetivo es tomar los requerimientos técnicos y de materiales, y generar una estimación de presupuesto aproximada.\n\nIMPORTANTE: Antes de adivinar o usar estimaciones de mercado, consulta la siguiente BASE DE DATOS HISTÓRICA DE COTIZACIONES (Obsidian Vault). Si encuentras un material, herramienta o mano de obra similar en este historial, UTILIZA ESOS MISMOS PRECIOS para mantener la coherencia con los clientes.\n\n[HISTORIAL DE COTIZACIONES (Obsidian)]\n{obsidian_context}\n[FIN DEL HISTORIAL]\n\nGenera un desglose que incluya: 1) Costo estimado de materiales, 2) Costo estimado de mano de obra, 3) Costos de equipo, 4) Total estimado del proyecto. Debes presentar esto de manera profesional e incluir los precios de manera unitaria, explícita y detallada en cada ítem. Asigna un precio unitario o salario estimado razonable para CADA ítem que menciones (usando el historial si es posible)."),
         ("human", "Requerimientos Técnicos (Cálculo y Diseño):\n{calculo_data}")
     ])
     
