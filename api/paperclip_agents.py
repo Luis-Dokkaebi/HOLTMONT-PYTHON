@@ -1,6 +1,8 @@
 import os
 import json
-from typing import TypedDict, List
+import secrets
+import string
+from typing import TypedDict, List, Optional
 from pydantic import BaseModel, Field
 
 try:
@@ -78,46 +80,188 @@ def levantamiento_node(state: PaperclipState, llm) -> dict:
     
     return {"levantamiento_data": response.content}
 
+# --- PASCAL EDITOR SCHEMA HELPERS ---
+class WallSegment(BaseModel):
+    start: List[float] = Field(description="Punto inicial del muro [x, y] en metros")
+    end: List[float] = Field(description="Punto final del muro [x, y] en metros")
+
+class ArchitectExtraction(BaseModel):
+    walls: List[WallSegment] = Field(
+        description="Lista de muros que forman el espacio. Cada muro va de start a end en metros. Forma un polígono cerrado para una habitación. Si no hay medidas claras, asume 4x4 m centrado en el origen."
+    )
+    ceiling_height: float = Field(default=2.5, description="Altura del techo en metros")
+
+
+def _gen_pascal_id(prefix: str) -> str:
+    chars = string.ascii_lowercase + string.digits
+    return f"{prefix}_{''.join(secrets.choice(chars) for _ in range(16))}"
+
+
+def _build_pascal_scene(walls: List[WallSegment], ceiling_height: float = 2.5) -> dict:
+    """Construye un JSON válido para useScene.setState() de Pascal Editor."""
+    site_id = _gen_pascal_id("site")
+    building_id = _gen_pascal_id("building")
+    level_id = _gen_pascal_id("level")
+
+    wall_nodes = {}
+    wall_ids = []
+    xs, ys = [], []
+    for i, w in enumerate(walls, start=1):
+        wid = _gen_pascal_id("wall")
+        wall_ids.append(wid)
+        wall_nodes[wid] = {
+            "object": "node",
+            "id": wid,
+            "type": "wall",
+            "name": f"Wall {i}",
+            "parentId": level_id,
+            "visible": True,
+            "metadata": {},
+            "children": [],
+            "start": list(w.start),
+            "end": list(w.end),
+            "frontSide": "exterior",
+            "backSide": "interior",
+        }
+        xs.extend([w.start[0], w.end[0]])
+        ys.extend([w.start[1], w.end[1]])
+
+    # Slab and ceiling polygon from wall bounding box (safe default)
+    if xs and ys:
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        polygon = [[min_x, max_y], [min_x, min_y], [max_x, min_y], [max_x, max_y]]
+    else:
+        polygon = [[-2, 2], [-2, -2], [2, -2], [2, 2]]
+
+    slab_id = _gen_pascal_id("slab")
+    ceiling_id = _gen_pascal_id("ceiling")
+
+    slab_node = {
+        "object": "node",
+        "id": slab_id,
+        "type": "slab",
+        "name": "Room Slab",
+        "parentId": level_id,
+        "visible": True,
+        "metadata": {},
+        "polygon": polygon,
+        "holes": [],
+        "holeMetadata": [],
+        "elevation": 0.05,
+        "autoFromWalls": True,
+    }
+    ceiling_node = {
+        "object": "node",
+        "id": ceiling_id,
+        "type": "ceiling",
+        "name": "Room Ceiling",
+        "parentId": level_id,
+        "visible": True,
+        "metadata": {},
+        "children": [],
+        "polygon": polygon,
+        "holes": [],
+        "holeMetadata": [],
+        "height": ceiling_height,
+        "autoFromWalls": True,
+    }
+
+    level_children = wall_ids + [slab_id, ceiling_id]
+
+    # Site terrain bounds slightly larger than walls
+    pad = 10
+    if xs and ys:
+        site_polygon = {
+            "type": "polygon",
+            "points": [
+                [min(xs) - pad, min(ys) - pad],
+                [max(xs) + pad, min(ys) - pad],
+                [max(xs) + pad, max(ys) + pad],
+                [min(xs) - pad, max(ys) + pad],
+            ],
+        }
+    else:
+        site_polygon = {
+            "type": "polygon",
+            "points": [[-15, -15], [15, -15], [15, 15], [-15, 15]],
+        }
+
+    building_inline = {
+        "object": "node",
+        "id": building_id,
+        "type": "building",
+        "parentId": None,
+        "visible": True,
+        "metadata": {},
+        "children": [level_id],
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+    }
+
+    nodes = {
+        site_id: {
+            "object": "node",
+            "id": site_id,
+            "type": "site",
+            "parentId": None,
+            "visible": True,
+            "metadata": {},
+            "polygon": site_polygon,
+            "children": [building_inline],
+        },
+        building_id: building_inline,
+        level_id: {
+            "object": "node",
+            "id": level_id,
+            "type": "level",
+            "parentId": None,
+            "visible": True,
+            "metadata": {},
+            "children": level_children,
+            "level": 0,
+        },
+        slab_id: slab_node,
+        ceiling_id: ceiling_node,
+        **wall_nodes,
+    }
+
+    return {"nodes": nodes, "rootNodeIds": [site_id]}
+
+
+def _default_room_scene() -> dict:
+    """4x4 m fallback room when LLM fails."""
+    walls = [
+        WallSegment(start=[-2, -2], end=[2, -2]),
+        WallSegment(start=[2, -2], end=[2, 2]),
+        WallSegment(start=[2, 2], end=[-2, 2]),
+        WallSegment(start=[-2, 2], end=[-2, -2]),
+    ]
+    return _build_pascal_scene(walls)
+
+
 def architect_node(state: PaperclipState, llm) -> dict:
-    """Agente Arquitecto: Genera el código JSON base para el Pascal Editor 3D."""
+    """Agente Arquitecto: Extrae muros del levantamiento y construye JSON Pascal Editor."""
     print("--- [Agente Arquitecto 3D] Generando modelo volumétrico ---")
-    
+
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un Arquitecto de Software 3D. Tu objetivo es leer el reporte de levantamiento y generar un JSON válido que represente la volumetría básica del proyecto. El JSON debe contener un arreglo de 'walls' (paredes) con coordenadas X, Y. Usa valores numéricos coherentes basados en los metros solicitados. Si no hay medidas, asume una habitación de 4x4. Entrega SOLO el JSON, sin bloques de código ni texto adicional."),
+        ("system",
+         "Eres un Arquitecto experto. Lee el reporte de levantamiento y extrae los muros del espacio como segmentos 2D en metros. "
+         "Cada muro va de un punto start [x,y] a un punto end [x,y]. Forma un polígono cerrado conectando los segmentos. "
+         "Si las medidas son ambiguas o faltan, asume una habitación rectangular 4x4 m centrada en el origen (esquinas -2,-2 a 2,2). "
+         "Devuelve SIEMPRE al menos 4 muros formando una habitación cerrada."),
         ("human", "Reporte de Levantamiento:\n{levantamiento_data}")
     ])
-    
-    chain = prompt | llm
-    response = chain.invoke({"levantamiento_data": state["levantamiento_data"]})
-    
-    content = response.content.strip()
-    if content.startswith("```json"): content = content[7:]
-    elif content.startswith("```"): content = content[3:]
-    if content.endswith("```"): content = content[:-3]
-    
-    content = content.strip()
-    
+
     try:
-        import json
-        # Ensure it is parseable JSON.
-        parsed = json.loads(content)
-        # Re-dump to ensure it is a clean string
-        return {"architect_data": json.dumps(parsed)}
+        structured_llm = llm.with_structured_output(ArchitectExtraction)
+        chain = prompt | structured_llm
+        extraction: ArchitectExtraction = chain.invoke({"levantamiento_data": state["levantamiento_data"]})
+        scene = _build_pascal_scene(extraction.walls, extraction.ceiling_height)
+        return {"architect_data": json.dumps(scene)}
     except Exception as e:
-        print(f"Error parsing architect JSON: {e}, Content: {content}")
-        # Default simple room for Pascal Editor fallback
-        default_room = {
-            "state": {
-                "nodes": [
-                    {"id": "n1", "type": "wall", "position": {"x": -2, "y": -2, "z": 0}},
-                    {"id": "n2", "type": "wall", "position": {"x": 2, "y": -2, "z": 0}},
-                    {"id": "n3", "type": "wall", "position": {"x": 2, "y": 2, "z": 0}},
-                    {"id": "n4", "type": "wall", "position": {"x": -2, "y": 2, "z": 0}}
-                ]
-            }
-        }
-        import json
-        return {"architect_data": json.dumps(default_room)}
+        print(f"Error generando escena Pascal: {e}. Usando habitacion 4x4 por defecto.")
+        return {"architect_data": json.dumps(_default_room_scene())}
 
 def calculo_node(state: PaperclipState, llm) -> dict:
     """Agente 2: Cálculo y Diseño. Genera requerimientos técnicos basados en el levantamiento."""

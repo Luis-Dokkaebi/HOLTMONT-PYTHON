@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx skills *)",
+      "Bash(python -m pytest tests/test_pre_disenos.py -v)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m pip install pydantic langchain-core langchain-groq langgraph)",
+      "Bash(python tests/test_architect_pascal.py)",
+      "Read(//c/Users/PC/Downloads/**)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
