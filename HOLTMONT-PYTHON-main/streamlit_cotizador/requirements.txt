@@ -1,0 +1,7 @@
+streamlit
+groq
+langchain-groq
+langgraph
+pypdf
+pydantic
+ffmpeg-python
