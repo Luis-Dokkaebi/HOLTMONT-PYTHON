@@ -3658,6 +3658,10 @@
             <button class="btn btn-outline-secondary me-3 shadow-sm" @click="currentView = 'WORKORDER_FORM'">
               <i class="fas fa-arrow-left"></i> Volver a Work Order
             </button>
+            <button class="btn btn-outline-primary me-3 shadow-sm" v-if="saved3DProjectData" @click="download3DJson">
+              <i class="fas fa-download"></i> Descargar JSON
+            </button>
+
             <span class="badge bg-success p-2 text-white shadow-sm" v-if="design3DStatus === 'SAVED'">
               <i class="fas fa-check-circle me-1"></i> Diseño Anexado a Work Order
             </span>
@@ -4674,6 +4678,41 @@ async function toggleVoiceRecording(btnElement) {
                 const iframeLoaded = Vue.ref(false);
                 const design3DStatus = Vue.ref('PENDING'); // 'PENDING', 'SAVED', 'ERROR'
                 const saved3DProjectData = Vue.ref(null);
+
+
+                const download3DJson = () => {
+                    if (!saved3DProjectData.value) {
+                        alert('No hay diseño 3D guardado para descargar.');
+                        return;
+                    }
+                    try {
+                        const dataStr = typeof saved3DProjectData.value === 'string'
+                            ? saved3DProjectData.value
+                            : JSON.stringify(saved3DProjectData.value, null, 2);
+
+                        // Parse and re-stringify to ensure it's pretty formatted if it was a raw string
+                        let finalStr = dataStr;
+                        if (typeof saved3DProjectData.value === 'string') {
+                             try {
+                                 finalStr = JSON.stringify(JSON.parse(dataStr), null, 2);
+                             } catch(e) {}
+                        }
+
+                        const blob = new Blob([finalStr], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        const dateStr = new Date().toISOString().split('T')[0];
+                        a.download = `diseno_pascal_3d_${dateStr}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    } catch(err) {
+                        console.error('Error al descargar JSON:', err);
+                        alert('Hubo un error al generar el archivo JSON.');
+                    }
+                };
 
                 const onIframeLoaded = () => {
                   iframeLoaded.value = true;
@@ -7610,7 +7649,7 @@ async function toggleVoiceRecording(btnElement) {
       };
 
       return { showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription, isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
-      pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData,
+      pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData, download3DJson,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,
       showTimePopup, timePopupValue, openTimePopup, saveTimePopup,
