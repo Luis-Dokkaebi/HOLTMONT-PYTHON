@@ -107,6 +107,72 @@ def generate_work_order_folio(client_name, dept_name):
 
     return f"{seq_padded}{client_str} {dept_str} {date_str}"
 
+def save_to_obsidian(item, item_id):
+    try:
+        # Get project root to locate Notas directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        notas_dir = os.path.join(project_root, "Notas", "Prework_Orders")
+        
+        # Ensure the directory exists
+        if not os.path.exists(notas_dir):
+            os.makedirs(notas_dir)
+
+        cliente = item.get("cliente", "SinCliente")
+        clean_cliente = "".join(c for c in cliente if c.isalnum() or c in " _-").strip()
+        filename = f"{item_id}_{clean_cliente}.md"
+        filepath = os.path.join(notas_dir, filename)
+
+        md = f"# Folio: {item_id} - {cliente}\n\n"
+        md += f"**Fecha Cotización:** {item.get('fechaCotizacion', '')}\n"
+        md += f"**Especialidad:** {item.get('especialidad', '')}\n"
+        md += f"**Requisitor:** {item.get('requisitor', '')}\n"
+        md += f"**Contacto:** {item.get('contacto', '')} (Cel: {item.get('celular', '')})\n\n"
+
+        md += "## 📝 Concepto Principal / Levantamiento\n"
+        md += f"{item.get('concepto', 'Sin concepto')}\n\n"
+
+        if item.get('riesgos') or item.get('restricciones'):
+            md += "## ⚠️ Riesgos y Restricciones\n"
+            md += f"- **Riesgos:** {item.get('riesgos', '')}\n"
+            md += f"- **Restricciones:** {item.get('restricciones', '')}\n\n"
+
+        if item.get("materiales"):
+            md += "## 🛠️ Materiales y Precios Unitarios\n"
+            md += "| Cantidad | Unidad | Descripción | Costo Unitario | Total |\n"
+            md += "|---|---|---|---|---|\n"
+            for m in item["materiales"]:
+                md += f"| {m.get('quantity','')} | {m.get('unit','')} | {m.get('description','')} | ${m.get('cost','')} | ${m.get('total','')} |\n"
+            md += "\n"
+
+        if item.get("manoObra"):
+            md += "## 👷 Mano de Obra\n"
+            md += "| Categoría | Personal | Semanas | Costo Hora | Total |\n"
+            md += "|---|---|---|---|---|\n"
+            for l in item["manoObra"]:
+                md += f"| {l.get('category','')} | {l.get('personnel','')} | {l.get('weeks','')} | ${l.get('costo_hora','')} | ${l.get('total','')} |\n"
+            md += "\n"
+
+        if item.get("equipos"):
+            md += "## 🚜 Equipos\n"
+            md += "| Cantidad | Descripción | Días | Costo | Total |\n"
+            md += "|---|---|---|---|---|\n"
+            for e in item["equipos"]:
+                md += f"| {e.get('quantity','')} | {e.get('description','')} | {e.get('days','')} | ${e.get('cost','')} | ${e.get('total','')} |\n"
+            md += "\n"
+            
+        if item.get("comentarios"):
+            md += "## 💬 Comentarios Generales\n"
+            md += f"{item.get('comentarios', '')}\n\n"
+
+        md += "---\n*Generado automáticamente por el Sistema Holtmont*"
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(md)
+            
+    except Exception as e:
+        print(f"Error saving to Obsidian: {e}")
+
 def process_and_save_work_order(items, active_user):
     generated_ids = []
 
@@ -383,5 +449,8 @@ def process_and_save_work_order(items, active_user):
                 if not current_staff or len(current_staff) == 0:
                     gs_manager.append_row(resp_name, ppc_headers)
                 gs_manager.append_row(resp_name, ppc_row)
+
+        # Save to Obsidian automatically
+        save_to_obsidian(item, item_id)
 
     return {"success": True, "message": "Datos procesados y distribuidos correctamente.", "ids": generated_ids}
