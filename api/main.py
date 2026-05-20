@@ -165,6 +165,8 @@ def api_get_system_config(role: str = Query(..., description="User Role")):
     if role == 'ADMIN':
         default_modules.insert(0, wo_module)
         default_modules.append(kpi_module)
+        obsidian_module = { "id": "OBSIDIAN_GRAPH", "label": "Grafo de Conocimiento", "icon": "fa-project-diagram", "color": "#8b5cf6", "type": "obsidian_graph_view" }
+        default_modules.append(obsidian_module)
 
     return {
         "departments": ALL_DEPTS,
@@ -180,6 +182,52 @@ def api_get_next_seq():
     seq_str = get_next_sequence('WORKORDER_SEQ', increment=False)
     next_val = int(seq_str) + 1
     return str(next_val).zfill(4)
+
+@app.get("/api/graph_data")
+def api_get_graph_data():
+    nodes = []
+    links = []
+    nodes_dict = {}
+
+    def add_node(n_id, label, group, val=1):
+        if n_id not in nodes_dict:
+            node = {"id": n_id, "name": label, "group": group, "val": val}
+            nodes.append(node)
+            nodes_dict[n_id] = node
+
+    notas_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Notas", "Prework_Orders")
+    if not os.path.exists(notas_dir):
+        return {"success": True, "data": {"nodes": [], "links": []}}
+
+    import re
+    for filename in os.listdir(notas_dir):
+        if filename.endswith(".md"):
+            filepath = os.path.join(notas_dir, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    
+                # Extract basic info
+                folio_match = re.search(r"# Folio: (\S+) - (.+)", content)
+                especialidad_match = re.search(r"\*\*Especialidad:\*\* (.+)", content)
+                
+                if folio_match:
+                    folio = folio_match.group(1).strip()
+                    cliente = folio_match.group(2).strip()
+                    especialidad = especialidad_match.group(1).strip() if especialidad_match else "General"
+                    
+                    # Create nodes
+                    add_node(f"cliente_{cliente}", cliente, "cliente", 3)
+                    add_node(f"folio_{folio}", folio, "folio", 2)
+                    add_node(f"esp_{especialidad}", especialidad, "especialidad", 2)
+                    
+                    # Create links
+                    links.append({"source": f"folio_{folio}", "target": f"cliente_{cliente}"})
+                    links.append({"source": f"folio_{folio}", "target": f"esp_{especialidad}"})
+            except Exception as e:
+                print(f"Error parsing graph node {filename}: {e}")
+
+    return {"success": True, "data": {"nodes": nodes, "links": links}}
 
 @app.post("/api/transcribe_and_analyze")
 async def api_transcribe_analyze(file: UploadFile = File(...), apiKey: Optional[str] = Form(None)):

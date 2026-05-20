@@ -14,6 +14,7 @@
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/force-graph"></script>
   <script src="api_service.js"></script>
 
   <style>
@@ -979,6 +980,14 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <div v-if="currentView === 'OBSIDIAN_GRAPH'" class="h-100 d-flex flex-column" style="background-color:#1e1e1e; padding:20px; overflow: hidden; position: relative;">
+            <div class="d-flex justify-content-between align-items-center" style="position: absolute; top: 20px; left: 20px; right: 20px; z-index: 10;">
+                 <h4 class="fw-bold m-0 text-white"><i class="fas fa-project-diagram me-2" style="color:#8b5cf6;"></i>GRAFO DE CONOCIMIENTO</h4>
+                 <button class="btn btn-secondary btn-sm" @click="goHome">CERRAR</button>
+            </div>
+            <div id="obsidian-graph-container" style="width: 100%; height: 100%;"></div>
         </div>
 
         <div v-if="currentView === 'KPI_DASHBOARD'" class="h-100 d-flex flex-column" style="background-color:#f8f9fa; padding:20px;">
@@ -6309,6 +6318,28 @@ async function toggleVoiceRecording(btnElement) {
           });
       };
 
+      const renderObsidianGraph = () => {
+          const container = document.getElementById('obsidian-graph-container');
+          if (!container) return;
+          container.innerHTML = '';
+          fetch('/api/graph_data')
+              .then(r => r.json())
+              .then(res => {
+                  if (res.success && res.data) {
+                      ForceGraph()(container)
+                          .graphData(res.data)
+                          .nodeId('id')
+                          .nodeLabel('name')
+                          .nodeAutoColorBy('group')
+                          .linkDirectionalParticles(2)
+                          .linkDirectionalParticleSpeed(d => 0.005)
+                          .backgroundColor('#1e1e1e')
+                          .width(container.clientWidth)
+                          .height(container.clientHeight);
+                  }
+              });
+      };
+
       const openModule = (m) => {
           currentModuleId.value = m.id; currentDept.value = '';
           if(m.type==='mirror_staff') { openStaffTracker({name:m.target}); }
@@ -6346,6 +6377,10 @@ async function toggleVoiceRecording(btnElement) {
           else if(m.type === 'ecg_dashboard') {
               currentView.value = 'ECG_VIEW';
               loadEcgData();
+          }
+          else if(m.type === 'obsidian_graph_view') {
+              currentView.value = 'OBSIDIAN_GRAPH';
+              setTimeout(renderObsidianGraph, 300);
           }
           else if(m.type === 'kpi_dashboard_view') {
               // Permitir acceso a LUIS_CARLOS y ANTONIA_VENTAS (o rol TONITA)
@@ -7648,7 +7683,7 @@ async function toggleVoiceRecording(btnElement) {
           requiredMaterials.value.items[idx].description = text;
       };
 
-      return { showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription, isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
+      return { renderObsidianGraph, showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription, isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData, download3DJson,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,
