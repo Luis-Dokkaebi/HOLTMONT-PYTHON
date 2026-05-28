@@ -6932,6 +6932,22 @@ async function toggleVoiceRecording(btnElement) {
             additionalCosts: JSON.parse(JSON.stringify(additionalCosts.value))
         };
 
+        // Guardar en Obsidian a traves de FastAPI
+        fetch('/api/save_to_obsidian', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(res => {
+            if (res.success) {
+                console.log('Guardado en Obsidian:', res.path);
+            } else {
+                console.error('Error guardando en Obsidian:', res.message);
+            }
+        })
+        .catch(err => console.error('Fetch error Obsidian:', err));
+
         google.script.run.withSuccessHandler(res => {
             isSubmitting.value = false;
             if(res.success) {

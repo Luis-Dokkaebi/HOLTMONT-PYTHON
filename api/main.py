@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Body, Query
+from fastapi import FastAPI, HTTPException, Body, Query, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -61,6 +61,85 @@ except Exception as e:
     print(f"Error mounting MCP server: {e}")
 
 # --- Endpoints ---
+
+
+import os
+import json
+from datetime import datetime
+
+OBSIDIAN_VAULT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Obsidian_Vault")
+os.makedirs(OBSIDIAN_VAULT_PATH, exist_ok=True)
+
+@app.post("/api/save_to_obsidian")
+async def save_to_obsidian(request: Request):
+    try:
+        data = await request.json()
+
+        import os
+        import re
+
+        # Saneamos los inputs para evitar Path Traversal (limpiamos todo lo que no sea alfanumerico, guion o guion bajo)
+        cliente_raw = str(data.get("cliente", "Sin_Cliente"))
+        cliente = re.sub(r'[^\w\-]', '_', cliente_raw)
+
+        espec_raw = str(data.get("especialidad", "General"))
+        especialidad = re.sub(r'[^\w\-]', '_', espec_raw)
+
+        folio_raw = str(data.get("folio", f"COT-{datetime.now().strftime('%Y%m%d%H%M%S')}"))
+        folio = re.sub(r'[^\w\-]', '_', folio_raw)
+
+        fecha = datetime.now().strftime("%Y-%m-%d")
+
+        filename = f"{folio}_{cliente}.md"
+
+        # Validacion de seguridad extra para path traversal
+        filepath = os.path.abspath(os.path.join(OBSIDIAN_VAULT_PATH, filename))
+        if not filepath.startswith(os.path.abspath(OBSIDIAN_VAULT_PATH)):
+            raise ValueError("Intento de path traversal detectado")
+
+        # Generar Frontmatter para Obsidian
+        md_content = f"""---
+title: "{data.get('cliente', 'Cotización')}"
+date: {fecha}
+folio: {folio}
+cliente: "{data.get('cliente', '')}"
+especialidad: "{data.get('especialidad', '')}"
+tags:
+  - cotizacion
+  - {especialidad.lower()}
+  - {cliente.lower()}
+---
+
+# Pre Work Order: {folio}
+**Cliente:** {data.get('cliente', 'N/A')}
+**Fecha:** {fecha}
+**Especialidad:** {data.get('especialidad', 'N/A')}
+**Responsable:** {data.get('responsable', 'N/A')}
+**Prioridad:** {data.get('prioridad', 'N/A')}
+
+## Concepto
+{data.get('concepto', 'N/A')}
+
+## Detalles Técnicos
+**Restricciones:** {data.get('restricciones', 'N/A')}
+**Comentarios:** {data.get('comentarios', 'N/A')}
+**Fecha de Entrega:** {data.get('fechaRespuesta', 'N/A')}
+
+## Costos y Recursos
+"""
+        if "detalle_costos" in data:
+            md_content += f"```json\n{json.dumps(data['detalle_costos'], indent=2, ensure_ascii=False)}\n```\n"
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+
+        return {"success": True, "message": f"Guardado en Obsidian: {filename}", "path": filepath}
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "message": str(e)}
+
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
