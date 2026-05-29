@@ -12,6 +12,7 @@ from api.paperclip_agents import (
     _build_pascal_scene,
     _default_room_scene,
     WallSegment,
+    Opening,
     ArchitectExtraction,
     StructuredAgencyData,
 )
@@ -94,6 +95,50 @@ def test_build_scene_minimal():
     assert len(walls_out) == 1
 
 
+def test_openings_doors_and_windows():
+    """Una puerta y una ventana deben generar nodos door/window anclados a su muro."""
+    walls = [
+        WallSegment(start=[-2.5, -5], end=[2.5, -5]),
+        WallSegment(start=[2.5, -5], end=[2.5, 5]),
+        WallSegment(start=[2.5, 5], end=[-2.5, 5]),
+        WallSegment(start=[-2.5, 5], end=[-2.5, -5]),
+    ]
+    openings = [
+        Opening(wall_index=1, kind="door", width=0.9, height=2.1),
+        Opening(wall_index=2, kind="window", width=1.2, height=1.2, sill_height=0.9),
+    ]
+    scene = _build_pascal_scene(walls, 2.5, openings)
+    _assert_pascal_shape(scene)
+
+    doors = [n for n in scene["nodes"].values() if n["type"] == "door"]
+    windows = [n for n in scene["nodes"].values() if n["type"] == "window"]
+    assert len(doors) == 1 and len(windows) == 1
+
+    # Cada abertura está anclada a un muro y listada en sus children.
+    for op in doors + windows:
+        wall_id = op["parentId"]
+        assert wall_id in scene["nodes"] and scene["nodes"][wall_id]["type"] == "wall"
+        assert op["id"] in scene["nodes"][wall_id]["children"]
+        assert op["wallId"] == wall_id
+
+
+def test_offset_clamped_into_wall():
+    """Un offset fuera del muro se recorta para que la abertura no se salga."""
+    walls = [WallSegment(start=[0, 0], end=[4, 0])]
+    openings = [Opening(wall_index=1, kind="door", width=1.0, height=2.1, offset=999)]
+    scene = _build_pascal_scene(walls, 2.5, openings)
+    door = [n for n in scene["nodes"].values() if n["type"] == "door"][0]
+    # offset recortado a length - width/2 = 4 - 0.5 = 3.5
+    assert door["position"][0] == 3.5
+
+
+def test_no_openings_backward_compatible():
+    """Sin aberturas la escena queda igual que antes (solo muros/slab/ceiling)."""
+    walls = [WallSegment(start=[0, 0], end=[5, 0])]
+    scene = _build_pascal_scene(walls, 2.7)
+    assert not [n for n in scene["nodes"].values() if n["type"] in ("door", "window")]
+
+
 # --- Regresión: la escena 3D no debe perderse si el integrador falla ---
 
 def test_integrador_failure_preserves_architecture():
@@ -140,6 +185,9 @@ if __name__ == "__main__":
         ("fallback_when_llm_fails", test_fallback_when_llm_fails),
         ("default_room_directly", test_default_room_directly),
         ("build_scene_minimal", test_build_scene_minimal),
+        ("openings_doors_and_windows", test_openings_doors_and_windows),
+        ("offset_clamped_into_wall", test_offset_clamped_into_wall),
+        ("no_openings_backward_compatible", test_no_openings_backward_compatible),
         ("integrador_failure_preserves_architecture", test_integrador_failure_preserves_architecture),
         ("integrador_success_includes_architecture", test_integrador_success_includes_architecture),
     ]
