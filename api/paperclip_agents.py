@@ -318,7 +318,9 @@ def integrador_node(state: PaperclipState, llm) -> dict:
         print(f"Error en extracción estructurada: {e}")
         empty_data = StructuredAgencyData(laborTable=[], requiredMaterials=[], toolsRequired=[], specialEquipment=[], viaticosTable=[])
         empty_dict = empty_data.model_dump()
-        empty_dict["arquitectura_3d_json"] = ""
+        # Preservar la escena 3D que el arquitecto ya generó: un fallo del
+        # integrador (extracción de tablas) no debe descartar el diseño.
+        empty_dict["arquitectura_3d_json"] = state.get("architect_data", "")
         return {"structured_data": json.dumps(empty_dict)}
 
 # --- GRAPH BUILDER ---
@@ -382,6 +384,10 @@ def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
             "levantamiento": final_state.get("levantamiento_data", ""),
             "calculo": final_state.get("calculo_data", ""),
             "precios": final_state.get("precios_data", ""),
+            # Exponer la escena 3D directamente desde el estado del arquitecto,
+            # desacoplada del integrador: así llega al frontend aunque la
+            # extracción estructurada de tablas falle.
+            "arquitectura_3d_json": final_state.get("architect_data", ""),
             "structured_data": final_state.get("structured_data", "{}")
         }
     except Exception as e:
