@@ -159,8 +159,14 @@ Finalmente, tenemos que hacer que el editor escuche cuando REAL-HOLTMONT le mand
                 useScene.setState({ 
                    nodes: event.data.projectData.nodes,
                    rootNodeIds: event.data.projectData.rootNodeIds,
-                   collections: event.data.projectData.collections
+                   // Defaultear para no pisar el store con undefined.
+                   collections: event.data.projectData.collections ?? {}
                 });
+                // Confirmar a REAL-HOLTMONT que la escena se aplicó, para que
+                // deje de reintentar el envío (handshake con ACK).
+                if (window.parent && window.parent !== window.self) {
+                   window.parent.postMessage({ type: 'HOLTMONT_3D_IMPORT_ACK' }, '*');
+                }
              }
            } catch (err) {
               console.error("Error al inyectar diseño en el canvas:", err);
@@ -168,6 +174,14 @@ Finalmente, tenemos que hacer que el editor escuche cuando REAL-HOLTMONT le mand
          }
        };
        window.addEventListener('message', handleIncomingMessage);
+
+       // Avisar al padre que el listener ya está montado. REAL-HOLTMONT
+       // empujará la escena al recibir PASCAL_READY, eliminando las carreras
+       // de tiempo (no dependemos de timeouts fijos).
+       if (window.parent && window.parent !== window.self) {
+          window.parent.postMessage({ type: 'PASCAL_READY' }, '*');
+       }
+
        return () => window.removeEventListener('message', handleIncomingMessage);
      }, []);
 

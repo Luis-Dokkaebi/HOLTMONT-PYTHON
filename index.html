@@ -4734,75 +4734,112 @@ async function toggleVoiceRecording(btnElement) {
                 const onIframeLoaded = () => {
                   iframeLoaded.value = true;
                   console.log("Iframe de Pascal Editor ha sido cargado en el DOM.");
-                  
-                  // Siempre enviar mensaje cuando termina de cargar si hay data
-                  setTimeout(() => {
-                      if (saved3DProjectData.value) {
-                        console.log("Enviando diseño existente al iFrame para su renderización post-carga...");
-                        const iframe = document.getElementById('pascal-editor-iframe');
-                        if (iframe && iframe.contentWindow) {
-                          iframe.contentWindow.postMessage({
-                            type: 'HOLTMONT_3D_IMPORT',
-                            projectData: typeof saved3DProjectData.value === 'string' ? JSON.parse(saved3DProjectData.value) : saved3DProjectData.value
-                          }, '*');
-                        }
-                      }
-                  }, 1500);
-                  
-                  // Retry sending exactly what the React app expects after a larger delay
-                  // in case the React state store was not initialized in the first 1.5s
-                  setTimeout(() => {
-                      if (saved3DProjectData.value) {
-                        console.log("Segunda inyección asegurada...");
-                        const iframe = document.getElementById('pascal-editor-iframe');
-                        if (iframe && iframe.contentWindow) {
-                          iframe.contentWindow.postMessage({
-                            type: 'HOLTMONT_3D_IMPORT',
-                            projectData: typeof saved3DProjectData.value === 'string' ? JSON.parse(saved3DProjectData.value) : saved3DProjectData.value
-                          }, '*');
-                        }
-                      }
-                  }, 4000);
+                  // Arrancar el handshake de sincronización (reintenta hasta recibir ACK).
+                  startSceneSync();
                 };
 
-                // Nueva reactividad para actualizar el editor cuando lleguen datos de IA (o cambie de vista si los datos estaban pero no se enviaron)
-                Vue.watch(saved3DProjectData, (newData) => {
-                    if (newData && currentView.value === 'PASCAL_DESIGNER' && iframeLoaded.value) {
-                        console.log("Nuevos datos 3D recibidos, actualizando iframe en tiempo real...");
-                        const iframe = document.getElementById('pascal-editor-iframe');
-                        if (iframe && iframe.contentWindow) {
-                            iframe.contentWindow.postMessage({
-                                type: 'HOLTMONT_3D_IMPORT',
-                                projectData: typeof newData === 'string' ? JSON.parse(newData) : newData
-                            }, '*');
+                // ==========================================================
+                // HANDSHAKE ROBUSTO DE SINCRONIZACIÓN CON EL PASCAL EDITOR
+                // En vez de timeouts a ciegas, reenviamos la escena hasta que
+                // el iframe confirma (ACK) o nos avisa que está listo
+                // (PASCAL_READY). Tolerante aunque el fork no emita señales:
+                // reintenta por una ventana acotada.
+                // ==========================================================
+                let sceneSyncTimer = null;
+                let sceneSyncAttempts = 0;
+                const SCENE_SYNC_MAX_ATTEMPTS = 20;   // ~16s a 800ms
+                const SCENE_SYNC_INTERVAL_MS = 800;
+
+                const buildSceneProjectData = () => {
+                    if (!saved3DProjectData.value) return null;
+                    let scene = saved3DProjectData.value;
+                    if (typeof scene === 'string') {
+                        try { scene = JSON.parse(scene); }
+                        catch (e) { console.error('Escena 3D no es JSON válido:', e); return null; }
+                    }
+                    if (!scene || !scene.nodes) return null;
+                    // Defaultear collections para no pisar el store del editor
+                    // con undefined (el handler hace setState({..., collections})).
+                    if (scene.collections === undefined) scene = { ...scene, collections: {} };
+                    return scene;
+                };
+
+                const postSceneOnce = () => {
+                    const projectData = buildSceneProjectData();
+                    if (!projectData) return false;
+                    const iframe = document.getElementById('pascal-editor-iframe');
+                    if (!iframe || !iframe.contentWindow) return false;
+                    iframe.contentWindow.postMessage({ type: 'HOLTMONT_3D_IMPORT', projectData }, '*');
+                    return true;
+                };
+
+                const stopSceneSync = () => {
+                    if (sceneSyncTimer) { clearInterval(sceneSyncTimer); sceneSyncTimer = null; }
+                    sceneSyncAttempts = 0;
+                };
+
+                const startSceneSync = () => {
+                    // Solo tiene sentido si estamos en la vista y hay diseño cargado.
+                    if (!saved3DProjectData.value || !iframeLoaded.value) return;
+                    if (currentView.value !== 'PASCAL_DESIGNER') return;
+                    stopSceneSync();
+                    sceneSyncAttempts = 0;
+                    // Primer intento inmediato.
+                    postSceneOnce();
+                    sceneSyncTimer = setInterval(() => {
+                        sceneSyncAttempts++;
+                        if (sceneSyncAttempts >= SCENE_SYNC_MAX_ATTEMPTS) {
+                            console.warn('Pascal: sin ACK tras varios intentos, deteniendo reintentos.');
+                            stopSceneSync();
+                            return;
                         }
+                        postSceneOnce();
+                    }, SCENE_SYNC_INTERVAL_MS);
+                };
+
+                // Reenviar cuando lleguen datos nuevos de la IA.
+                Vue.watch(saved3DProjectData, () => {
+                    if (saved3DProjectData.value && currentView.value === 'PASCAL_DESIGNER' && iframeLoaded.value) {
+                        startSceneSync();
                     }
                 });
 
+                // Reenviar al entrar a la vista del editor con datos previos.
                 Vue.watch(currentView, (newView) => {
                     if (newView === 'PASCAL_DESIGNER' && saved3DProjectData.value && iframeLoaded.value) {
-                        console.log("Entrando a PASCAL_DESIGNER con datos previos, inyectando...");
-                        // Usamos un ligero delay por si el navegador acaba de desocultar el div del iframe
-                        setTimeout(() => {
-                            const iframe = document.getElementById('pascal-editor-iframe');
-                            if (iframe && iframe.contentWindow) {
-                                iframe.contentWindow.postMessage({
-                                    type: 'HOLTMONT_3D_IMPORT',
-                                    projectData: typeof saved3DProjectData.value === 'string' ? JSON.parse(saved3DProjectData.value) : saved3DProjectData.value
-                                }, '*');
-                            }
-                        }, 500);
+                        setTimeout(startSceneSync, 300);
+                    } else if (newView !== 'PASCAL_DESIGNER') {
+                        stopSceneSync();
                     }
                 });
 
                 Vue.onMounted(() => {
                   window.addEventListener('message', (event) => {
                     const data = event.data;
-                    if (data && data.type === 'HOLTMONT_3D_EXPORT') {
+                    if (!data || !data.type) return;
+
+                    // El editor avisa que su listener ya está montado -> empujar escena.
+                    if (data.type === 'PASCAL_READY') {
+                      console.log('Pascal Editor listo (PASCAL_READY). Inyectando escena...');
+                      // PASCAL_READY implica que el iframe ya montó; aseguramos
+                      // el flag por si el evento @load no se registró.
+                      iframeLoaded.value = true;
+                      startSceneSync();
+                      return;
+                    }
+
+                    // El editor confirma que aplicó la escena -> dejar de reintentar.
+                    if (data.type === 'HOLTMONT_3D_IMPORT_ACK') {
+                      console.log('Pascal Editor confirmó la importación (ACK).');
+                      stopSceneSync();
+                      return;
+                    }
+
+                    if (data.type === 'HOLTMONT_3D_EXPORT') {
                       console.log('Recibiendo datos de arquitectura de Pascal Editor (PostMessage)', data);
                       saved3DProjectData.value = data.data;
                       design3DStatus.value = 'SAVED';
-                      
+
                       if (window.Swal) {
                           Swal.fire({
                             icon: 'success',
