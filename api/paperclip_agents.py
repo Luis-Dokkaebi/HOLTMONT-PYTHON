@@ -85,11 +85,26 @@ class WallSegment(BaseModel):
     start: List[float] = Field(description="Punto inicial del muro [x, y] en metros")
     end: List[float] = Field(description="Punto final del muro [x, y] en metros")
 
+class DoorOpening(BaseModel):
+    wall_index: int = Field(description="Índice del muro donde va la puerta (0-based, según el orden de la lista de muros)")
+    position_along_wall: float = Field(description="Posición normalizada a lo largo del muro: 0.0=inicio, 1.0=fin, 0.5=centro")
+    width: float = Field(default=0.9, description="Ancho de la puerta en metros")
+    height: float = Field(default=2.1, description="Alto de la puerta en metros")
+
+class WindowOpening(BaseModel):
+    wall_index: int = Field(description="Índice del muro donde va la ventana (0-based, según el orden de la lista de muros)")
+    position_along_wall: float = Field(description="Posición normalizada a lo largo del muro: 0.0=inicio, 1.0=fin, 0.5=centro")
+    width: float = Field(default=1.2, description="Ancho de la ventana en metros")
+    height: float = Field(default=1.0, description="Alto de la ventana en metros")
+    sill_height: float = Field(default=0.9, description="Altura del alféizar desde el piso en metros")
+
 class ArchitectExtraction(BaseModel):
     walls: List[WallSegment] = Field(
         description="Lista de muros que forman el espacio. Cada muro va de start a end en metros. Forma un polígono cerrado para una habitación. Si no hay medidas claras, asume 4x4 m centrado en el origen."
     )
     ceiling_height: float = Field(default=2.5, description="Altura del techo en metros")
+    doors: List[DoorOpening] = Field(default_factory=list, description="Lista de puertas. Si no se mencionan puertas, devuelve lista vacía.")
+    windows: List[WindowOpening] = Field(default_factory=list, description="Lista de ventanas. Si no se mencionan ventanas, devuelve lista vacía.")
 
 
 def _gen_pascal_id(prefix: str) -> str:
@@ -97,17 +112,28 @@ def _gen_pascal_id(prefix: str) -> str:
     return f"{prefix}_{''.join(secrets.choice(chars) for _ in range(16))}"
 
 
-def _build_pascal_scene(walls: List[WallSegment], ceiling_height: float = 2.5) -> dict:
+def _build_pascal_scene(
+    walls: List[WallSegment],
+    ceiling_height: float = 2.5,
+    doors: Optional[List[DoorOpening]] = None,
+    windows: Optional[List[WindowOpening]] = None,
+) -> dict:
     """Construye un JSON válido para useScene.setState() de Pascal Editor."""
+    doors = doors or []
+    windows = windows or []
+
     site_id = _gen_pascal_id("site")
     building_id = _gen_pascal_id("building")
     level_id = _gen_pascal_id("level")
+
+    # Pre-generate wall IDs so doors/windows can reference them by index
+    wall_id_list = [_gen_pascal_id("wall") for _ in walls]
 
     wall_nodes = {}
     wall_ids = []
     xs, ys = [], []
     for i, w in enumerate(walls, start=1):
-        wid = _gen_pascal_id("wall")
+        wid = wall_id_list[i - 1]
         wall_ids.append(wid)
         wall_nodes[wid] = {
             "object": "node",
@@ -125,6 +151,45 @@ def _build_pascal_scene(walls: List[WallSegment], ceiling_height: float = 2.5) -
         }
         xs.extend([w.start[0], w.end[0]])
         ys.extend([w.start[1], w.end[1]])
+
+    # Build door and window nodes as children of their parent walls
+    opening_nodes = {}
+    for j, door in enumerate(doors, start=1):
+        parent_wid = wall_id_list[door.wall_index] if door.wall_index < len(wall_id_list) else wall_id_list[0]
+        did = _gen_pascal_id("door")
+        opening_nodes[did] = {
+            "object": "node",
+            "id": did,
+            "type": "door",
+            "name": f"Door {j}",
+            "parentId": parent_wid,
+            "visible": True,
+            "metadata": {},
+            "children": [],
+            "position": door.position_along_wall,
+            "width": door.width,
+            "height": door.height,
+        }
+        wall_nodes[parent_wid]["children"].append(did)
+
+    for k, win in enumerate(windows, start=1):
+        parent_wid = wall_id_list[win.wall_index] if win.wall_index < len(wall_id_list) else wall_id_list[0]
+        wndid = _gen_pascal_id("window")
+        opening_nodes[wndid] = {
+            "object": "node",
+            "id": wndid,
+            "type": "window",
+            "name": f"Window {k}",
+            "parentId": parent_wid,
+            "visible": True,
+            "metadata": {},
+            "children": [],
+            "position": win.position_along_wall,
+            "width": win.width,
+            "height": win.height,
+            "sillHeight": win.sill_height,
+        }
+        wall_nodes[parent_wid]["children"].append(wndid)
 
     # Slab and ceiling polygon from wall bounding box (safe default)
     if xs and ys:
@@ -224,6 +289,7 @@ def _build_pascal_scene(walls: List[WallSegment], ceiling_height: float = 2.5) -
         slab_id: slab_node,
         ceiling_id: ceiling_node,
         **wall_nodes,
+        **opening_nodes,
     }
 
     return {"nodes": nodes, "rootNodeIds": [site_id]}
@@ -246,10 +312,15 @@ def architect_node(state: PaperclipState, llm) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system",
-         "Eres un Arquitecto experto. Lee el reporte de levantamiento y extrae los muros del espacio como segmentos 2D en metros. "
-         "Cada muro va de un punto start [x,y] a un punto end [x,y]. Forma un polígono cerrado conectando los segmentos. "
-         "Si las medidas son ambiguas o faltan, asume una habitación rectangular 4x4 m centrada en el origen (esquinas -2,-2 a 2,2). "
-         "Devuelve SIEMPRE al menos 4 muros formando una habitación cerrada."),
+         "Eres un Arquitecto experto. Lee el reporte de levantamiento y extrae: "
+         "1) MUROS: segmentos 2D en metros. Cada muro va de start [x,y] a end [x,y]. Forma un polígono cerrado. "
+         "Si faltan medidas, asume habitación 4x4 m centrada en el origen (esquinas -2,-2 a 2,2). "
+         "Devuelve SIEMPRE al menos 4 muros formando una habitación cerrada. "
+         "2) PUERTAS: para cada puerta indica wall_index (índice 0-based del muro en tu lista), "
+         "position_along_wall (0.0=inicio del muro, 1.0=fin, 0.5=centro), width (default 0.9 m), height (default 2.1 m). "
+         "3) VENTANAS: para cada ventana indica wall_index, position_along_wall, width (default 1.2 m), "
+         "height (default 1.0 m), sill_height (default 0.9 m). "
+         "Si no se mencionan puertas o ventanas, devuelve listas vacías para esos campos."),
         ("human", "Reporte de Levantamiento:\n{levantamiento_data}")
     ])
 
@@ -257,7 +328,7 @@ def architect_node(state: PaperclipState, llm) -> dict:
         structured_llm = llm.with_structured_output(ArchitectExtraction)
         chain = prompt | structured_llm
         extraction: ArchitectExtraction = chain.invoke({"levantamiento_data": state["levantamiento_data"]})
-        scene = _build_pascal_scene(extraction.walls, extraction.ceiling_height)
+        scene = _build_pascal_scene(extraction.walls, extraction.ceiling_height, extraction.doors, extraction.windows)
         return {"architect_data": json.dumps(scene)}
     except Exception as e:
         print(f"Error generando escena Pascal: {e}. Usando habitacion 4x4 por defecto.")
