@@ -109,6 +109,12 @@ class PreciosData(BaseModel):
     items: List[PrecioItem] = Field(default_factory=list, description="Conceptos con precio unitario")
 
 
+class PreciosCritique(BaseModel):
+    """Veredicto del Agente Evaluador sobre el presupuesto (cálculo + precios)."""
+    is_approved: bool = Field(description="True si el presupuesto está completo, coherente y con precios de mercado razonables")
+    critique: str = Field(description="Qué corregir: conceptos del cálculo sin precio, precios fuera de rango, unidades incoherentes o ítems faltantes. Vacío si se aprueba")
+
+
 # --- HELPERS COMPARTIDOS ---
 def _to_float(value, default: float = 0.0) -> float:
     """Parse precio/cantidad textual a float de forma segura (ignora $, comas, unidades)."""
@@ -134,6 +140,10 @@ def _invoke_structured(llm, schema, prompt, inputs, attempts: int = 2):
     raise last_err if last_err else RuntimeError("structured invoke failed")
 
 
+# Máximo de revisiones del presupuesto en el loop de reflexión (acota costo/tiempo).
+MAX_PRECIOS_REVISIONS = 1
+
+
 # --- STATE DEFINITION ---
 class PaperclipState(TypedDict):
     user_request: str
@@ -142,6 +152,10 @@ class PaperclipState(TypedDict):
     calculo_data: str
     precios_data: str
     structured_data: str
+    # Loop de reflexión sobre el presupuesto:
+    precios_critique: str
+    precios_approved: bool
+    precios_revision: int
 
 # --- NODES ---
 def _bullets(items, empty: str) -> str:
@@ -697,13 +711,20 @@ def precios_node(state: PaperclipState, llm) -> dict:
     """Agente 3: Precios Unitarios. Asigna precio unitario por ítem; totales se calculan en código."""
     print("--- [Agente de Precios Unitarios] Estimando presupuesto ---")
 
+    critique = state.get("precios_critique", "")
+    critique_block = (
+        f"\nUn revisor senior rechazó la versión anterior con esta crítica; corrígela: {critique}"
+        if critique else ""
+    )
+
     prompt = ChatPromptTemplate.from_messages([
         ("system",
          "Eres un Analista de Precios Unitarios experto. A partir de los requerimientos técnicos, lista CADA "
          "concepto (material, mano_obra, herramienta o equipo) con su unidad, cantidad y precio unitario "
          "estimado de mercado. NO calcules totales: solo asigna el precio UNITARIO de cada ítem; los totales "
          "se calculan automáticamente. Es CRÍTICO que el precio unitario sea mayor a 0 y nunca quede vacío; "
-         "si no conoces el dato exacto inventa una estimación razonable de mercado."),
+         "si no conoces el dato exacto inventa una estimación razonable de mercado."
+         f"{critique_block}"),
         ("human", "Requerimientos Técnicos (Cálculo y Diseño):\n{calculo_data}")
     ])
 
@@ -726,6 +747,49 @@ def precios_node(state: PaperclipState, llm) -> dict:
             return {"precios_data": resp.content}
         except Exception:  # noqa: BLE001
             return {"precios_data": "Precios no disponibles por error del modelo."}
+
+def evaluador_node(state: PaperclipState, llm) -> dict:
+    """Agente Evaluador: revisa el presupuesto (cálculo + precios) antes de integrar.
+
+    Loop de reflexión: si rechaza, devuelve una crítica que el nodo de precios
+    usa para regenerar. Acotado por MAX_PRECIOS_REVISIONS para limitar costo.
+    """
+    revision = state.get("precios_revision", 0)
+    print(f"--- [Agente Evaluador] Revisando presupuesto (revisión {revision}) ---")
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system",
+         "Eres un Revisor Senior de Costos de Construcción. Evalúa el presupuesto comparándolo con los "
+         "requerimientos técnicos. Verifica: 1) que CADA concepto del cálculo tenga precio, 2) que los "
+         "precios unitarios sean de mercado razonables (ni absurdamente altos ni cercanos a 0), 3) unidades "
+         "coherentes, 4) que no falten partidas (materiales, mano de obra, equipo). Sé crítico pero aprueba "
+         "(is_approved=True) si el presupuesto es sólido. Si rechazas, explica en critique qué corregir."),
+        ("human", "Requerimientos Técnicos:\n{calculo_data}\n\nPresupuesto Propuesto:\n{precios_data}")
+    ])
+
+    try:
+        result: PreciosCritique = _invoke_structured(
+            llm, PreciosCritique, prompt,
+            {"calculo_data": state["calculo_data"], "precios_data": state["precios_data"]},
+        )
+        print(f"  -> Aprobado: {result.is_approved} | {result.critique[:120]}")
+        return {
+            "precios_approved": result.is_approved,
+            "precios_critique": result.critique,
+            "precios_revision": revision + 1,
+        }
+    except Exception as e:  # noqa: BLE001
+        # Si el evaluador falla, no bloquear el pipeline: aprobar y continuar.
+        print(f"Evaluador falló ({e}). Aprobando presupuesto por defecto.")
+        return {"precios_approved": True, "precios_critique": "", "precios_revision": revision + 1}
+
+
+def route_after_evaluacion(state: PaperclipState) -> str:
+    """Aprobado o agotadas las revisiones -> integrador. Si no, regenerar precios."""
+    if state.get("precios_approved") or state.get("precios_revision", 0) > MAX_PRECIOS_REVISIONS:
+        return "integrador"
+    return "precios"
+
 
 def integrador_node(state: PaperclipState, llm) -> dict:
     """Agente 4: Integrador. Extrae los recursos en formato JSON estricto."""
@@ -770,15 +834,22 @@ def build_paperclip_graph(llm_text, llm_structured):
     
     # Formatting/Structured agents use llm_structured (e.g. Groq)
     builder.add_node("architect", lambda state: architect_node(state, llm_structured))
+    builder.add_node("evaluador", lambda state: evaluador_node(state, llm_structured))
     builder.add_node("integrador", lambda state: integrador_node(state, llm_structured))
-    
+
     builder.add_edge(START, "levantamiento")
     builder.add_edge("levantamiento", "architect")
     builder.add_edge("architect", "calculo")
     builder.add_edge("calculo", "precios")
-    builder.add_edge("precios", "integrador")
+    # Loop de reflexión: precios -> evaluador -> (precios | integrador)
+    builder.add_edge("precios", "evaluador")
+    builder.add_conditional_edges(
+        "evaluador",
+        route_after_evaluacion,
+        {"precios": "precios", "integrador": "integrador"},
+    )
     builder.add_edge("integrador", END)
-    
+
     return builder.compile()
 
 # --- MAIN EXECUTION LOGIC ---
@@ -810,7 +881,10 @@ def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
         "architect_data": "",
         "calculo_data": "",
         "precios_data": "",
-        "structured_data": ""
+        "structured_data": "",
+        "precios_critique": "",
+        "precios_approved": False,
+        "precios_revision": 0,
     }
     
     try:

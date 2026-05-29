@@ -15,6 +15,8 @@ from api.paperclip_agents import (
     levantamiento_node,
     calculo_node,
     precios_node,
+    evaluador_node,
+    route_after_evaluacion,
     _to_float,
     _compute_precios,
     _normalize_calculo,
@@ -27,6 +29,8 @@ from api.paperclip_agents import (
     CalculoEquipment,
     PreciosData,
     PrecioItem,
+    PreciosCritique,
+    MAX_PRECIOS_REVISIONS,
 )
 
 
@@ -165,3 +169,53 @@ def test_precios_fallback_to_prose():
     llm = FakeLLM(raise_structured=True, prose_content="Precios prosa")
     res = precios_node({"calculo_data": "x"}, llm)
     assert res["precios_data"] == "Precios prosa"
+
+
+def test_precios_uses_critique_when_present():
+    """Si hay crítica previa, precios_node sigue produciendo presupuesto válido."""
+    data = PreciosData(items=[
+        PrecioItem(category="material", description="Y", unit="pza", quantity="2", unit_price="50"),
+    ])
+    state = {"calculo_data": "x", "precios_critique": "Faltó incluir el cemento"}
+    res = precios_node(state, FakeLLM(result=data))
+    assert "TOTAL ESTIMADO" in res["precios_data"]
+    assert "100.00" in res["precios_data"]  # 2 * 50
+
+
+# ---------- Evaluador + loop de reflexión ----------
+def test_evaluador_approves():
+    verdict = PreciosCritique(is_approved=True, critique="")
+    state = {"calculo_data": "c", "precios_data": "p", "precios_revision": 0}
+    res = evaluador_node(state, FakeLLM(result=verdict))
+    assert res["precios_approved"] is True
+    assert res["precios_revision"] == 1
+
+
+def test_evaluador_rejects_with_critique():
+    verdict = PreciosCritique(is_approved=False, critique="Falta el acero de refuerzo")
+    state = {"calculo_data": "c", "precios_data": "p", "precios_revision": 0}
+    res = evaluador_node(state, FakeLLM(result=verdict))
+    assert res["precios_approved"] is False
+    assert "acero" in res["precios_critique"]
+    assert res["precios_revision"] == 1
+
+
+def test_evaluador_fallback_approves_on_error():
+    """Si el evaluador falla, no debe bloquear el pipeline."""
+    res = evaluador_node({"calculo_data": "c", "precios_data": "p", "precios_revision": 0},
+                         FakeLLM(raise_structured=True))
+    assert res["precios_approved"] is True
+
+
+def test_route_approved_goes_to_integrador():
+    assert route_after_evaluacion({"precios_approved": True, "precios_revision": 1}) == "integrador"
+
+
+def test_route_rejected_goes_back_to_precios():
+    assert route_after_evaluacion({"precios_approved": False, "precios_revision": 1}) == "precios"
+
+
+def test_route_exhausted_revisions_goes_to_integrador():
+    """Aunque rechace, al agotar revisiones avanza a integrador (loop acotado)."""
+    state = {"precios_approved": False, "precios_revision": MAX_PRECIOS_REVISIONS + 1}
+    assert route_after_evaluacion(state) == "integrador"
