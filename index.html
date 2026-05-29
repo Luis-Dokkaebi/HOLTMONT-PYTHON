@@ -4623,6 +4623,14 @@ async function toggleVoiceRecording(btnElement) {
                   workorderData.value.conceptoDesc += reportText;
               }
 
+              // La escena 3D llega ahora en el nivel superior de la respuesta,
+              // independiente del éxito del integrador. Se asigna primero para
+              // garantizar que el Pascal Editor reciba el diseño aunque falle
+              // la extracción de tablas estructuradas.
+              if(result.arquitectura_3d_json) {
+                  saved3DProjectData.value = result.arquitectura_3d_json;
+              }
+
               if(result.structured_data) {
                   let parsed;
                   try { parsed = JSON.parse(result.structured_data); }

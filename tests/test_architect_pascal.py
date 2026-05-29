@@ -8,10 +8,12 @@ from langchain_core.runnables import RunnableLambda
 
 from api.paperclip_agents import (
     architect_node,
+    integrador_node,
     _build_pascal_scene,
     _default_room_scene,
     WallSegment,
     ArchitectExtraction,
+    StructuredAgencyData,
 )
 
 
@@ -92,12 +94,54 @@ def test_build_scene_minimal():
     assert len(walls_out) == 1
 
 
+# --- Regresión: la escena 3D no debe perderse si el integrador falla ---
+
+def test_integrador_failure_preserves_architecture():
+    """Si la extracción estructurada del integrador falla, la escena del
+    arquitecto debe sobrevivir en arquitectura_3d_json (no quedar en blanco)."""
+    scene_json = json.dumps(_default_room_scene())
+    state = {
+        "architect_data": scene_json,
+        "calculo_data": "x",
+        "precios_data": "y",
+    }
+    llm = FakeLLM(raise_on_invoke=True)
+    out = integrador_node(state, llm)
+
+    sd = json.loads(out["structured_data"])
+    assert sd["arquitectura_3d_json"] == scene_json, "El integrador borró la escena 3D al fallar"
+    # Y la escena preservada sigue siendo un JSON Pascal válido
+    _assert_pascal_shape(json.loads(sd["arquitectura_3d_json"]))
+
+
+def test_integrador_success_includes_architecture():
+    """En el camino feliz, la escena del arquitecto también se incrusta."""
+    scene_json = json.dumps(_default_room_scene())
+    state = {
+        "architect_data": scene_json,
+        "calculo_data": "x",
+        "precios_data": "y",
+    }
+    agency = StructuredAgencyData(
+        laborTable=[], requiredMaterials=[], toolsRequired=[],
+        specialEquipment=[], viaticosTable=[],
+    )
+    llm = FakeLLM(extraction=agency)
+    out = integrador_node(state, llm)
+
+    sd = json.loads(out["structured_data"])
+    assert sd["arquitectura_3d_json"] == scene_json
+    _assert_pascal_shape(json.loads(sd["arquitectura_3d_json"]))
+
+
 if __name__ == "__main__":
     tests = [
         ("happy_path_with_llm_extraction", test_happy_path_with_llm_extraction),
         ("fallback_when_llm_fails", test_fallback_when_llm_fails),
         ("default_room_directly", test_default_room_directly),
         ("build_scene_minimal", test_build_scene_minimal),
+        ("integrador_failure_preserves_architecture", test_integrador_failure_preserves_architecture),
+        ("integrador_success_includes_architecture", test_integrador_success_includes_architecture),
     ]
     failed = 0
     for name, fn in tests:
