@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import re
 import secrets
 import string
 from typing import TypedDict, List, Optional
@@ -57,6 +58,82 @@ class StructuredAgencyData(BaseModel):
     specialEquipment: List[EquipmentItem] = Field(description="Lista de maquinaria y equipo especial requerido")
     viaticosTable: List[TravelItem] = Field(description="Lista de viáticos requeridos si aplica")
 
+
+# --- SCHEMAS ESTRUCTURADOS PARA AGENTES DE TEXTO ---
+class LevantamientoData(BaseModel):
+    """Reporte de levantamiento estructurado (Agente 1)."""
+    site_conditions: List[str] = Field(default_factory=list, description="Condiciones del sitio observadas")
+    scope: List[str] = Field(default_factory=list, description="Alcance del trabajo a realizar, punto por punto")
+    restrictions: List[str] = Field(default_factory=list, description="Restricciones técnicas detectadas")
+    missing_info: List[str] = Field(default_factory=list, description="Datos que el cliente debe aclarar (medidas, materiales, plazos ausentes)")
+
+
+class ConceptItem(BaseModel):
+    concept: str = Field(description="Concepto de obra principal")
+    unit: str = Field(description="Unidad de medición (m2, m3, pza, lote)")
+    quantity: str = Field(description="Cantidad estimada (> 0)")
+
+class CalculoMaterial(BaseModel):
+    description: str = Field(description="Material o insumo")
+    unit: str = Field(description="Unidad (pza, bulto, m2, m3, lote)")
+    quantity: str = Field(description="Cantidad estimada (> 0)")
+
+class CalculoLabor(BaseModel):
+    role: str = Field(description="Rol o puesto (Albañil, Ingeniero, Operario)")
+    people: str = Field(description="Número de personas")
+    duration: str = Field(description="Duración en la unidad indicada")
+    unit: str = Field(description="Unidad de tiempo: hora, dia o semana")
+
+class CalculoEquipment(BaseModel):
+    description: str = Field(description="Maquinaria o equipo especial")
+    quantity: str = Field(description="Cantidad de equipos")
+
+class CalculoData(BaseModel):
+    """Requerimientos técnicos estructurados (Agente 2)."""
+    concepts: List[ConceptItem] = Field(default_factory=list, description="Catálogo de conceptos principales")
+    materials: List[CalculoMaterial] = Field(default_factory=list, description="Materiales con cantidades")
+    labor: List[CalculoLabor] = Field(default_factory=list, description="Mano de obra requerida")
+    equipment: List[CalculoEquipment] = Field(default_factory=list, description="Maquinaria y equipo especial")
+
+
+class PrecioItem(BaseModel):
+    category: str = Field(description="Categoría: material, mano_obra, herramienta o equipo")
+    description: str = Field(description="Descripción del concepto")
+    unit: str = Field(description="Unidad de medida")
+    quantity: str = Field(description="Cantidad (> 0)")
+    unit_price: str = Field(description="Precio unitario estimado de mercado (> 0). NUNCA 0 ni vacío")
+
+class PreciosData(BaseModel):
+    """Precios unitarios estructurados (Agente 3). Totales se calculan en código."""
+    currency: str = Field(default="MXN", description="Moneda de la estimación")
+    items: List[PrecioItem] = Field(default_factory=list, description="Conceptos con precio unitario")
+
+
+# --- HELPERS COMPARTIDOS ---
+def _to_float(value, default: float = 0.0) -> float:
+    """Parse precio/cantidad textual a float de forma segura (ignora $, comas, unidades)."""
+    if value is None:
+        return default
+    try:
+        cleaned = re.sub(r"[^\d.\-]", "", str(value).replace(",", ""))
+        return float(cleaned) if cleaned not in ("", "-", ".", "-.", "--") else default
+    except (ValueError, TypeError):
+        return default
+
+
+def _invoke_structured(llm, schema, prompt, inputs, attempts: int = 2):
+    """Invoca structured output con reintentos. Lanza la última excepción si todo falla."""
+    structured_llm = llm.with_structured_output(schema)
+    chain = prompt | structured_llm
+    last_err = None
+    for _ in range(max(1, attempts)):
+        try:
+            return chain.invoke(inputs)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+    raise last_err if last_err else RuntimeError("structured invoke failed")
+
+
 # --- STATE DEFINITION ---
 class PaperclipState(TypedDict):
     user_request: str
@@ -67,19 +144,56 @@ class PaperclipState(TypedDict):
     structured_data: str
 
 # --- NODES ---
+def _bullets(items, empty: str) -> str:
+    items = [str(i).strip() for i in (items or []) if str(i).strip()]
+    return "\n".join(f"- {i}" for i in items) if items else f"- {empty}"
+
+
+def _levantamiento_to_text(data: LevantamientoData) -> str:
+    """Serializa el levantamiento estructurado a markdown legible para nodos siguientes."""
+    secciones = [
+        "## Condiciones del Sitio",
+        _bullets(data.site_conditions, "Sin condiciones especiales reportadas."),
+        "\n## Alcance del Trabajo",
+        _bullets(data.scope, "Alcance no especificado por el cliente."),
+        "\n## Restricciones Técnicas",
+        _bullets(data.restrictions, "Sin restricciones detectadas."),
+        "\n## Información Faltante (requiere aclaración del cliente)",
+        _bullets(data.missing_info, "Ninguna; información suficiente para cotizar."),
+    ]
+    return "\n".join(secciones)
+
+
 def levantamiento_node(state: PaperclipState, llm) -> dict:
-    """Agente 1: Levantamiento. Extrae el alcance y condiciones del sitio."""
+    """Agente 1: Levantamiento. Extrae el alcance y condiciones del sitio (estructurado)."""
     print("--- [Agente de Levantamiento] Analizando requerimientos ---")
-    
+
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un Ingeniero Topógrafo y Residente de Obra experto. Tu objetivo es analizar la solicitud del cliente y generar un reporte de levantamiento claro y estructurado. Extrae: 1) Condiciones del sitio, 2) Alcance del trabajo a realizar, 3) Posibles restricciones técnicas o información faltante. Presenta la información en un formato claro."),
+        ("system",
+         "Eres un Ingeniero Topógrafo y Residente de Obra experto. Analiza la solicitud y extrae "
+         "de forma estructurada y separada: condiciones del sitio, alcance del trabajo (punto por punto), "
+         "restricciones técnicas e información faltante. En missing_info incluye SOLO datos que el cliente "
+         "debe aclarar (medidas, materiales, plazos o cantidades ausentes); si todo está claro, deja la lista vacía."),
         ("human", "Solicitud del cliente: {user_request}")
     ])
-    
-    chain = prompt | llm
-    response = chain.invoke({"user_request": state["user_request"]})
-    
-    return {"levantamiento_data": response.content}
+
+    try:
+        data: LevantamientoData = _invoke_structured(
+            llm, LevantamientoData, prompt, {"user_request": state["user_request"]}
+        )
+        return {"levantamiento_data": _levantamiento_to_text(data)}
+    except Exception as e:  # noqa: BLE001
+        print(f"Levantamiento estructurado falló ({e}). Usando prosa libre.")
+        prose = ChatPromptTemplate.from_messages([
+            ("system", "Eres un Ingeniero Topógrafo experto. Genera un reporte de levantamiento claro: "
+                       "condiciones del sitio, alcance, restricciones técnicas e información faltante."),
+            ("human", "Solicitud del cliente: {user_request}")
+        ])
+        try:
+            resp = (prose | llm).invoke({"user_request": state["user_request"]})
+            return {"levantamiento_data": resp.content}
+        except Exception:  # noqa: BLE001
+            return {"levantamiento_data": "Levantamiento no disponible por error del modelo."}
 
 # --- PASCAL EDITOR SCHEMA HELPERS ---
 class WallSegment(BaseModel):
@@ -461,33 +575,157 @@ def architect_node(state: PaperclipState, llm) -> dict:
         print(f"Error generando escena Pascal: {e}. Usando habitacion 4x4 por defecto.")
         return {"architect_data": json.dumps(_default_room_scene())}
 
+def _normalize_calculo(data: CalculoData) -> CalculoData:
+    """Garantiza cantidades > 0 (regla: nunca 0/null) y normaliza unidades de tiempo."""
+    def _qty(q: str) -> str:
+        return q if _to_float(q) > 0 else "1"
+
+    valid_units = {"hora", "dia", "día", "semana"}
+    def _unit(u: str) -> str:
+        u = (u or "").strip().lower()
+        return u if u in valid_units else "dia"
+
+    return CalculoData(
+        concepts=[ConceptItem(concept=c.concept, unit=c.unit, quantity=_qty(c.quantity)) for c in data.concepts],
+        materials=[CalculoMaterial(description=m.description, unit=m.unit, quantity=_qty(m.quantity)) for m in data.materials],
+        labor=[CalculoLabor(role=l.role, people=_qty(l.people), duration=_qty(l.duration), unit=_unit(l.unit)) for l in data.labor],
+        equipment=[CalculoEquipment(description=eq.description, quantity=_qty(eq.quantity)) for eq in data.equipment],
+    )
+
+
+def _calculo_to_text(data: CalculoData) -> str:
+    lines = ["## Catálogo de Conceptos"]
+    lines += [f"- {c.concept} — {c.quantity} {c.unit}" for c in data.concepts] or ["- Sin conceptos."]
+    lines.append("\n## Materiales e Insumos")
+    lines += [f"- {m.description}: {m.quantity} {m.unit}" for m in data.materials] or ["- Sin materiales."]
+    lines.append("\n## Mano de Obra")
+    lines += [f"- {l.role}: {l.people} persona(s) x {l.duration} {l.unit}" for l in data.labor] or ["- Sin mano de obra."]
+    lines.append("\n## Maquinaria y Equipo Especial")
+    lines += [f"- {eq.description}: {eq.quantity}" for eq in data.equipment] or ["- Sin equipo especial."]
+    return "\n".join(lines)
+
+
 def calculo_node(state: PaperclipState, llm) -> dict:
-    """Agente 2: Cálculo y Diseño. Genera requerimientos técnicos basados en el levantamiento."""
+    """Agente 2: Cálculo y Diseño. Genera requerimientos técnicos estructurados."""
     print("--- [Agente de Cálculo y Diseño] Diseñando solución técnica ---")
-    
+
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un Ingeniero Calculista y Arquitecto experto. Tu objetivo es tomar el reporte de levantamiento y generar los requerimientos técnicos para la obra. Debes detallar: 1) Catálogo de conceptos principales, 2) Lista estimada de materiales con cantidades, 3) Mano de obra requerida, 4) Maquinaria y equipo especial."),
+        ("system",
+         "Eres un Ingeniero Calculista y Arquitecto experto. A partir del reporte de levantamiento genera "
+         "los requerimientos técnicos en listas separadas: 1) catálogo de conceptos principales con unidad "
+         "(m2, m3, pza, lote) y cantidad, 2) materiales con unidad y cantidad, 3) mano de obra (rol, número "
+         "de personas, duración y unidad de tiempo hora/dia/semana), 4) maquinaria y equipo especial. "
+         "Toda cantidad debe ser mayor a 0; estima un valor de mercado razonable si falta el dato."),
         ("human", "Reporte de Levantamiento:\n{levantamiento_data}")
     ])
-    
-    chain = prompt | llm
-    response = chain.invoke({"levantamiento_data": state["levantamiento_data"]})
-    
-    return {"calculo_data": response.content}
+
+    try:
+        data: CalculoData = _invoke_structured(
+            llm, CalculoData, prompt, {"levantamiento_data": state["levantamiento_data"]}
+        )
+        data = _normalize_calculo(data)
+        return {"calculo_data": _calculo_to_text(data)}
+    except Exception as e:  # noqa: BLE001
+        print(f"Cálculo estructurado falló ({e}). Usando prosa libre.")
+        prose = ChatPromptTemplate.from_messages([
+            ("system", "Eres un Ingeniero Calculista experto. Detalla: 1) catálogo de conceptos, "
+                       "2) materiales con cantidades, 3) mano de obra, 4) maquinaria y equipo especial."),
+            ("human", "Reporte de Levantamiento:\n{levantamiento_data}")
+        ])
+        try:
+            resp = (prose | llm).invoke({"levantamiento_data": state["levantamiento_data"]})
+            return {"calculo_data": resp.content}
+        except Exception:  # noqa: BLE001
+            return {"calculo_data": "Cálculo no disponible por error del modelo."}
+
+_CATEGORIAS_PRECIO = {
+    "material": "Materiales",
+    "mano_obra": "Mano de Obra",
+    "herramienta": "Herramientas",
+    "equipo": "Equipo y Maquinaria",
+}
+
+
+def _compute_precios(data: PreciosData) -> dict:
+    """Calcula totales por línea y gran total EN CÓDIGO (no por el LLM) para evitar errores aritméticos.
+
+    Validación: cantidad y precio unitario se fuerzan a > 0 (regla: nunca 0/null).
+    """
+    grupos: dict = {}
+    grand_total = 0.0
+    for it in data.items:
+        q = _to_float(it.quantity, 1.0)
+        if q <= 0:
+            q = 1.0
+        p = _to_float(it.unit_price, 0.0)
+        if p <= 0:
+            # Precio no puede ser 0: marca para revisión pero mantiene la línea visible.
+            p = 1.0
+        line_total = round(q * p, 2)
+        grand_total += line_total
+        cat = (it.category or "material").strip().lower()
+        cat = cat if cat in _CATEGORIAS_PRECIO else "material"
+        grupos.setdefault(cat, []).append({
+            "description": it.description,
+            "unit": it.unit,
+            "quantity": q,
+            "unit_price": p,
+            "line_total": line_total,
+        })
+    return {"currency": data.currency or "MXN", "grupos": grupos, "grand_total": round(grand_total, 2)}
+
+
+def _precios_to_text(computed: dict) -> str:
+    cur = computed["currency"]
+    lines = ["## Presupuesto con Precios Unitarios (totales calculados en código)"]
+    for cat_key, label in _CATEGORIAS_PRECIO.items():
+        items = computed["grupos"].get(cat_key)
+        if not items:
+            continue
+        subtotal = round(sum(i["line_total"] for i in items), 2)
+        lines.append(f"\n### {label} — subtotal {cur} {subtotal:,.2f}")
+        for i in items:
+            lines.append(
+                f"- {i['description']}: {i['quantity']:g} {i['unit']} x "
+                f"{cur} {i['unit_price']:,.2f} = {cur} {i['line_total']:,.2f}"
+            )
+    lines.append(f"\n## TOTAL ESTIMADO DEL PROYECTO: {cur} {computed['grand_total']:,.2f}")
+    return "\n".join(lines)
+
 
 def precios_node(state: PaperclipState, llm) -> dict:
-    """Agente 3: Precios Unitarios. Estima costos basados en el cálculo y diseño."""
+    """Agente 3: Precios Unitarios. Asigna precio unitario por ítem; totales se calculan en código."""
     print("--- [Agente de Precios Unitarios] Estimando presupuesto ---")
-    
+
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un Analista de Precios Unitarios experto. Tu objetivo es tomar los requerimientos técnicos y de materiales, y generar una estimación de presupuesto aproximada. Genera un desglose que incluya: 1) Costo estimado de materiales, 2) Costo estimado de mano de obra, 3) Costos de equipo, 4) Total estimado del proyecto. Debes presentar esto de manera profesional e incluir los precios de manera unitaria, explícita y detallada en cada ítem, en lugar de sólo montos globales. Asigna un precio unitario o salario estimado razonable para CADA ítem que menciones."),
+        ("system",
+         "Eres un Analista de Precios Unitarios experto. A partir de los requerimientos técnicos, lista CADA "
+         "concepto (material, mano_obra, herramienta o equipo) con su unidad, cantidad y precio unitario "
+         "estimado de mercado. NO calcules totales: solo asigna el precio UNITARIO de cada ítem; los totales "
+         "se calculan automáticamente. Es CRÍTICO que el precio unitario sea mayor a 0 y nunca quede vacío; "
+         "si no conoces el dato exacto inventa una estimación razonable de mercado."),
         ("human", "Requerimientos Técnicos (Cálculo y Diseño):\n{calculo_data}")
     ])
-    
-    chain = prompt | llm
-    response = chain.invoke({"calculo_data": state["calculo_data"]})
-    
-    return {"precios_data": response.content}
+
+    try:
+        data: PreciosData = _invoke_structured(
+            llm, PreciosData, prompt, {"calculo_data": state["calculo_data"]}
+        )
+        computed = _compute_precios(data)
+        return {"precios_data": _precios_to_text(computed)}
+    except Exception as e:  # noqa: BLE001
+        print(f"Precios estructurado falló ({e}). Usando prosa libre.")
+        prose = ChatPromptTemplate.from_messages([
+            ("system", "Eres un Analista de Precios Unitarios experto. Genera un desglose con precio unitario "
+                       "explícito por ítem (materiales, mano de obra, equipo) y un total estimado. "
+                       "Nunca dejes precios en 0."),
+            ("human", "Requerimientos Técnicos (Cálculo y Diseño):\n{calculo_data}")
+        ])
+        try:
+            resp = (prose | llm).invoke({"calculo_data": state["calculo_data"]})
+            return {"precios_data": resp.content}
+        except Exception:  # noqa: BLE001
+            return {"precios_data": "Precios no disponibles por error del modelo."}
 
 def integrador_node(state: PaperclipState, llm) -> dict:
     """Agente 4: Integrador. Extrae los recursos en formato JSON estricto."""
