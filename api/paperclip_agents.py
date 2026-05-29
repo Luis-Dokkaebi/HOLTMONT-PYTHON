@@ -2,7 +2,7 @@ import os
 import json
 import secrets
 import string
-from typing import TypedDict, List, Optional
+from typing import TypedDict, List, Optional, Literal
 from pydantic import BaseModel, Field
 
 try:
@@ -85,11 +85,35 @@ class WallSegment(BaseModel):
     start: List[float] = Field(description="Punto inicial del muro [x, y] en metros")
     end: List[float] = Field(description="Punto final del muro [x, y] en metros")
 
+class Opening(BaseModel):
+    """Una puerta o ventana montada sobre un muro."""
+    wall_index: int = Field(
+        description="Índice 1-based del muro (según el orden de la lista 'walls') sobre el que se monta esta abertura. El primer muro es 1."
+    )
+    kind: Literal["door", "window"] = Field(
+        description="Tipo de abertura: 'door' para puerta, 'window' para ventana."
+    )
+    width: float = Field(default=0.9, description="Ancho de la abertura en metros")
+    height: float = Field(default=2.1, description="Alto de la abertura en metros (puertas ~2.1, ventanas ~1.2)")
+    offset: Optional[float] = Field(
+        default=None,
+        description="Distancia en metros desde el inicio del muro hasta el centro de la abertura. Si se omite, se centra en el muro."
+    )
+    sill_height: float = Field(
+        default=0.9,
+        description="Solo ventanas: altura en metros desde el piso hasta el borde inferior de la ventana (alféizar). Ignorado en puertas."
+    )
+
+
 class ArchitectExtraction(BaseModel):
     walls: List[WallSegment] = Field(
         description="Lista de muros que forman el espacio. Cada muro va de start a end en metros. Forma un polígono cerrado para una habitación. Si no hay medidas claras, asume 4x4 m centrado en el origen."
     )
     ceiling_height: float = Field(default=2.5, description="Altura del techo en metros")
+    openings: List[Opening] = Field(
+        default_factory=list,
+        description="Puertas y ventanas solicitadas. Cada una se monta sobre un muro (wall_index). Extrae TODAS las que mencione el levantamiento; si no se piden, deja la lista vacía."
+    )
 
 
 def _gen_pascal_id(prefix: str) -> str:
@@ -97,7 +121,75 @@ def _gen_pascal_id(prefix: str) -> str:
     return f"{prefix}_{''.join(secrets.choice(chars) for _ in range(16))}"
 
 
-def _build_pascal_scene(walls: List[WallSegment], ceiling_height: float = 2.5) -> dict:
+def _build_door_node(wall_id: str, name: str, offset: float, width: float, height: float) -> tuple:
+    """Nodo 'door' replicando el shape real capturado en pascal_template.json.
+    La posición es local al muro: [distancia_desde_inicio, centro_vertical, 0]."""
+    did = _gen_pascal_id("door")
+    return did, {
+        "object": "node",
+        "id": did,
+        "type": "door",
+        "name": name,
+        "parentId": wall_id,
+        "visible": True,
+        "metadata": {},
+        "position": [offset, height / 2, 0],
+        "rotation": [0, 0, 0],
+        "side": "front",
+        "wallId": wall_id,
+        "width": width,
+        "height": height,
+        "frameThickness": 0.05,
+        "frameDepth": 0.07,
+        "threshold": True,
+        "thresholdHeight": 0.02,
+        "hingesSide": "left",
+        "swingDirection": "inward",
+        "segments": [
+            {"type": "panel", "heightRatio": 0.4, "columnRatios": [1], "dividerThickness": 0.03, "panelDepth": 0.01, "panelInset": 0.04},
+            {"type": "panel", "heightRatio": 0.6, "columnRatios": [1], "dividerThickness": 0.03, "panelDepth": 0.01, "panelInset": 0.04},
+        ],
+        "handle": True,
+        "handleHeight": 1.05,
+        "handleSide": "right",
+        "contentPadding": [0.04, 0.04],
+        "doorCloser": False,
+        "panicBar": False,
+        "panicBarHeight": 1,
+    }
+
+
+def _build_window_node(wall_id: str, name: str, offset: float, width: float, height: float, sill_height: float) -> tuple:
+    """Nodo 'window' modelado análogo a la puerta (sin herrajes, con alféizar).
+    NOTA: shape no verificado contra un export real del editor; ajustar si el
+    fork usa otros campos para ventanas."""
+    win_id = _gen_pascal_id("window")
+    return win_id, {
+        "object": "node",
+        "id": win_id,
+        "type": "window",
+        "name": name,
+        "parentId": wall_id,
+        "visible": True,
+        "metadata": {},
+        "position": [offset, sill_height + height / 2, 0],
+        "rotation": [0, 0, 0],
+        "side": "front",
+        "wallId": wall_id,
+        "width": width,
+        "height": height,
+        "sillHeight": sill_height,
+        "frameThickness": 0.05,
+        "frameDepth": 0.07,
+        "segments": [
+            {"type": "glass", "heightRatio": 1, "columnRatios": [1], "dividerThickness": 0.03, "panelDepth": 0.01, "panelInset": 0.04},
+        ],
+        "contentPadding": [0.04, 0.04],
+    }
+
+
+def _build_pascal_scene(walls: List[WallSegment], ceiling_height: float = 2.5,
+                        openings: Optional[List["Opening"]] = None) -> dict:
     """Construye un JSON válido para useScene.setState() de Pascal Editor."""
     site_id = _gen_pascal_id("site")
     building_id = _gen_pascal_id("building")
@@ -105,10 +197,13 @@ def _build_pascal_scene(walls: List[WallSegment], ceiling_height: float = 2.5) -
 
     wall_nodes = {}
     wall_ids = []
+    wall_lengths = []
     xs, ys = [], []
     for i, w in enumerate(walls, start=1):
         wid = _gen_pascal_id("wall")
         wall_ids.append(wid)
+        length = ((w.end[0] - w.start[0]) ** 2 + (w.end[1] - w.start[1]) ** 2) ** 0.5
+        wall_lengths.append(length)
         wall_nodes[wid] = {
             "object": "node",
             "id": wid,
@@ -125,6 +220,26 @@ def _build_pascal_scene(walls: List[WallSegment], ceiling_height: float = 2.5) -
         }
         xs.extend([w.start[0], w.end[0]])
         ys.extend([w.start[1], w.end[1]])
+
+    # Aberturas (puertas/ventanas) ancladas a su muro.
+    opening_nodes = {}
+    doors_count = windows_count = 0
+    for op in (openings or []):
+        if not wall_ids:
+            break
+        idx = min(max(op.wall_index, 1), len(wall_ids)) - 1  # clamp 1..N -> 0-based
+        wid = wall_ids[idx]
+        length = wall_lengths[idx]
+        # Centro por defecto; si hay offset, mantenerlo dentro del muro.
+        center = length / 2 if op.offset is None else max(op.width / 2, min(op.offset, length - op.width / 2))
+        if op.kind == "door":
+            doors_count += 1
+            oid, node = _build_door_node(wid, f"Door {doors_count}", center, op.width, op.height)
+        else:
+            windows_count += 1
+            oid, node = _build_window_node(wid, f"Window {windows_count}", center, op.width, op.height, op.sill_height)
+        opening_nodes[oid] = node
+        wall_nodes[wid]["children"].append(oid)
 
     # Slab and ceiling polygon from wall bounding box (safe default)
     if xs and ys:
@@ -224,6 +339,7 @@ def _build_pascal_scene(walls: List[WallSegment], ceiling_height: float = 2.5) -
         slab_id: slab_node,
         ceiling_id: ceiling_node,
         **wall_nodes,
+        **opening_nodes,
     }
 
     return {"nodes": nodes, "rootNodeIds": [site_id]}
@@ -246,10 +362,19 @@ def architect_node(state: PaperclipState, llm) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system",
-         "Eres un Arquitecto experto. Lee el reporte de levantamiento y extrae los muros del espacio como segmentos 2D en metros. "
-         "Cada muro va de un punto start [x,y] a un punto end [x,y]. Forma un polígono cerrado conectando los segmentos. "
-         "Si las medidas son ambiguas o faltan, asume una habitación rectangular 4x4 m centrada en el origen (esquinas -2,-2 a 2,2). "
-         "Devuelve SIEMPRE al menos 4 muros formando una habitación cerrada."),
+         "Eres un Arquitecto experto. Lee el reporte de levantamiento y extrae la geometría del espacio.\n"
+         "REGLAS DE MUROS:\n"
+         "- Cada muro va de un punto start [x,y] a un punto end [x,y] en metros. Conecta los segmentos formando un polígono CERRADO.\n"
+         "- Para una habitación de A x B m centrada en el origen: las esquinas son [-A/2,-B/2], [A/2,-B/2], [A/2,B/2], [-A/2,B/2]. Devuelve SIEMPRE al menos 4 muros cerrados.\n"
+         "- Si las medidas faltan o son ambiguas, asume 4x4 m centrada en el origen.\n"
+         "REGLAS DE ABERTURAS (puertas y ventanas):\n"
+         "- Es OBLIGATORIO incluir TODAS las puertas y ventanas que se mencionen, en el arreglo 'openings'. NO las omitas nunca.\n"
+         "- Cada abertura indica 'wall_index' (el muro 1-based donde va, según el orden de 'walls'), 'kind' ('door' o 'window'), 'width' y 'height' en metros.\n"
+         "- Puerta típica: width 0.9, height 2.1. Ventana típica: width 1.2, height 1.2, sill_height 0.9.\n"
+         "- Si no se especifica en qué muro, reparte las aberturas en muros distintos (puerta en wall_index 1, ventana en 2, etc.).\n"
+         "EJEMPLO: 'cuarto de 5 por 10 con una puerta y una ventana' ->\n"
+         "  walls: 4 muros del rectángulo 5x10 (esquinas -2.5,-5 .. 2.5,5),\n"
+         "  openings: [{{wall_index:1, kind:'door', width:0.9, height:2.1}}, {{wall_index:2, kind:'window', width:1.2, height:1.2, sill_height:0.9}}]."),
         ("human", "Reporte de Levantamiento:\n{levantamiento_data}")
     ])
 
@@ -257,7 +382,7 @@ def architect_node(state: PaperclipState, llm) -> dict:
         structured_llm = llm.with_structured_output(ArchitectExtraction)
         chain = prompt | structured_llm
         extraction: ArchitectExtraction = chain.invoke({"levantamiento_data": state["levantamiento_data"]})
-        scene = _build_pascal_scene(extraction.walls, extraction.ceiling_height)
+        scene = _build_pascal_scene(extraction.walls, extraction.ceiling_height, extraction.openings)
         return {"architect_data": json.dumps(scene)}
     except Exception as e:
         print(f"Error generando escena Pascal: {e}. Usando habitacion 4x4 por defecto.")
