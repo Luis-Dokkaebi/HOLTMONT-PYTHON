@@ -1255,38 +1255,584 @@
 
         <div v-if="currentView === 'STAFF_TRACKER'" class="h-100 d-flex flex-column">
           <div class="d-flex bg-white px-3 pt-3 gap-2 align-items-end border-bottom">
-             <div class="cursor-pointer px-4 py-2 fw-bold"
-                  :class="activeTrackerTab === 'OPERATIVO' && trackerSubView === 'TASKS' ? 'text-primary border-bottom border-primary border-3' : 'text-muted'"
-                  @click="switchTrackerTab('OPERATIVO'); trackerSubView = 'TASKS'">
-                  <i class="fas fa-tasks me-2"></i>OPERATIVO
-             </div>
-             <div class="cursor-pointer px-4 py-2 fw-bold"
-                  :class="trackerSubView === 'HISTORY' ? 'text-primary border-bottom border-primary border-3' : 'text-muted'"
-                  @click="trackerSubView = 'HISTORY'">
-                  <i class="fas fa-history me-2"></i>HISTORIAL
-             </div>
+             <!-- VISTA PERSONALIZADA ANTONIA_VENTAS -->
+             <template v-if="currentUsername === 'ANTONIA_VENTAS'">
+                 <div class="cursor-pointer px-4 py-2 fw-bold"
+                      :class="activeTrackerTab === 'OPERATIVO' && trackerSubView === 'TASKS' ? 'text-primary border-bottom border-primary border-3' : 'text-muted'"
+                      @click="switchTrackerTab('OPERATIVO'); trackerSubView = 'TASKS'">
+                      <i class="fas fa-tasks me-2"></i>COTIZACIONES EN PROCESO
+                 </div>
+                 <div class="cursor-pointer px-4 py-2 fw-bold"
+                      :class="trackerSubView === 'HISTORY' ? 'text-primary border-bottom border-primary border-3' : 'text-muted'"
+                      @click="trackerSubView = 'HISTORY'">
+                      <i class="fas fa-history me-2"></i>COTIZACIONES ENVIADAS PERDIDAS
+                 </div>
+                 <div class="cursor-pointer px-4 py-2 fw-bold"
+                      :class="activeTrackerTab === 'RESUMEN_EJECUTIVO' ? 'text-primary border-bottom border-primary border-3' : 'text-muted'"
+                      @click="switchTrackerTab('RESUMEN_EJECUTIVO'); trackerSubView = 'EXECUTIVE_SUMMARY'; loadExecutiveSummary()">
+                      <i class="fas fa-file-alt me-2"></i>RESUMEN EJECUTIVO
+                 </div>
+                 <div class="cursor-pointer px-4 py-2 fw-bold"
+                      :class="activeTrackerTab === 'BANCO_COTIZACIONES' ? 'text-primary border-bottom border-primary border-3' : 'text-muted'"
+                      @click="switchTrackerTab('BANCO_COTIZACIONES'); trackerSubView = 'INFO_BANK'; resetInfoBank()">
+                      <i class="fas fa-database me-2"></i>BANCO DE COTIZACIONES
+                 </div>
+                 <div class="cursor-pointer px-4 py-2 fw-bold"
+                      :class="activeTrackerTab === 'PAPA_CALIENTE' ? 'text-primary border-bottom border-primary border-3' : 'text-muted'"
+                      @click="openHotPotatoView()">
+                      <i class="fas fa-fire me-2"></i>PAPA CALIENTE DE COTIZACION
+                 </div>
+             </template>
+             <!-- VISTA ESTANDAR -->
+             <template v-else>
+                 <div class="cursor-pointer px-4 py-2 fw-bold"
+                      :class="activeTrackerTab === 'OPERATIVO' && trackerSubView === 'TASKS' ? 'text-primary border-bottom border-primary border-3' : 'text-muted'"
+                      @click="switchTrackerTab('OPERATIVO'); trackerSubView = 'TASKS'">
+                      <i class="fas fa-tasks me-2"></i>OPERATIVO
+                 </div>
+                 <div class="cursor-pointer px-4 py-2 fw-bold"
+                      :class="trackerSubView === 'HISTORY' ? 'text-primary border-bottom border-primary border-3' : 'text-muted'"
+                      @click="trackerSubView = 'HISTORY'">
+                      <i class="fas fa-history me-2"></i>HISTORIAL
+                 </div>
+             </template>
           </div>
           <div class="d-flex justify-content-between align-items-center mb-2 p-2 bg-white border rounded mt-2">
             <div class="d-flex align-items-center">
-                <!-- [MAPEO IA] BUTTON ID=sin-id VAR=goBackToDept PROPOSITO=Integracion -->
-<button class="btn btn-light btn-sm border me-2" @click="goBackToDept"><i class="fas fa-arrow-left"></i></button>
-                <span class="small fw-bold me-2" :style="{color: currentDeptData.color || 'var(--primary)'}"><i class="fas fa-file-excel me-1"></i> {{ staffTracker.name }}</span>
-                <!-- [MAPEO IA] BUTTON ID=sin-id VAR=loadTrackerData PROPOSITO=Integracion -->
-<button class="btn btn-primary btn-sm py-0 px-2 me-1" @click="loadTrackerData" title="Actualizar"><i class="fas fa-sync-alt me-1"></i> Actualizar</button>
-                <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addNewRow PROPOSITO=Integracion -->
-<button v-if="['ADMIN', 'PPC_ADMIN', 'ADMIN_CONTROL', 'TONITA'].includes(currentRole)" class="btn btn-success btn-sm py-0 px-2" @click="addNewRow" title="Agregar"><i class="fas fa-plus me-1"></i> Fila</button>
-                <!-- [MAPEO IA] BUTTON ID=sin-id VAR=saveAllTrackerRows PROPOSITO=Integracion -->
-<button v-if="['TONITA'].includes(currentRole) || currentUser === 'ANTONIA_VENTAS'" class="btn btn-warning btn-sm py-0 px-2 ms-1 fw-bold" @click="saveAllTrackerRows" title="Guardar Todo"><i class="fas fa-save me-1"></i> Guardar Todo</button>
+                <button class="btn btn-light btn-sm border me-2" @click="goBackToDept"><i class="fas fa-arrow-left"></i></button>
+
+                <template v-if="currentUsername === 'ANTONIA_VENTAS'">
+                     <span class="small fw-bold me-2" style="color: var(--primary)"><i class="fas fa-file-excel me-1"></i> ANTONIA_VENTAS</span>
+                </template>
+                <template v-else>
+                    <span class="small fw-bold me-2" :style="{color: currentDeptData.color || 'var(--primary)'}"><i class="fas fa-file-excel me-1"></i> {{ staffTracker.name }}</span>
+                </template>
+
+                <button class="btn btn-primary btn-sm py-0 px-2 me-1" @click="loadTrackerData" title="Actualizar"><i class="fas fa-sync-alt me-1"></i> Actualizar</button>
+                <button class="btn btn-success btn-sm py-0 px-2" @click="addNewRow" title="Agregar"><i class="fas fa-plus me-1"></i> Fila</button>
+                <button class="btn btn-warning btn-sm py-0 px-2 ms-1 fw-bold" @click="saveAllTrackerRows" title="Guardar Todo"><i class="fas fa-save me-1"></i> Guardar Todo</button>
+                <button class="btn btn-info btn-sm py-0 px-2 ms-1 fw-bold text-white" @click="toggleTrackerSort" title="Invertir Orden">
+                    <i class="fas" :class="staffTrackerSortAsc ? 'fa-sort-amount-down-alt' : 'fa-sort-amount-up'"></i> Invertir Orden
+                </button>
+                <button v-if="trackerSubView === 'HISTORY'" class="btn btn-info btn-sm py-0 px-2 ms-1 fw-bold text-white" @click="openProcessFlow" title="Ver Flujo"><i class="fas fa-project-diagram me-1"></i> FLUJO PROCESO COTIZACION</button>
             </div>
-            <div></div>
+            <div v-if="trackerSubView === 'HISTORY'">
+                <input v-model="historySearchQuery" class="form-control form-control-sm w-auto" placeholder="Buscar por concepto...">
+            </div>
+            <div v-else></div>
           </div>
+          <div class="flex-fill d-flex flex-column" v-if="trackerSubView === 'EXECUTIVE_SUMMARY'" style="background-color:#fff; padding:20px; overflow-y:auto;">
+              <div class="d-flex justify-content-between align-items-center mb-4">
+                  <h4 class="fw-bold m-0 text-dark"><i class="fas fa-chart-line me-2 text-primary"></i>RESUMEN EJECUTIVO</h4>
+                  <button class="btn btn-outline-primary btn-sm" @click="loadExecutiveSummary"><i class="fas fa-sync-alt"></i> Actualizar</button>
+              </div>
+
+              <div class="row g-4">
+                  <!-- ROW 1 -->
+                  <div class="col-md-4 exec-anim-enter">
+                      <table class="exec-table">
+                          <thead>
+                              <tr><th class="exec-header-blue text-start">Cotizado X CLIENTE</th><th>$</th></tr>
+                          </thead>
+                          <tbody>
+                              <tr v-for="c in executiveSummaryData.clients" :key="c.name">
+                                  <td class="fw-bold">{{ c.name }}</td>
+                                  <td class="text-end">{{ formatCurrency(c.amount) }}</td>
+                              </tr>
+                              <tr class="total-row">
+                                  <td class="text-end">TOTAL</td>
+                                  <td class="text-end">{{ formatCurrency(executiveSummaryData.clientsTotal) }}</td>
+                              </tr>
+                          </tbody>
+                      </table>
+                  </div>
+                  <div class="col-md-8 exec-anim-enter">
+                      <table class="exec-table">
+                          <thead>
+                              <tr>
+                                  <th class="exec-header-blue">Vendedor</th>
+                                  <th>N° de cotizaciones realizadas</th>
+                                  <th>Acumulado cotizado Enero</th>
+                                  <th>% Acumulado presente</th>
+                                  <th>Restante</th>
+                              </tr>
+                          </thead>
+                          <tbody>
+                              <tr v-for="v in executiveSummaryData.vendors" :key="v.name">
+                                  <td>{{ v.name }}</td>
+                                  <td class="text-center">{{ v.count }}</td>
+                                  <td class="text-end">{{ formatCurrency(v.amount) }}</td>
+                                  <td class="text-center">{{ v.percent }}%</td>
+                                  <td class="text-end text-danger">{{ formatCurrency(v.remaining) }}</td>
+                              </tr>
+                              <tr class="total-row">
+                                  <td>TOTAL</td>
+                                  <td class="text-center">{{ executiveSummaryData.vendorsTotalCount }}</td>
+                                  <td class="text-end">{{ formatCurrency(executiveSummaryData.vendorsTotalAmount) }}</td>
+                                  <td class="text-center">100.00%</td>
+                                  <td></td>
+                              </tr>
+                          </tbody>
+                      </table>
+                  </div>
+
+                  <!-- ROW 2 -->
+                  <div class="col-12 exec-anim-enter">
+                      <div class="card border-0 shadow-sm">
+                          <div class="card-body">
+                              <h6 class="text-center fw-bold text-secondary mb-3">PRONOSTICO VENTA 24 DICI A 07 ENE 2025</h6>
+                              <div style="height: 300px;"><canvas id="chartExecVenta"></canvas></div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <!-- ROW 3 -->
+                  <div class="col-md-6 exec-anim-enter">
+                      <table class="exec-table">
+                          <thead>
+                              <tr>
+                                  <th class="exec-header-blue">Cotizado del mes</th>
+                                  <th>2025</th>
+                                  <th>2026</th>
+                                  <th>Pronostico con metodo de suavizacion</th>
+                              </tr>
+                          </thead>
+                          <tbody>
+                              <tr v-for="m in executiveSummaryData.monthly" :key="m.month">
+                                  <td>{{ m.month }}</td>
+                                  <td class="text-end">{{ formatCurrency(m.v2025) }}</td>
+                                  <td class="text-end">{{ formatCurrency(m.v2026) }}</td>
+                                  <td class="text-end">{{ formatCurrency(m.forecast) }}</td>
+                              </tr>
+                              <tr class="total-row">
+                                  <td>TOTAL</td>
+                                  <td class="text-end">{{ formatCurrency(executiveSummaryData.monthlyTotal2025) }}</td>
+                                  <td class="text-end">{{ formatCurrency(executiveSummaryData.monthlyTotal2026) }}</td>
+                                  <td class="text-end">{{ formatCurrency(executiveSummaryData.monthlyTotalForecast) }}</td>
+                              </tr>
+                          </tbody>
+                      </table>
+                  </div>
+                  <div class="col-md-6 exec-anim-enter">
+                      <div class="card border-0 shadow-sm h-100">
+                          <div class="card-body">
+                              <h6 class="text-center fw-bold text-secondary mb-3">Pronostico anual con metodo de suavizacion exponencial</h6>
+                              <div style="height: 300px;"><canvas id="chartExecAnual"></canvas></div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <!-- ROW 4 -->
+                  <div class="col-md-4 exec-anim-enter">
+                      <table class="exec-table mb-3">
+                          <thead>
+                              <tr><th class="exec-header-blue text-start">COTIZADO POR ÁREA</th><th>$</th></tr>
+                          </thead>
+                          <tbody>
+                              <tr v-for="a in executiveSummaryData.areas" :key="a.name">
+                                  <td>{{ a.name }}</td>
+                                  <td class="text-end">{{ formatCurrency(a.amount) }}</td>
+                              </tr>
+                              <tr class="total-row">
+                                  <td>TOTAL</td>
+                                  <td class="text-end">{{ formatCurrency(executiveSummaryData.areasTotal) }}</td>
+                              </tr>
+                          </tbody>
+                      </table>
+
+                      <table class="exec-table">
+                          <thead>
+                              <tr><th class="exec-header-blue text-start">PRONOSTICO X ÁREA</th><th>COTIZADO</th><th>VENTA</th></tr>
+                          </thead>
+                          <tbody>
+                              <tr v-for="a in executiveSummaryData.areaForecast" :key="a.name">
+                                  <td>{{ a.name }}</td>
+                                  <td class="text-end">{{ formatCurrency(a.quoted) }}</td>
+                                  <td class="text-end">{{ formatCurrency(a.sold) }}</td>
+                              </tr>
+                          </tbody>
+                      </table>
+                  </div>
+                  <div class="col-md-8 exec-anim-enter">
+                      <div class="card border-0 shadow-sm h-100">
+                          <div class="card-body">
+                              <h6 class="text-center fw-bold text-secondary mb-3">COTIZADO MENSUAL</h6>
+                              <div style="height: 300px;"><canvas id="chartExecMensual"></canvas></div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+          <div class="flex-fill d-flex flex-column" v-if="activeTrackerTab === 'BANCO_COTIZACIONES'" style="background-color:#f8f9fa; padding:20px; overflow-y:auto;">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div class="d-flex align-items-center">
+                    <h4 class="fw-bold m-0 text-info"><i class="fas fa-database me-2"></i>BANCO DE INFORMACION {{ infoBankState.selectedYear || '' }}</h4>
+                    <nav aria-label="breadcrumb" class="ms-4" v-if="infoBankState.view !== 'YEARS'">
+                        <ol class="breadcrumb m-0">
+                             <li class="breadcrumb-item" v-if="infoBankState.view !== 'YEARS'"><a href="#" @click.prevent="resetInfoBank">Año {{ infoBankState.selectedYear }}</a></li>
+                             <li class="breadcrumb-item" v-if="infoBankState.selectedMonth && infoBankState.view !== 'MONTHS'"><a href="#" @click.prevent="infoBankState.view = 'COMPANIES'">{{infoBankState.selectedMonth}}</a></li>
+                             <li class="breadcrumb-item active" v-if="infoBankState.selectedCompany">{{infoBankState.selectedCompany}}</li>
+                        </ol>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- VIEW: YEARS -->
+            <div v-if="infoBankState.view === 'YEARS'" class="animate__animated animate__fadeIn">
+                 <h5 class="fw-bold text-secondary mb-3">Selecciona el Año</h5>
+                 <div class="row g-3">
+                     <div class="col-6 col-md-4 col-lg-3" v-for="y in ibYears" :key="y">
+                         <div class="card shadow-sm border-0 h-100 btn-month" style="cursor:pointer; transition:all 0.2s;" @click="selectIbYear(y)" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
+                             <div class="card-body text-center py-4 bg-white rounded">
+                                 <h5 class="fw-bold m-0 text-primary">{{y}}</h5>
+                             </div>
+                         </div>
+                     </div>
+                 </div>
+            </div>
+
+            <!-- VIEW: MONTHS -->
+            <div v-if="infoBankState.view === 'MONTHS'" class="animate__animated animate__fadeIn">
+                 <div class="d-flex align-items-center mb-3">
+                     <button class="btn btn-light btn-sm border me-3" @click="goBackInfoBank"><i class="fas fa-arrow-left"></i> Volver</button>
+                     <h5 class="fw-bold text-secondary m-0">Selecciona el Mes - {{ infoBankState.selectedYear }}</h5>
+                 </div>
+                 <div class="row g-3">
+                     <div class="col-6 col-md-4 col-lg-3" v-for="m in ibMonths" :key="m">
+                         <div class="card shadow-sm border-0 h-100 btn-month" style="cursor:pointer; transition:all 0.2s;" @click="selectIbMonth(m)" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
+                             <div class="card-body text-center py-4 bg-white rounded">
+                                 <h5 class="fw-bold m-0 text-primary">{{m}}</h5>
+                             </div>
+                         </div>
+                     </div>
+                 </div>
+            </div>
+
+            <!-- VIEW: COMPANIES -->
+            <div v-if="infoBankState.view === 'COMPANIES'" class="animate__animated animate__fadeIn">
+                 <div class="d-flex align-items-center mb-3">
+                     <button class="btn btn-light btn-sm border me-3" @click="goBackInfoBank"><i class="fas fa-arrow-left"></i> Volver</button>
+                     <h5 class="fw-bold text-secondary m-0">Empresas - {{infoBankState.selectedMonth}} {{ infoBankState.selectedYear }}</h5>
+                 </div>
+
+                 <div v-if="infoBankState.isLoading" class="text-center p-5">
+                      <div class="spinner-border text-primary mb-2" role="status"></div>
+                      <div class="text-muted small">Buscando clientes...</div>
+                 </div>
+                 <div v-else-if="filteredIbCompanies.length === 0" class="text-center p-5 bg-white border rounded shadow-sm">
+                      <i class="fas fa-search-minus fa-3x text-muted mb-3"></i>
+                      <p class="text-muted fw-bold">No se encontraron clientes con cotizaciones en este mes.</p>
+                 </div>
+                 <div v-else class="row g-2">
+                     <div class="col-12 col-md-6 col-lg-4" v-for="c in filteredIbCompanies" :key="c">
+                         <div class="list-group-item list-group-item-action border rounded shadow-sm p-3 d-flex align-items-center justify-content-between" style="cursor:pointer; background:white;" @click="selectIbCompany(c)">
+                             <span class="fw-bold text-dark">{{c}}</span>
+                             <i class="fas fa-chevron-right text-muted"></i>
+                         </div>
+                     </div>
+                 </div>
+            </div>
+
+            <!-- VIEW: FOLDERS -->
+            <div v-if="infoBankState.view === 'FOLDERS'" class="animate__animated animate__fadeIn">
+                 <div class="d-flex align-items-center mb-3">
+                     <button class="btn btn-light btn-sm border me-3" @click="goBackInfoBank"><i class="fas fa-arrow-left"></i> Volver</button>
+                     <h5 class="fw-bold text-secondary m-0">{{infoBankState.selectedCompany}} - Carpetas</h5>
+                 </div>
+                 <div class="row g-3">
+                     <div class="col-6 col-md-4 col-lg-3" v-for="f in ibFolders" :key="f.name">
+                         <div class="card shadow-sm border-0 h-100 text-center" style="cursor:pointer; transition:all 0.2s;" @click="openIbFolder(f)" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                             <div class="card-body d-flex flex-column align-items-center justify-content-center py-4 bg-white rounded">
+                                 <i class="fas fa-3x mb-3" :class="f.icon" :style="{color: f.color}"></i>
+                                 <h6 class="fw-bold text-dark m-0">{{f.name}}</h6>
+                             </div>
+                         </div>
+                     </div>
+                 </div>
+            </div>
+
+            <!-- VIEW: FILES -->
+            <div v-if="infoBankState.view === 'FILES'" class="animate__animated animate__fadeIn">
+                 <div class="d-flex align-items-center mb-3">
+                     <button class="btn btn-light btn-sm border me-3" @click="goBackInfoBank"><i class="fas fa-arrow-left"></i> Volver</button>
+                     <h5 class="fw-bold text-secondary m-0">{{infoBankState.selectedCompany}} / {{infoBankState.selectedFolder}}</h5>
+                 </div>
+
+                 <div v-if="infoBankState.isLoading" class="text-center p-5">
+                      <div class="spinner-border text-primary mb-2" role="status"></div>
+                      <div class="text-muted small">Buscando archivos en Base de Datos...</div>
+                 </div>
+                 <div v-else-if="infoBankState.files.length === 0" class="text-center p-5 bg-white border rounded shadow-sm">
+                      <i class="fas fa-folder-open fa-3x text-muted mb-3"></i>
+                      <p class="text-muted fw-bold">No se encontraron registros para este mes y cliente.</p>
+                 </div>
+                 <div v-else class="card border-0 shadow-sm">
+                     <div class="card-body p-0">
+                         <div class="table-responsive">
+                             <table class="table table-hover mb-0 align-middle">
+                                 <thead class="table-light small text-uppercase">
+                                     <tr>
+                                         <th style="min-width:90px">FECHA INICIO</th>
+                                         <th style="min-width:100px">AREA</th>
+                                         <th>CONCEPTO</th>
+                                         <th style="min-width:120px">VENDEDOR</th>
+                                         <th class="text-center" style="min-width:100px">ESTATUS</th>
+                                     </tr>
+                                 </thead>
+                                 <tbody class="info-bank-list">
+                                     <tr v-for="(file, idx) in infoBankState.files" :key="idx" class="info-bank-row" style="opacity:0">
+                                         <td style="font-size:12px; font-weight:bold;">{{ formatDisplayDate(file.FECHA_INICIO) }}</td>
+                                         <td style="font-size:11px;"><span class="badge bg-light text-secondary border">{{ file.AREA || 'N/A' }}</span></td>
+                                         <td style="font-size:12px;">
+                                             <div class="fw-bold text-dark">{{ file.CONCEPTO || 'Sin Descripción' }}</div>
+                                             <div class="small text-muted d-flex align-items-center gap-2">
+                                                 <span>{{ file.FOLIO }}</span>
+                                                 <a v-if="file.COTIZACION" :href="file.COTIZACION" target="_blank" class="text-primary text-decoration-none fw-bold" style="font-size:10px;">
+                                                     <i class="fas fa-paperclip me-1"></i>VER ARCHIVO
+                                                 </a>
+                                             </div>
+                                         </td>
+                                         <td style="font-size:11px;">
+                                             <div class="d-flex align-items-center">
+                                                 <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center me-2" style="width:20px; height:20px; font-size:9px;">
+                                                     {{ toInitials(file.VENDEDOR) }}
+                                                 </div>
+                                                 <span class="text-truncate" style="max-width:120px;">{{ file.VENDEDOR }}</span>
+                                             </div>
+                                         </td>
+                                         <td class="text-center">
+                                             <span class="badge" :class="getBadgeClass(file.ESTATUS)">{{ file.ESTATUS || 'N/A' }}</span>
+                                         </td>
+                                     </tr>
+                                 </tbody>
+                             </table>
+                         </div>
+                     </div>
+                 </div>
+            </div>
+          </div>
+
+
+          <!-- HOT POTATO MODAL -->
+          <div v-if="showHotPotatoModal" class="custom-modal-overlay" @click.self="closeHotPotatoModal">
+              <div class="custom-modal animate__animated animate__zoomIn" style="width: 600px; max-width: 90vw; max-height: 90vh; display: flex; flex-direction: column;">
+                  <div class="custom-modal-header bg-danger text-white">
+                      <span><i class="fas fa-fire me-2"></i>ESTATUS PAPA CALIENTE - {{ currentHotPotatoRow?.FOLIO || currentHotPotatoRow?.ID }}</span>
+                      <button class="btn btn-sm btn-link text-white" @click="closeHotPotatoModal"><i class="fas fa-times"></i></button>
+                  </div>
+                                    <div class="custom-modal-body bg-dark text-light p-4" style="text-align: left; overflow-y: auto; flex: 1;">
+                      <div v-if="currentHotPotatoRow">
+                          <div class="d-flex justify-content-between align-items-center mb-4">
+                              <div>
+                                  <h5 class="fw-bold mb-1 text-white">{{ currentHotPotatoRow.CLIENTE || 'Sin Cliente' }}</h5>
+                                  <span class="text-secondary small">Complejidad alta · Folio: {{ currentHotPotatoRow.FOLIO || currentHotPotatoRow.ID }}</span>
+                              </div>
+                          </div>
+
+                          <div class="d-flex gap-3 mb-4">
+                              <div class="bg-black border border-secondary rounded p-3 text-center" style="flex:1">
+                                  <div class="small text-secondary mb-1">Etapas</div>
+                                  <div class="fs-4 fw-bold text-white">{{ currentHotPotatoRow._stats ? currentHotPotatoRow._stats.etapasCompletadas : 0 }}/7</div>
+                                  <div class="small text-secondary">completadas</div>
+                              </div>
+                              <div class="bg-black border border-secondary rounded p-3 text-center" style="flex:1">
+                                  <div class="small text-secondary mb-1">Bolitas</div>
+                                  <div class="fs-4 fw-bold text-white">{{ currentHotPotatoRow._stats ? currentHotPotatoRow._stats.bolitasCompletadas : 0 }}/{{ currentHotPotatoRow._stats ? currentHotPotatoRow._stats.totalBolitas : 0 }}</div>
+                                  <div class="small text-secondary">con palomita</div>
+                              </div>
+                          </div>
+
+                          <div class="hp-detailed-timeline">
+                              <div v-for="(step, sIdx) in getProcessTimelineDetailed(currentHotPotatoRow)" :key="sIdx" class="mb-4">
+                                  <div class="small text-secondary fw-bold mb-2 text-uppercase">ETAPA {{ sIdx + 1 }} — {{ getFullProcessName(step.id) }}</div>
+                                  <div class="border border-secondary rounded p-3 position-relative" style="background-color: #1a1a1a;">
+                                      <div class="d-flex justify-content-between align-items-center mb-3">
+                                          <div class="fw-bold text-white">{{ getFullProcessName(step.id) }}</div>
+                                          <div class="badge rounded-pill" :class="step.isDone ? 'bg-success text-white' : (step.isInProgress ? 'bg-warning text-dark' : 'bg-secondary text-white')">
+                                              {{ step.isDone ? 'Completado' : (step.isInProgress ? 'En proceso' : 'Pendiente') }}
+                                          </div>
+                                      </div>
+
+                                      <div class="progress mb-3 bg-dark" style="height: 4px;">
+                                          <div class="progress-bar" :class="step.isDone ? 'bg-success' : (step.isInProgress ? 'bg-primary' : '')" :style="{ width: step.isDone ? '100%' : (step.isInProgress ? '50%' : '0%') }"></div>
+                                      </div>
+
+                                      <div class="d-flex gap-3 align-items-center flex-wrap">
+                                          <div v-for="(assignee, aIdx) in step.assignees" :key="aIdx" class="text-center" style="width: 60px;">
+                                              <div class="rounded-circle d-flex align-items-center justify-content-center text-white mb-1 position-relative mx-auto"
+                                                   :class="assignee.status === 'DONE' ? 'bg-success' : 'bg-primary'"
+                                                   style="width: 45px; height: 45px; font-weight: bold; border: 2px solid #2c2c2c;">
+                                                  {{ toInitials(assignee.name) }}
+                                                  <div v-if="assignee.status === 'DONE'" class="position-absolute bg-success rounded-circle text-white d-flex align-items-center justify-content-center border border-dark" style="width:16px; height:16px; bottom:-2px; right:-2px; font-size: 10px;">
+                                                      <i class="fas fa-check"></i>
+                                                  </div>
+                                              </div>
+                                              <div class="small text-truncate text-secondary" style="font-size: 10px;" :title="assignee.name">{{ assignee.name.split(' ')[0] }}</div>
+                                              <div class="text-secondary" style="font-size: 9px;">{{ assignee.timeLabel }}</div>
+                                          </div>
+
+                                          <div v-if="step.isCurrent" class="text-center" style="width: 60px; cursor: pointer;" @click="advanceProcess(currentHotPotatoRow)">
+                                              <div class="rounded-circle d-flex align-items-center justify-content-center text-secondary mb-1 border border-secondary mx-auto" style="width: 45px; height: 45px; border-style: dashed !important;">
+                                                  <i class="fas fa-plus"></i>
+                                              </div>
+                                              <div class="small text-secondary" style="font-size: 10px;">Agregar</div>
+                                          </div>
+                                      </div>
+                                  </div>
+                              </div>
+                          </div>
+
+                      </div>
+                  </div>
+                  <div class="custom-modal-footer">
+                      <button class="btn btn-secondary btn-sm" @click="closeHotPotatoModal">Cerrar</button>
+                  </div>
+              </div>
+          </div>
+
+          <!-- PROCESS FLOW MODAL -->
+          <div v-if="showProcessFlow" class="custom-modal-overlay" @click.self="showProcessFlow = false">
+              <div class="custom-modal flow-modal animate__animated animate__zoomIn">
+                  <div class="custom-modal-header bg-primary text-white">
+                      <span><i class="fas fa-project-diagram me-2"></i>FLUJO DE PROCESO DE COTIZACIÓN</span>
+                      <button class="btn btn-sm btn-link text-white" @click="showProcessFlow = false"><i class="fas fa-times"></i></button>
+                  </div>
+                  <div class="custom-modal-body p-0 overflow-auto bg-light position-relative">
+                      <div class="swimlane-grid">
+                          <!-- Lane Headers -->
+                          <div class="lane-header bg-primary text-white" style="grid-row: 2; grid-column: 1;">CLIENTE</div>
+                          <div class="lane-header bg-warning text-dark" style="grid-row: 3; grid-column: 1;">PRESUPUESTOS</div>
+                          <div class="lane-header bg-primary text-white" style="grid-row: 4; grid-column: 1;">VENDEDOR</div>
+                          <div class="lane-header bg-warning text-dark" style="grid-row: 5; grid-column: 1;">COORDINADOR</div>
+                          <div class="lane-header bg-primary text-white" style="grid-row: 6; grid-column: 1;">PRECIOS UNIT.</div>
+
+                          <!-- Lane Backgrounds -->
+                          <div style="grid-row: 2; grid-column: 1/-1; border-bottom:1px solid #ccc; background:#f0f8ff;"></div>
+                          <div style="grid-row: 3; grid-column: 1/-1; border-bottom:1px solid #ccc; background:#fffbf0;"></div>
+                          <div style="grid-row: 4; grid-column: 1/-1; border-bottom:1px solid #ccc; background:#f0f8ff;"></div>
+                          <div style="grid-row: 5; grid-column: 1/-1; border-bottom:1px solid #ccc; background:#fffbf0;"></div>
+                          <div style="grid-row: 6; grid-column: 1/-1; background:#f0f8ff;"></div>
+
+                          <!-- Nodes -->
+                          <!-- R1: CLIENTE -->
+                          <div class="flow-node node-oval bg-blue" style="grid-row: 2; grid-column: 2;">CONTINUACION<br>PROCESO 2 Y 2.1</div>
+                          <div class="flow-node node-diamond bg-blue" style="grid-row: 2; grid-column: 5;"><span>Requisitor<br>o Compras</span></div>
+                          <div class="flow-node node-para bg-yellow" style="grid-row: 2; grid-column: 6;"><span>Perdida<br>Cotización</span></div>
+                          <div class="flow-node node-para bg-yellow" style="grid-row: 2; grid-column: 7;"><span>Solicitud<br>Descuento</span></div>
+                          <div class="flow-node node-para bg-yellow" style="grid-row: 2; grid-column: 8;"><span>Anuncio de<br>Ganadores</span></div>
+
+                          <!-- R2: PRESUPUESTOS -->
+                          <div class="flow-node node-cyl bg-yellow" style="grid-row: 3; grid-column: 2;">Consulta Carpetas<br>Red Unidad</div>
+                          <div class="flow-node node-rect bg-blue" style="grid-row: 3; grid-column: 4;">REVISION DE<br>PROPUESTA</div>
+                          <div class="flow-node node-cyl bg-yellow" style="grid-row: 3; grid-column: 6;">Retroalimentacion<br>Presupuesto</div>
+                          <div class="flow-node node-cyl bg-yellow" style="grid-row: 3; grid-column: 8;">Retroalimentacion<br>Presupuesto</div>
+                          <div class="flow-node node-rect bg-blue" style="grid-row: 3; grid-column: 9;">Enviar Correo<br>a Coordinador <i class="fas fa-envelope"></i></div>
+
+                          <!-- R3: VENDEDOR -->
+                          <div class="flow-node node-rect bg-blue" style="grid-row: 4; grid-column: 4;">REVISION DE<br>PROPUESTA</div>
+
+                          <!-- R4: COORDINADOR -->
+                          <div class="flow-node node-rect bg-yellow" style="grid-row: 5; grid-column: 4;">REVISION DE<br>PROPUESTA</div>
+                          <div class="flow-node node-rect bg-blue" style="grid-row: 5; grid-column: 7;">OTORGAR<br>DESCUENTO</div>
+                          <div class="flow-node node-cyl bg-yellow" style="grid-row: 5; grid-column: 8;">Llenado de<br>Carpetas</div>
+                          <div class="flow-node node-rect bg-blue" style="grid-row: 5; grid-column: 9;">Incluir Informe<br>Reunión</div>
+
+                          <!-- R5: PRECIOS -->
+                          <div class="flow-node node-rect bg-yellow" style="grid-row: 6; grid-column: 6;">Encontrar<br>Oportunidades <i class="fas fa-file-excel"></i></div>
+                          <div class="flow-node node-oval bg-blue" style="grid-row: 6; grid-column: 9;">CIERRE DE<br>PROCESO 3</div>
+
+                          <!-- SVG Connections -->
+                          <svg class="flow-connections">
+                              <defs>
+                                  <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                                    <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+                                  </marker>
+                              </defs>
+                              <path class="connection-line" d="M 15% 18% L 15% 30%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 15% 34% L 25% 34% L 25% 32% L 32% 32%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 25% 34% L 25% 49% L 32% 49%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 25% 34% L 25% 66% L 32% 66%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 38% 32% L 42% 32% L 42% 18% L 44% 18%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 38% 49% L 42% 49% L 42% 18%" />
+                              <path class="connection-line" d="M 38% 66% L 42% 66% L 42% 18%" />
+                              <path class="connection-line" d="M 48% 18% L 54% 18%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 48% 18% L 64% 18%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 48% 18% L 74% 18%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 55% 20% L 55% 30%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 55% 35% L 55% 80%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 65% 20% L 65% 64%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 68% 66% L 74% 66%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 75% 20% L 75% 30%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 78% 32% L 84% 32%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 87% 35% L 87% 64%" marker-end="url(#arrowhead)" />
+                              <path class="connection-line" d="M 87% 68% L 87% 80%" marker-end="url(#arrowhead)" />
+                          </svg>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+          <!-- VISTA PAPA CALIENTE DE COTIZACION (REFACTORED) -->
+          <div v-if="trackerSubView === 'HOT_POTATO'" class="flex-fill d-flex flex-column overflow-auto p-4 bg-white" style="font-family: 'Arial', sans-serif;">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h5 class="fw-bold m-0"><i class="fas fa-fire text-danger me-2"></i>Monitor de Papa Caliente</h5>
+                  <button class="btn btn-primary btn-sm" @click="loadTrackerData"><i class="fas fa-sync-alt me-1"></i>Actualizar</button>
+              </div>
+              <div class="excel-container flex-fill">
+                  <table class="table-excel">
+                      <thead>
+                          <tr>
+                              <th class="row-num">#</th>
+                              <th style="width: 200px;">CLIENTE</th>
+                              <th style="width: 100px;">VENDEDOR</th>
+                              <th style="width: 80px;">F. INICIO</th>
+                              <th style="width: 80px;">F. VISITA</th>
+                              <th style="width: 80px;">F. ENTREGA</th>
+                              <th style="width: auto;">MAP COT</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          <tr v-for="(row, i) in staffTracker.data" :key="i">
+                              <td class="row-num">{{ i + 1 }}</td>
+                              <td><input v-model="row.CLIENTE" class="excel-input" readonly></td>
+                              <td class="text-center">
+                                  <div class="d-flex align-items-center justify-content-center h-100">
+                                      <span class="badge bg-light text-dark border" style="font-size: 10px;">{{ toInitials(row.VENDEDOR) }}</span>
+                                  </div>
+                              </td>
+                              <td><input :value="row['F. INICIO'] || row['FECHA'] || row['ALTA'] || row['FECHA INICIO'] || row['FECHA_INICIO']" class="excel-input text-center" readonly></td>
+                              <td><input :value="row['F. VISITA'] || row['FECHA VISITA']" class="excel-input text-center" readonly></td>
+                              <td><input :value="row['F. ENTREGA'] || row['FECHA ENTREGA']" class="excel-input text-center" readonly></td>
+                              <td class="p-1">
+                                  <div class="hp-timeline-container">
+                                      <div v-for="(step, sIdx) in getProcessTimeline(row)" :key="sIdx" class="hp-step" @click="step.isCurrent ? advanceProcess(row) : null">
+                                          <div class="hp-circle" :class="step.isDone ? 'green' : (step.isInProgress ? 'yellow' : 'red')" :title="getFullProcessName(step.id)">
+                                              <i v-if="step.isDone" class="fas fa-check"></i><i v-else-if="step.isInProgress" class="fas fa-user-clock"></i>
+                                              <div class="hp-clock-icon" :class="step.isDone ? 'check-icon' : 'red-icon'">
+                                                  <i class="fas" :class="step.isDone ? 'fa-check-circle' : 'fa-clock'"></i>
+                                              </div>
+                                          </div>
+                                          <div class="hp-text">
+                                              {{ step.isDone ? 'Hecho' : 'Pendiente' }} {{ step.id }}<br>
+                                              <span class="hp-time">{{ step.timeLabel }}</span>
+                                          </div>
+                                      </div>
+                                  </div>
+                              </td>
+                          </tr>
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+
           <div class="excel-container flex-fill mb-2" ref="trackerTable" v-if="trackerSubView === 'TASKS'">
              <div v-if="staffTracker.isLoading" class="text-center p-5 text-muted">Cargando datos...</div>
              <table v-else class="table-excel">
                 <thead>
                   <tr>
                     <th class="row-num">#</th>
-                    <th v-for="(h, idx) in staffTracker.headers" :key="idx" :style="getColumnStyle(h)">
+                    <th v-for="(h, idx) in visibleTrackerHeaders" :key="idx" :style="getColumnStyle(h)">
                         <div>{{ getHeaderLabel(h) }}</div>
                         <div v-if="isCol(h, ['AREA', 'ESPECIALIDAD', 'CLIENTE', 'VENDEDOR'])">
                              <select v-model="staffTrackerFilters[h]" @click.stop class="form-select form-select-sm p-0 border-0 bg-transparent text-primary fw-bold" style="font-size:10px; height:auto; cursor:pointer; min-width: 60px;">
@@ -1299,57 +1845,67 @@
                   </tr>
                 </thead>
                 <tbody>
-                   <tr v-for="(row, i) in filteredStaffTrackerData" :key="i" :class="{'new-row-highlight': row._isNew}">
+                   <tr v-for="(row, i) in filteredStaffTrackerData" :key="i" :class="{'new-row-highlight': row._isNew, 'antonia-font': currentUsername === 'ANTONIA_VENTAS', 'date-edited-row': row._dateEdited}">
                       <td class="row-num">{{i+1}}</td>
-                      <td v-for="(h, idx) in staffTracker.headers" :key="idx">
+                      <td v-for="(h, idx) in visibleTrackerHeaders" :key="idx">
                          <div v-if="isCol(h, ['AREA','ALTA','ESPECIALIDAD'])" style="position:relative; width:100%; height:100%;">
                              <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; font-weight:bold; font-size:12px;">{{ row[h] ? String(row[h]).charAt(0).toUpperCase() : '' }}</div>
                              <select v-model="row[h]" :disabled="!isFieldEditable(h, row)" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;"><option value="">-</option><option v-for="(dept, k) in (config.allDepartments || config.departments)" :key="k" :value="k">{{dept.label}}</option></select>
                          </div>
-                         <!-- [MAPEO IA] INPUT ID=sin-id VAR=N/A PROPOSITO=Integracion -->
-<input v-else-if="isCol(h, ['ID','FOLIO'])" :value="row[h]" class="excel-input" readonly style="background-color:#f0f0f0; color:#555; text-align:center;">
-                         <div v-else-if="String(h).toUpperCase().includes('VENDEDOR')" style="position:relative; width:100%; height:100%; background-color:#f0fdf4;">
-                             <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; font-size:11px; white-space:nowrap; overflow:hidden;">{{ toInitials(row[h]) }}</div>
-                             <select v-model="row[h]" :disabled="!isFieldEditable(h, row)" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;">
-                                 <option value="">-</option>
-                                 <option v-for="s in salesStaff" :key="s" :value="s">{{s}}</option>
-                             </select>
+                         <input v-else-if="isCol(h, ['ID','FOLIO'])" :value="row[h]" class="excel-input" readonly style="background-color:#f0f0f0; color:#555; text-align:center;">
+                         <div v-else-if="String(h).toUpperCase().includes('VENDEDOR') || String(h).toUpperCase().includes('RESPONSABLE') || String(h).toUpperCase().includes('INVOLUCRADOS')" style="position:relative; width:100%; height:100%; min-height: 30px; background-color:#f0fdf4;" @click="openVendorSelector(row, h)">
+                             <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:11px; white-space:nowrap; overflow:hidden; font-weight:bold; color:#000 !important; cursor:pointer;">{{ toInitials(row[h]) }}</div>
+                         </div>
+                         <div v-else-if="String(h).toUpperCase().includes('PRIORIDAD') || String(h).toUpperCase().includes('PRIO')" style="position:relative; width:100%; height:100%;">
+                             <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; font-size:10px; font-weight:bold;">{{ row[h] }}</div>
+                             <select v-model="row[h]" :disabled="!isFieldEditable(h, row)" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;"><option value="">-</option><option value="NORMAL">NORMAL</option><option value="MEDIA">MEDIA</option><option value="ALTA">ALTA</option><option value="URGENTE">URGENTE</option><option value="ESTRATEGICA">ESTRATEGICA</option></select>
                          </div>
                          <div v-else-if="isMediaColumn(h)" class="text-center" style="padding-top:4px; display:flex; gap:2px; flex-wrap:wrap; justify-content:center; align-items:center; height:100%;">
                              <template v-if="row[h]">
                                  <div v-for="(url, uIdx) in String(row[h]).split(/[\n\s]+/).filter(u => u.startsWith('http'))" :key="uIdx" class="btn-group" style="margin-right:2px; margin-bottom:2px;">
                                      <a :href="url" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-1" style="font-size:9px;" title="Ver archivo"><i class="fas fa-paperclip"></i></a>
-                                     <!-- [MAPEO IA] BUTTON ID=sin-id VAR=N/A PROPOSITO=Integracion -->
-<button v-if="isFieldEditable(h, row)" class="btn btn-sm btn-outline-danger py-0 px-1" style="font-size:9px;" @click.stop="deleteFile(row, h, url)" title="Eliminar"><i class="fas fa-times"></i></button>
+                                     <button v-if="isFieldEditable(h, row)" class="btn btn-sm btn-outline-danger py-0 px-1" style="font-size:9px;" @click.stop="deleteFile(row, h, url)" title="Eliminar"><i class="fas fa-times"></i></button>
                                  </div>
                              </template>
-                             <!-- [MAPEO IA] BUTTON ID=sin-id VAR=openCellUpload(row, h) PROPOSITO=Integracion -->
-<button class="btn btn-sm btn-light border py-0 px-1 text-secondary" :disabled="!isFieldEditable(h, row)" @click="openCellUpload(row, h)" title="Subir / Reemplazar"><i class="fas fa-cloud-upload-alt" style="font-size:10px"></i></button>
+                             <button class="btn btn-sm btn-light border py-0 px-1 text-secondary" :disabled="!isFieldEditable(h, row)" @click="openCellUpload(row, h)" title="Subir / Reemplazar"><i class="fas fa-cloud-upload-alt" style="font-size:10px"></i></button>
                          </div>
                          <div v-else-if="isCol(h, ['CLASIFICACION'])" style="position:relative; width:100%; height:100%;">
                              <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; font-size:10px; font-weight:bold;">{{ row[h] }}</div>
                              <select v-model="row[h]" :disabled="!isFieldEditable(h, row)" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;"><option value="">-</option><option value="A">A</option><option value="AA">AA</option><option value="AAA">AAA</option></select>
                          </div>
-                         <!-- [MAPEO IA] INPUT ID=sin-id VAR=row[h] PROPOSITO=Integracion -->
-<input v-else-if="isCol(h, ['DIAS','RELOJ'])" type="number" v-model="row[h]" :readonly="!isFieldEditable(h, row)" style="text-align:center; font-weight:bold; width:100%; height:100%; border:none; outline:none; padding:6px 0px; background:transparent;" :style="getTrafficStyle(row)">
-                         <!-- [MAPEO IA] INPUT ID=sin-id VAR=row[h] PROPOSITO=Integracion -->
-<input v-else-if="String(h).toUpperCase().includes('AVANCE')" v-model="row[h]" :readonly="!isFieldEditable(h, row)" style="text-align:center; font-weight:bold; color:#217346; width:100%; height:100%; border:none; outline:none; padding:6px 0px; background:transparent;">
-                         <!-- [MAPEO IA] INPUT ID=sin-id VAR=row[h] PROPOSITO=Integracion -->
-<input v-else-if="isCol(h, ['ESTATUS','STATUS'])" v-model="row[h]" :readonly="!isFieldEditable(h, row)" style="text-align:center; font-weight:bold; font-size:10px; width:100%; height:100%; border:none; outline:none; padding:6px 1px; background:transparent;" class="excel-input">
+                         <input v-else-if="isCol(h, ['DIAS','RELOJ','DÍAS FINALIZ. COTIZ','DIAS FINALIZ. COTIZ'])" type="number" v-model="row[h]" :readonly="!isFieldEditable(h, row)" style="text-align:center; font-weight:bold; width:100%; height:100%; border:none; outline:none; padding:6px 0px; background:transparent;" :style="getTrafficStyle(row)">
+                         <div v-else-if="String(h).toUpperCase().includes('AVANCE')" style="position:relative; width:100%; height:100%;">
+                             <input v-model="row[h]" :readonly="!isFieldEditable(h, row)" style="text-align:center; font-weight:bold; color:#217346; width:100%; height:100%; border:none; outline:none; padding:6px 10px 6px 0px; background:transparent;" spellcheck="false">
+                             <span style="position:absolute; right:2px; top:50%; transform:translateY(-50%); color:#217346; font-size:10px; font-weight:bold; pointer-events:none;">%</span>
+                         </div>
+                         <div v-else-if="isCol(h, ['ESTATUS','STATUS'])" style="width:100%; height:100%;">
+                             <div v-if="currentUsername === 'ANTONIA_VENTAS' || (staffTracker && staffTracker.name && staffTracker.name.includes('VENTAS'))" class="d-flex flex-column h-100">
+                                  <div style="flex: 0 0 auto; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:10px; font-weight:bold; padding:4px; text-align:center; white-space:normal; line-height:1.1; min-height: 25px;"
+                                       :style="getAntoniaStatusStyle(row[h])"
+                                       @click="openStatusSelector(row, h)">
+                                      {{ row[h] }}
+                                  </div>
+                                  <div style="flex: 1 1 auto; display:flex; align-items:center; justify-content:center; background:#f8f9fa; border-top:1px solid #dee2e6; cursor:pointer;" @click="openHotPotatoModal(row)" title="Ver Papa Caliente">
+                                      <i class="fas fa-fire text-danger fa-lg py-1"></i>
+                                  </div>
+                             </div>
+                             <input v-else
+                                    v-model="row[h]"
+                                    :readonly="!isFieldEditable(h, row)"
+                                    style="text-align:center; font-weight:bold; font-size:10px; width:100%; height:100%; border:none; outline:none; padding:6px 1px; background:transparent;"
+                                    class="excel-input">
+                         </div>
                          <div v-else-if="isCol(h, ['REQUISITOR'])" class="d-flex" style="height:100%; width:100%; align-items:center;">
-                             <!-- [MAPEO IA] INPUT ID=sin-id VAR=row[h] PROPOSITO=Integracion -->
-<input v-model="row[h]" :readonly="!isFieldEditable(h, row)" class="excel-input" style="flex:1; min-width:0;" spellcheck="false">
+                             <input v-model="row[h]" :readonly="!isFieldEditable(h, row)" class="excel-input" style="flex:1; min-width:0;" spellcheck="false">
                          </div>
-                         <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA')" style="position:relative; width:100%; height:100%;" :style="isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)">
-                             <div style="position:absolute; inset:0; display:flex; align-items:center; padding-left:4px; font-size:12px; pointer-events:none;">{{ formatDisplayDate(row[h]) }}</div>
-                             <!-- [MAPEO IA] INPUT ID=sin-id VAR=N/A PROPOSITO=Integracion -->
-<input type="date" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;" :disabled="!isFieldEditable(h, row)" :value="toIsoDate(row[h])" @input="updateDateFromPicker($event, row, h)">
+                         <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO')" style="position:absolute; inset:0; width:100%; height:100%; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
+                             <div style="position:absolute; inset:0; display:flex; align-items:center; padding-left:4px; font-size:12px; pointer-events:none; color: #000 !important;">{{ formatDisplayDate(row[h]) }}</div>
+                             <input type="date" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;" :disabled="!isFieldEditable(h, row)" :value="toIsoDate(row[h])" @input="updateDateFromPicker($event, row, h)">
                          </div>
-                         <!-- [MAPEO IA] INPUT ID=sin-id VAR=row[h] PROPOSITO=Integracion -->
-<input v-else v-model="row[h]" :readonly="!isFieldEditable(h, row)" class="excel-input" spellcheck="false">
+                         <textarea v-else-if="(String(h).toUpperCase().includes('COMENTARIO') || String(h).toUpperCase().includes('PREVIOS') || String(h).toUpperCase().includes('OBSERVACIONES')) || (currentUsername === 'ANTONIA_VENTAS' && (String(h).toUpperCase() === 'CONCEPTO' || String(h).toUpperCase().includes('DESCRIP')))" v-model="row[h]" class="excel-textarea" :readonly="!isFieldEditable(h, row)" rows="2" spellcheck="true"></textarea>
+                         <input v-else v-model="row[h]" :readonly="!isFieldEditable(h, row)" class="excel-input" :spellcheck="currentUsername === 'ANTONIA_VENTAS'">
                       </td>
-                      <td class="text-center" style="background:#f8f9fa"><!-- [MAPEO IA] BUTTON ID=sin-id VAR=saveRow(row, $event) PROPOSITO=Integracion -->
-<button class="btn btn-link btn-sm p-0 text-success" @click="saveRow(row, $event)" :disabled="row._isSaving"><i class="fas" :class="row._isSaving ? 'fa-spinner fa-spin' : 'fa-save'"></i></button></td>
+                      <td class="text-center" style="background:#f8f9fa"><button class="btn btn-link btn-sm p-0 text-success" @click="saveRow(row, $event)" :disabled="row._isSaving"><i class="fas" :class="row._isSaving ? 'fa-spinner fa-spin' : 'fa-save'"></i></button></td>
                    </tr>
                 </tbody>
              </table>
@@ -1361,14 +1917,49 @@
                 <thead>
                   <tr>
                     <th class="row-num">#</th>
-                    <th v-for="(h, idx) in staffTracker.headers" :key="idx" :style="getColumnStyle(h)">{{ getHeaderLabel(h) }}</th>
+                    <th v-for="(h, idx) in visibleTrackerHeaders" :key="idx" :style="getColumnStyle(h)">{{ getHeaderLabel(h) }}</th>
                     <th style="width:40px"><i class="fas fa-history"></i></th>
                   </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="(row, i) in staffTracker.history" :key="i">
+                    <tr v-if="filteredStaffTrackerHistory.length === 0">
+                        <td :colspan="visibleTrackerHeaders.length + 2" class="text-center p-3 text-muted">No se encontraron resultados</td>
+                    </tr>
+                    <tr v-for="(row, i) in filteredStaffTrackerHistory" :key="i" :class="{'antonia-font': currentUsername === 'ANTONIA_VENTAS'}">
                         <td class="row-num">H{{i+1}}</td>
-                        <td v-for="(h, idx) in staffTracker.headers" :key="idx" :style="getColumnStyle(h)">{{row[h]}}</td>
+                        <td v-for="(h, idx) in visibleTrackerHeaders" :key="idx" :style="getColumnStyle(h)">
+                            <div v-if="isCol(h, ['AREA','ALTA','ESPECIALIDAD'])" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:12px;">
+                                {{ row[h] ? String(row[h]).charAt(0).toUpperCase() : '' }}
+                            </div>
+                            <div v-else-if="String(h).toUpperCase().includes('VENDEDOR') || String(h).toUpperCase().includes('RESPONSABLE') || String(h).toUpperCase().includes('INVOLUCRADOS')" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:11px; white-space:nowrap; overflow:hidden; font-weight:bold; color:#000 !important;">
+                                {{ toInitials(row[h]) }}
+                            </div>
+                            <div v-else-if="isMediaColumn(h)" class="d-flex flex-wrap justify-content-center gap-1">
+                                <template v-if="row[h]">
+                                     <a v-for="(url, uIdx) in String(row[h]).split(/[\n\s]+/).filter(u => u.startsWith('http'))"
+                                        :key="uIdx" :href="url" target="_blank"
+                                        class="btn btn-sm btn-outline-primary py-0 px-1" style="font-size:9px;" title="Ver archivo">
+                                        <i class="fas fa-paperclip"></i>
+                                     </a>
+                                </template>
+                            </div>
+                            <div v-else-if="String(h).toUpperCase().includes('AVANCE')" style="text-align:center; font-weight:bold; color:#217346;">
+                                {{ row[h] }}%
+                            </div>
+
+                            <div v-else-if="isCol(h, ['ESTATUS','STATUS']) && (currentUsername === 'ANTONIA_VENTAS' || (staffTracker && staffTracker.name && staffTracker.name.includes('VENTAS')))"
+                                 style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; padding:0 4px; text-align:center; white-space:normal; line-height:1.1;"
+                                 :style="getAntoniaStatusStyle(row[h])">
+                                 {{ row[h] }}
+                            </div>
+                            <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO')" style="position:absolute; inset:0; padding-left:4px; display:flex; align-items:center; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
+                                 {{ formatDisplayDate(row[h]) }}
+                            </div>
+                            <div v-else-if="isCol(h, ['DIAS','RELOJ','DÍAS FINALIZ. COTIZ','DIAS FINALIZ. COTIZ'])" style="text-align:center; font-weight:bold; width:100%; height:100%; display:flex; align-items:center; justify-content:center;" :style="getTrafficStyle(row)">
+                                {{ row[h] }}
+                            </div>
+                            <div v-else>{{row[h]}}</div>
+                        </td>
                         <td style="width:40px;text-align:center"><i class="fas fa-check text-muted small"></i></td>
                     </tr>
                 </tbody>
@@ -6628,26 +7219,25 @@ async function toggleVoiceRecording(btnElement) {
           staffTracker.value.name = sheetName;
           staffTracker.value.isLoading = true;
 
-          google.script.run.withSuccessHandler(res => {
-              staffTracker.value.isLoading = false;
-              if (res.success) {
-                  staffTracker.value.data = res.data;
-                  staffTracker.value.history = res.history;
-                  staffTracker.value.headers = res.headers;
-                  // Recalcular Días (Contador) para todas las hojas (si tienen las columnas)
-                  // Se ejecuta siempre, la función calculateDiasCounter valida si existen las columnas
-                  staffTracker.value.data.forEach(row => calculateDiasCounter(row));
-              } else {
-                  if (res.message && res.message.includes("Falta hoja")) {
-                      staffTracker.value.data = [];
-                      staffTracker.value.history = [];
-                      staffTracker.value.headers = [];
-                      Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'Vista vacía (Sin hoja)', showConfirmButton: false, timer: 2000 });
+          fetch(`/api/tracker/fetch?personName=${encodeURIComponent(sheetName)}`)
+              .then(response => response.json())
+              .then(res => {
+                  staffTracker.value.isLoading = false;
+                  if (res.success) {
+                      staffTracker.value.data = res.data || [];
+                      staffTracker.value.headers = res.headers || [];
+                      // Ensure required properties
+                      staffTracker.value.data.forEach(row => {
+                          if (!row.ID) row.ID = row.FOLIO || Math.random().toString(36).substring(7);
+                      });
                   } else {
                       Swal.fire('Error', res.message, 'error');
                   }
-              }
-          }).withFailureHandler(handleErr).apiFetchStaffTrackerData(sheetName);
+              })
+              .catch(err => {
+                  staffTracker.value.isLoading = false;
+                  Swal.fire('Error', err.toString(), 'error');
+              });
       };
 
       const reloadStaffTracker = () => loadTrackerData();
@@ -6663,15 +7253,30 @@ async function toggleVoiceRecording(btnElement) {
           }).then((result) => {
               if (result.isConfirmed) {
                   Swal.showLoading();
-                  google.script.run.withSuccessHandler(res => {
-                      Swal.close();
+                  const payload = {
+                      personName: staffTracker.value.name,
+                      username: currentUsername.value,
+                      tasks: JSON.parse(JSON.stringify(staffTracker.value.data))
+                  };
+                  fetch('/api/tracker/save', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(payload)
+                  })
+                  .then(r => r.json())
+                  .then(res => {
+                      isSubmitting.value = false;
                       if (res.success) {
-                          Swal.fire('Guardado', 'Todas las tareas han sido actualizadas.', 'success');
+                          Swal.fire({ title: 'Guardado', text: 'Datos actualizados correctamente.', icon: 'success', toast: true, position: 'top-end', timer: 3000, showConfirmButton: false });
                           loadTrackerData(); // Reload to get updated IDs/States
                       } else {
                           Swal.fire('Error', res.message, 'error');
                       }
-                  }).apiSaveTrackerBatch(staffTracker.value.name, JSON.parse(JSON.stringify(staffTracker.value.data)), currentUsername.value);
+                  })
+                  .catch(err => {
+                      isSubmitting.value = false;
+                      Swal.fire('Error', err.toString(), 'error');
+                  });
               }
           });
       };
