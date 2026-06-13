@@ -8333,9 +8333,162 @@ async function toggleVoiceRecording(btnElement) {
           requiredMaterials.value.items[idx].description = text;
       };
 
-      return { renderObsidianGraph, showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription, isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
+      const visibleTrackerHeaders = computed(() => {
+          if (!staffTracker.value.headers) return [];
+          return staffTracker.value.headers.filter(h => {
+              const up = String(h).toUpperCase().trim();
+              return up !== 'PROCESO_LOG' && up !== 'PROCESO';
+          });
+      });
+
+      const toggleTrackerSort = () => {
+          staffTrackerSortAsc.value = !staffTrackerSortAsc.value;
+      };
+
+const filteredStaffTrackerData = computed(() => {
+          if (!staffTracker.value.data) return [];
+          let filtered = staffTracker.value.data.filter(row => {
+              for (const key in staffTrackerFilters.value) {
+                  const filterVal = staffTrackerFilters.value[key];
+                  if (filterVal) {
+                      const rowVal = String(row[key] || '').trim();
+                      if (rowVal !== filterVal) return false;
+                  }
+              }
+              return true;
+          });
+
+          if (!staffTrackerSortAsc.value) {
+              return filtered.slice().reverse();
+          }
+          return filtered;
+      });
+
+      const filteredStaffTrackerHistory = computed(() => {
+          if (!staffTracker.value.history) return [];
+          const query = historySearchQuery.value.toLowerCase().trim();
+          if (!query) return staffTracker.value.history;
+
+          return staffTracker.value.history.filter(row => {
+             // Find CONCEPTO column value for this row
+             const conceptoKeys = Object.keys(row).filter(k => String(k).toUpperCase() === 'CONCEPTO' || String(k).toUpperCase().includes('DESCRIP') || String(k).toUpperCase().includes('COMENTARIO'));
+             for (const key of conceptoKeys) {
+                 if (row[key] && String(row[key]).toLowerCase().includes(query)) {
+                     return true;
+                 }
+             }
+             return false;
+          });
+      });
+
+      const isFieldEditable = (h, row) => {
+          const restrictedRoles = ['ANGEL_USER', 'TERESA_USER', 'EDUARDO_USER', 'MANZANARES_USER', 'RAMIRO_USER', 'SEBASTIAN_USER', 'EDGAR_USER'];
+          if (restrictedRoles.includes(currentRole.value)) {
+              const hUp = String(h).toUpperCase();
+              const allowed = ['ESTATUS', 'STATUS', 'MAP COT', 'PROCESO', 'AVANCE', 'REQUISITOR', 'INFO CLIENTE', 'F2', 'COTIZACION', 'COT', 'TIMELINE', 'LAYOUT', 'CORREO', 'CARPETA', 'COMENTARIOS', 'CORREOS', 'CARPETAS'];
+              return allowed.some(a => hUp.includes(a));
+          }
+
+          if (currentRole.value === 'TONITA') {
+              if (row._isNew) return true;
+              if (!row['FOLIO'] && !row['ID']) return true;
+
+              const hUp = String(h).toUpperCase();
+              const allowed = ['FECHA', 'FECHA VISITA', 'FECHA ALTA', 'FECHA INICIO', 'ALTA', 'F. VISITA', 'F. INICIO', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', 'ARCHIVO', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'ENTREGA', 'VENDEDOR', 'RESPONSABLE', 'CORREO', 'CARPETA', 'INFO CLIENTE', 'CORREOS', 'CARPETAS', 'AREA', 'COMENTARIOS', 'REQUISITOR'];
+              return allowed.some(a => hUp.includes(a));
+          }
+          return true;
+      };
+
+      const calculateDiasCounter = (row) => {
+          if (!staffTracker.value.name) return;
+          const sheetName = String(staffTracker.value.name).toUpperCase();
+          // const isExcludedSheet = sheetName.includes('(VENTAS)') || sheetName === 'ANTONIA_VENTAS';
+          const isExcludedSheet = false; // Enabled for everyone now
+
+          // Removed if (isExcludedSheet) return; to allow dynamic days calculation for Antonia and Ventas
+
+          const hDias = staffTracker.value.headers.find(h => isCol(h, ['DIAS','RELOJ','DÍAS FINALIZ. COTIZ','DIAS FINALIZ. COTIZ']));
+          if (!hDias) return;
+
+          const hFecha = staffTracker.value.headers.find(h => isCol(h, ['FECHA','FECHA ALTA','FECHA DE ALTA','FECHA INICIO','FECHA DE INICIO','F. INICIO']));
+          if (!hFecha || !row[hFecha]) return;
+
+          let dObj = null;
+          const val = row[hFecha];
+          if (val instanceof Date) dObj = val;
+          else if (typeof val === 'string') {
+              const parts = val.split('/');
+              if (parts.length === 3) {
+                   let y = parts[2];
+                   if (y.length === 2) y = '20' + y;
+                   // Javascript Date parsing with hyphens is very error prone due to UTC vs Local Time
+                   // It's safer to use the Date(year, monthIndex, day) constructor
+                   dObj = new Date(parseInt(y), parseInt(parts[1]) - 1, parseInt(parts[0]));
+              } else {
+                   const parsed = new Date(val);
+                   if (!isNaN(parsed.getTime())) dObj = parsed;
+              }
+          }
+          if (dObj && !isNaN(dObj.getTime())) {
+              const now = new Date();
+              dObj.setHours(0,0,0,0);
+              now.setHours(0,0,0,0);
+              const diffTime = now - dObj;
+              const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+              row[hDias] = Math.max(0, diffDays);
+          }
+      };
+
+      const getColumnStyle = (h) => {
+          const up = String(h).toUpperCase().trim(); let w = '120px'; let fs = '12px'; let pad = '8px 4px'; let align = 'left'; let colColor = '#333';
+          if (up === 'CONCEPTO' || up.includes('DESCRIP')) {
+              if (currentView.value === 'WEEKLY_PLAN') {
+                  w = '150px';
+              } else {
+                  w = (currentUsername.value === 'ANTONIA_VENTAS') ? '350px' : '380px';
+              }
+          }
+          else if (currentUsername.value === 'ANTONIA_VENTAS' && (up === 'F. ENTREGA' || up === 'F. VISITA' || up === 'FECHA VISITA' || up === 'F. INICIO')) { w = '60px'; fs = '10px'; colColor = '#000'; }
+
+
+          else if (up.includes('COMENTARIO') || up.includes('PREVIOS') || up.includes('OBSERVACIONES')) { w = '200px'; }
+          else if (isCol(h, ['ESPECIALIDAD', 'AREA', 'DEPTO', 'ALTA'])) { w = '40px'; fs = '11px'; align = 'center'; }
+          else if (isCol(h, ['ID', 'FOLIO'])) { w = '85px'; fs = '10px'; align = 'center'; }
+          else if (up.includes('CUMPLIMIENTO')) { w = '50px'; align = 'center'; fs = '11px'; }
+          else if (up.includes('ARCHIVO') || up.includes('CLIP') || up === 'CORREO' || up === 'CARPETA') { w = '40px'; align = 'center'; }
+          else if (up === 'SEMANA') { w = '50px'; align = 'center'; }
+          else if (up === 'HORA') { w = '50px'; fs = '10px'; }
+          else if (up === 'FECHA ESTIMADA DE FIN' || up === 'FECHA DE ENTREGA') { w = '75px'; fs = '10px'; }
+          else if (up === 'HORA ESTIMADA DE FIN') { w = '60px'; fs = '10px'; }
+          else if (up.includes('PRIORIDAD')) { w = '70px'; fs = '10px'; }
+          else if (up.includes('RIESGO')) { w = '70px'; fs = '10px'; }
+          else if (up === 'REQUISITOR') { w = '90px'; fs = '11px'; }
+          else if (up === 'INFO CLIENTE') { w = '70px'; fs = '10px'; align='center'; }
+          else if (isCol(h, ['DIAS','RELOJ','CLASIFICACION','DÍAS FINALIZ. COTIZ','DIAS FINALIZ. COTIZ'])) { w = '40px'; fs = '10px'; pad = '8px 1px'; }
+          else if (up.includes('AVANCE')) { w = '40px'; fs = '10px'; pad = '8px 1px'; }
+          else if (isCol(h, ['ESTATUS','STATUS'])) { w = '65px'; fs = '10px'; pad = '8px 1px'; }
+          else if (up.includes('FECHA') || up.includes('RESPUESTA')) { w = '65px'; fs = '10px'; }
+          else if (up === 'F2') { w = '35px'; fs = '10px'; align='center'; }
+          else if (up.includes('COTIZACION') || up.includes('COT')) { w = '70px'; fs = '10px'; align='center'; }
+          else if (up.includes('TIMEOUT') || up.includes('TIME OUT')) { w = '70px'; fs = '10px'; align='center'; }
+          else if (up.includes('LAYOUT') || up.includes('TIMELINE')) { w = '70px'; fs = '10px'; align='center'; }
+          else if (up.includes('VENDEDOR') || (currentUsername.value === 'ANTONIA_VENTAS' && up.includes('RESPONSABLE'))) { w = '50px'; fs = '10px'; align='center'; colColor = '#000'; }
+          else if (up === 'CLIENTE') w = '100px';
+
+          // OVERRIDE FOR PPCV3 (WEEKLY_PLAN)
+          if (currentView.value === 'WEEKLY_PLAN') {
+              if (['ESPECIALIDAD', 'RESPONSABLE', 'FECHA', 'RELOJ', 'CUMPLIMIENTO'].includes(up)) {
+                  w = 'auto';
+              }
+          }
+
+
+const staffTrackerSortAsc = ref(true);
+const toggleTrackerSort = () => { staffTrackerSortAsc.value = !staffTrackerSortAsc.value; };
+return { renderObsidianGraph, showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription, isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData, download3DJson,
-      ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
+      ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, visibleTrackerHeaders, toggleTrackerSort, staffTrackerSortAsc, showHotPotatoModal, showProcessFlow, currentHotPotatoRow, openHotPotatoModal, closeHotPotatoModal, openProcessFlow, advanceProcess, hotPotatoData, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,
       showTimePopup, timePopupValue, openTimePopup, saveTimePopup,
       projectProgram, addProjectItem, removeProjectItem, updateProjectRowTotal,
