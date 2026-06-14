@@ -8486,9 +8486,32 @@ const filteredStaffTrackerData = computed(() => {
 
 const staffTrackerSortAsc = ref(true);
 const toggleTrackerSort = () => { staffTrackerSortAsc.value = !staffTrackerSortAsc.value; };
+
+      const cotizadorSearchTop = ref('');
+      const filteredCotizadoresTop = computed(() => {
+          if (!cotizadorSearchTop.value) return [];
+          const q = cotizadorSearchTop.value.toLowerCase();
+          const dir = config.value.directory || config.value.staff || [];
+          return dir.filter(p => p.name.toLowerCase().includes(q));
+      });
+      const addCotizadorTop = (name) => {
+          if(!workorderData.value.cotizador.includes(name)) {
+              if(workorderData.value.cotizador.length === 1 && workorderData.value.cotizador[0] === '') {
+                  workorderData.value.cotizador[0] = name;
+              } else {
+                  workorderData.value.cotizador.push(name);
+              }
+          }
+          cotizadorSearchTop.value = '';
+      };
+      const removeCotizador = (idx) => {
+          workorderData.value.cotizador.splice(idx, 1);
+          if(workorderData.value.cotizador.length === 0) workorderData.value.cotizador.push('');
+      };
+
 return { renderObsidianGraph, showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription, isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData, download3DJson,
-      ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, visibleTrackerHeaders, toggleTrackerSort, staffTrackerSortAsc, showHotPotatoModal, showProcessFlow, currentHotPotatoRow, openHotPotatoModal, closeHotPotatoModal, openProcessFlow, advanceProcess, hotPotatoData, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
+      ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, cotizadorSearchTop, filteredCotizadoresTop, addCotizadorTop, removeCotizador, visibleTrackerHeaders, toggleTrackerSort, staffTrackerSortAsc, showHotPotatoModal, showProcessFlow, currentHotPotatoRow, openHotPotatoModal, closeHotPotatoModal, openProcessFlow, advanceProcess, hotPotatoData, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,
       showTimePopup, timePopupValue, openTimePopup, saveTimePopup,
       projectProgram, addProjectItem, removeProjectItem, updateProjectRowTotal,
