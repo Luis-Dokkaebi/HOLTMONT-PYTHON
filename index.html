@@ -8509,9 +8509,702 @@ const toggleTrackerSort = () => { staffTrackerSortAsc.value = !staffTrackerSortA
           if(workorderData.value.cotizador.length === 0) workorderData.value.cotizador.push('');
       };
 
+
+);
+
+              if (termRes.isConfirmed) {
+                  row.ESTATUS = 'GANADA';
+              } else if (termRes.isDenied) {
+                  row.ESTATUS = 'PERDIDA X PRECIO';
+              } else if (termRes.dismiss === Swal.DismissReason.cancel) {
+                  row.ESTATUS = 'DESCUENTO';
+              } else {
+                  return; // Escaped
+              }
+
+              let mapCot = row["MAP COT"] || row.PROCESO || "";
+              if (!mapCot.includes('🟢')) {
+                   const parts = PROCESS_STEPS.map(p => '🟢 ' + p);
+                   row["MAP COT"] = parts.join(' | ');
+              }
+              if (row._assignToWorker) delete row._assignToWorker;
+              if (row._assignStep) delete row._assignStep;
+
+              Swal.fire({
+                  title: 'Guardando...',
+                  text: 'Finalizando cotización y actualizando estado...',
+                  allowOutsideClick: false,
+                  didOpen: () => { Swal.showLoading(); }
+              });
+              try {
+                  const res = await new Promise((resolve) => {
+                      google.script.run.withSuccessHandler(resolve).withFailureHandler(resolve).apiUpdateTask("ANTONIA_VENTAS", row, currentUsername.value);
+                  });
+                  if (res && res.success) {
+                      Swal.fire({ title: 'Éxito', text: 'Cotización finalizada correctamente.', icon: 'success', timer: 1500 });
+                      if (res.data) Object.assign(row, res.data);
+                  } else {
+                      throw new Error(res?.message || 'Error desconocido');
+                  }
+              } catch(err) {
+                  Swal.fire('Error', 'No se pudo guardar: ' + err.toString(), 'error');
+              }
+              return;
+          }
+
+          const staffList = config.value && Array.isArray(config.value.directory) ? config.value.directory.filter(p => p.name !== 'ANTONIA_VENTAS').map(p => p.name) : [];
+
+          let optionsHtml = '';
+          staffList.forEach(name => {
+              optionsHtml += `<option value="${name}">${name}</option>`;
+          });
+
+          const { value: selectedWorkers, isDismissed } = await Swal.fire({
+              title: `Asignar etapa: ${getFullProcessName(currentStatus)}`,
+              html: `
+                  <div class="mb-2 text-start text-muted small">Selecciona una o varias personas para esta etapa (Ctrl/Cmd + Click para múltiples):</div>
+                  <select id="swal-multi-select" class="form-select" multiple size="8">
+                      ${optionsHtml}
+                  </select>
+              `,
+              showCancelButton: true,
+              confirmButtonText: 'Asignar',
+              cancelButtonText: 'Cancelar',
+              preConfirm: () => {
+                  const selectElement = document.getElementById('swal-multi-select');
+                  const selectedOptions = Array.from(selectElement.selectedOptions).map(option => option.value);
+                  if (selectedOptions.length === 0) {
+                      Swal.showValidationMessage('Debes seleccionar al menos una persona');
+                      return false;
+                  }
+                  return selectedOptions;
+              }
+          });
+
+          if (isDismissed || !selectedWorkers || selectedWorkers.length === 0) return;
+
+          let log = [];
+          try { if (row.PROCESO_LOG) log = JSON.parse(row.PROCESO_LOG); } catch(e){}
+          // Remove garbage entries (step not a valid PROCESS_STEPS ID) to heal corrupted data
+          log = log.filter(e => PROCESS_STEPS.includes(e.step) || (e.to && PROCESS_STEPS.includes(e.to)));
+
+          // Only add entries for workers that are not already in progress or done for this step
+          selectedWorkers.forEach(worker => {
+               let existing = log.find(e => (e.step === currentStatus || e.to === currentStatus) && e.assignee === worker);
+               if (existing) {
+                    existing.status = 'IN_PROGRESS';
+                    existing.timestamp = new Date().getTime();
+                    existing.dateStr = new Date().toLocaleString();
+               } else {
+                    log.push({
+                        step: currentStatus,
+                        status: 'IN_PROGRESS',
+                        assignee: worker,
+                        timestamp: new Date().getTime(),
+                        dateStr: new Date().toLocaleString()
+                    });
+               }
+          });
+
+          row.PROCESO_LOG = JSON.stringify(log);
+
+          let newParts = PROCESS_STEPS.map(step => {
+              let sEntries = log.filter(l => l.step === step || l.to === step);
+              if (sEntries.length > 0) {
+                  const allDone = sEntries.every(e => e.status === 'DONE');
+                  if (allDone) return '🟢 ' + step;
+                  return '🟡 ' + step;
+              }
+              if (step === currentStatus) return '🔴 ' + step;
+              let idx = PROCESS_STEPS.indexOf(step);
+              let currIdx = PROCESS_STEPS.indexOf(currentStatus);
+              if (idx < currIdx) return '🟢 ' + step;
+              return '⚪ ' + step;
+          });
+          row["MAP COT"] = newParts.join(' | ');
+
+          row._assignToWorker = selectedWorkers;
+          row._assignStep = currentStatus;
+
+          Swal.fire({
+              title: 'Procesando...',
+              text: 'Delegando tarea y actualizando estado. Espera un momento...',
+              allowOutsideClick: false,
+              didOpen: () => { Swal.showLoading(); }
+          });
+
+          try {
+              const res = await new Promise((resolve) => {
+                  google.script.run.withSuccessHandler(resolve).withFailureHandler(resolve).apiUpdateTask("ANTONIA_VENTAS", row, currentUsername.value);
+              });
+
+              delete row._assignToWorker;
+              delete row._assignStep;
+
+              if (res && res.success) {
+                  Swal.fire({ title: 'Éxito', text: 'La tarea se asignó y actualizó correctamente.', icon: 'success', timer: 1500 });
+                  if (res.data) Object.assign(row, res.data);
+              } else {
+                  throw new Error(res?.message || 'Error desconocido');
+              }
+          } catch(err) {
+              Swal.fire('Error', 'No se pudo guardar: ' + err.toString(), 'error');
+          }
+      };
+
+
+
+const PROCESS_STEPS = [
+          "L",
+          "CD",
+          "EP",
+          "CI",
+          "EV",
+          "CEC",
+          "RCC"
+      ];
+
+      const FULL_PROCESS_NAMES = {
+          "L": "Levantamiento",
+          "CD": "Calculo y Diseño",
+          "EP": "Elaboracion Presupuesto",
+          "CI": "Cotizacion Interna",
+          "EV": "Estrategia Ventas",
+          "CEC": "Cotizacion Enviada al cliente",
+          "RCC": "Revision de Cotizacion Cliente"
+      };
+
+      const LEGACY_PROCESS_MAP = {
+          "Levantamiento": "L",
+          "Calculo y Diseño": "CD",
+          "Elaboracion Presupuesto": "EP",
+          "Cotizacion Interna": "CI",
+          "Estrategia Ventas": "EV",
+          "Cotizacion Enviada al cliente": "CEC",
+          "Revision de Cotizacion Cliente": "RCC"
+      };
+
+      const getFullProcessName = (abbr) => {
+          return FULL_PROCESS_NAMES[abbr] || abbr;
+      };
+
+      const generateEmojiTimeline = (row) => {
+          let log = [];
+          try {
+              log = row.PROCESO_LOG ? JSON.parse(row.PROCESO_LOG) : [];
+          } catch(e) { log = []; }
+          if (!Array.isArray(log)) log = [];
+
+          const validLog = log.filter(e => PROCESS_STEPS.includes(e.step) || (e.to && PROCESS_STEPS.includes(e.to)));
+
+          let currentStepId = null;
+          if (validLog.length > 0) {
+              const lastLog = validLog[validLog.length - 1];
+              if (lastLog.to && PROCESS_STEPS.includes(lastLog.to)) {
+                  currentStepId = lastLog.to;
+              } else {
+                  const inProgressEntries = validLog.filter(e => e.status === 'IN_PROGRESS' && PROCESS_STEPS.includes(e.step));
+                  if (inProgressEntries.length > 0) {
+                      currentStepId = inProgressEntries[inProgressEntries.length - 1].step;
+                  } else {
+                      const doneSteps = new Set(validLog.map(e => e.step || e.to).filter(s => PROCESS_STEPS.includes(s)));
+                      currentStepId = PROCESS_STEPS.find(s => !doneSteps.has(s)) || PROCESS_STEPS[PROCESS_STEPS.length - 1];
+                  }
+              }
+          }
+
+          if (!currentStepId) {
+              let mapCot = row["MAP COT"] || row.PROCESO;
+              if (mapCot) {
+                  if (mapCot.includes('🔴')) {
+                      const match = mapCot.match(/🔴\s*([A-Z]+)/);
+                      if (match && PROCESS_STEPS.includes(match[1])) currentStepId = match[1];
+                  }
+                  if (!currentStepId && mapCot.includes('🟡')) {
+                      const match = mapCot.match(/🟡\s*([A-Z]+)/);
+                      if (match && PROCESS_STEPS.includes(match[1])) currentStepId = match[1];
+                  }
+              }
+          }
+
+          if (!currentStepId) currentStepId = PROCESS_STEPS[0];
+          if (LEGACY_PROCESS_MAP[currentStepId]) {
+              currentStepId = LEGACY_PROCESS_MAP[currentStepId];
+          }
+
+          const currentIdx = PROCESS_STEPS.indexOf(currentStepId);
+          if (currentIdx === -1) currentStepId = PROCESS_STEPS[0];
+
+          let parts = [];
+          for (let i = 0; i < PROCESS_STEPS.length; i++) {
+              let step = PROCESS_STEPS[i];
+              if (i < currentIdx) {
+                  parts.push('🟢 ' + step);
+              } else if (i === currentIdx) {
+                  parts.push('🔴 ' + step);
+              } else {
+                  parts.push('⚪ ' + step);
+              }
+          }
+          return parts.join(' | ');
+      };
+
+      const getProcessStatus = (row) => {
+          let log = [];
+          try {
+              log = row.PROCESO_LOG ? JSON.parse(row.PROCESO_LOG) : [];
+          } catch(e) { log = []; }
+          if (!Array.isArray(log)) log = [];
+
+          // Only consider entries with a valid step ID to avoid garbage data
+          const validLog = log.filter(e => PROCESS_STEPS.includes(e.step) || (e.to && PROCESS_STEPS.includes(e.to)));
+
+          let val = null;
+          if (validLog.length > 0) {
+              // Legacy format: entry has a "to" field indicating the next step
+              const lastLog = validLog[validLog.length - 1];
+              if (lastLog.to && PROCESS_STEPS.includes(lastLog.to)) {
+                  val = lastLog.to;
+              } else {
+                  // Current format: find the last IN_PROGRESS step
+                  const inProgressEntries = validLog.filter(e => e.status === 'IN_PROGRESS' && PROCESS_STEPS.includes(e.step));
+                  if (inProgressEntries.length > 0) {
+                      val = inProgressEntries[inProgressEntries.length - 1].step;
+                  } else {
+                      // All assigned steps are DONE — find next unassigned step
+                      const doneSteps = new Set(validLog.map(e => e.step || e.to).filter(s => PROCESS_STEPS.includes(s)));
+                      val = PROCESS_STEPS.find(s => !doneSteps.has(s)) || PROCESS_STEPS[PROCESS_STEPS.length - 1];
+                  }
+              }
+          }
+
+          if (!val) {
+              let mapCot = row["MAP COT"] || row.PROCESO;
+              if (mapCot) {
+                  if (mapCot.includes('🔴')) {
+                      const match = mapCot.match(/🔴\s*([A-Z]+)/);
+                      if (match && PROCESS_STEPS.includes(match[1])) val = match[1];
+                  }
+                  if (!val && mapCot.includes('🟡')) {
+                      const match = mapCot.match(/🟡\s*([A-Z]+)/);
+                      if (match && PROCESS_STEPS.includes(match[1])) val = match[1];
+                  }
+              }
+          }
+
+          if (!val) return PROCESS_STEPS[0];
+          if (LEGACY_PROCESS_MAP[val]) {
+              val = LEGACY_PROCESS_MAP[val];
+          }
+          return val;
+      };
+
+      const getProcessBtnClass = (row) => {
+          const status = getProcessStatus(row);
+          const idx = PROCESS_STEPS.indexOf(status);
+          if (idx === -1) return 'btn-outline-secondary';
+          if (idx === PROCESS_STEPS.length - 1) return 'btn-success text-white';
+
+          const colors = [
+              'btn-outline-primary', 'btn-outline-info', 'btn-outline-warning text-dark',
+              'btn-outline-danger', 'btn-outline-dark', 'btn-primary text-white'
+          ];
+          return colors[idx] || 'btn-outline-primary';
+      };
+
+      const getProcessTimelineDetailed = (row) => {
+          let log = [];
+          try {
+              if (row.PROCESO_LOG) log = JSON.parse(row.PROCESO_LOG);
+          } catch(e) {}
+
+          let startDate = new Date();
+          const startDateRaw = row['F. INICIO'] || row['FECHA'] || row['ALTA'] || row['FECHA INICIO'] || row['FECHA_INICIO'];
+          if (startDateRaw) {
+              try {
+                  const parts = String(startDateRaw).split('/');
+                  if (parts.length === 3) {
+                      let yy = parseInt(parts[2]);
+                      if (yy < 100) yy += 2000;
+                      startDate = new Date(yy, parseInt(parts[1])-1, parseInt(parts[0]));
+                  } else {
+                      startDate = new Date(startDateRaw);
+                  }
+              } catch(e) {}
+          }
+
+          let mapCotStr = row["MAP COT"] || row.PROCESO || "";
+
+          let etapasCompletadas = 0;
+          let bolitasCompletadas = 0;
+          let totalBolitas = 0;
+
+          const detailedSteps = PROCESS_STEPS.map((stepId, idx) => {
+              let stepEntries = log.filter(l => l.step === stepId || l.to === stepId);
+              let isCurrent = getProcessStatus(row) === stepId;
+              let isDone = false;
+              let isInProgress = false;
+
+              if (stepEntries.length > 0) {
+                  isDone = stepEntries.every(e => e.status === 'DONE');
+                  isInProgress = stepEntries.some(e => e.status === 'IN_PROGRESS');
+                  if (isDone) isInProgress = false;
+              } else if (mapCotStr) {
+                  let pMatch = mapCotStr.split('|').find(p => p.trim().includes(stepId));
+                  if (pMatch && pMatch.includes('🟢')) isDone = true;
+                  if (pMatch && pMatch.includes('🟡')) isInProgress = true;
+                  if (pMatch && pMatch.includes('🔴')) isInProgress = true;
+              }
+
+              if (isDone) etapasCompletadas++;
+
+              const assignees = stepEntries.map(entry => {
+                  totalBolitas++;
+                  if (entry.status === 'DONE') bolitasCompletadas++;
+
+                  let tLabel = '';
+                  if (entry.timestamp) {
+                      const tDate = new Date(entry.timestamp);
+                      const isToday = new Date().toDateString() === tDate.toDateString();
+                      let hrs = tDate.getHours();
+                      let mins = tDate.getMinutes();
+                      let ampm = hrs >= 12 ? 'pm' : 'am';
+                      hrs = hrs % 12;
+                      hrs = hrs ? hrs : 12;
+                      mins = mins < 10 ? '0'+mins : mins;
+
+                      if (isToday) {
+                          tLabel = `Hoy ${hrs}:${mins}${ampm}`;
+                      } else {
+                          const isYesterday = new Date(new Date().setDate(new Date().getDate()-1)).toDateString() === tDate.toDateString();
+                          if (isYesterday) {
+                              tLabel = `Ayer ${hrs}:${mins}${ampm}`;
+                          } else {
+                              const _d = new Date(entry.timestamp); tLabel = `${_d.getDate()}/${_d.getMonth()+1}/${String(_d.getFullYear()).slice(-2)}`;
+                          }
+                      }
+                  } else if (entry.dateStr) {
+                      tLabel = entry.dateStr.split(',')[0];
+                  }
+
+                  return {
+                      name: entry.assignee,
+                      status: entry.status,
+                      timeLabel: tLabel
+                  };
+              });
+
+              return {
+                  id: stepId,
+                  isDone: isDone,
+                  isCurrent: isCurrent || isInProgress,
+                  isInProgress: isInProgress,
+                  assignees: assignees
+              };
+          });
+
+          row._stats = {
+              etapasCompletadas,
+              bolitasCompletadas,
+              totalBolitas
+          };
+
+          return detailedSteps;
+      };
+
+      const getProcessTimeline = (row) => {
+          let log = [];
+          try {
+              if (row.PROCESO_LOG) log = JSON.parse(row.PROCESO_LOG);
+          } catch(e) {}
+
+          let mapCot = row["MAP COT"] || row.PROCESO || "";
+          let parsedParts = mapCot.split(/\||>|\//).map(p => p.trim()).filter(p => p);
+
+          let startDate = new Date();
+          const dateKeys = ['FECHA', 'FECHA INICIO', 'ALTA', 'FECHA DE INICIO', 'FECHA VISITA', 'FECHA_ALTA', 'F. INICIO', 'F. VISITA'];
+          for (const k of dateKeys) {
+              if (row[k]) {
+                  const val = row[k];
+                  if (val instanceof Date) startDate = val;
+                  else if (typeof val === 'string') {
+                      const parts = val.split('/');
+                      if (parts.length === 3) {
+                          let y = parts[2];
+                          if (y.length === 2) y = '20' + y;
+                          startDate = new Date(y, parts[1]-1, parts[0]);
+                      } else {
+                          const parsed = new Date(val);
+                          if (!isNaN(parsed.getTime())) startDate = parsed;
+                      }
+                  }
+                  break;
+              }
+          }
+
+          const formatDiff = (diffMs) => {
+              const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+              const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+              if (days > 0) return `${days}d ${hours}h`;
+              if (hours > 0) return `${hours}h`;
+              return '< 1h';
+          };
+
+          return PROCESS_STEPS.map((stepId, idx) => {
+              let statusChar = '⚪';
+              let matchingPart = parsedParts.find(p => p.includes(stepId));
+              if (matchingPart) {
+                  if (matchingPart.includes('🟢')) statusChar = '🟢';
+                  else if (matchingPart.includes('🔴')) statusChar = '🔴';
+                  else if (matchingPart.includes('🟡')) statusChar = '🟡';
+              } else {
+                  const currentStatus = getProcessStatus(row);
+                  const currentIdx = PROCESS_STEPS.indexOf(currentStatus);
+                  if (idx < currentIdx) statusChar = '🟢';
+                  else if (idx === currentIdx) statusChar = '🔴';
+              }
+
+              let isDone = statusChar === '🟢';
+              let isCurrent = statusChar === '🔴';
+              let isInProgress = statusChar === '🟡';
+
+              let stepEntry = log.find(l => l.step === stepId || l.to === stepId);
+              let timeLabel = '';
+
+              const formatShortDate = (ts) => {
+                  const d = new Date(ts);
+                  const pad = (n) => n.toString().padStart(2, '0');
+                  const yy = d.getFullYear().toString().slice(2);
+                  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${yy} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+              };
+
+              if (isDone || isInProgress) {
+                  if (stepEntry && stepEntry.timestamp) {
+                      timeLabel = formatShortDate(stepEntry.timestamp);
+                  } else if (stepEntry && stepEntry.dateStr) {
+                      timeLabel = stepEntry.dateStr;
+                  } else {
+                      timeLabel = '';
+                  }
+              } else if (isCurrent) {
+                  let prevTime = startDate.getTime();
+                  if (idx > 0) {
+                      let prevEntry = log.find(l => l.step === PROCESS_STEPS[idx-1] || l.to === PROCESS_STEPS[idx-1]);
+                      if (prevEntry && prevEntry.timestamp) prevTime = prevEntry.timestamp;
+                  }
+                  const diff = new Date().getTime() - prevTime;
+                  timeLabel = formatDiff(diff);
+              } else {
+                  timeLabel = '-';
+              }
+
+              return {
+                  id: stepId,
+                  isDone: isDone,
+                  isCurrent: isCurrent || isInProgress,
+                  isInProgress: isInProgress,
+                  timeLabel: timeLabel,
+                  assignee: stepEntry ? stepEntry.assignee : ""
+              };
+          });
+      };
+
+      const advanceProcess = async (row) => {
+          if (!row) return;
+          const currentStatus = getProcessStatus(row);
+          if (!currentStatus) return;
+
+          let title = "Avanzar a " + currentStatus + "?";
+
+          if (currentStatus === 'Revision de Cotizacion Cliente' || currentStatus === 'RCC') {
+              const termRes = await Swal.fire({
+                  title: 'Finalizar Cotización',
+                  text: 'Selecciona el estatus final de esta cotización',
+                  icon: 'question',
+                  showDenyButton: true,
+                  showCancelButton: true,
+                  confirmButtonText: 'Ganada',
+                  confirmButtonColor: '#28a745',
+                  denyButtonText: 'Perdida x Precio',
+                  denyButtonColor: '#dc3545',
+                  cancelButtonText: 'Descuento',
+                  cancelButtonColor: '#007bff'
+              });
+
+              if (termRes.isConfirmed) {
+                  row.ESTATUS = 'GANADA';
+              } else if (termRes.isDenied) {
+                  row.ESTATUS = 'PERDIDA X PRECIO';
+              } else if (termRes.dismiss === Swal.DismissReason.cancel) {
+                  row.ESTATUS = 'DESCUENTO';
+              } else {
+                  return; // Escaped
+              }
+
+              let mapCot = row["MAP COT"] || row.PROCESO || "";
+              if (!mapCot.includes('🟢')) {
+                   const parts = PROCESS_STEPS.map(p => '🟢 ' + p);
+                   row["MAP COT"] = parts.join(' | ');
+              }
+              if (row._assignToWorker) delete row._assignToWorker;
+              if (row._assignStep) delete row._assignStep;
+
+              Swal.fire({
+                  title: 'Guardando...',
+                  text: 'Finalizando cotización y actualizando estado...',
+                  allowOutsideClick: false,
+                  didOpen: () => { Swal.showLoading(); }
+              });
+              // --- BEGIN MIGRATED BACKEND SAVE ---
+          const payload = {
+              personName: staffTracker.value.name,
+              username: currentUsername.value,
+              tasks: [row] // Since we are only modifying this row
+          };
+          fetch('/api/tracker/save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          })
+          .then(r => r.json())
+          .then(res => {
+              delete row._assignToWorker;
+              delete row._assignStep;
+              isSubmitting.value = false;
+              if (res.success) {
+                  Swal.fire({ title: 'Éxito', text: 'La tarea se asignó y actualizó correctamente.', icon: 'success', toast: true, position: 'top-end', timer: 3000, showConfirmButton: false });
+                  loadTrackerData(); // Reload
+              } else {
+                  Swal.fire('Error', res.message, 'error');
+              }
+          })
+          .catch(err => {
+              delete row._assignToWorker;
+              delete row._assignStep;
+              isSubmitting.value = false;
+              Swal.fire('Error', err.toString(), 'error');
+          });
+          // --- END MIGRATED BACKEND SAVE ---
+              return;
+          }
+
+          const staffList = config.value && Array.isArray(config.value.directory) ? config.value.directory.filter(p => p.name !== 'ANTONIA_VENTAS').map(p => p.name) : [];
+
+          let optionsHtml = '';
+          staffList.forEach(name => {
+              optionsHtml += `<option value="${name}">${name}</option>`;
+          });
+
+          const { value: selectedWorkers, isDismissed } = await Swal.fire({
+              title: `Asignar etapa: ${getFullProcessName(currentStatus)}`,
+              html: `
+                  <div class="mb-2 text-start text-muted small">Selecciona una o varias personas para esta etapa (Ctrl/Cmd + Click para múltiples):</div>
+                  <select id="swal-multi-select" class="form-select" multiple size="8">
+                      ${optionsHtml}
+                  </select>
+              `,
+              showCancelButton: true,
+              confirmButtonText: 'Asignar',
+              cancelButtonText: 'Cancelar',
+              preConfirm: () => {
+                  const selectElement = document.getElementById('swal-multi-select');
+                  const selectedOptions = Array.from(selectElement.selectedOptions).map(option => option.value);
+                  if (selectedOptions.length === 0) {
+                      Swal.showValidationMessage('Debes seleccionar al menos una persona');
+                      return false;
+                  }
+                  return selectedOptions;
+              }
+          });
+
+          if (isDismissed || !selectedWorkers || selectedWorkers.length === 0) return;
+
+          let log = [];
+          try { if (row.PROCESO_LOG) log = JSON.parse(row.PROCESO_LOG); } catch(e){}
+          // Remove garbage entries (step not a valid PROCESS_STEPS ID) to heal corrupted data
+          log = log.filter(e => PROCESS_STEPS.includes(e.step) || (e.to && PROCESS_STEPS.includes(e.to)));
+
+          // Only add entries for workers that are not already in progress or done for this step
+          selectedWorkers.forEach(worker => {
+               let existing = log.find(e => (e.step === currentStatus || e.to === currentStatus) && e.assignee === worker);
+               if (existing) {
+                    existing.status = 'IN_PROGRESS';
+                    existing.timestamp = new Date().getTime();
+                    existing.dateStr = new Date().toLocaleString();
+               } else {
+                    log.push({
+                        step: currentStatus,
+                        status: 'IN_PROGRESS',
+                        assignee: worker,
+                        timestamp: new Date().getTime(),
+                        dateStr: new Date().toLocaleString()
+                    });
+               }
+          });
+
+          row.PROCESO_LOG = JSON.stringify(log);
+
+          let newParts = PROCESS_STEPS.map(step => {
+              let sEntries = log.filter(l => l.step === step || l.to === step);
+              if (sEntries.length > 0) {
+                  const allDone = sEntries.every(e => e.status === 'DONE');
+                  if (allDone) return '🟢 ' + step;
+                  return '🟡 ' + step;
+              }
+              if (step === currentStatus) return '🔴 ' + step;
+              let idx = PROCESS_STEPS.indexOf(step);
+              let currIdx = PROCESS_STEPS.indexOf(currentStatus);
+              if (idx < currIdx) return '🟢 ' + step;
+              return '⚪ ' + step;
+          });
+          row["MAP COT"] = newParts.join(' | ');
+
+          row._assignToWorker = selectedWorkers;
+          row._assignStep = currentStatus;
+
+          Swal.fire({
+              title: 'Procesando...',
+              text: 'Delegando tarea y actualizando estado. Espera un momento...',
+              allowOutsideClick: false,
+              didOpen: () => { Swal.showLoading(); }
+          });
+
+          // --- BEGIN MIGRATED BACKEND SAVE ---
+          const payload = {
+              personName: staffTracker.value.name,
+              username: currentUsername.value,
+              tasks: [row] // Since we are only modifying this row
+          };
+          fetch('/api/tracker/save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          })
+          .then(r => r.json())
+          .then(res => {
+              delete row._assignToWorker;
+              delete row._assignStep;
+              isSubmitting.value = false;
+              if (res.success) {
+                  Swal.fire({ title: 'Éxito', text: 'La tarea se asignó y actualizó correctamente.', icon: 'success', toast: true, position: 'top-end', timer: 3000, showConfirmButton: false });
+                  loadTrackerData(); // Reload
+              } else {
+                  Swal.fire('Error', res.message, 'error');
+              }
+          })
+          .catch(err => {
+              delete row._assignToWorker;
+              delete row._assignStep;
+              isSubmitting.value = false;
+              Swal.fire('Error', err.toString(), 'error');
+          });
+          // --- END MIGRATED BACKEND SAVE ---
+      };
+
+
 return { renderObsidianGraph, showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription, isPaperclipRunning, runPaperclipAgents, aiApiKey, toggleAIAgentRecording, isRecordingAIAgent, isGeneratingQuestions, engineeringQuestions, formattedEngineeringQuestions, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, dictationTarget, isDictating,
       pascalEditorUrl, iframeLoaded, onIframeLoaded, design3DStatus, saved3DProjectData, download3DJson,
-      ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, cotizadorSearchTop, filteredCotizadoresTop, addCotizadorTop, removeCotizador, visibleTrackerHeaders, toggleTrackerSort, staffTrackerSortAsc, showHotPotatoModal, showProcessFlow, currentHotPotatoRow, openHotPotatoModal, closeHotPotatoModal, openProcessFlow, advanceProcess, hotPotatoData, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
+      ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, getProcessTimeline, getProcessTimelineDetailed, getProcessStatus, getProcessBtnClass, FULL_PROCESS_NAMES, PROCESS_STEPS, cotizadorSearchTop, filteredCotizadoresTop, addCotizadorTop, removeCotizador, visibleTrackerHeaders, toggleTrackerSort, staffTrackerSortAsc, showHotPotatoModal, showProcessFlow, currentHotPotatoRow, openHotPotatoModal, closeHotPotatoModal, openProcessFlow, advanceProcess, hotPotatoData, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       saveAllTrackerRows,
       showTimePopup, timePopupValue, openTimePopup, saveTimePopup,
       projectProgram, addProjectItem, removeProjectItem, updateProjectRowTotal,
