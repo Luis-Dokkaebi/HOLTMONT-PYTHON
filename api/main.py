@@ -44,10 +44,7 @@ if os.path.exists(".env"):
 elif os.path.exists("../.env"):
     load_env_file("../.env")
 
-from api.routers import auth
 app = FastAPI(title="Holtmont Workspace Backend")
-app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
-app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 # CORS Configuration
 app.add_middleware(
@@ -57,6 +54,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount("/", StaticFiles(directory=".", html=True), name="root")
 
 # Mount MCP Server SSE App
 try:
