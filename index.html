@@ -4234,7 +4234,7 @@
   </div>
 
   <!-- MODAL PLANO 2D (IA) -->
-  <div v-if="showBlueprintModal" class="custom-modal-overlay" style="z-index: 2000;">
+  <div v-if="showBlueprintModal === true" class="custom-modal-overlay" style="z-index: 2000;">
       <div class="custom-modal" style="width: 800px; max-width: 95vw; background: white; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column;">
           <div class="custom-modal-header bg-dark text-white d-flex justify-content-between align-items-center" style="padding: 15px;">
               <span class="fw-bold"><i class="fas fa-map me-2"></i>Plano 2D Generado (IA)</span>
@@ -6226,16 +6226,58 @@ async function toggleVoiceRecording(btnElement) {
       };
 
       const handleErr = (e) => { loggingIn.value=false; isSubmitting.value=false; Swal.fire('Error',e.message,'error'); };
-      const doLogin = () => { if(!loginPass.value || !loginUser.value) return; loggingIn.value=true; google.script.run.withSuccessHandler(res => { loggingIn.value=false; if(res.success){ isLoggedIn.value=true; currentUser.value=res.name; currentUsername.value = res.username; currentRole.value = res.role; loadConfig(res.role); loadCascadeTree(); } else Swal.fire('Error',res.message,'error'); }).withFailureHandler(handleErr).apiLogin(loginUser.value, loginPass.value); };
-      const loadConfig = (r) => { google.script.run.withSuccessHandler(d => {
-          config.value=d;
-          loadDashboardCalendar();
-          if(r === 'WORKORDER_USER') {
-              const woMod = d.specialModules.find(m => m.type === 'work_order_form');
-              if(woMod) openModule(woMod);
-          }
-          if(r === 'PPC_ADMIN' || r === 'ADMIN_CONTROL' || r === 'ADMIN') { google.script.run.withSuccessHandler(res => { if(res.success && res.data.length > 0) { activityQueue.value = res.data; } }).apiFetchDrafts(); }
-      }).getSystemConfig(r); };
+
+      const doLogin = async () => {
+        if(!loginPass.value || !loginUser.value) return;
+        loggingIn.value = true;
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: loginUser.value, password: loginPass.value })
+            });
+            const data = await res.json();
+            loggingIn.value = false;
+
+            if (data.status === 'success') {
+                isLoggedIn.value = true;
+                currentUser.value = data.name || data.username;
+                currentUsername.value = data.username;
+                currentRole.value = data.role;
+                config.value = data.config;
+
+                // Set default view based on role
+                if (data.role === 'ADMIN' || data.role === 'VENTAS') {
+                    currentView.value = 'DASHBOARD';
+                } else {
+                    currentView.value = 'WORKORDER_FORM';
+                }
+            } else {
+                Swal.fire('Error', data.message || 'Error de inicio de sesión', 'error');
+            }
+        } catch (e) {
+            loggingIn.value = false;
+            Swal.fire('Error', 'Fallo de conexión', 'error');
+        }
+      };
+
+      const loadConfig = (r) => {
+          // Config is now loaded directly in doLogin from our FastAPI backend
+          console.log("Config loaded in login step.");
+      };
+
+      const logout = async () => {
+          try {
+              await fetch('/api/auth/logout', { method: 'POST' });
+          } catch(e) {}
+          isLoggedIn.value = false;
+          loginPass.value = '';
+          loginUser.value = '';
+          currentView.value = 'DASHBOARD'; // Returns to generic login screen state
+          currentUser.value = '';
+          currentRole.value = '';
+          currentUsername.value = '';
+      };
       const toggleSidebar = () => { isCompact.value = !isCompact.value; };
       const animateCyberpunkLogo = () => {
           anime({
@@ -6261,10 +6303,6 @@ async function toggleVoiceRecording(btnElement) {
           }
       }, { immediate: true });
 
-      const logout = () => {
-          if(calendarInterval.value) clearInterval(calendarInterval.value);
-          google.script.run.apiLogout(currentUsername.value); isLoggedIn.value=false; loginPass.value=''; loginUser.value=''; currentView.value='DASHBOARD';
-      };
       const goHome = () => { currentView.value='DASHBOARD'; currentDept.value=''; currentModuleId.value=''; loadDashboardCalendar(); };
       const selectDept = (k) => { currentDept.value=k; currentView.value='DEPT'; searchQuery.value=''; currentModuleId.value=''; };
       const goBackToDept = () => currentView.value=staffTracker.value.previousView;

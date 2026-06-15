@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Body, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
 import json
@@ -43,7 +44,10 @@ if os.path.exists(".env"):
 elif os.path.exists("../.env"):
     load_env_file("../.env")
 
+from api.routers import auth
 app = FastAPI(title="Holtmont Workspace Backend")
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 # CORS Configuration
 app.add_middleware(

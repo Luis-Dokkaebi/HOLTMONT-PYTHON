@@ -6,14 +6,16 @@ def run_cuj(page):
     page.wait_for_timeout(1000)
 
     # Try logging in
-    try:
-        page.evaluate("() => { const app = document.querySelector('#app').__vue_app__._instance.proxy; app.isLoggedIn = true; app.currentView = 'DASHBOARD'; app.currentUser = { username: 'ADMIN', role: 'ADMIN' }; app.config.specialModules = [{id: 1, label: 'Papa Caliente', icon: 'fa-fire', color: 'red'}]; app.config.departments = { VENTAS: {label: 'Ventas', icon: 'fa-chart-line', color: 'blue'} }; }")
-        page.wait_for_timeout(1000)
-    except Exception as e:
-        print("Could not eval", e)
+    login_btn = page.locator("button:has-text('INICIAR SESIÓN')")
+    if login_btn.is_visible():
+        page.locator("input[placeholder='Usuario']").fill("cotizador")
+        page.locator("input[placeholder='Contraseña...']").fill("testpass")
+        page.wait_for_timeout(500)
+        login_btn.click()
+        page.wait_for_timeout(2000)
 
     os.makedirs("verification/screenshots", exist_ok=True)
-    page.screenshot(path="verification/screenshots/verification2.png")
+    page.screenshot(path="verification/screenshots/verification_login.png")
     page.wait_for_timeout(1000)
 
 if __name__ == "__main__":
