@@ -54,7 +54,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.mount("/", StaticFiles(directory=".", html=True), name="root")
+
 
 # Mount MCP Server SSE App
 try:
@@ -391,3 +391,5 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+app.mount("/", StaticFiles(directory=".", html=True), name="root")

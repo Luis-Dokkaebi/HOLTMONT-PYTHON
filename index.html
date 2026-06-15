@@ -6226,7 +6226,38 @@ async function toggleVoiceRecording(btnElement) {
       };
 
       const handleErr = (e) => { loggingIn.value=false; isSubmitting.value=false; Swal.fire('Error',e.message,'error'); };
-      const doLogin = () => { if(!loginPass.value || !loginUser.value) return; loggingIn.value=true; google.script.run.withSuccessHandler(res => { loggingIn.value=false; if(res.success){ isLoggedIn.value=true; currentUser.value=res.name; currentUsername.value = res.username; currentRole.value = res.role; loadConfig(res.role); loadCascadeTree(); } else Swal.fire('Error',res.message,'error'); }).withFailureHandler(handleErr).apiLogin(loginUser.value, loginPass.value); };
+      const doLogin = async () => {
+        if(!loginPass.value || !loginUser.value) return;
+        loggingIn.value = true;
+        try {
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: loginUser.value, password: loginPass.value })
+            });
+            const data = await res.json();
+            loggingIn.value = false;
+
+            if (data.status === 'success' || data.success) {
+                isLoggedIn.value = true;
+                currentUser.value = data.name;
+                currentUsername.value = data.username;
+                currentRole.value = data.role;
+                config.value = data.config || {};
+                loadCascadeTree();
+
+                if (data.role === 'ADMIN_CONTROL') currentView.value = 'DEPT';
+                else if (data.role === 'ADMIN') currentView.value = 'DASHBOARD';
+                else currentView.value = 'WORKORDER_FORM';
+
+            } else {
+                Swal.fire('Error', data.message || 'Usuario no encontrado', 'error');
+            }
+        } catch(e) {
+            loggingIn.value = false;
+            Swal.fire('Error', 'Fallo de conexión', 'error');
+        }
+      };
       const loadConfig = (r) => { google.script.run.withSuccessHandler(d => {
           config.value=d;
           loadDashboardCalendar();
@@ -6263,7 +6294,13 @@ async function toggleVoiceRecording(btnElement) {
 
       const logout = () => {
           if(calendarInterval.value) clearInterval(calendarInterval.value);
-          google.script.run.apiLogout(currentUsername.value); isLoggedIn.value=false; loginPass.value=''; loginUser.value=''; currentView.value='DASHBOARD';
+          const logout = async () => {
+          try {
+              await fetch('/api/auth/logout', { method: 'POST' });
+          } catch(e) {}
+          if(calendarInterval.value) clearInterval(calendarInterval.value);
+          isLoggedIn.value = false; loginPass.value = ''; loginUser.value = ''; currentView.value = 'DASHBOARD';
+      };
       };
       const goHome = () => { currentView.value='DASHBOARD'; currentDept.value=''; currentModuleId.value=''; loadDashboardCalendar(); };
       const selectDept = (k) => { currentDept.value=k; currentView.value='DEPT'; searchQuery.value=''; currentModuleId.value=''; };
