@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Body, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
 import json
@@ -384,6 +385,8 @@ def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):
         "history": history_tasks,
         "headers": clean_headers
     }
+
+app.mount("/", StaticFiles(directory=".", html=True), name="root")
 
 if __name__ == "__main__":
     import uvicorn
