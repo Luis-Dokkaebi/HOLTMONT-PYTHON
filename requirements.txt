@@ -14,3 +14,4 @@ ffmpeg-python
 streamlit
 langchain-google-genai
 mcp
+supabase

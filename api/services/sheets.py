@@ -1,6 +1,7 @@
 import os
 import gspread
 from google.oauth2.service_account import Credentials
+from api.services.supabase_manager import sb_manager
 
 # --- Configuration ---
 SCOPES = [
@@ -150,17 +151,26 @@ class GSheetsManager:
             self.ss = MockSpreadsheet()
 
     def get_sheet_values(self, sheet_name):
+        # Using Supabase instead of Google Sheets
+        res = sb_manager.get_sheet_values(sheet_name)
+        if res:
+            return res
+            
+        # Fallback to mock if table doesn't exist or errors out
         try:
             if self.is_mock:
                 return self.ss.worksheet(sheet_name).get_all_values()
-
             sheet = self.ss.worksheet(sheet_name)
             return sheet.get_all_values()
         except Exception as e:
-            # print(f"Error fetching sheet {sheet_name}: {e}")
             return None
 
     def append_row(self, sheet_name, values):
+        # Using Supabase instead of Google Sheets
+        res = sb_manager.append_row(sheet_name, values)
+        if res:
+            return res
+            
         try:
             if self.is_mock:
                 try:
