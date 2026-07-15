@@ -1,0 +1,971 @@
+openapi: 3.1.0
+
+# ============================================================================
+# CONTRATO FORMAL DE API — HOLTMONT WORKSPACE
+# ----------------------------------------------------------------------------
+# NOTA IMPORTANTE SOBRE EL TRANSPORTE:
+# Este backend NO expone una API REST. El frontend (index.html, Vue 3) invoca
+# funciones del servidor de Google Apps Script mediante el puente RPC asíncrono
+# `google.script.run.withSuccessHandler(cb).withFailureHandler(err).<fn>(args)`.
+#
+# Para poder versionar y validar el contrato con herramientas estándar, cada
+# función RPC del backend (CODIGO.js) se modela aquí como una operación POST
+# sobre una pseudo-ruta `/rpc/<nombreFuncion>`. El `requestBody` describe los
+# ARGUMENTOS POSICIONALES de la función (en orden) y el `200` describe el objeto
+# que la función retorna (lo que recibe `withSuccessHandler`).
+#
+# Este archivo es el CONTRATO DEFINITIVO de datos y endpoints. Ver
+# docs/API_CONTRACT.md para la versión narrativa.
+# ============================================================================
+
+info:
+  title: Holtmont Workspace — Contrato RPC (Google Apps Script)
+  version: "158.0"
+  description: >
+    API RPC servida por Google Apps Script vía `google.script.run`.
+    Base de datos: Google Sheets. Sin REST, sin JSON-HTTP directo.
+  contact:
+    name: Holtmont — Equipo interno
+
+servers:
+  - url: https://script.google.com/macros/s/{deploymentId}/exec
+    description: >
+      Web App desplegada. `GET /exec` (doGet) sirve el HTML de la SPA.
+      Las funciones RPC no se llaman por URL: se invocan por `google.script.run`
+      desde el cliente ya cargado. Las rutas `/rpc/*` de este documento son una
+      abstracción de contrato, no endpoints HTTP navegables.
+    variables:
+      deploymentId:
+        default: DEPLOYMENT_ID
+
+tags:
+  - name: WebApp
+    description: Entrega del HTML de la aplicación.
+  - name: Auth
+    description: Login, logout y auditoría de sesión.
+  - name: Directorio
+    description: Organigrama, altas y bajas de personal.
+  - name: Config
+    description: Configuración de sistema por rol (RBAC).
+  - name: Tracker
+    description: Lectura y guardado de tareas del tracker personal.
+  - name: PPC
+    description: Captura y distribución de actividades PPC.
+  - name: Ventas
+    description: Historial de ventas y sincronización con ANTONIA_VENTAS.
+  - name: Proyectos
+    description: Sitios, subproyectos, árbol en cascada y tareas de proyecto.
+  - name: WorkOrder
+    description: Folios y secuencias de órdenes de trabajo.
+  - name: KPI
+    description: Métricas de productividad y cotizaciones.
+  - name: Agenda
+    description: Agenda unificada, eventos personales y hábitos.
+  - name: Integraciones
+    description: Gemini, Drive y utilidades.
+
+paths:
+
+  # ------------------------------------------------------------------ WebApp
+  /exec:
+    get:
+      tags: [WebApp]
+      operationId: doGet
+      summary: Sirve la SPA (HtmlService, plantilla "Index").
+      responses:
+        "200":
+          description: HTML de la aplicación (Holtmont Workspace).
+          content:
+            text/html:
+              schema: { type: string }
+
+  # -------------------------------------------------------------------- Auth
+  /rpc/apiLogin:
+    post:
+      tags: [Auth]
+      operationId: apiLogin
+      summary: Autentica un usuario contra USER_DB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, example: LUIS_CARLOS }
+                password: { type: string, example: admin2025 }
+      responses:
+        "200":
+          description: Resultado de autenticación.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResult" }
+
+  /rpc/apiLogout:
+    post:
+      tags: [Auth]
+      operationId: apiLogout
+      summary: Cierra sesión y registra en LOG_SISTEMA.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+      responses:
+        "200":
+          description: Confirmación.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  # --------------------------------------------------------------- Directorio
+  /rpc/apiResyncDirectory:
+    post:
+      tags: [Directorio]
+      operationId: apiResyncDirectory
+      summary: Reescribe DB_DIRECTORY con INITIAL_DIRECTORY y crea trackers faltantes.
+      responses:
+        "200":
+          description: Resultado con conteo de hojas creadas.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiAddEmployee:
+    post:
+      tags: [Directorio]
+      operationId: apiAddEmployee
+      summary: Da de alta un empleado en DB_DIRECTORY y crea sus hojas por tipo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmployeePayload" }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiDeleteEmployee:
+    post:
+      tags: [Directorio]
+      operationId: apiDeleteEmployee
+      summary: Elimina un empleado del directorio por nombre.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  # ------------------------------------------------------------------- Config
+  /rpc/getSystemConfig:
+    post:
+      tags: [Config]
+      operationId: getSystemConfig
+      summary: Devuelve configuración/menús según rol (RBAC).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role, username]
+              properties:
+                role: { $ref: "#/components/schemas/Role" }
+                username: { type: string }
+      responses:
+        "200":
+          description: Configuración del sistema para el rol.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SystemConfig" }
+
+  # ------------------------------------------------------------------ Tracker
+  /rpc/apiFetchStaffTrackerData:
+    post:
+      tags: [Tracker]
+      operationId: apiFetchStaffTrackerData
+      summary: Lee las tareas del tracker de una persona (hoja espejo).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [personName]
+              properties:
+                personName: { type: string, example: "JAIME OLIVO" }
+      responses:
+        "200":
+          description: Datos del tracker.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SheetDataResult" }
+
+  /rpc/apiSaveTrackerBatch:
+    post:
+      tags: [Tracker]
+      operationId: apiSaveTrackerBatch
+      summary: Guarda/actualiza en lote las tareas del tracker de una persona.
+      description: >
+        Aplica anti-duplicación (Gatekeeper con CacheService por _tempId),
+        resolución por CONCEPTO+FECHA si falla el FOLIO/ID, y filtro de
+        sufijo (VENTAS). Retorna las filas actualizadas para fusionar en el FE.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [personName, tasks, username]
+              properties:
+                personName: { type: string }
+                tasks:
+                  type: array
+                  items: { $ref: "#/components/schemas/TrackerTask" }
+                username: { type: string }
+      responses:
+        "200":
+          description: Resultado con datos fusionables.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SaveResult" }
+
+  /rpc/apiUpdateTask:
+    post:
+      tags: [Tracker]
+      operationId: apiUpdateTask
+      summary: Actualiza una tarea individual de una persona.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [personName, taskData, username]
+              properties:
+                personName: { type: string }
+                taskData: { $ref: "#/components/schemas/TrackerTask" }
+                username: { type: string }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SaveResult" }
+
+  /rpc/apiLogDateChange:
+    post:
+      tags: [Tracker]
+      operationId: apiLogDateChange
+      summary: Registra un cambio de fecha en la bitácora.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payload: { type: object }
+                username: { type: string }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  # ---------------------------------------------------------------------- PPC
+  /rpc/apiSavePPCData:
+    post:
+      tags: [PPC]
+      operationId: apiSavePPCData
+      summary: Guarda actividades PPC en PPCV3 y las distribuye a los trackers destino.
+      description: >
+        Acepta un objeto o un arreglo de objetos PPC. Escribe en PPCV3, distribuye
+        a las hojas de personal (respetando la Ley de Antonia y el filtro (VENTAS))
+        y escribe logs en lote. Usa LockService (30s) para evitar carreras.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payload, activeUser]
+              properties:
+                payload:
+                  oneOf:
+                    - { $ref: "#/components/schemas/PPCItem" }
+                    - type: array
+                      items: { $ref: "#/components/schemas/PPCItem" }
+                activeUser: { type: string }
+      responses:
+        "200":
+          description: Resultado con IDs generados.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PPCSaveResult" }
+
+  /rpc/apiUpdatePPCV3:
+    post:
+      tags: [PPC]
+      operationId: apiUpdatePPCV3
+      summary: Actualiza una tarea en la hoja maestra PPCV3.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [taskData, username]
+              properties:
+                taskData: { $ref: "#/components/schemas/PPCItem" }
+                username: { type: string }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SaveResult" }
+
+  /rpc/apiFetchPPCData:
+    post:
+      tags: [PPC]
+      operationId: apiFetchPPCData
+      summary: Lee la hoja maestra PPCV3.
+      responses:
+        "200":
+          description: Datos PPC.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SheetDataResult" }
+
+  /rpc/apiFetchDrafts:
+    post:
+      tags: [PPC]
+      operationId: apiFetchDrafts
+      summary: Lee borradores desde PPC_BORRADOR.
+      responses:
+        "200":
+          description: Borradores.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SheetDataResult" }
+
+  /rpc/apiSyncDrafts:
+    post:
+      tags: [PPC]
+      operationId: apiSyncDrafts
+      summary: Persiste el arreglo de borradores del FE en PPC_BORRADOR.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                drafts:
+                  type: array
+                  items: { $ref: "#/components/schemas/Draft" }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiClearDrafts:
+    post:
+      tags: [PPC]
+      operationId: apiClearDrafts
+      summary: Vacía la hoja de borradores.
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  # ------------------------------------------------------------------- Ventas
+  /rpc/apiFetchSalesHistory:
+    post:
+      tags: [Ventas]
+      operationId: apiFetchSalesHistory
+      summary: Devuelve el historial de ventas/cotizaciones.
+      responses:
+        "200":
+          description: Historial.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SheetDataResult" }
+
+  /rpc/apiFetchDistinctClients:
+    post:
+      tags: [Ventas]
+      operationId: apiFetchDistinctClients
+      summary: Lista clientes distintos.
+      responses:
+        "200":
+          description: Clientes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { type: string }
+
+  # ---------------------------------------------------------------- Proyectos
+  /rpc/apiSaveSite:
+    post:
+      tags: [Proyectos]
+      operationId: apiSaveSite
+      summary: Crea un sitio en DB_SITIOS.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SitePayload" }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiSaveSubProject:
+    post:
+      tags: [Proyectos]
+      operationId: apiSaveSubProject
+      summary: Crea un subproyecto en DB_PROYECTOS ligado a un sitio.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubProjectPayload" }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiFetchCascadeTree:
+    post:
+      tags: [Proyectos]
+      operationId: apiFetchCascadeTree
+      summary: Devuelve el árbol sitios → subproyectos.
+      responses:
+        "200":
+          description: Árbol en cascada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiFetchProjectTasks:
+    post:
+      tags: [Proyectos]
+      operationId: apiFetchProjectTasks
+      summary: Lee las tareas de un proyecto.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [projectName]
+              properties:
+                projectName: { type: string }
+      responses:
+        "200":
+          description: Tareas del proyecto.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SheetDataResult" }
+
+  /rpc/apiSaveProjectTask:
+    post:
+      tags: [Proyectos]
+      operationId: apiSaveProjectTask
+      summary: Guarda una tarea de proyecto.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [taskData, projectName, username]
+              properties:
+                taskData: { type: object }
+                projectName: { type: string }
+                username: { type: string }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SaveResult" }
+
+  # ---------------------------------------------------------------- WorkOrder
+  /rpc/apiGetNextWorkOrderSeq:
+    post:
+      tags: [WorkOrder]
+      operationId: apiGetNextWorkOrderSeq
+      summary: Devuelve el siguiente folio/secuencia de Work Order.
+      responses:
+        "200":
+          description: Secuencia/folio.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  # ---------------------------------------------------------------------- KPI
+  /rpc/apiFetchAdminKPIs:
+    post:
+      tags: [KPI]
+      operationId: apiFetchAdminKPIs
+      summary: KPIs para ADMIN_CONTROL.
+      responses:
+        "200":
+          description: KPIs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiFetchTeamKPIData:
+    post:
+      tags: [KPI]
+      operationId: apiFetchTeamKPIData
+      summary: KPIs de equipo para un usuario.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username: { type: string }
+      responses:
+        "200":
+          description: KPIs de equipo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiFetchQuoteAgentMetrics:
+    post:
+      tags: [KPI]
+      operationId: apiFetchQuoteAgentMetrics
+      summary: Métricas del agente de cotizaciones (por periodo).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MetricsParams" }
+      responses:
+        "200":
+          description: Métricas de cotizaciones.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiFetchTrackerProductivityMetrics:
+    post:
+      tags: [KPI]
+      operationId: apiFetchTrackerProductivityMetrics
+      summary: Métricas de productividad del tracker (por periodo).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MetricsParams" }
+      responses:
+        "200":
+          description: Métricas de productividad.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiSaveGeminiKey:
+    post:
+      tags: [KPI, Integraciones]
+      operationId: apiSaveGeminiKey
+      summary: Guarda GEMINI_API_KEY en Script Properties.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key: { type: string }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiCheckGeminiKey:
+    post:
+      tags: [KPI, Integraciones]
+      operationId: apiCheckGeminiKey
+      summary: Verifica si existe GEMINI_API_KEY (sin exponerla completa).
+      responses:
+        "200":
+          description: Estado de la clave.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  hasKey: { type: boolean }
+                  keyPreview: { type: string }
+
+  # ------------------------------------------------------------------- Agenda
+  /rpc/apiFetchUnifiedAgenda:
+    post:
+      tags: [Agenda]
+      operationId: apiFetchUnifiedAgenda
+      summary: Agenda unificada de un usuario.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username: { type: string }
+      responses:
+        "200":
+          description: Agenda.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiSavePersonalEvent:
+    post:
+      tags: [Agenda]
+      operationId: apiSavePersonalEvent
+      summary: Guarda un evento personal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PersonalEvent" }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+  /rpc/apiSaveHabitLog:
+    post:
+      tags: [Agenda]
+      operationId: apiSaveHabitLog
+      summary: Guarda el registro de un hábito.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HabitLog" }
+      responses:
+        "200":
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResult" }
+
+components:
+  schemas:
+
+    Role:
+      type: string
+      description: Rol de acceso (RBAC).
+      enum: [ADMIN, ADMIN_CONTROL, PPC_ADMIN, TONITA, STAFF_USER, WORKORDER_USER]
+
+    SuccessResult:
+      type: object
+      description: Envoltura estándar de respuesta.
+      required: [success]
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+      additionalProperties: true
+
+    LoginResult:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        role: { $ref: "#/components/schemas/Role" }
+        name: { type: string, description: Etiqueta amigable del usuario. }
+        username: { type: string }
+        message: { type: string }
+
+    SystemConfig:
+      type: object
+      description: Configuración/menús devueltos por getSystemConfig según rol.
+      properties:
+        departments:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/DeptMeta" }
+        allDepartments:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/DeptMeta" }
+        staff:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              dept: { type: string }
+        directory:
+          type: array
+          items: { $ref: "#/components/schemas/DirectoryEntry" }
+        specialModules:
+          type: array
+          items: { $ref: "#/components/schemas/SpecialModule" }
+        accessProjects: { type: boolean }
+        canSeeBancoJuntas: { type: boolean }
+
+    DeptMeta:
+      type: object
+      properties:
+        label: { type: string }
+        icon: { type: string, description: Clase de Font Awesome. }
+        color: { type: string, description: Color hex. }
+
+    SpecialModule:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        icon: { type: string }
+        color: { type: string }
+        type:
+          type: string
+          enum: [mirror_staff, ppc_native, weekly_plan_view, kpi_dashboard_view, ecg_dashboard]
+        target: { type: string, description: Hoja destino para módulos mirror_staff. }
+
+    DirectoryEntry:
+      type: object
+      properties:
+        name: { type: string }
+        dept: { type: string }
+        type:
+          type: string
+          enum: [ESTANDAR, HIBRIDO, VENTAS]
+
+    EmployeePayload:
+      type: object
+      required: [name, dept, type]
+      properties:
+        name: { type: string }
+        dept: { type: string }
+        type:
+          type: string
+          enum: [ESTANDAR, HIBRIDO, VENTAS]
+
+    SheetDataResult:
+      type: object
+      description: Lectura estándar de una hoja (internalFetchSheetData).
+      required: [success]
+      properties:
+        success: { type: boolean }
+        headers:
+          type: array
+          items: { type: string }
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        history:
+          type: array
+          items: { type: object }
+        message: { type: string }
+
+    SaveResult:
+      type: object
+      description: Respuesta de guardado. `data` trae la fila fusionable para el FE.
+      required: [success]
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+        data:
+          description: Objeto/arreglo actualizado que el FE fusiona (setea _isNew=false).
+          oneOf:
+            - type: object
+            - type: array
+              items: { type: object }
+
+    PPCSaveResult:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResult"
+        - type: object
+          properties:
+            ids:
+              type: array
+              description: IDs generados para las filas creadas.
+              items: { type: string }
+
+    TrackerTask:
+      type: object
+      description: >
+        Fila del tracker. Las claves pueden venir en minúsculas desde el FE; el
+        backend normaliza con toUpperCase().trim(). Columnas base:
+        DEFAULT_TRACKER_HEADERS.
+      properties:
+        ID: { type: string }
+        ESPECIALIDAD: { type: string }
+        CONCEPTO: { type: string }
+        FECHA: { type: string, format: date-time }
+        RELOJ: { type: string }
+        AVANCE:
+          description: "Progreso. 100% se evalúa como '100', '100%' o el número 1 (celda %)."
+          oneOf: [{ type: string }, { type: number }]
+        ESTATUS:
+          type: string
+          description: Fallback a 'PENDIENTE' si viene vacío/ inválido.
+        COMENTARIOS: { type: string }
+        ARCHIVO: { type: string, description: URL en Drive. }
+        CLASIFICACION: { type: string }
+        PRIORIDAD: { type: string }
+        FECHA_RESPUESTA: { type: string, format: date-time }
+        INVOLUCRADOS:
+          type: string
+          description: Delegación lateral "Papa Caliente".
+        VENDEDOR:
+          type: string
+          description: Exclusivo de asignaciones desde ANTONIA_VENTAS.
+        _tempId:
+          type: string
+          description: Identidad temporal del FE para anti-duplicación (Gatekeeper).
+        _isNew: { type: boolean }
+      additionalProperties: true
+
+    PPCItem:
+      type: object
+      description: >
+        Actividad PPC destinada a PPCV3. Columnas de PPCV3: ID, ESPECIALIDAD,
+        DESCRIPCION, RESPONSABLE, FECHA, RELOJ, CUMPLIMIENTO, ARCHIVO, COMENTARIOS,
+        COMENTARIOS PREVIOS, ESTATUS, AVANCE, CLASIFICACION, PRIORIDAD, RIESGOS,
+        FECHA_RESPUESTA, DETALLES_EXTRA.
+      properties:
+        ID: { type: string }
+        ESPECIALIDAD: { type: string }
+        DESCRIPCION: { type: string }
+        RESPONSABLE: { type: string }
+        FECHA: { type: string, format: date-time }
+        RELOJ: { type: string }
+        CUMPLIMIENTO:
+          type: string
+          description: Fallback a 'NO' si viene vacío.
+        ARCHIVO: { type: string }
+        COMENTARIOS: { type: string }
+        ESTATUS: { type: string }
+        AVANCE:
+          oneOf: [{ type: string }, { type: number }]
+        CLASIFICACION: { type: string }
+        PRIORIDAD: { type: string }
+        RIESGOS: { type: string }
+        FECHA_RESPUESTA: { type: string, format: date-time }
+        _tempId: { type: string }
+      additionalProperties: true
+
+    Draft:
+      type: object
+      description: Borrador (hoja PPC_BORRADOR).
+      properties:
+        especialidad: { type: string }
+        concepto: { type: string }
+        responsable: { type: string }
+        horas: { type: string }
+        cumplimiento: { type: string, default: "NO" }
+        archivoUrl: { type: string }
+        comentarios: { type: string }
+        comentariosPrevios: { type: string }
+        prioridades: { type: string }
+        riesgos: { type: string }
+        restricciones: { type: string }
+        fechaRespuesta: { type: string }
+        clasificacion: { type: string }
+        fechaAlta: { type: string, format: date-time }
+        rutaCritica: { type: string }
+        zona: { type: string }
+        contratista: { type: string }
+        cuantReq: { type: string }
+        cuantReal: { type: string }
+        dias: { type: object, description: Mapa de días (se serializa a DIAS_JSON). }
+
+    SitePayload:
+      type: object
+      required: [name, client]
+      properties:
+        name: { type: string }
+        client: { type: string }
+        type: { type: string, default: CLIENTE }
+
+    SubProjectPayload:
+      type: object
+      required: [siteId, name]
+      properties:
+        siteId: { type: string }
+        name: { type: string }
+        type: { type: string }
+
+    MetricsParams:
+      type: object
+      properties:
+        year: { type: integer, example: 2026 }
+        monthName: { type: string, example: JULIO }
+      additionalProperties: true
+
+    PersonalEvent:
+      type: object
+      description: Evento de agenda (hoja de eventos personales).
+      properties:
+        usuario: { type: string }
+        titulo: { type: string }
+        tipo: { type: string }
+        fecha: { type: string, format: date }
+        horaInicio: { type: string }
+        horaFin: { type: string }
+        detalles: { type: string }
+        clasificacion: { type: string }
+        estatus: { type: string }
+      additionalProperties: true
+
+    HabitLog:
+      type: object
+      description: Registro de hábito (hoja de hábitos).
+      properties:
+        usuario: { type: string }
+        habito: { type: string }
+        meta: { type: string }
+        log: { type: object }
+      additionalProperties: true
