@@ -4,29 +4,25 @@
                 <div class="card border-0 shadow-sm mb-4">
                     <div class="card-body p-3">
                          <label class="small text-muted fw-bold mb-1">Nombre de cotizador</label>
-
-                         <div class="d-flex flex-column gap-2">
-                             <div v-for="(c, i) in workorderData.cotizador" :key="'cot-top-'+i" class="input-group input-group-sm">
+                         <div class="position-relative">
+                             <div class="input-group input-group-sm" @click="cotizadorSearchTop = ''">
                                  <span class="input-group-text bg-light"><i class="fas fa-user-tie text-muted"></i></span>
-                                 <input v-model="workorderData.cotizador[i]" class="form-control" placeholder="Ej: Mario" list="cotizadores-list">
-                                 <button v-if="i === 0" class="btn btn-outline-primary" type="button" @click="workorderData.cotizador.push('')" title="Agregar otro cotizador">
-                                     <i class="fas fa-plus"></i>
-                                 </button>
-                                 <button v-else class="btn btn-outline-danger" type="button" @click="removeCotizador(i)" title="Eliminar">
-                                     <i class="fas fa-minus"></i>
-                                 </button>
+                                 <input v-model="cotizadorSearchTop" class="form-control" placeholder="Buscar..." @focus="cotizadorSearchTop = ''">
+                             </div>
+                             <ul class="list-group position-absolute w-100 shadow-sm" style="z-index: 1000; max-height: 200px; overflow-y: auto;" v-if="cotizadorSearchTop">
+                                 <li v-for="p in filteredCotizadoresTop" :key="p.name" class="list-group-item list-group-item-action small py-1" style="cursor: pointer;" @click="addCotizadorTop(p.name)">
+                                     {{ p.name }}
+                                 </li>
+                             </ul>
+                             <div class="d-flex flex-wrap gap-1 mt-2">
+                                 <span v-for="(c, i) in workorderData.cotizador" :key="i" class="badge bg-light text-dark border d-flex align-items-center">
+                                     {{ c }} <i class="fas fa-times ms-2 text-danger" style="cursor: pointer;" @click="removeCotizador(i)"></i>
+                                 </span>
                              </div>
                          </div>
-                         <datalist id="cotizadores-list">
-                             <option v-for="p in (config.directory || config.staff)" :key="p.name" :value="p.name"></option>
-                         </datalist>
 
                          <div class="mt-3">
-                             <label class="small text-muted fw-bold mb-1">COTIZACION PRELIMINAR: <i class="fas fa-lightbulb text-warning ms-2" style="cursor:pointer" @click="showLogic.cotizacionPreliminar = !showLogic.cotizacionPreliminar" title="Ver Lógica"></i></label>
-                             <div class="logic-card mb-3 position-relative" v-if="showLogic.cotizacionPreliminar">
-                                 <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showLogic.cotizacionPreliminar = false"></button>
-                                 Instrucción: El objetivo es tener preguntas precargadas basadas en el proyecto a realizar, lo cual se tomara en base al: nombre del proyecto a ir a cotizar, es responsabilidad del Departamento de Control de Presupuestos y Servicio al Cliente el de obterner lo más que se pueda de información previo a la visita para que se pueda precargar las preguntas realacionadas y ayude a la persona que haga el levantamiento a poder realizar preguntas que ayuden a estructurar una buena cotización
-                             </div>
+                             <label class="small text-muted fw-bold mb-1">COTIZACION PRELIMINAR:</label>
                              <input v-model="vehicleControlData.cotizacion" class="form-control text-danger fw-bold" placeholder="Ej: Cuarto de Metrología...">
                          </div>
                     </div>
@@ -285,18 +281,20 @@
                                 <div class="row g-3 align-items-end">
                                     <div class="col-md-8">
                                         <label class="small text-muted fw-bold mb-1">Elaboró (Responsable Interno)</label>
-                                        <div class="d-flex flex-column gap-2">
-                                            <div v-for="(c, i) in workorderData.cotizador" :key="'cot-bot-'+i" class="input-group input-group-sm">
-                                                <span class="input-group-text bg-light"><i class="fas fa-user-tie text-muted"></i></span>
-                                                <input v-model="workorderData.cotizador[i]" class="form-control" placeholder="Ej: Mario" list="cotizadores-list">
-                                                <button v-if="i === 0" class="btn btn-outline-primary" type="button" @click="workorderData.cotizador.push('')" title="Agregar otro cotizador">
-                                                    <i class="fas fa-plus"></i>
-                                                </button>
-                                                <button v-else class="btn btn-outline-danger" type="button" @click="removeCotizador(i)" title="Eliminar">
-                                                    <i class="fas fa-minus"></i>
-                                                </button>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light"><i class="fas fa-user-tag text-muted"></i></span>
+                                            <div class="form-control p-1 d-flex align-items-center flex-wrap gap-1" style="min-height: 31px; height: auto;" @click="$refs.cotizadorInput.focus()">
+                                                <span v-for="(name, idx) in workorderData.cotizador" :key="idx" class="user-chip">
+                                                    {{ name }} <i class="fas fa-times ms-1 text-danger" style="cursor:pointer" @click.stop="removeCotizador(idx)"></i>
+                                                </span>
+                                                <input ref="cotizadorInput" v-model="cotizadorSearch" placeholder="Buscar..." style="border:none; outline:none; background:transparent; font-size: 0.8rem; flex: 1; min-width: 60px;">
                                             </div>
                                         </div>
+                                        <ul class="list-group position-absolute shadow" style="z-index:100; max-height:200px; overflow:auto; width: 90%; margin-top: 2px;" v-if="cotizadorSearch && filteredCotizadores.length">
+                                            <li v-for="p in filteredCotizadores" :key="p.name" class="list-group-item list-group-item-action small py-1" style="cursor:pointer;" @click="addCotizador(p.name)">
+                                                {{p.name}}
+                                            </li>
+                                        </ul>
                                         <div class="d-flex align-items-center mt-1">
                                             <i class="fas fa-info-circle text-muted" style="cursor:pointer" @click="showInstr.resp = !showInstr.resp" :class="{'text-info': showInstr.resp}" title="Ver Instrucción"></i>
                                             <small v-if="showInstr.resp" class="logic-inline ms-2 my-0 animate__animated animate__fadeIn">Instr: se iria al traker automático / Instr 2: se requiere en base datos dar alta las personas que van a cotizar de holtmont para ayudar en la captura</small>
@@ -314,33 +312,46 @@
                     <!-- BOTTOM: DESCRIPTION & MEDIA -->
                     <div class="col-12">
                         <div class="card border-0 shadow-sm">
-                            <div class="card-header bg-dark text-white border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
-                                <h6 class="fw-bold mb-0"><i class="fas fa-robot me-2"></i>Descripción del Trabajo a Realizar basado en visita e información proporcionada por el cliente / Scope of work based on site visit and client information</h6>
-                                <button v-if="!showWorkOrderLogic" @click="showWorkOrderLogic = true" class="btn btn-sm btn-outline-warning" title="Mostrar Ayuda"><i class="fas fa-lightbulb"></i></button>
+                            <div class="card-header bg-light border-0 pt-3 ps-3 d-flex justify-content-between align-items-center">
+                                <h6 class="fw-bold text-primary mb-0"><i class="fas fa-align-left me-2"></i>Descripción del Trabajo a Realizar</h6>
+                                <button v-if="!showWorkOrderLogic" @click="showWorkOrderLogic = true" class="btn btn-sm btn-outline-info" title="Mostrar Ayuda"><i class="fas fa-info-circle"></i></button>
                             </div>
                             <div class="card-body">
                                 <div class="row mb-4">
                                     <div :class="showWorkOrderLogic ? 'col-md-8' : 'col-12'">
                                          <div class="position-relative h-100">
                                             <textarea id="campoConcepto" v-model="workorderData.conceptoDesc" class="form-control border-0 bg-light p-3 h-100" rows="8" placeholder="Describe el trabajo a realizar..." style="resize: none;"></textarea>
-                                            <button v-if="isGeneratingQuestions" class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" disabled>
-                                                <i class="fas fa-spinner fa-spin text-dark fa-lg"></i>
+
+                                            <!-- INPUT OCULTO PARA GEMINI -->
+                                            <input type="file" id="audioInputGemini" accept="audio/*" class="d-none" onchange="enviarAudioAGemini(this)">
+
+                                            <button
+                                                class="btn btn-primary position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
+                                                style="width: 50px; height: 50px; transition: all 0.3s ease;"
+                                                onclick="document.getElementById('campoConcepto').focus()"
+                                                title="Dictar voz a texto">
+
+                                                <i class="fas fa-microphone" style="font-size: 1.2rem;"></i>
                                             </button>
-                                            <button v-else class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleAIAgentRecording()">
-                                                <i class="fas fa-lg" :class="isRecordingAIAgent ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-dark'"></i>
-                                            </button>
-                                         </div>
+
+
+                            <!-- [NUEVO MÓDULO: Paperclip AI Agency] -->
+                            <button v-if="isPaperclipRunning" class="btn btn-info position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10; right: 80px !important;" disabled>
+                                <i class="fas fa-spinner fa-spin text-white"></i>
+                            </button>
+                            <button v-else @click="runPaperclipAgents" class="btn btn-info position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10; right: 80px !important;" title="Ejecutar Agencia Paperclip (Levantamiento, Cálculo y 3D)">
+                                <i class="fas fa-paperclip text-white"></i>
+                            </button>
+                            <!-- [FIN MÓDULO: Paperclip AI Agency] -->
+
+</div>
                                     </div>
                                     <div class="col-md-4" v-if="showWorkOrderLogic">
-                                        <div class="logic-card h-100 position-relative fade show" style="background-color: #f8f9fa; border: 2px dashed #dc3545; color: #000;">
-                                            <button type="button" class="btn-close position-absolute top-0 end-0 m-2" aria-label="Close" @click="showWorkOrderLogic = false"></button>
-                                    <div class="p-3">
-                                                <h6 class="fw-bold mb-1">Función:</h6>
-                                                <p class="small mb-2 text-justify">1.- Grabación de Descripción del trabajo a cotizar mediante grabación de audio cuyo responsable sera el cotizador, esta información sera basada la información entregada por el cliente así como la información recabada de la Bitacora inteligente y Preguntas realizadas</p>
-                                                <h6 class="fw-bold mb-1">Entregable:</h6>
-                                                <p class="small mb-2 text-justify">2.- Generación de Preguntas derivadas de la Bitacora de Inteligente de Voz para levantamiento de cotización derivadas de los entregable<br>3.- Texto por Agente 2 de estructuración inteligente de Audio</p>
-                                                <h6 class="fw-bold mb-1">Alcances Adicionales:</h6>
-                                                <p class="small mb-0 text-justify">1.- Información adicional que se quiera agregar por parte del cotizador</p>
+                                        <div class="logic-card h-100 position-relative fade show">
+                                            <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-2" aria-label="Close" @click="showWorkOrderLogic = false"></button>
+                                    <div class="logic-header"><span class="logic-icon"><i class="fas fa-info"></i></span> LÓGICA: CAPTURA DE DESCRIPCIÓN</div>
+                                            <div class="logic-content text-justify">
+                                                Este punto es el más crítico al momento de realizar una cotización, ya que en los recorridos con el cliente son muy cortos, y uno no alcanza a escribir porque va caminando para proyectos A y AA, por lo que se requiere el poder capturar el mayor número de detalles que el cliente menciona así como la confidencialidad de observaciones que el cotizador de Holtmont alcanza a ver y se requiere que la competencia no se entere. Por ello el requerimiento de la diadema y de poder cuestionar puntos.
                                             </div>
                                         </div>
                                     </div>
@@ -354,17 +365,6 @@
                                             <i class="fas" :class="uploadSuccess ? 'fa-check text-success' : 'fa-cloud-upload-alt'"></i> {{ uploadSuccess ? 'Archivo Cargado' : 'Subir Archivos' }}
                                         </button>
                                         <input type="file" ref="fileInput" class="file-input-hidden" accept="*" @change="handleFileSelect">
-                                    </div>
-                                </div>
-
-                                <div class="mt-4" v-if="engineeringQuestions">
-                                    <div class="card border border-primary shadow-sm">
-                                        <div class="card-header bg-primary text-white fw-bold">
-                                            <i class="fas fa-robot me-2"></i> CUESTIONARIO TÉCNICO DE INGENIERÍA CIVIL (GENERADO POR AI)
-                                        </div>
-                                        <div class="card-body bg-light" style="max-height: 400px; overflow-y: auto;">
-                                            <div v-html="formattedEngineeringQuestions" class="markdown-content"></div>
-                                        </div>
                                     </div>
                                 </div>
 
@@ -484,9 +484,6 @@
                                 <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap">
                                     <span class="fw-bold text-muted small" style="width: 15px;">{{ idx + 1 }}.</span>
                                     <input v-model="item.description" class="form-control form-control-sm" placeholder="Descripción" style="flex: 2; min-width: 150px;">
-                                    <button class="btn btn-link btn-sm p-0 text-warning ms-1" @click="openAIQuoteModal(item, 'description')" title="Dictar con IA">
-                                        <i class="fas fa-microphone-alt" style="font-size: 0.9rem;"></i>
-                                    </button>
                                     <input type="date" v-model="item.date" class="form-control form-control-sm" style="width: 110px;">
 
                                     <!-- Tiempo Estimado Row -->
@@ -536,47 +533,38 @@
                 <div class="row g-4 mt-4">
                     <div class="col-12">
                         <div class="card border-0 shadow-sm h-100">
-                            <div class="card-header bg-white border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #107c41 !important;">
+                            <div class="card-header bg-light border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #107c41 !important;">
                                 <h6 class="fw-bold mb-0" style="color: #0b5d2f;">MATERIALES REQUERIDOS</h6>
                                 <div class="d-flex align-items-center gap-3">
                                     <span class="fw-bold text-dark">Total: {{ formatCurrency(materialsTotal) }}</span>
-                                    <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addMaterialItem PROPOSITO=Integracion -->
-<button class="btn btn-primary btn-sm fw-bold" @click="addMaterialItem"><i class="fas fa-plus"></i> Agregar</button>
+                                    <button class="btn btn-primary btn-sm fw-bold" @click="addMaterialItem"><i class="fas fa-plus"></i> Agregar</button>
                                 </div>
                             </div>
                             <div class="card-body p-0">
-                                <div class="table-responsive" style="background-color: #f8f9fa;">
-                                    <table class="table table-borderless mb-0 small align-middle" style="background-color: transparent;">
-                                        <thead class="text-dark" style="font-size: 12px; font-weight: bold; border-bottom: 1px solid #dee2e6;">
+                                <div class="table-responsive">
+                                    <table class="table table-bordered mb-0 small align-middle bg-white">
+                                        <thead class="table-light text-muted text-uppercase" style="font-size: 11px;">
                                             <tr>
-                                                <th class="text-center pb-2">Descripción</th>
-                                                <th style="width: 15%;" class="text-center pb-2">Unidad</th>
-                                                <th style="width: 15%;" class="text-center pb-2">Cantidad</th>
-                                                <th style="width: 15%;" class="text-center pb-2">Costo</th>
-                                                <th style="width: 15%;" class="text-center pb-2">TOTAL</th>
-                                                <th style="width: 40px;" class="pb-2"></th>
+                                                <th style="width: 70px;" class="text-center">Cant</th>
+                                                <th style="width: 70px;" class="text-center">Unidad</th>
+                                                <th style="width: 100px;">Tipo</th>
+                                                <th>Descripción</th>
+                                                <th style="width: 90px;" class="text-end">Costo</th>
+                                                <th style="width: 120px;">Espec.</th>
+                                                <th style="width: 90px;" class="text-end">Total</th>
+                                                <th style="width: 40px;"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <tr v-for="(item, idx) in requiredMaterials.items" :key="idx">
-                                                <td class="px-2 py-1">
-                                                    <div class="input-group input-group-sm" style="flex-wrap: nowrap;">
-                                                        <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.description PROPOSITO=Integracion -->
-<input v-model="item.description" class="form-control form-control-sm border border-dark rounded-0 px-2 py-1" style="border-color: #001f3f !important;">
-                                                        <!-- [MAPEO IA] BUTTON ID=sin-id VAR=toggleDictation(item, 'description') PROPOSITO=Integracion -->
-<button class="btn btn-outline-dark btn-sm rounded-0 border-start-0" @click="toggleDictation(item, 'description')" style="border-color: #001f3f !important;">
-                                                            <i class="fas" :class="isDictating(item, 'description') ? 'fa-stop text-danger' : 'fa-microphone'" style="font-size: 0.8rem;"></i>
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                                <td class="px-2 py-1"><!-- [MAPEO IA] INPUT ID=sin-id VAR=item.unit PROPOSITO=Integracion -->
-<input v-model="item.unit" class="form-control form-control-sm border border-dark rounded-0 text-center px-2 py-1" style="border-color: #001f3f !important;"></td>
-                                                <td class="px-2 py-1"><!-- [MAPEO IA] INPUT ID=sin-id VAR=item.quantity PROPOSITO=Integracion -->
-<input type="number" v-model="item.quantity" @input="updateMaterialRowTotal(item)" class="form-control form-control-sm border border-dark rounded-0 text-center px-2 py-1" style="border-color: #001f3f !important;"></td>
-                                                <td class="px-2 py-1"><!-- [MAPEO IA] INPUT ID=sin-id VAR=item.cost PROPOSITO=Integracion -->
-<input type="number" v-model="item.cost" @input="updateMaterialRowTotal(item)" class="form-control form-control-sm border border-dark rounded-0 text-center px-2 py-1" style="border-color: #001f3f !important;"></td>
-                                                <td class="fw-bold text-center px-2 py-1 align-middle" style="font-size: 13px;">{{ formatCurrency(item.total) }}</td>
-                                                <td class="text-center align-middle px-2 py-1"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeMaterialItem(idx)"></i></td>
+                                                <td><input type="number" v-model="item.quantity" @input="updateMaterialRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center px-1" placeholder="0"></td>
+                                                <td><input v-model="item.unit" class="form-control form-control-sm border-0 bg-transparent text-center px-1" placeholder="-"></td>
+                                                <td><input v-model="item.type" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-"></td>
+                                                <td><input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-"></td>
+                                                <td><input type="number" v-model="item.cost" @input="updateMaterialRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-end px-1" placeholder="0.00"></td>
+                                                <td><input v-model="item.spec" class="form-control form-control-sm border-0 bg-transparent px-1" placeholder="-"></td>
+                                                <td class="fw-bold text-end px-1">{{ formatCurrency(item.total) }}</td>
+                                                <td class="text-center"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeMaterialItem(idx)"></i></td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -590,47 +578,34 @@
                 <div class="row g-4 mt-4">
                     <div class="col-12">
                         <div class="card border-0 shadow-sm h-100">
-                            <div class="card-header bg-white border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #fd7e14 !important;">
+                            <div class="card-header bg-light border-0 pt-3 ps-3 pe-3 d-flex justify-content-between align-items-center" style="border-top: 4px solid #fd7e14 !important;">
                                 <h6 class="fw-bold mb-0" style="color: #e67e22;">HERRAMIENTAS REQUERIDAS</h6>
                                 <div class="d-flex align-items-center gap-3">
                                     <span class="fw-bold text-dark">Total: {{ formatCurrency(toolsTotal) }}</span>
-                                    <!-- [MAPEO IA] BUTTON ID=sin-id VAR=addToolItem PROPOSITO=Integracion -->
-<button class="btn btn-primary btn-sm fw-bold" @click="addToolItem"><i class="fas fa-plus"></i> Agregar</button>
+                                    <button class="btn btn-primary btn-sm fw-bold" @click="addToolItem"><i class="fas fa-plus"></i> Agregar</button>
                                 </div>
                             </div>
                             <div class="card-body p-0">
-                                <div class="table-responsive" style="background-color: #f8f9fa;">
-                                    <table class="table table-borderless mb-0 small align-middle" style="background-color: transparent;">
-                                        <thead class="text-dark" style="font-size: 12px; font-weight: bold; border-bottom: 1px solid #dee2e6;">
+                                <div class="table-responsive">
+                                    <table class="table table-bordered mb-0 small align-middle bg-white">
+                                        <thead class="table-light text-muted text-uppercase" style="font-size: 11px;">
                                             <tr>
-                                                <th class="text-center pb-2">Descripción</th>
-                                                <th style="width: 15%;" class="text-center pb-2">Unidad</th>
-                                                <th style="width: 15%;" class="text-center pb-2">Cantidad</th>
-                                                <th style="width: 15%;" class="text-center pb-2">Costo</th>
-                                                <th style="width: 15%;" class="text-center pb-2">TOTAL</th>
-                                                <th style="width: 40px;" class="pb-2"></th>
+                                                <th style="width: 80px;" class="text-center">Cantidad</th>
+                                                <th style="width: 80px;" class="text-center">Unidad</th>
+                                                <th>Descripción</th>
+                                                <th style="width: 120px;" class="text-end">Costo Unitario</th>
+                                                <th style="width: 120px;" class="text-end">Total</th>
+                                                <th style="width: 40px;"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <tr v-for="(item, idx) in toolsRequired.items" :key="idx">
-                                                <td class="px-2 py-1">
-                                                    <div class="input-group input-group-sm" style="flex-wrap: nowrap;">
-                                                        <!-- [MAPEO IA] INPUT ID=sin-id VAR=item.description PROPOSITO=Integracion -->
-<input v-model="item.description" class="form-control form-control-sm border border-dark rounded-0 px-2 py-1" style="border-color: #001f3f !important;">
-                                                        <!-- [MAPEO IA] BUTTON ID=sin-id VAR=toggleDictation(item, 'description') PROPOSITO=Integracion -->
-<button class="btn btn-outline-dark btn-sm rounded-0 border-start-0" @click="toggleDictation(item, 'description')" style="border-color: #001f3f !important;">
-                                                            <i class="fas" :class="isDictating(item, 'description') ? 'fa-stop text-danger' : 'fa-microphone'" style="font-size: 0.8rem;"></i>
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                                <td class="px-2 py-1"><!-- [MAPEO IA] INPUT ID=sin-id VAR=item.unit PROPOSITO=Integracion -->
-<input v-model="item.unit" class="form-control form-control-sm border border-dark rounded-0 text-center px-2 py-1" style="border-color: #001f3f !important;"></td>
-                                                <td class="px-2 py-1"><!-- [MAPEO IA] INPUT ID=sin-id VAR=item.quantity PROPOSITO=Integracion -->
-<input type="number" v-model="item.quantity" @input="updateToolRowTotal(item)" class="form-control form-control-sm border border-dark rounded-0 text-center px-2 py-1" style="border-color: #001f3f !important;"></td>
-                                                <td class="px-2 py-1"><!-- [MAPEO IA] INPUT ID=sin-id VAR=item.cost PROPOSITO=Integracion -->
-<input type="number" v-model="item.cost" @input="updateToolRowTotal(item)" class="form-control form-control-sm border border-dark rounded-0 text-center px-2 py-1" style="border-color: #001f3f !important;"></td>
-                                                <td class="fw-bold text-center px-2 py-1 align-middle" style="font-size: 13px;">{{ formatCurrency(item.total) }}</td>
-                                                <td class="text-center align-middle px-2 py-1"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeToolItem(idx)"></i></td>
+                                                <td><input type="number" v-model="item.quantity" @input="updateToolRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="0"></td>
+                                                <td><input v-model="item.unit" class="form-control form-control-sm border-0 bg-transparent text-center" placeholder="-"></td>
+                                                <td><input v-model="item.description" class="form-control form-control-sm border-0 bg-transparent" placeholder="-"></td>
+                                                <td><input type="number" v-model="item.cost" @input="updateToolRowTotal(item)" class="form-control form-control-sm border-0 bg-transparent text-end" placeholder="0.00"></td>
+                                                <td class="fw-bold text-end">{{ formatCurrency(item.total) }}</td>
+                                                <td class="text-center"><i class="fas fa-trash-alt text-danger" style="cursor: pointer;" @click="removeToolItem(idx)"></i></td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -962,56 +937,3 @@
                                          <tr>
                                              <td class="fw-bold bg-light">Evaluación de Manejo</td>
                                              <td><input v-model="vehicleControlData2.evaluacion" class="form-control form-control-sm text-danger border-0 bg-transparent" placeholder="Alertas por alta velocidad"></td>
-                                         </tr>
-                                     </tbody>
-                                 </table>
-                             </div>
-                         </div>
-                    </div>
-                </div>
-
-                <!-- MODAL IA COTIZADOR -->
-                <div v-if="showAIModal" class="modal-backdrop fade show" style="background-color: rgba(0,0,0,0.5); z-index: 1050;"></div>
-                <div v-if="showAIModal" class="modal fade show d-block" tabindex="-1" style="z-index: 1060;">
-                    <div class="modal-dialog modal-dialog-centered modal-lg">
-                        <div class="modal-content border-0 shadow-lg">
-                            <div class="modal-header bg-dark text-white">
-                                <h5 class="modal-title"><i class="fas fa-brain text-warning me-2"></i>Asistente de Cotización IA</h5>
-                                <button type="button" class="btn-close btn-close-white" @click="closeAIModal"></button>
-                            </div>
-                            <div class="modal-body text-center p-5">
-                                <div v-if="!aiProcessing">
-                                    <h4 class="mb-4 text-muted">Graba tu solicitud de cotización</h4>
-                                    
-                                    <div class="mb-4">
-                                        <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3"
-                                             :class="isRecordingAI ? 'bg-danger animate__animated animate__pulse animate__infinite' : 'bg-light'"
-                                             style="width: 120px; height: 120px; cursor: pointer; transition: all 0.3s;"
-                                             @click="toggleAIRecording">
-                                            <i class="fas fa-microphone fa-3x" :class="isRecordingAI ? 'text-white' : 'text-secondary'"></i>
-                                        </div>
-                                        <p class="lead" :class="isRecordingAI ? 'text-danger fw-bold' : 'text-muted'">
-                                            {{ isRecordingAI ? 'Grabando... (Click para detener)' : 'Click para empezar a grabar' }}
-                                        </p>
-                                    </div>
-
-                                    <div v-if="aiAudioBlob && !isRecordingAI" class="mb-4 animate__animated animate__fadeIn">
-                                        <audio controls :src="aiAudioUrl" class="w-100 mb-3"></audio>
-                                        <div class="d-grid gap-2">
-                                            <button class="btn btn-success btn-lg" @click="processAIQuote">
-                                                <i class="fas fa-magic me-2"></i> Procesar y Extraer Datos
-                                            </button>
-                                            <button class="btn btn-outline-secondary btn-sm" @click="resetAI">Grabar de nuevo</button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div v-else class="py-5">
-                                    <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
-                                    <h5 class="animate__animated animate__pulse animate__infinite">Analizando audio con IA...</h5>
-                                    <p class="text-muted small">Transcribiendo y extrayendo materiales, personal y herramientas.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
