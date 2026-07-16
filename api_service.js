@@ -227,4 +227,8 @@ class GoogleScriptRunAdapter {
 }
 
 // Expose to window
-// Use: google.script.run = new GoogleScriptRunAdapter();
+
+// Expose to window
+window.google = window.google || {};
+window.google.script = window.google.script || {};
+window.google.script.run = new GoogleScriptRunAdapter();
