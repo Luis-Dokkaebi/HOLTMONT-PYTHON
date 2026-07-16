@@ -12,3 +12,5 @@ package-lock.json
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/cache
+venv/
+out_test
