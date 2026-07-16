@@ -1,0 +1,14 @@
+¿Qué hace este PR?
+Migra el frontend heredado "REAL-HOLTMONT" al nuevo backend de Python/FastAPI, manteniendo una réplica exacta a nivel visual y de lógica Vue.js, mientras mapea todas las llamadas legacy de `google.script.run` hacia nuevos endpoints REST usando un Adapter local.
+
+### 5 Preguntas de Calidad (DevOps/SRE)
+1. **¿Esta funcionalidad impacta la experiencia del cliente final?**
+   Sí, pero de forma transparente. La interfaz permanece idéntica al diseño anterior, pero ahora los datos fluyen a la nueva base de datos (Supabase) a través de FastAPI.
+2. **¿Requiere cambios en variables de entorno o configuración?**
+   Sí. Asegurarse de tener las variables de configuración de Supabase (`SUPABASE_URL` y `SUPABASE_KEY`) correctamente inicializadas para los nuevos endpoints de "Tracker Batch" y guardado.
+3. **¿Cómo se manejan los errores y qué logs se generan?**
+   Se implementó manejo de excepciones en `api/main.py` para cada endpoint heredado, y `GoogleScriptRunAdapter` en el frontend canaliza los errores de red a `console.error` imitando el comportamiento anterior de Apps Script.
+4. **¿Existen riesgos de seguridad o exposición de datos?**
+   No se están exponiendo credenciales en texto claro, y el adaptador empaqueta las peticiones localmente hacia el puerto 8000 (o la URL de producción configurada).
+5. **¿Qué pruebas locales y de integración se ejecutaron?**
+   Se probaron localmente todos los endpoints legados usando uvicorn. Las inserciones a las hojas/Supabase y las peticiones a la API devuelven estructuras correctas y eluden race-conditions devolviendo el `_tempId` al frontend.
