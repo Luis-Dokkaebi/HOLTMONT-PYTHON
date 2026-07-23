@@ -82,6 +82,40 @@ ALL_DEPTS = {
     "MAQUINARIA": { "label": "Maquinaria", "icon": "fa-truck", "color": "#20c997" }
 }
 
+# --- Sheet name aliases ---
+# In the legacy Google Sheets model the tab (hoja) name and the app's internal
+# identifier were the same string. When data was migrated to Supabase, some
+# hojas were stored under the person's real name instead of the code identifier
+# used by the frontend/CODIGO.js. The frontend still asks for the identifier
+# (e.g. "ANTONIA_VENTAS"), so we map identifier -> real source_sheet value(s)
+# here. The AppScript equivalent was findSheetSmart(); this preserves that
+# tolerance without touching the frontend.
+#
+# Each entry maps one identifier to an ordered list of source_sheet values to
+# try (the identifier itself is always tried first, before these aliases).
+SHEET_ALIASES = {
+    "ANTONIA_VENTAS": ["ANTONIA PINEDA LOPEZ"],
+}
+
+
+def _normalize_sheet_name(name):
+    """Uppercase, trim and collapse internal whitespace for tolerant matching."""
+    return " ".join(str(name or "").strip().upper().split())
+
+
+def resolve_sheet_candidates(sheet_name):
+    """Return the ordered list of source_sheet values to try for a given
+    requested sheet name: the original first, then any configured aliases.
+    Matching against SHEET_ALIASES is whitespace/case-insensitive."""
+    candidates = [sheet_name]
+    norm = _normalize_sheet_name(sheet_name)
+    for key, aliases in SHEET_ALIASES.items():
+        if _normalize_sheet_name(key) == norm:
+            for alias in aliases:
+                if alias not in candidates:
+                    candidates.append(alias)
+    return candidates
+
 # --- Relational schema adapter ---
 # api/services/sheets.py used to treat every "hoja" (sheet) as its own Supabase
 # table (the Google Sheets model). The current Supabase schema (schema.sql)
@@ -227,16 +261,22 @@ class GSheetsManager:
             # Sales/quote hojas (e.g. ANTONIA_VENTAS) live in `quotes`,
             # everything else (staff trackers, PPCV3, ADMINISTRADOR mirror,
             # etc.) lives in `tasks`. Both keep the original hoja name in
-            # `source_sheet`.
-            rows = sb_manager.select("quotes", {"source_sheet": sheet_name})
-            values = _rows_to_values(rows, QUOTE_HEADER_MAP)
-            if values:
-                return values
+            # `source_sheet`. Some hojas were migrated under the person's real
+            # name, so try the requested identifier first and then any aliases
+            # (see SHEET_ALIASES / resolve_sheet_candidates).
+            candidates = resolve_sheet_candidates(sheet_name)
 
-            rows = sb_manager.select("tasks", {"source_sheet": sheet_name})
-            values = _rows_to_values(rows, TASK_HEADER_MAP)
-            if values:
-                return values
+            for candidate in candidates:
+                rows = sb_manager.select("quotes", {"source_sheet": candidate})
+                values = _rows_to_values(rows, QUOTE_HEADER_MAP)
+                if values:
+                    return values
+
+            for candidate in candidates:
+                rows = sb_manager.select("tasks", {"source_sheet": candidate})
+                values = _rows_to_values(rows, TASK_HEADER_MAP)
+                if values:
+                    return values
 
         # Legacy path: sheet_name used directly as a Supabase table name
         # (only relevant for tables not covered by the relational schema).
