@@ -82,6 +82,66 @@ ALL_DEPTS = {
     "MAQUINARIA": { "label": "Maquinaria", "icon": "fa-truck", "color": "#20c997" }
 }
 
+# --- Relational schema adapter ---
+# api/services/sheets.py used to treat every "hoja" (sheet) as its own Supabase
+# table (the Google Sheets model). The current Supabase schema (schema.sql)
+# instead unifies everything into a handful of relational tables, keeping the
+# original hoja name in a `source_sheet` column for traceability. These maps
+# reconstruct the legacy 2D [headers, ...rows] shape the rest of this module
+# and api/main.py's /api/data parsing already expect, from the real tables.
+
+PEOPLE_HEADER_MAP = [
+    ("NOMBRE", "nombre"),
+    ("DEPARTAMENTO", "departamento"),
+    ("TIPO_HOJA", "tipo_hoja"),
+]
+
+TASK_HEADER_MAP = [
+    ("FOLIO", "folio"),
+    ("RESPONSABLE", "assignee_raw"),
+    ("AREA", "departamento"),
+    ("FECHA", "fecha_alta"),
+    ("CLASIFICACION", "clasificacion"),
+    ("CONCEPTO", "concepto"),
+    ("AVANCE", "avance"),
+    ("FECHA_ESTIMADA_FIN", "fecha_estimada_fin"),
+    ("RELOJ", "reloj"),
+    ("RESTRICCIONES", "restricciones"),
+    ("PRIORIDAD", "prioridad"),
+    ("RIESGOS", "riesgos"),
+    ("FECHA_RESPUESTA", "fecha_respuesta"),
+    ("CUMPLIMIENTO", "cumplimiento"),
+    ("COMENTARIOS", "comentarios"),
+    ("ESTATUS", "status"),
+]
+
+QUOTE_HEADER_MAP = [
+    ("FOLIO", "folio"),
+    ("VENDEDOR", "vendedor_raw"),
+    ("CLIENTE", "cliente"),
+    ("AREA", "area"),
+    ("CLASIFICACION", "clasificacion"),
+    ("CONCEPTO", "concepto"),
+    ("F_VISITA", "f_visita"),
+    ("F_INICIO", "f_inicio"),
+    ("F_ENTREGA", "f_entrega"),
+    ("DIAS", "dias"),
+    ("AVANCE", "avance"),
+    ("ESTATUS", "estatus"),
+    ("COMENTARIOS", "comentarios"),
+    ("MONTO", "monto"),
+]
+
+def _rows_to_values(rows, header_map):
+    if not rows:
+        return None
+    headers = [h for h, _ in header_map]
+    values = [headers]
+    for row in rows:
+        values.append([str(row.get(col, "") or "") for _, col in header_map])
+    return values
+
+
 class MockSheet:
     def __init__(self, name, data):
         self.title = name
@@ -151,11 +211,39 @@ class GSheetsManager:
             self.ss = MockSpreadsheet()
 
     def get_sheet_values(self, sheet_name):
-        # Using Supabase instead of Google Sheets
+        # DB_DIRECTORY -> people
+        if sheet_name == "DB_DIRECTORY":
+            rows = sb_manager.select("people")
+            values = _rows_to_values(rows, PEOPLE_HEADER_MAP)
+            if values:
+                return values
+
+        # USERS has no equivalent table in the relational schema (no auth data
+        # was migrated) - always fall through to the mock login below.
+        elif sheet_name == "USERS":
+            pass
+
+        else:
+            # Sales/quote hojas (e.g. ANTONIA_VENTAS) live in `quotes`,
+            # everything else (staff trackers, PPCV3, ADMINISTRADOR mirror,
+            # etc.) lives in `tasks`. Both keep the original hoja name in
+            # `source_sheet`.
+            rows = sb_manager.select("quotes", {"source_sheet": sheet_name})
+            values = _rows_to_values(rows, QUOTE_HEADER_MAP)
+            if values:
+                return values
+
+            rows = sb_manager.select("tasks", {"source_sheet": sheet_name})
+            values = _rows_to_values(rows, TASK_HEADER_MAP)
+            if values:
+                return values
+
+        # Legacy path: sheet_name used directly as a Supabase table name
+        # (only relevant for tables not covered by the relational schema).
         res = sb_manager.get_sheet_values(sheet_name)
         if res:
             return res
-            
+
         # Fallback to mock if table doesn't exist or errors out
         try:
             if self.is_mock:
@@ -194,26 +282,18 @@ class GSheetsManager:
 gs_manager = GSheetsManager()
 
 def get_directory_from_db():
-    values = gs_manager.get_sheet_values("DB_DIRECTORY")
-    if not values or len(values) < 2:
+    rows = sb_manager.select("people")
+    if not rows:
         return INITIAL_DIRECTORY
 
-    # Simple parse assuming headers [NOMBRE, DEPARTAMENTO, TIPO_HOJA]
-    headers = [str(h).upper().strip() for h in values[0]]
-    try:
-        name_idx = headers.index("NOMBRE")
-        dept_idx = headers.index("DEPARTAMENTO")
-        type_idx = headers.index("TIPO_HOJA")
-    except ValueError:
-        return INITIAL_DIRECTORY # Headers not matching
-
     directory = []
-    for row in values[1:]:
-        if len(row) > name_idx and row[name_idx].strip():
+    for row in rows:
+        name = (row.get("nombre") or "").strip()
+        if name:
             directory.append({
-                "name": row[name_idx].strip(),
-                "dept": row[dept_idx].strip() if len(row) > dept_idx else "GENERAL",
-                "type": row[type_idx].strip() if len(row) > type_idx else "ESTANDAR"
+                "name": name,
+                "dept": (row.get("departamento") or "GENERAL").strip(),
+                "type": (row.get("tipo_hoja") or "ESTANDAR").strip()
             })
     return directory
 
