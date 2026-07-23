@@ -5,8 +5,8 @@ from typing import List, Dict, Any, Optional
 
 class SupabaseManager:
     def __init__(self):
-        self.url = os.environ.get("SUPABASE_URL", "https://zurbtyxhkylnlvcobefy.supabase.co")
-        self.key = os.environ.get("SUPABASE_KEY", "sb_secret_wdmpdp9g0QMgHa9ff9eiKg_iLzXK-e_")
+        self.url = os.environ["SUPABASE_URL"]
+        self.key = os.environ["SUPABASE_KEY"]
         self.client: Client = create_client(self.url, self.key)
         
     def get_sheet_values(self, sheet_name: str) -> List[List[str]]:
