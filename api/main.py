@@ -134,6 +134,35 @@ def api_get_system_config(role: str = Query(..., description="User Role")):
             "accessProjects": False
         }
 
+    # Individual sales/staff roles (parity with CODIGO.js getSystemConfig).
+    # Each of these users gets their personal tracker ("Mi Tabla") plus their
+    # own sales sheet ("<NOMBRE> (VENTAS)"). Without these entries the roles
+    # fell through to the default ADMIN branch, so their personal views never
+    # appeared (same class of bug as ANTONIA_VENTAS).
+    STAFF_USER_ROLES = {
+        'ANGEL_USER':      { "name": "ANGEL SALINAS",      "dept": "DISEÑO",          "color": "#0d6efd" },
+        'TERESA_USER':     { "name": "TERESA GARZA",       "dept": "CONSTRUCCION",    "color": "#e83e8c" },
+        'EDUARDO_USER':    { "name": "EDUARDO TERAN",      "dept": "CONSTRUCCION",    "color": "#fd7e14" },
+        'MANZANARES_USER': { "name": "EDUARDO MANZANARES", "dept": "HVAC",            "color": "#fd7e14" },
+        'RAMIRO_USER':     { "name": "RAMIRO RODRIGUEZ",   "dept": "CONSTRUCCION",    "color": "#20c997" },
+        'SEBASTIAN_USER':  { "name": "SEBASTIAN PADILLA",  "dept": "ELECTROMECANICA", "color": "#ffc107" },
+        'EDGAR_USER':      { "name": "EDGAR LOPEZ",        "dept": "DISEÑO",          "color": "#0d6efd" },
+    }
+
+    if role in STAFF_USER_ROLES:
+        info = STAFF_USER_ROLES[role]
+        return {
+            "departments": {},
+            "allDepartments": ALL_DEPTS,
+            "staff": [ { "name": info["name"], "dept": info["dept"] } ],
+            "directory": full_directory,
+            "specialModules": [
+                { "id": "MY_TRACKER", "label": "Mi Tabla", "icon": "fa-table", "color": info["color"], "type": "mirror_staff", "target": info["name"] },
+                { "id": "MY_SALES", "label": "Ventas", "icon": "fa-hand-holding-usd", "color": "#0dcaf0", "type": "mirror_staff", "target": info["name"] + " (VENTAS)" }
+            ],
+            "accessProjects": False
+        }
+
     if role == 'PPC_ADMIN':
         special_modules = ppc_modules
         return {
