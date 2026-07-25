@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 # ----------------------------------------------------------------------
@@ -313,7 +313,7 @@ def to_iso_z(value: Any) -> str:
     ISO 8601 con milisegundos y 'Z' — formato exigido por Make.com/Outlook
     (AGENTS.md §5). Equivale a `Date.prototype.toISOString()` de JavaScript.
     """
-    dt = value if isinstance(value, datetime) else (parse_sheet_date(value) or datetime.utcnow())
+    dt = value if isinstance(value, datetime) else (parse_sheet_date(value) or datetime.now(timezone.utc))
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
 
 
@@ -575,7 +575,7 @@ def build_notification_payload(sheet_name: str, task: Dict[str, Any], assignee: 
         "estatus": str(pick_task_value(task, ["ESTATUS", "STATUS"]) or "ASIGNADO"),
         "fechaInicio": to_iso_z(fecha),
         "fechaFin": to_iso_z(fecha_fin) if fecha_fin else "",
-        "enviadoEn": to_iso_z(datetime.utcnow()),
+        "enviadoEn": to_iso_z(datetime.now(timezone.utc)),
     }
 
 
