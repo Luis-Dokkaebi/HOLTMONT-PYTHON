@@ -55,3 +55,18 @@ distingue:
   backend).
 - Un valor concreto distinto del esperado (p. ej. `ESTATUS = DONE` cuando se
   esperaba `EN PROCESO`) → **defecto de comportamiento** en código que sí existe.
+
+## Paridad con el stack de Python
+
+La misma lógica vive en `api/services/tracker_rules.py` (motor puro) y se
+expone por FastAPI desde `api/main.py` a través de `api/services/tracker_store.py`.
+Sus pruebas espejo no requieren Supabase ni credenciales:
+
+```bash
+python -m pytest tests/test_tracker_rules.py   # reglas de negocio (paridad con CODIGO.js)
+python -m pytest tests/test_api_contract.py    # index.html -> api_service.js -> api/main.py
+```
+
+`test_api_contract.py` analiza estáticamente `api/main.py` y `api_service.js`,
+por lo que detecta endpoints faltantes o métodos del adaptador que vuelvan a
+convertirse en stubs sin necesidad de levantar el servidor.

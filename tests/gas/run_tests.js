@@ -176,11 +176,10 @@ run('1.x', 'Colores del semáforo por clasificación', () => {
 
 run('1.4', 'Límite SLA de AA declarado en el plan (14 días)', () => {
   const { rules } = semaforoRules();
-  // El plan dice "AA = límite 14 días" -> a los 15 días debería estar VENCIDO (rojo)
+  // El plan y el dashboard declaran AA = 14 días -> a los 15 está VENCIDO (rojo)
   const color15 = resolveColor(rules, { clase: 'AA', dias: 15 });
   check('1.4', 'AA a los 15 días (límite del plan = 14)', COLOR_NAME['#FF0000'],
-    COLOR_NAME[color15] || String(color15), color15 === '#FF0000',
-    'CODIGO.js usa límite 15 (addRulePair("AA", 15, 3)), el plan documenta 14');
+    COLOR_NAME[color15] || String(color15), color15 === '#FF0000');
 });
 
 // ======================================================================
@@ -212,6 +211,16 @@ run('2.1', 'ANTONIA_VENTAS manda tarea a un vendedor', () => {
   const folio = findRow(env, 'ANTONIA_VENTAS', 'COTIZACION NAVE ACME');
   check('2.1b', 'Antonia genera folio para la nueva cotización', 'folio no vacío',
     folio ? `FOLIO="${folio.FOLIO}"` : 'fila no encontrada', !!(folio && String(folio.FOLIO).trim()));
+});
+
+run('2.1c', 'El titular sí puede escribir en su propia tabla (VENTAS)', () => {
+  const env = envVentas({ 'ANGEL SALINAS (VENTAS)': sales([]) });
+  env.api.apiSaveTrackerBatch('ANGEL SALINAS (VENTAS)', [{
+    CONCEPTO: 'COTIZACION PROPIA ANGEL', FECHA: '01/07/26', ESTATUS: 'EN PROCESO'
+  }], 'ANGEL_SALINAS');
+  const enVentas = countRowsContaining(env, 'ANGEL SALINAS (VENTAS)', 'COTIZACION PROPIA ANGEL');
+  check('2.1c', 'El vendedor conserva su hoja (VENTAS) al guardar', '1 fila',
+    `${enVentas} fila(s)`, enVentas === 1);
 });
 
 run('2.2', 'Otro usuario intenta mandar tarea a la hoja (VENTAS) de un vendedor', () => {
@@ -431,7 +440,7 @@ run('5.1', 'Delegación de la fase CD desde Toñita a ANGEL SALINAS', () => {
 
   const rowAnt = findRow(env, 'ANTONIA_VENTAS', 'AV-2025');
   const mapcot = rowAnt ? String(rowAnt['MAP COT'] || '') : '';
-  check('5.1c', 'MAP COT de la etapa CD pasa de ⚪ a 🔴', '🔴 CD', mapcot || '(vacío)', /🔴/.test(mapcot));
+  check('5.1c', 'MAP COT de la etapa CD pasa de ⚪ a 🔴', '🔴 CD', mapcot || '(vacío)', /🔴\s*CD/.test(mapcot));
 
   const backendPapaCaliente = /PROCESO_LOG/.test(CODIGO_SRC) || /MAP COT/.test(CODIGO_SRC);
   check('5.1d', 'CODIGO.js implementa la lógica PROCESO_LOG / MAP COT', 'sí',
@@ -478,7 +487,7 @@ run('5.2', 'Reverse Sync del trabajador hacia Toñita', () => {
     log || '(vacío)', /DONE/i.test(log));
 
   const mapcot = rowAnt ? String(rowAnt['MAP COT'] || '') : '';
-  check('5.2d', 'MAP COT de CD cambia a 🟢', '🟢 CD', mapcot || '(vacío)', /🟢/.test(mapcot));
+  check('5.2d', 'MAP COT de CD cambia a 🟢', '🟢 CD', mapcot || '(vacío)', /🟢\s*CD/.test(mapcot));
 });
 
 run('5.3', 'Prevención de cierre prematuro de la venta global', () => {
@@ -566,7 +575,8 @@ run('7.1b', 'Adaptador de migración (api_service.js): métodos críticos implem
   const stubs = criticos.filter(m => {
     const re = new RegExp(`${m}\\s*\\([^)]*\\)\\s*\\{([\\s\\S]*?)\\n    \\}`);
     const body = (re.exec(adapter) || [])[1] || '';
-    return /console\.warn\([^)]*not implemented|stub/i.test(body) || !/fetch\(/.test(body);
+    const llamaBackend = /fetch\(|this\._post\(|this\._call\(/.test(body);
+    return /not implemented|stub/i.test(body) || !llamaBackend;
   });
   check('7.1b', 'Métodos de guardado del adaptador FastAPI que siguen siendo stubs', '0 stubs',
     stubs.length ? `${stubs.length}: ${stubs.join(', ')}` : '0 stubs', stubs.length === 0,

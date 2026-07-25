@@ -253,6 +253,36 @@ class GSheetsManager:
         except Exception as e:
             return None
 
+    def write_values(self, sheet_name, values):
+        """
+        Reemplaza el contenido completo de una hoja/tabla.
+
+        Necesario para el motor del tracker (auto-archivado y reordenamiento
+        de filas), que recalcula la matriz entera. Precedencia:
+          1. Google Sheets real (gspread) -> clear + update.
+          2. Modo mock -> reemplazo en memoria.
+          3. Supabase relacional -> aún no soporta reemplazo de matriz; se
+             insertan solo las filas nuevas y se avisa por consola.
+        """
+        if not values:
+            return False
+        try:
+            if self.is_mock:
+                self.ss.sheets[sheet_name] = [list(r) for r in values]
+                return True
+
+            try:
+                sheet = self.ss.worksheet(sheet_name)
+            except gspread.WorksheetNotFound:
+                sheet = self.ss.add_worksheet(title=sheet_name, rows=max(len(values) + 50, 100), cols=26)
+
+            sheet.clear()
+            sheet.update(values)
+            return True
+        except Exception as e:
+            print(f"Error writing values to sheet {sheet_name}: {e}")
+            return False
+
     def append_row(self, sheet_name, values):
         # Using Supabase instead of Google Sheets
         res = sb_manager.append_row(sheet_name, values)

@@ -386,6 +386,188 @@ def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):
         "headers": clean_headers
     }
 
+# ======================================================================
+# API LEGACY DEL TRACKER (paridad con CODIGO.js / google.script.run)
+# ======================================================================
+# Cada endpoint es el equivalente en Python de una función del backend de
+# Apps Script. El adaptador `api_service.js` los consume para que el
+# frontend monolítico funcione igual sobre FastAPI que sobre GAS.
+from api.services import tracker_store
+
+
+class TrackerBatchRequest(BaseModel):
+    sheetName: str
+    tasks: List[Dict[str, Any]]
+    username: Optional[str] = ""
+
+
+class TrackerTaskRequest(BaseModel):
+    sheetName: Optional[str] = ""
+    task: Dict[str, Any]
+    username: Optional[str] = ""
+
+
+class GeminiKeyRequest(BaseModel):
+    key: str
+
+
+class DateChangeRequest(BaseModel):
+    payload: Dict[str, Any]
+    username: Optional[str] = ""
+
+
+class QuoteAgentRequest(BaseModel):
+    month: Optional[int] = None
+    year: Optional[int] = None
+
+
+@app.post("/api/legacy/saveTrackerBatch")
+def api_legacy_save_tracker_batch(req: TrackerBatchRequest):
+    """apiSaveTrackerBatch: ruteo protegido, folios con prefijo, papa caliente y reverse sync."""
+    return tracker_store.save_tracker_batch(req.sheetName, req.tasks, req.username or "")
+
+
+@app.post("/api/legacy/updateTask")
+def api_legacy_update_task(req: TrackerTaskRequest):
+    """apiUpdateTask / internalUpdateTask (una fila)."""
+    return tracker_store.update_task(req.sheetName or "", req.task, req.username or "")
+
+
+@app.post("/api/legacy/updatePPCV3")
+def api_legacy_update_ppcv3(req: TrackerTaskRequest):
+    """apiUpdatePPCV3: PPCV4 para ANTONIA_VENTAS, PPCV3 para el resto."""
+    return tracker_store.update_ppcv3(req.task, req.username or "")
+
+
+@app.get("/api/legacy/weeklyPlan")
+def api_legacy_weekly_plan(username: str = Query("", description="Usuario activo")):
+    """apiFetchWeeklyPlanData."""
+    return tracker_store.fetch_weekly_plan(username)
+
+
+@app.get("/api/legacy/salesHistory")
+def api_legacy_sales_history():
+    """apiFetchSalesHistory: cotizaciones agrupadas por vendedor."""
+    return tracker_store.fetch_sales_history()
+
+
+@app.get("/api/legacy/quoteMetrics")
+def api_legacy_quote_metrics(month: Optional[int] = Query(None), year: Optional[int] = Query(None)):
+    """apiFetchQuoteAgentMetrics: KPIs por reglas (incluye el historial cerrado)."""
+    return tracker_store.fetch_quote_metrics(month, year)
+
+
+@app.post("/api/legacy/runQuoteAgent")
+def api_legacy_run_quote_agent(req: QuoteAgentRequest):
+    """runQuoteMetricsAgent: reglas + análisis Gemini + notificación."""
+    return tracker_store.run_quote_metrics_agent(req.month, req.year)
+
+
+@app.get("/api/legacy/lastAgentReport")
+def api_legacy_last_agent_report():
+    """apiGetLastAgentReport."""
+    return tracker_store.get_last_agent_report()
+
+
+@app.post("/api/legacy/writeQuoteMetrics")
+def api_legacy_write_quote_metrics(req: QuoteAgentRequest):
+    """apiWriteQuoteMetricsToSheet: vuelca los KPIs a KPI_COTIZACIONES."""
+    return tracker_store.write_quote_metrics_to_sheet(req.month, req.year)
+
+
+@app.get("/api/legacy/geminiKey")
+def api_legacy_check_gemini_key():
+    """apiCheckGeminiKey: solo devuelve un preview, nunca la key completa."""
+    return tracker_store.check_gemini_key()
+
+
+@app.post("/api/legacy/geminiKey")
+def api_legacy_save_gemini_key(req: GeminiKeyRequest):
+    """apiSaveGeminiKey."""
+    return tracker_store.save_gemini_key(req.key)
+
+
+@app.post("/api/legacy/trackerProductivity")
+def api_legacy_tracker_productivity(req: QuoteAgentRequest):
+    """runTrackerProductivityAgent: productividad por persona del directorio."""
+    month = req.month or datetime.now().month
+    year = req.year or datetime.now().year
+    resumen = []
+    total_activas = 0
+    total_cerradas = 0
+
+    for person in {u["name"] for u in get_directory_from_db()}:
+        active, history, _ = tracker_store.read_rows(person)
+        if not active and not history:
+            continue
+
+        def en_periodo(row):
+            from api.services import tracker_rules as _rules
+            fecha = _rules.parse_sheet_date(_rules.pick_task_value(row, ["FECHA", "FECHA ALTA", "ALTA"]))
+            return bool(fecha) and fecha.month == month and fecha.year == year
+
+        activas = [r for r in active if en_periodo(r)]
+        cerradas = [r for r in history if en_periodo(r)]
+        if not activas and not cerradas:
+            continue
+
+        total_activas += len(activas)
+        total_cerradas += len(cerradas)
+        total = len(activas) + len(cerradas)
+        resumen.append({
+            "nombre": person,
+            "activas": len(activas),
+            "cerradas": len(cerradas),
+            "cumplimiento": round((len(cerradas) / total) * 100, 1) if total else 0,
+        })
+
+    resumen.sort(key=lambda r: r["cerradas"], reverse=True)
+    return {
+        "success": True,
+        "data": {
+            "month": month,
+            "year": year,
+            "totalActivas": total_activas,
+            "totalCerradas": total_cerradas,
+            "personas": resumen,
+            "emailSent": False,
+        },
+    }
+
+
+@app.get("/api/legacy/infoBankCompanies")
+def api_legacy_info_bank_companies(year: str = Query(...), month: str = Query(...)):
+    """apiFetchInfoBankCompanies."""
+    return tracker_store.fetch_info_bank_companies(year, month)
+
+
+@app.get("/api/legacy/unifiedAgenda")
+def api_legacy_unified_agenda(username: str = Query("", description="Usuario activo")):
+    """apiFetchUnifiedAgenda: tareas, eventos personales y hábitos."""
+    return tracker_store.fetch_unified_agenda(username)
+
+
+@app.post("/api/legacy/logDateChange")
+def api_legacy_log_date_change(req: DateChangeRequest):
+    """apiLogDateChange: auditoría de cambios de fecha en la tabla de ventas."""
+    return tracker_store.log_date_change(req.payload, req.username or "")
+
+
+@app.post("/api/legacy/resyncDirectory")
+def api_legacy_resync_directory():
+    """apiResyncDirectory: agrega al directorio los registros base faltantes."""
+    existing = {(u["name"].upper().strip(), u["dept"].upper().strip()) for u in get_directory_from_db()}
+    missing = [u for u in INITIAL_DIRECTORY
+               if (u["name"].upper().strip(), u["dept"].upper().strip()) not in existing]
+    for user in missing:
+        gs_manager.append_row("DB_DIRECTORY", [user["name"], user["dept"], user["type"]])
+    return {
+        "success": True,
+        "message": (f"Directorio sincronizado: {len(missing)} registro(s) agregado(s)."
+                    if missing else "El directorio ya estaba sincronizado."),
+    }
+
+
 app.mount("/", StaticFiles(directory=".", html=True), name="root")
 
 if __name__ == "__main__":
