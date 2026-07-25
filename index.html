@@ -3735,16 +3735,21 @@
                             </div>
                         </div>
 
-                        <!-- 2. REQUERIMIENTO PARA COTIZACION -->
+                        <!-- 2. REQUERIMIENTO PARA COTIZACION (Paso 2) -->
                         <div class="mb-4">
-                            <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-dark pb-1" style="background: #ffffcc;">
-                                <span class="fw-bold text-dark small text-uppercase ps-2">2. Requerimiento para Cotización</span>
-                                <span class="fw-bold text-dark pe-2 small">Total: {{ formatCurrency(reqCotizacionTotal) }}</span>
+                            <div class="d-flex justify-content-between align-items-center mb-2 p-2" style="background: #000000;">
+                                <span class="fw-bold text-white fs-5 ps-2">2. Requerimiento Pre-Diseños , Pre-Analisis de Riesgos y Precios Unitarios( Paso 2 )</span>
+                                <div class="d-flex align-items-center gap-2 pe-2">
+                                    <button class="btn btn-primary fw-bold text-white fs-4 py-0 px-3" @click="addProjectItem('reqCotizacion')" title="Agregar Requerimiento">+</button>
+                                    <div class="bg-white border border-dark px-2 py-1 fw-bold text-dark">
+                                        Total: {{ formatCurrency(reqCotizacionTotal) }}
+                                    </div>
+                                </div>
                             </div>
                             <div v-for="(item, idx) in projectProgram.reqCotizacion" :key="idx" class="card mb-1 border-0 border-bottom bg-white" :style="{opacity: item.isActive ? 1 : 0.6}">
                                 <div class="card-body p-1">
                                     <div class="row g-1 align-items-center">
-                                        <div class="col-12 col-lg-5 d-flex align-items-center gap-2">
+                                        <div class="col-12 col-md-3 col-lg-3 d-flex align-items-center gap-2">
                                              <div class="d-flex gap-1" style="min-width: 60px;">
                                                  <i class="fas fa-check-square fa-lg cursor-pointer" :class="item.checkStatus === 'APPLY' ? 'text-success' : 'text-muted opacity-50'" @click="setCheckStatus(item, 'APPLY')"></i>
                                                  <i class="fas fa-window-close fa-lg cursor-pointer" :class="item.checkStatus === 'NO_APPLY' ? 'text-danger' : 'text-muted opacity-50'" @click="setCheckStatus(item, 'NO_APPLY')"></i>
@@ -3754,27 +3759,26 @@
                                         </div>
 
                                         <template v-if="item.isActive">
-                                            <div class="col-4 col-md-2 col-lg-2">
-                                                 <div class="input-group input-group-sm">
-                                                     <input type="number" v-model="item.duration" class="form-control px-1 text-center" placeholder="T" style="font-size: 11px;">
-                                                     <select v-model="item.durationUnit" class="form-select px-0 text-center" style="font-size: 10px;">
-                                                         <option value="dias">Días</option>
-                                                         <option value="horas">Hrs</option>
-                                                         <option value="semanas">Sem</option>
-                                                     </select>
-                                                 </div>
-                                            </div>
-                                            <div class="col-2 col-md-1 col-lg-1">
-                                                <input v-model="item.unit" class="form-control form-control-sm px-0 text-center" placeholder="Und" style="font-size: 11px;">
-                                            </div>
-                                            <div class="col-2 col-md-1 col-lg-1">
-                                                <input type="number" v-model="item.quantity" @input="updateProjectRowTotal(item)" class="form-control form-control-sm px-0 text-center" placeholder="Cant" style="font-size: 11px;">
-                                            </div>
-                                            <div class="col-2 col-md-1 col-lg-1">
-                                                <input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm px-0 text-center" placeholder="P.U." style="font-size: 11px;">
-                                            </div>
-                                            <div class="col-2 col-md-1 col-lg-1">
-                                                <input v-model="item.total" class="form-control form-control-sm px-0 text-end fw-bold text-success bg-light" placeholder="Total" style="font-size: 11px;" readonly>
+                                            <div class="col-12 col-md-9 col-lg-9 d-flex gap-1 align-items-center flex-wrap">
+                                                <div class="position-relative">
+                                                    <button class="btn btn-sm bg-white text-dark py-1 px-2 text-center" style="border: 1px solid #000; min-width: 90px;" @click="openRespDropdown(idx, item)" title="Responsables">
+                                                        <span v-if="!item.responsable || item.responsable.length === 0">Responsable</span>
+                                                        <span v-else>{{ item.responsable.join(', ') }}</span>
+                                                    </button>
+                                                    <div v-if="projectRespDropdownOpen === idx" class="position-absolute bg-white border shadow-sm p-2 z-3" style="min-width: 150px; top:100%; left:0;">
+                                                        <div v-for="p in config.directory" :key="p.name" class="form-check form-check-sm mb-1">
+                                                            <input class="form-check-input" type="checkbox" :checked="(item.responsable || []).includes(p.name)" @change="toggleProjectResponsable(item, p.name)">
+                                                            <label class="form-check-label small" style="font-size:10px;">{{ p.name }}</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <input type="date" v-model="item.fechaInicio" class="form-control form-control-sm px-1 text-center bg-white" placeholder="Fecha inicio" title="Fecha Inicio" style="border: 1px solid #000; font-size: 11px; max-width: 100px;">
+                                                <input type="date" v-model="item.fechaEntrega" class="form-control form-control-sm px-1 text-center bg-white" placeholder="Fecha Entrega" title="Fecha Entrega" style="border: 1px solid #000; font-size: 11px; max-width: 100px;">
+                                                <input type="text" v-model="item.duration" class="form-control form-control-sm px-1 text-center bg-white" placeholder="Hrs o Días de Trabajo" title="Hrs o Días de Trabajo" style="border: 1px solid #000; font-size: 10px; max-width: 125px;">
+                                                <input type="date" v-model="item.fechaInicio2" class="form-control form-control-sm px-1 text-center bg-white" placeholder="Fecha inicio" title="Fecha Inicio" style="border: 1px solid #000; font-size: 11px; max-width: 100px;">
+                                                <input type="text" v-model="item.fileUrl" class="form-control form-control-sm px-1 bg-white" placeholder="Archivo Adjunto" title="Archivo Adjunto" style="border: 1px solid #000; font-size: 11px; max-width: 105px;">
+                                                <input type="number" v-model="item.total" class="form-control form-control-sm px-1 text-end text-dark bg-white" placeholder="Costo $" title="Costo $" style="border: 1px solid #000; font-size: 11px; max-width: 70px;">
+                                                <button class="btn btn-outline-danger btn-sm border-0 p-1 ms-1" @click="removeProjectItem('reqCotizacion', idx)" title="Eliminar"><i class="fas fa-trash-alt"></i></button>
                                             </div>
                                         </template>
                                     </div>
@@ -3785,7 +3789,10 @@
                         <!-- 3. COTIZACION PRECONSTRUCCION -->
                         <div class="mb-4">
                             <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-dark pb-1" style="background: #ffffcc;">
-                                <span class="fw-bold text-dark small text-uppercase ps-2">3. Cotización Preconstrucción</span>
+                                <div class="d-flex align-items-center">
+                                    <span class="fw-bold text-dark small text-uppercase ps-2">3. Cotización Preconstrucción</span>
+                                    <button class="btn btn-primary btn-sm py-0 px-2 fw-bold ms-2" style="font-size: 10px;" @click="addProjectItem('cotPreconstruccion')" title="Agregar Fila"><i class="fas fa-plus"></i></button>
+                                </div>
                                 <span class="fw-bold text-dark pe-2 small">Total: {{ formatCurrency(cotPreconstruccionTotal) }}</span>
                             </div>
                             <div v-for="(item, idx) in projectProgram.cotPreconstruccion" :key="idx" class="card mb-1 border-0 border-bottom bg-white" :style="{opacity: item.isActive ? 1 : 0.6}">
@@ -3809,8 +3816,19 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="col-4 col-md-2">
-                                            <input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm text-end" placeholder="$ Cost" style="font-size: 11px;">
+                                        <div class="col-12 col-md-2 d-flex gap-2 align-items-center justify-content-end">
+                                            <input type="text" v-model="item.notes" class="form-control form-control-sm text-center" placeholder="-" style="font-size: 11px; max-width: 150px;">
+
+                                            <input type="number" v-model="item.duration" @input="updateProjectRowTotal(item)" class="form-control form-control-sm text-center border-dark rounded-0" placeholder="Dias Hrs Trabajo" style="font-size: 11px; max-width: 110px; border-width: 1.5px;">
+
+                                            <input type="number" v-model="item.price" @input="updateProjectRowTotal(item)" class="form-control form-control-sm text-center border-dark rounded-0" placeholder="Costo $" style="font-size: 11px; max-width: 100px; border-width: 1.5px;">
+
+                                            <div class="d-flex flex-column align-items-center justify-content-center" style="min-width: 60px;">
+                                                <button class="btn btn-danger btn-sm p-1 mb-1" @click="removeProjectItem('cotPreconstruccion', idx)" title="Eliminar" style="line-height: 1;">
+                                                    <i class="fas fa-trash-alt"></i>
+                                                </button>
+                                                <span class="text-muted small fw-bold" style="font-size: 10px;">{{ formatCurrency(item.total) }}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -3842,34 +3860,44 @@
                                 </div>
                             </div>
 
-                            <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-danger pb-1">
-                                <span class="fw-bold text-danger small text-uppercase">Detalle de Actividades (Recursos)</span>
+                            <div class="d-flex justify-content-between align-items-center mb-2 bg-black text-white p-2 border-bottom border-danger">
+                                <span class="fw-bold fs-5">4. Catálogo de Conceptos ( Paso 4 )</span>
                                 <button class="btn btn-danger btn-sm py-0 px-2 fw-bold" style="font-size: 10px;" @click="addProjectItem('cotTrabajo')"><i class="fas fa-plus"></i></button>
                             </div>
                             <div v-for="(item, idx) in projectProgram.cotTrabajo" :key="item.id || idx" class="card mb-2 border shadow-sm" style="border-left: 3px solid #dc3545 !important;">
                                 <div class="card-body p-2">
                                     <div class="row g-2 align-items-center">
                                         <!-- Buttons (Resources) -->
-                                        <div class="col-12 col-lg-2 d-flex flex-wrap gap-1">
-                                            <button class="btn btn-sm btn-primary rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MANO_OBRA'">MO</button>
-                                            <button class="btn btn-sm btn-info text-white rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='HERRAMIENTAS'">Her</button>
-                                            <button class="btn btn-sm btn-success rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MATERIALES'">Mat</button>
-                                            <button class="btn btn-sm btn-warning text-dark rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='EQUIPOS'">Equ</button>
+                                        <div class="col-12 col-lg-1">
+                                            <div class="text-center mb-1"><small class="fw-bold bg-white px-2 py-0 border rounded" style="font-size: 10px; margin-top:-10px; display:inline-block; position:relative; z-index:1;">Pop Up</small></div>
+                                            <div class="d-flex flex-column gap-1 p-1 border rounded" style="margin-top:-15px;">
+                                                <button class="btn btn-sm btn-primary rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MANO_OBRA'">MO</button>
+                                                <button class="btn btn-sm btn-info text-white rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='HERRAMIENTAS'">Her</button>
+                                                <button class="btn btn-sm btn-success rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='MATERIALES'">Mat</button>
+                                                <button class="btn btn-sm btn-warning text-dark rounded-pill py-0 px-2 flex-fill" style="font-size: 10px;" @click="openResourcePopup(item); currentResourceTab='EQUIPOS'">Equ</button>
+                                            </div>
                                         </div>
 
                                         <!-- Description -->
                                         <div class="col-12 col-md-5 col-lg-4">
                                             <input v-model="item.description" class="form-control form-control-sm fw-bold" placeholder="Descripción de Actividad">
+                                            <textarea v-if="item.dictado_detalle" v-model="item.dictado_detalle" class="form-control form-control-sm mt-1 text-muted" rows="3" style="font-size: 0.8rem; resize: vertical;" readonly></textarea>
+                                        </div>
+
+                                        <!-- Cotizador -->
+                                        <div class="col-12 col-md-3 col-lg-2">
+                                            <input v-model="item.cotizador" class="form-control form-control-sm" placeholder="Cotizador...">
                                         </div>
 
                                         <!-- Time -->
                                         <div class="col-6 col-md-3 col-lg-2">
                                             <div class="input-group input-group-sm w-100">
-                                                <input type="number" v-model="item.duration" class="form-control" placeholder="T">
-                                                <select v-model="item.durationUnit" class="form-select px-0 text-center" style="max-width: 50px;">
+                                                <span class="input-group-text bg-light text-muted fw-bold">T</span>
+                                                <input type="number" v-model="item.duration" class="form-control" placeholder="">
+                                                <select v-model="item.durationUnit" class="form-select px-1 text-center" style="max-width: 60px;">
                                                     <option value="min">min</option>
-                                                    <option value="horas">hr</option>
-                                                    <option value="dias">d</option>
+                                                    <option value="horas">hrs</option>
+                                                    <option value="dias">días</option>
                                                 </select>
                                             </div>
                                         </div>
@@ -5598,7 +5626,7 @@
       <div class="custom-modal" style="width: 800px; max-width: 95vw; height: 80vh; display: flex; flex-direction: column;">
           <div class="custom-modal-header bg-dark text-white">
               <div>
-                  <span class="fw-bold"><i class="fas fa-cubes me-2"></i>Recursos para: {{ currentActivityContext.description || 'Actividad Sin Nombre' }}</span>
+                  <span class="fw-bold"><i class="fas fa-cubes me-2"></i>Detalle de Actividad</span>
               </div>
               <button type="button" class="btn-close btn-close-white" @click="showResourceModal = false"></button>
           </div>
@@ -5609,6 +5637,21 @@
               <button class="btn btn-sm fw-bold" :class="currentResourceTab === 'EQUIPOS' ? 'btn-warning text-dark' : 'btn-outline-secondary'" @click="currentResourceTab = 'EQUIPOS'">Equipos</button>
           </div>
           <div class="custom-modal-body bg-white flex-fill overflow-auto p-3">
+              <!-- DESCRIPCION Y DICTADO DE LA ACTIVIDAD -->
+              <div class="mb-4 border-bottom pb-3 border-2 border-danger">
+                  <div class="mb-3">
+                      <label class="form-label fw-bold">Descripción de Actividad</label>
+                      <input v-model="currentActivityContext.description" class="form-control" placeholder="Ej: Construccion de Pared de Block 10 x 3 m altura...">
+                  </div>
+                  <div class="mb-2 position-relative">
+                      <label class="form-label fw-bold text-muted small d-block">Dictado de Pared (Mano de obra, materiales, herramientas, equipos):</label>
+                      <textarea :id="'dictado-' + currentActivityContext.id" v-model="currentActivityContext.dictado" class="form-control shadow-sm" rows="3" placeholder="Dicta los detalles aquí..."></textarea>
+                      <button :id="'btn-micro-dictado-' + currentActivityContext.id" class="btn btn-danger btn-sm position-absolute rounded-circle shadow" style="bottom: 10px; right: 10px; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center;" @click="iniciarDictadoNativo('dictado-' + currentActivityContext.id)" title="Iniciar Dictado">
+                          <i class="fas fa-microphone"></i>
+                      </button>
+                  </div>
+              </div>
+
               <!-- MANO DE OBRA -->
               <div v-if="currentResourceTab === 'MANO_OBRA'">
                   <div class="d-flex justify-content-end mb-2"><button class="btn btn-sm btn-primary" @click="addResourceToActivity('MANO_OBRA')"><i class="fas fa-plus"></i> Agregar Personal</button></div>
@@ -6438,27 +6481,18 @@ async function toggleVoiceRecording(btnElement) {
 
       // PROTOTYPES STATE
       // DEFAULTS FOR FIXED SECTIONS
-      const defaultReqCotizacion = [
-          { description: 'Pre diseño Arquitectura para definir el cuarto 6x6 con 2 ventanas, doble puerta, y plafón', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'pre Diseño Eléctrico estudio de iluminación, calculo eléctrico para instalación de Equipo', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Pre Diseño de HVAC, calculo de cargas térmicas, tomado encuenta si la nave tiene clima', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Pre Analisis de Riesgo', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Precios Unitarios Gerente mapear la cotización', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Cotizador Jr Hvac', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Cotizador Jr Eléctrico', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 },
-          { description: 'Cotizador Jr Construcción', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0 }
-      ];
+      const defaultReqCotizacion = [];
       const defaultCotPreconstruccion = [
-          { description: 'Junta Preoperativa Work Order', isActive: false, checkStatus: null },
-          { description: 'Realizar cursos de seguridad', isActive: false, checkStatus: null },
-          { description: 'Realizar Analisis de Riesgo', isActive: false, checkStatus: null },
-          { description: 'Comprar de Materiales', isActive: false, checkStatus: null },
-          { description: 'Paquete de Herramientas para el proyecto / listado de herramien', isActive: false, checkStatus: null },
-          { description: 'logistica para llevar herramientas a la obra y materiales', isActive: false, checkStatus: null },
-          { description: 'logistica de trabajadoes a la obra', isActive: false, checkStatus: null },
-          { description: 'permismso de seguridad', isActive: false, checkStatus: null },
-          { description: 'sua', isActive: false, checkStatus: null },
-          { description: 'preparacion en sitio para arranque', isActive: false, checkStatus: null }
+          { description: 'Junta Interdisciplinaria', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] },
+          { description: 'Realizar cursos de seguridad', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] },
+          { description: 'Realizar Analisis de Riesgo', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] },
+          { description: 'Comprar de Materiales', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] },
+          { description: 'Paquete de Herramientas para el proyecto / listado de herramien', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] },
+          { description: 'logistica para llevar herramientas a la obra y materiales', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] },
+          { description: 'logistica de trabajadoes a la obra', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] },
+          { description: 'permismso de seguridad', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] },
+          { description: 'sua', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] },
+          { description: 'preparacion en sitio para arranque', isActive: false, checkStatus: null, duration: '', durationUnit: 'dias', price: '', total: 0, notes: '', responsable: [] }
       ];
 
       const projectProgram = ref({
@@ -6487,8 +6521,16 @@ async function toggleVoiceRecording(btnElement) {
 
       const addProjectItem = (section) => {
           if (!projectProgram.value[section]) projectProgram.value[section] = [];
-          // Unique ID for Cotización Trabajo rows to link resources
-          const newRow = { id: Date.now() + Math.random().toString(16).slice(2), description: '', date: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, responsable: [] };
+
+          let newRow;
+          if (section === 'reqCotizacion') {
+              // Paso 2: la fila nace activa para que sus campos (fechas, archivo y
+              // costo) sean visibles de inmediato tras pulsar "+".
+              newRow = { description: '', isActive: true, checkStatus: 'APPLY', responsable: [], fechaInicio: '', fechaEntrega: '', duration: '', fechaInicio2: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, fileUrl: '' };
+          } else {
+              // Unique ID for Cotización Trabajo rows to link resources
+              newRow = { id: Date.now() + Math.random().toString(16).slice(2), description: '', dictado: '', date: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, responsable: [], cotizador: '' };
+          }
           projectProgram.value[section].push(newRow);
       };
       const removeProjectItem = (section, idx) => projectProgram.value[section].splice(idx, 1);
@@ -6545,7 +6587,7 @@ async function toggleVoiceRecording(btnElement) {
           if (idx > -1) item.responsable.splice(idx, 1);
           else item.responsable.push(name);
       };
-      const updateProjectRowTotal = (item) => { item.total = (parseFloat(item.quantity)||0) * (parseFloat(item.price)||0); };
+      const updateProjectRowTotal = (item) => { item.total = (parseFloat(item.quantity || item.duration)||0) * (parseFloat(item.price)||0); };
 
       // MANO DE OBRA STATE
       const laborTable = ref({ items: [{ category: 'Albañil', salary: '1200', personnel: '1', weeks: '1', overtime: '0', night: '0', weekend: '0', others: '0', total: 1200 }] });
