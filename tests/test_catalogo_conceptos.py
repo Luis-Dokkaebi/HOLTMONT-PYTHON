@@ -1,22 +1,12 @@
 import pytest
 from playwright.sync_api import sync_playwright, expect
 import os
-import subprocess
-import time
 
-PORT = 8000
+PORT = int(os.environ.get("HOLTMONT_TEST_PORT", "8000"))
 BASE_URL = f"http://localhost:{PORT}"
 
-@pytest.fixture(scope="module", autouse=True)
-def start_server():
-    server = subprocess.Popen(
-        ["python", "api/main.py"],
-        env=dict(os.environ, PYTHONPATH=".", PORT=str(PORT))
-    )
-    time.sleep(2)  # Wait for server to start
-    yield
-    server.terminate()
-    server.wait()
+# El servidor lo levanta (y reutiliza) la fixture `live_server` de conftest.py,
+# que espera a que el puerto responda en lugar de dormir un tiempo fijo.
 
 def test_catalogo_conceptos_ui():
     with sync_playwright() as p:

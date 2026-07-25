@@ -325,13 +325,13 @@
                                             <!-- INPUT OCULTO PARA GEMINI -->
                                             <input type="file" id="audioInputGemini" accept="audio/*" class="d-none" onchange="enviarAudioAGemini(this)">
 
-                                            <button
-                                                class="btn btn-primary position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
-                                                style="width: 50px; height: 50px; transition: all 0.3s ease;"
-                                                onclick="document.getElementById('campoConcepto').focus()"
-                                                title="Dictar voz a texto">
-
-                                                <i class="fas fa-microphone" style="font-size: 1.2rem;"></i>
+                                            <!-- Dictado por Agente de IA: graba la descripcion del trabajo y
+                                                 precarga las preguntas del levantamiento. -->
+                                            <button v-if="isGeneratingQuestions" class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" disabled>
+                                                <i class="fas fa-spinner fa-spin text-dark fa-lg"></i>
+                                            </button>
+                                            <button v-else class="btn btn-warning position-absolute bottom-0 end-0 m-3 rounded-circle shadow" style="width: 48px; height: 48px; z-index: 10;" @click="toggleAIAgentRecording()" title="Dictar voz a texto">
+                                                <i class="fas fa-lg" :class="isRecordingAIAgent ? 'fa-stop text-danger animate__animated animate__pulse animate__infinite' : 'fa-microphone text-dark'"></i>
                                             </button>
 
 
@@ -484,6 +484,9 @@
                                 <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap">
                                     <span class="fw-bold text-muted small" style="width: 15px;">{{ idx + 1 }}.</span>
                                     <input v-model="item.description" class="form-control form-control-sm" placeholder="Descripción" style="flex: 2; min-width: 150px;">
+                                    <button class="btn btn-link btn-sm p-0 text-warning ms-1" @click="openAIQuoteModal(item, 'description')" title="Dictar con IA">
+                                        <i class="fas fa-microphone-alt" style="font-size: 0.9rem;"></i>
+                                    </button>
                                     <input type="date" v-model="item.date" class="form-control form-control-sm" style="width: 110px;">
 
                                     <!-- Tiempo Estimado Row -->

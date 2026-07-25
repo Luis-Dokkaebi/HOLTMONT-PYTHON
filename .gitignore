@@ -14,3 +14,7 @@ package-lock.json
 .obsidian/cache
 venv/
 out_test
+tests/.cdn_cache/
+
+# Notas de Prework Order generadas en runtime (y por las pruebas)
+Notas/Prework_Orders/
