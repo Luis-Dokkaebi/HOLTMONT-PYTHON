@@ -2532,7 +2532,7 @@
                                   </div>
                               </td>
                               <td><input :value="row['F. INICIO'] || row['FECHA'] || row['ALTA'] || row['FECHA INICIO'] || row['FECHA_INICIO']" class="excel-input text-center" readonly></td>
-                              <td><input :value="row['F. VISITA'] || row['FECHA VISITA']" class="excel-input text-center" readonly></td>
+                              <td><input :value="(row['F_VISITA'] || row['F. VISITA'] || row['FECHA VISITA'])" class="excel-input text-center" readonly></td>
                               <td><input :value="row['F. ENTREGA'] || row['FECHA ENTREGA']" class="excel-input text-center" readonly></td>
                               <td class="p-1">
                                   <div class="hp-timeline-container">
@@ -2646,7 +2646,7 @@
                          <div v-else-if="isCol(h, ['REQUISITOR'])" class="d-flex" style="height:100%; width:100%; align-items:center;">
                              <input v-model="row[h]" :readonly="!isFieldEditable(h, row)" class="excel-input" style="flex:1; min-width:0;" spellcheck="false">
                          </div>
-                         <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO')" style="position:absolute; inset:0; width:100%; height:100%; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
+                         <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO')" style="position:absolute; inset:0; width:100%; height:100%; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
                              <div style="position:absolute; inset:0; display:flex; align-items:center; padding-left:4px; font-size:12px; pointer-events:none; color: #000 !important;">{{ formatDisplayDate(row[h]) }}</div>
                              <input type="date" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;" :disabled="!isFieldEditable(h, row)" :value="toIsoDate(row[h])" @input="updateDateFromPicker($event, row, h)">
                          </div>
@@ -2700,7 +2700,7 @@
                                  :style="getAntoniaStatusStyle(row[h])">
                                  {{ row[h] }}
                             </div>
-                            <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO')" style="position:absolute; inset:0; padding-left:4px; display:flex; align-items:center; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
+                            <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO')" style="position:absolute; inset:0; padding-left:4px; display:flex; align-items:center; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
                                  {{ formatDisplayDate(row[h]) }}
                             </div>
                             <div v-else-if="isCol(h, ['DIAS','RELOJ','DÍAS FINALIZ. COTIZ','DIAS FINALIZ. COTIZ'])" style="text-align:center; font-weight:bold; width:100%; height:100%; display:flex; align-items:center; justify-content:center;" :style="getTrafficStyle(row)">
@@ -7198,7 +7198,7 @@ const filteredStaffTrackerData = computed(() => {
               if (!row['FOLIO'] && !row['ID']) return true;
 
               const hUp = String(h).toUpperCase();
-              const allowed = ['FECHA', 'FECHA VISITA', 'FECHA ALTA', 'FECHA INICIO', 'ALTA', 'F. VISITA', 'F. INICIO', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', 'ARCHIVO', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'ENTREGA', 'VENDEDOR', 'RESPONSABLE', 'CORREO', 'CARPETA', 'INFO CLIENTE', 'CORREOS', 'CARPETAS', 'AREA', 'COMENTARIOS', 'REQUISITOR'];
+              const allowed = ['FECHA', 'FECHA VISITA', 'FECHA ALTA', 'FECHA INICIO', 'ALTA', 'F. VISITA', 'F_VISITA', 'F. INICIO', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', 'ARCHIVO', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'ENTREGA', 'VENDEDOR', 'RESPONSABLE', 'CORREO', 'CARPETA', 'INFO CLIENTE', 'CORREOS', 'CARPETAS', 'AREA', 'COMENTARIOS', 'REQUISITOR'];
               return allowed.some(a => hUp.includes(a));
           }
           return true;
@@ -7253,7 +7253,7 @@ const filteredStaffTrackerData = computed(() => {
                   w = (currentUsername.value === 'ANTONIA_VENTAS') ? '350px' : '380px';
               }
           }
-          else if (currentUsername.value === 'ANTONIA_VENTAS' && (up === 'F. ENTREGA' || up === 'F. VISITA' || up === 'FECHA VISITA' || up === 'F. INICIO')) { w = '60px'; fs = '10px'; colColor = '#000'; }
+          else if (currentUsername.value === 'ANTONIA_VENTAS' && (up === 'F. ENTREGA' || up === 'F. VISITA' || up === 'F_VISITA' || up === 'FECHA VISITA' || up === 'F. INICIO')) { w = '60px'; fs = '10px'; colColor = '#000'; }
 
 
           else if (up.includes('COMENTARIO') || up.includes('PREVIOS') || up.includes('OBSERVACIONES') || up.includes('RESTRICCION')) { w = '200px'; }
@@ -7323,7 +7323,7 @@ const filteredStaffTrackerData = computed(() => {
       };
 
       const getFechaInicioTrafficStyle = (row) => {
-          const startKey = Object.keys(row).find(k => ['FECHA','FECHA INICIO','FECHA DE INICIO','ALTA','F. INICIO','F. VISITA'].includes(String(k).toUpperCase().trim()));
+          const startKey = Object.keys(row).find(k => ['FECHA','FECHA INICIO','FECHA DE INICIO','ALTA','F. INICIO','F. VISITA', 'F_VISITA'].includes(String(k).toUpperCase().trim()));
           if (!startKey) return {};
           const val = row[startKey];
           if (!val) return {};
@@ -9839,7 +9839,7 @@ const filteredStaffTrackerData = computed(() => {
           let parsedParts = mapCot.split(/\||>|\//).map(p => p.trim()).filter(p => p);
 
           let startDate = new Date();
-          const dateKeys = ['FECHA', 'FECHA INICIO', 'ALTA', 'FECHA DE INICIO', 'FECHA VISITA', 'FECHA_ALTA', 'F. INICIO', 'F. VISITA'];
+          const dateKeys = ['FECHA', 'FECHA INICIO', 'ALTA', 'FECHA DE INICIO', 'FECHA VISITA', 'FECHA_ALTA', 'F. INICIO', 'F. VISITA', 'F_VISITA'];
           for (const k of dateKeys) {
               if (row[k]) {
                   const val = row[k];
