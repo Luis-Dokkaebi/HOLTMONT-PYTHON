@@ -57,6 +57,9 @@ Este documento define el contexto técnico, las reglas de negocio y las "skills"
   - Las funciones en `CODIGO.js` deben probarse creando stubs para los servicios de GAS (ej. `SpreadsheetApp`, `CacheService`, `PropertiesService`).
 - **Scripts de Verificación:**
   - Siempre debes ejecutar las pruebas pertinentes tras modificaciones:
+    - Backend GAS (semáforo, ruteo VENTAS, gatekeeper, reverse sync, métricas): `node tests/gas/run_tests.js` (ver `tests/gas/README.md`)
+    - Motor de reglas en Python (paridad con CODIGO.js): `python -m pytest tests/test_tracker_rules.py`
+    - Contrato index.html -> api_service.js -> api/main.py: `python -m pytest tests/test_api_contract.py`
     - Directorio y Departamentos: `node test_departments.js`
     - Sintaxis y Lógica de Frontend: `node check_html2.js` (si `check_html.js` falla por errores de parseo o compatibilidad, utiliza `check_html2.js` como respaldo funcional).
 

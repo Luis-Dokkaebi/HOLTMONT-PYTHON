@@ -109,19 +109,78 @@ const STANDARD_PROJECT_STRUCTURE = [
 ];
 
 // USUARIOS
+// NOTA: el campo `email` es obligatorio para las notificaciones Make.com -> Outlook
+// (ver AGENTS.md §5 "Emails Reales"). Si un usuario no tiene correo, NotifierService
+// intenta derivarlo con resolveUserEmail() a partir del directorio.
 const USER_DB = {
-  "LUIS_CARLOS":      { pass: "admin2025", role: "ADMIN", label: "Administrador" },
-  "JESUS_CANTU":      { pass: "ppc2025",   role: "PPC_ADMIN", label: "PPC Manager" },
-  "ANTONIA_VENTAS":   { pass: "tonita2025", role: "TONITA", label: "Ventas" },
-  "JAIME_OLIVO":      { pass: "admin2025", role: "ADMIN_CONTROL", label: "Jaime Olivo" },
-  "ANGEL_SALINAS":    { pass: "angel2025", role: "ANGEL_USER", label: "Angel Salinas" },
-  "TERESA_GARZA":     { pass: "tere2025",  role: "TERESA_USER", label: "Teresa Garza" },
-  "EDUARDO_TERAN":    { pass: "lalo2025",  role: "EDUARDO_USER", label: "Eduardo Teran" },
-  "EDUARDO_MANZANARES":{ pass: "manzanares2025", role: "MANZANARES_USER", label: "Eduardo Manzanares" },
-  "RAMIRO_RODRIGUEZ": { pass: "ramiro2025", role: "RAMIRO_USER", label: "Ramiro Rodriguez" },
-  "SEBASTIAN_PADILLA":{ pass: "sebastian2025", role: "SEBASTIAN_USER", label: "Sebastian Padilla" },
-  "EDGAR_LOPEZ":      { pass: "edgar2025", role: "EDGAR_USER", label: "Edgar Lopez" },
-  "PREWORK_ORDER":    { pass: "workorder2026", role: "WORKORDER_USER", label: "Workorder" }
+  "LUIS_CARLOS":      { pass: "admin2025", role: "ADMIN", label: "Administrador", email: "luis.carlos@holtmont.com" },
+  "JESUS_CANTU":      { pass: "ppc2025",   role: "PPC_ADMIN", label: "PPC Manager", email: "jesus.cantu@holtmont.com" },
+  "ANTONIA_VENTAS":   { pass: "tonita2025", role: "TONITA", label: "Ventas", email: "antonia.pineda@holtmont.com" },
+  "JAIME_OLIVO":      { pass: "admin2025", role: "ADMIN_CONTROL", label: "Jaime Olivo", email: "jaime.olivo@holtmont.com" },
+  "ANGEL_SALINAS":    { pass: "angel2025", role: "ANGEL_USER", label: "Angel Salinas", email: "angel.salinas@holtmont.com" },
+  "TERESA_GARZA":     { pass: "tere2025",  role: "TERESA_USER", label: "Teresa Garza", email: "teresa.garza@holtmont.com" },
+  "EDUARDO_TERAN":    { pass: "lalo2025",  role: "EDUARDO_USER", label: "Eduardo Teran", email: "eduardo.teran@holtmont.com" },
+  "EDUARDO_MANZANARES":{ pass: "manzanares2025", role: "MANZANARES_USER", label: "Eduardo Manzanares", email: "eduardo.manzanares@holtmont.com" },
+  "RAMIRO_RODRIGUEZ": { pass: "ramiro2025", role: "RAMIRO_USER", label: "Ramiro Rodriguez", email: "ramiro.rodriguez@holtmont.com" },
+  "SEBASTIAN_PADILLA":{ pass: "sebastian2025", role: "SEBASTIAN_USER", label: "Sebastian Padilla", email: "sebastian.padilla@holtmont.com" },
+  "EDGAR_LOPEZ":      { pass: "edgar2025", role: "EDGAR_USER", label: "Edgar Lopez", email: "edgar.lopez@holtmont.com" },
+  "PREWORK_ORDER":    { pass: "workorder2026", role: "WORKORDER_USER", label: "Workorder", email: "workorder@holtmont.com" }
+};
+
+// --- RUTEO ESPECIAL DE VENTAS ("LA LEY DE ANTONIA", AGENTS.md §3) ---
+const SALES_ROUTING_CONFIG = {
+  masterSalesSheet: "ANTONIA_VENTAS",     // Core de ventas (solo Toñita escribe aquí)
+  antoniaPersonalSheet: "ANTONIA PINEDA LOPEZ", // Tracker personal de Toñita
+  salesSuffixRegex: /\s*\(VENTAS\)/ig     // Sufijo que se purga a usuarios ajenos
+};
+
+// --- PREFIJOS DE FOLIO POR USUARIO/HOJA ---
+const FOLIO_PREFIX_MAP = {
+  "JAIME OLIVO": "JO",
+  "JESUS CANTU": "JC",
+  "LUIS CARLOS": "LC",
+  "ADMINISTRADOR": "LC",
+  "ANTONIA VENTAS": "AV",
+  "ANTONIA PINEDA LOPEZ": "AP",
+  "RAMIRO RODRIGUEZ": "RR",
+  "SEBASTIAN PADILLA": "SP",
+  "TERESA GARZA": "TG"
+};
+const FOLIO_PREFIX_FALLBACK = "PPC-";
+const FOLIO_STOPWORDS = ["DE", "DEL", "LA", "LAS", "LOS", "Y", "EL"];
+
+// --- PAPA CALIENTE / TIMELINE DE COTIZACIÓN (espejo de index.html) ---
+const PROCESS_STEPS = ["L", "CD", "EP", "CI", "EV", "CEC", "RCC"];
+const FULL_PROCESS_NAMES = {
+  "L": "Levantamiento",
+  "CD": "Calculo y Diseño",
+  "EP": "Elaboracion Presupuesto",
+  "CI": "Cotizacion Interna",
+  "EV": "Estrategia Ventas",
+  "CEC": "Cotizacion Enviada al cliente",
+  "RCC": "Revision de Cotizacion Cliente"
+};
+
+// --- ESTATUS TERMINALES (auto-archivado y métricas) ---
+const TERMINAL_STATUSES = ["HECHO", "DONE", "REALIZADO", "COMPLETADO", "TERMINADO", "CERRADO", "FINALIZADO"];
+const WIN_STATUSES = ["GANADA", "GANADO", "APROBADA", "APROBADO", "VENDIDA", "VENDIDO", "CERRADA GANADA"];
+const LOSS_STATUSES = ["PERDIDA", "PERDIDO", "CANCELADA", "CANCELADO", "DECLINADA", "RECHAZADA"];
+
+// --- INTEGRACIÓN MAKE.COM -> OUTLOOK (AGENTS.md §5) ---
+const NOTIFIER_CONFIG = {
+  urlProperty: "MAKE_WEBHOOK_URL",   // Configurable en Propiedades del Script
+  defaultUrl: "https://hook.us2.make.com/holtmont-tracker-notificaciones",
+  enabledProperty: "MAKE_WEBHOOK_ENABLED",
+  domain: "holtmont.com"
+};
+
+// --- AGENTE DE MÉTRICAS DE COTIZACIONES ---
+const METRICS_CONFIG = {
+  geminiKeyProperty: "GEMINI_API_KEY",
+  lastReportProperty: "LAST_QUOTE_AGENT_REPORT",
+  kpiSheetName: "KPI_COTIZACIONES",
+  geminiModel: "gemini-1.5-flash",
+  slaLimits: { "A": 3, "AA": 14, "AAA": 30 }
 };
 
 /* SERVICIO HTML */
@@ -814,8 +873,9 @@ function apiFetchSalesHistory() {
  * OPTIMIZACIÓN SCRIPTMASTER V153: PROTOCOLO ANTI-BLOQUEO (FILTROS)
  * ======================================================================
  */
-function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true) {
-  if (!tasksArray || tasksArray.length === 0) return { success: true };
+function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true, options = {}) {
+  if (!tasksArray || tasksArray.length === 0) return { success: true, data: [] };
+  const opts = options || {};
   const lock = LockService.getScriptLock();
   if (useOwnLock) {
     if (!lock.tryLock(10000)) {
@@ -890,10 +950,53 @@ function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true) {
     let singleRowIndex = -1;
     let modified = false;
 
+    // GATEKEEPER: candado por _tempId para bloquear inserciones concurrentes
+    // del mismo evento de UI (AGENTS.md §2 "Gatekeeper con CacheService").
+    let gkCache = null;
+    try { gkCache = CacheService.getScriptCache(); } catch (e) { gkCache = null; }
+    const gkKeyFor = (tempId) => 'GK_' + String(sheetName).toUpperCase().trim() + '_' + String(tempId);
+
+    // Busca una fila por FOLIO dentro de la matriz en memoria.
+    const findRowByFolio = (folio) => {
+      if (folioIdx === -1 || !folio) return -1;
+      const target = String(folio).toUpperCase().trim();
+      for (let i = headerRowIndex + 1; i < values.length; i++) {
+        if (String(values[i][folioIdx]).toUpperCase().trim() === target) return i;
+      }
+      return -1;
+    };
+
+    // FALLBACK ROBUSTO (AGENTS.md §2 "Resolución de Conflictos"):
+    // si el FOLIO no existe o se perdió, la fila se identifica por la
+    // combinación CONCEPTO + FECHA (+ RESPONSABLE cuando viene en el payload).
+    const conceptoIdx = getColIdx('CONCEPTO');
+    const fechaIdx = getColIdx('FECHA');
+    const responsableIdx = getColIdx('RESPONSABLE');
+    const findRowByFingerprint = (task) => {
+      if (conceptoIdx === -1 || fechaIdx === -1) return -1;
+      const tConcepto = normalizeCellValue(pickTaskValue(task, ['CONCEPTO', 'DESCRIPCION', 'DESCRIPCIÓN', 'ACTIVIDAD']));
+      const tFecha = normalizeCellValue(pickTaskValue(task, ['FECHA', 'FECHA ALTA', 'ALTA', 'FECHA INICIO', 'FECHA DE INICIO']));
+      if (!tConcepto || !tFecha) return -1;
+      const tResp = normalizeCellValue(pickTaskValue(task, ['RESPONSABLE', 'INVOLUCRADOS', 'VENDEDOR', 'ENCARGADO', 'ASIGNADO']));
+      for (let i = headerRowIndex + 1; i < values.length; i++) {
+        const row = values[i];
+        if (normalizeCellValue(row[conceptoIdx]) !== tConcepto) continue;
+        if (normalizeCellValue(row[fechaIdx]) !== tFecha) continue;
+        if (tResp && responsableIdx > -1) {
+          const rowResp = normalizeCellValue(row[responsableIdx]);
+          if (rowResp && rowResp !== tResp) continue;
+        }
+        return i;
+      }
+      return -1;
+    };
+
+    const notifyQueue = [];
+
     // 2. Procesar Tareas
     tasksArray.forEach(task => {
       let rowIndex = -1;
-      
+
       const tFolio = String(task['FOLIO'] || task['ID'] || "").toUpperCase().trim();
 
       if (task._rowIndex) {
@@ -916,10 +1019,28 @@ function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true) {
 
       if (rowIndex === -1 && tFolio && folioIdx > -1) {
            // Búsqueda Robusta por Folio
-           for (let i = headerRowIndex + 1; i < values.length; i++) {
-             const row = values[i];
-             if (String(row[folioIdx]).toUpperCase().trim() === tFolio) { rowIndex = i; break; }
+           rowIndex = findRowByFolio(tFolio);
+      }
+
+      // GATEKEEPER: si esta misma petición (mismo _tempId) ya insertó la fila,
+      // recuperamos el folio que se le asignó en lugar de crear un duplicado.
+      const tempId = task._tempId ? String(task._tempId).trim() : "";
+      let gkKey = "";
+      let gkAlreadyProcessed = false;
+      if (tempId && gkCache) {
+        gkKey = gkKeyFor(tempId);
+        try {
+          const cachedFolio = gkCache.get(gkKey);
+          if (cachedFolio) {
+            gkAlreadyProcessed = true;
+            if (rowIndex === -1) rowIndex = findRowByFolio(cachedFolio);
           }
+        } catch (e) { /* el cache nunca debe bloquear el guardado */ }
+      }
+
+      // FALLBACK: recuperación de la fila por CONCEPTO + FECHA + RESPONSABLE
+      if (rowIndex === -1) {
+        rowIndex = findRowByFingerprint(task);
       }
 
       if (rowIndex > -1 && rowIndex < values.length) {
@@ -928,9 +1049,24 @@ function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true) {
             const cIdx = getColIdx(key);
             if (cIdx > -1) values[rowIndex][cIdx] = task[key];
         });
+        // Fila reparada sin folio: se le asigna uno nuevo sin dañar su historial.
+        if (folioIdx > -1) {
+          if (!String(values[rowIndex][folioIdx] || "").trim()) {
+            values[rowIndex][folioIdx] = generateFolioForSheet(sheetName);
+          }
+          task['FOLIO'] = values[rowIndex][folioIdx];
+        }
+        task._rowIndex = rowIndex + 1;
+        if (gkKey && gkCache) {
+          try { gkCache.put(gkKey, String(task['FOLIO'] || ""), 600); } catch (e) { }
+        }
         singleRowIndex = rowIndex;
         modified = true;
-      } 
+      }
+      else if (gkAlreadyProcessed) {
+        // Petición duplicada cuya fila aún no es visible: se descarta.
+        console.warn(`[GATEKEEPER] Petición duplicada ignorada (_tempId=${tempId}) en ${sheetName}`);
+      }
       else {
           // BATCH DEDUP: Check if already appending this ID in current batch
           let appendedRowIndex = -1;
@@ -960,11 +1096,18 @@ function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true) {
                   const cIdx = getColIdx(key);
                   if (cIdx > -1) newRow[cIdx] = task[key];
               });
-              if (folioIdx > -1 && !newRow[folioIdx] && (task['FOLIO'] || task['ID'])) {
-                  newRow[folioIdx] = task['FOLIO'] || task['ID'];
+              if (folioIdx > -1 && !newRow[folioIdx]) {
+                  const provided = pickTaskValue(task, ['FOLIO', 'ID']);
+                  // Folio con prefijo del titular de la hoja (JO-, JC-, AV-, AP-, ...)
+                  newRow[folioIdx] = provided ? provided : generateFolioForSheet(sheetName);
               }
+              if (folioIdx > -1) task['FOLIO'] = newRow[folioIdx];
               const statusIdx = getColIdx('ESTATUS');
               if(statusIdx > -1 && !newRow[statusIdx]) newRow[statusIdx] = 'ASIGNADO';
+              if (gkKey && gkCache) {
+                  try { gkCache.put(gkKey, String(task['FOLIO'] || ""), 600); } catch (e) { }
+              }
+              if (!opts.skipNotify && shouldNotifySheet(sheetName)) notifyQueue.push(task);
               rowsToAppend.push(newRow);
           }
       }
@@ -973,8 +1116,10 @@ function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true) {
     let rowsMoved = false;
     const avanceIdx = getColIdx('AVANCE');
     const fechaTerminoIdx = getColIdx('FECHA_TERMINO');
+    const estatusArchIdx = getColIdx('ESTATUS');
+    const cumplimientoIdx = getColIdx('CUMPLIMIENTO');
 
-    if (avanceIdx > -1) {
+    if (avanceIdx > -1 || estatusArchIdx > -1 || cumplimientoIdx > -1) {
         let separatorIndex = -1;
         for(let i=0; i<values.length; i++) {
             if(String(values[i][0]).toUpperCase().includes("TAREAS REALIZADAS") || 
@@ -1000,25 +1145,16 @@ function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true) {
         const movedRows = [];
         
         activeRows.forEach(row => {
-            const val = String(row[avanceIdx] || "").trim();
-
-            // FIX ROBUSTO: Detección de 100% (Soporta "100,0", "100.0", "1", "1.0")
+            // CRITERIOS DE CIERRE (AGENTS.md §4):
+            //  - AVANCE al 100 % ("100", "100%", "100,0" o el número nativo 1
+            //    de una celda con formato porcentaje; el string "1" es 1 %).
+            //  - ESTATUS terminal (HECHO / DONE / GANADA / PERDIDA X ...).
+            //  - CUMPLIMIENTO = SI.
             let isComplete = false;
-            const strictMatch = val === "100" || val === "100%" || val === "1.0" || val === "1";
-
-            if (strictMatch) {
-                isComplete = true;
-            } else {
-                // Limpieza para formatos de moneda/porcentaje latinos (ej. "100,0")
-                const cleanVal = val.replace('%', '').replace(',', '.').trim();
-                const num = parseFloat(cleanVal);
-                if (!isNaN(num)) {
-                   // Comprobar si es 1 (Factor) o 100 (Entero)
-                   if (Math.abs(num - 100) < 0.01 || Math.abs(num - 1) < 0.001) {
-                       isComplete = true;
-                   }
-                }
-            }
+            if (avanceIdx > -1 && isProgressComplete(row[avanceIdx])) isComplete = true;
+            if (!isComplete && estatusArchIdx > -1 && isTerminalStatus(row[estatusArchIdx])) isComplete = true;
+            if (!isComplete && cumplimientoIdx > -1 &&
+                String(row[cumplimientoIdx] || "").toUpperCase().trim() === "SI") isComplete = true;
 
             if (isComplete) {
                 // AUTO-TIMESTAMP: FECHA TERMINO REAL
@@ -1097,7 +1233,18 @@ function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true) {
     }
     
     SpreadsheetApp.flush();
-    return { success: true, moved: rowsMoved };
+
+    // 6. NOTIFICACIÓN MAKE.COM -> OUTLOOK (nunca bloquea el guardado)
+    if (notifyQueue.length > 0) {
+        notifyQueue.forEach(task => {
+            try { NotifierService.notifyAssignment(sheetName, task); }
+            catch (e) { console.warn("Notificación fallida: " + e.toString()); }
+        });
+    }
+
+    // AGENTS.md §2: el backend devuelve el objeto completo en res.data para que
+    // el frontend lo fusione y marque _isNew = false.
+    return { success: true, moved: rowsMoved, data: tasksArray };
   } catch (e) {
     console.error(e);
     return { success: false, message: e.toString() };
@@ -1136,6 +1283,15 @@ function internalUpdateTask(personName, taskData, username) {
             return { success: false, message: "Operación no permitida: PPCV3 es de solo lectura desde esta vista." };
         }
 
+        // RUTEO PROTEGIDO DE VENTAS ("La Ley de Antonia", AGENTS.md §3):
+        // se purga el sufijo (VENTAS) a usuarios ajenos y se blinda el core de Toñita.
+        const routing = resolveTrackerTarget(personName, username);
+        if (routing.redirected) {
+            registrarLog(username || "DESCONOCIDO", "RUTEO_PROTEGIDO",
+                `${personName} -> ${routing.sheet} (${routing.reason})`);
+        }
+        personName = routing.sheet;
+
         const isAntonia = String(personName).toUpperCase() === "ANTONIA_VENTAS";
 
         // --- NEW RESTRICTION BLOCK (ANGEL, TERESA, EDUARDO, MANZANARES, RAMIRO, SEBASTIAN, EDGAR) ---
@@ -1157,16 +1313,25 @@ function internalUpdateTask(personName, taskData, username) {
         }
         // --- END NEW RESTRICTION BLOCK ---
 
+        // DISTRIBUCIÓN LATERAL ("Papa Caliente"): calcula PROCESO_LOG y MAP COT
+        // antes de escribir la maestra, y delega la fase a cada trabajador.
+        let hotPotato = null;
+        if (isAntonia) {
+            hotPotato = internalApplyHotPotato(personName, taskData, username);
+        }
+
         if (isAntonia) {
              // 1. AUTO-INCREMENT FOLIO (Before Saving)
              if (!taskData['FOLIO'] && !taskData['ID']) {
-                 // NEW TASK -> GENERATE ID
-                 taskData['FOLIO'] = generateNumericSequence('ANTONIA_SEQ');
+                 // NEW TASK -> GENERATE ID (con prefijo AV- del core de ventas)
+                 taskData['FOLIO'] = generateFolioForSheet(personName);
              } else {
                  // 2. EXISTING TASK -> APPLY RESTRICTIONS (User Request)
                  // "Una vez que guarde... los únicos datos que pueda modificar es FECHA VISITA, ESTATUS y AVANCE"
 
-                 const allowedBase = ['FOLIO', 'ID', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', '_rowIndex', 'VENDEDOR', 'RESPONSABLE', 'INVOLUCRADOS', 'ENCARGADO', 'CONCEPTO', 'DESCRIPCION', 'CLIENTE', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'AREA', 'CLASIFICACION', 'CLASI', 'DIAS', 'RELOJ', 'ESPECIALIDAD'];
+                 const allowedBase = ['FOLIO', 'ID', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', '_rowIndex', 'VENDEDOR', 'RESPONSABLE', 'INVOLUCRADOS', 'ENCARGADO', 'CONCEPTO', 'DESCRIPCION', 'CLIENTE', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'AREA', 'CLASIFICACION', 'CLASI', 'DIAS', 'RELOJ', 'ESPECIALIDAD',
+                     // Timeline de la Papa Caliente (delegación de fases)
+                     'PROCESO', 'PROCESO_LOG', 'MAP COT', 'ETAPA', 'FASE'];
 
                  Object.keys(taskData).forEach(key => {
                      const kUp = key.toUpperCase();
@@ -1230,23 +1395,21 @@ function internalUpdateTask(personName, taskData, username) {
 
              try { internalBatchUpdateTasks("ADMINISTRADOR", [distData]); } catch(e){}
         } else if (String(personName).toUpperCase().includes("(VENTAS)")) {
-             // Sincronización Inversa: Vendedor -> ANTONIA_VENTAS
-             // Si el vendedor actualiza su tabla, replicamos el cambio a la maestra de ANTONIA
+             // Sincronización Inversa: Vendedor -> ANTONIA_VENTAS.
+             // internalReverseSyncToAntonia purga ESTATUS/AVANCE/CUMPLIMIENTO para que
+             // una fase parcial no cierre la venta global, y actualiza el timeline.
              try {
                  const syncData = JSON.parse(JSON.stringify(taskData));
                  delete syncData._rowIndex; // Evitar conflictos de índice de fila
-
-                 // Intentamos actualizar en ANTONIA_VENTAS
-                 const syncRes = internalBatchUpdateTasks("ANTONIA_VENTAS", [syncData]);
-                 if (!syncRes.success) {
-                     console.warn("Fallo sincronización inversa a ANTONIA_VENTAS: " + syncRes.message);
-                 }
+                 internalReverseSyncToAntonia(personName, [syncData], username);
              } catch (e) {
                  console.error("Error en sincronización inversa: " + e.toString());
              }
         }
         // RETURN UPDATED DATA (Critical for Frontend Folio Update)
         res.data = taskData;
+        if (hotPotato) res.hotPotato = hotPotato;
+        if (routing.redirected) res.routing = routing;
         return res;
     } catch(e) { return {success:false, message:e.toString()}; }
 }
@@ -2649,9 +2812,11 @@ function applyTrafficLightToSheet(sheet) {
       };
 
       // Configuración: Clase, Límite, Buffer (Días de aviso antes del límite)
-      addRulePair("A", 3, 1);    // Verde < 2, Amarillo 2-3, Rojo > 3
-      addRulePair("AA", 15, 3);  // Verde < 12, Amarillo 12-15, Rojo > 15
-      addRulePair("AAA", 30, 5); // Verde < 25, Amarillo 25-30, Rojo > 30
+      // Los límites deben coincidir con METRICS_CONFIG.slaLimits y con el
+      // `slaSummary` del dashboard en index.html (A=3, AA=14, AAA=30).
+      addRulePair("A", METRICS_CONFIG.slaLimits.A, 1);     // Verde < 2, Amarillo 2-3, Rojo > 3
+      addRulePair("AA", METRICS_CONFIG.slaLimits.AA, 2);   // Verde < 12, Amarillo 12-14, Rojo > 14
+      addRulePair("AAA", METRICS_CONFIG.slaLimits.AAA, 5); // Verde < 25, Amarillo 25-30, Rojo > 30
   });
 
   sheet.setConditionalFormatRules(newRules.concat(cleanRules));
@@ -2871,18 +3036,30 @@ function apiSaveTrackerBatch(personName, tasks, username) {
     try {
       const processedTasks = [];
       const distributionTasks = [];
+
+      // RUTEO PROTEGIDO DE VENTAS ("La Ley de Antonia", AGENTS.md §3)
+      const routing = resolveTrackerTarget(personName, username);
+      if (routing.redirected) {
+          registrarLog(username || "DESCONOCIDO", "RUTEO_PROTEGIDO",
+              `${personName} -> ${routing.sheet} (${routing.reason})`);
+      }
+      personName = routing.sheet;
+
       const isAntonia = String(personName).toUpperCase() === "ANTONIA_VENTAS";
 
       // Sequence Logic for Antonia
       let currentSeq = null;
       let seqKey = 'ANTONIA_SEQ';
+      const antoniaPrefix = generatePrefix(personName);
       if (isAntonia) {
           const props = PropertiesService.getScriptProperties();
           currentSeq = Number(props.getProperty(seqKey) || 1000);
 
           // AUTO-HEALING: Scan batch for higher existing IDs to sync sequence
+          // (soporta folios con prefijo, ej. "AV-1042")
           tasks.forEach(t => {
-              const fid = parseInt(t['FOLIO'] || t['ID']);
+              const rawFolio = String(t['FOLIO'] || t['ID'] || "").replace(/^[A-Z]+-/i, "");
+              const fid = parseInt(rawFolio, 10);
               if (!isNaN(fid) && fid > currentSeq) {
                   currentSeq = fid;
               }
@@ -2912,10 +3089,12 @@ function apiSaveTrackerBatch(personName, tasks, username) {
                  if (!hasContent) return; // SKIP EMPTY ROWS (Don't process, don't distribute)
 
                  currentSeq++;
-                 taskData['FOLIO'] = String(currentSeq);
+                 taskData['FOLIO'] = antoniaPrefix + String(currentSeq);
              } else {
                  // RESTRICTIONS FOR EXISTING TASKS
-                 const allowedBase = ['FOLIO', 'ID', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', '_rowIndex', 'VENDEDOR', 'RESPONSABLE', 'INVOLUCRADOS', 'ENCARGADO', 'CONCEPTO', 'DESCRIPCION', 'CLIENTE', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'AREA', 'CLASIFICACION', 'CLASI', 'DIAS', 'RELOJ', 'ESPECIALIDAD'];
+                 const allowedBase = ['FOLIO', 'ID', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', '_rowIndex', 'VENDEDOR', 'RESPONSABLE', 'INVOLUCRADOS', 'ENCARGADO', 'CONCEPTO', 'DESCRIPCION', 'CLIENTE', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'AREA', 'CLASIFICACION', 'CLASI', 'DIAS', 'RELOJ', 'ESPECIALIDAD',
+                     // Timeline de la Papa Caliente (delegación de fases)
+                     'PROCESO', 'PROCESO_LOG', 'MAP COT', 'ETAPA', 'FASE'];
                  Object.keys(taskData).forEach(key => {
                      const kUp = key.toUpperCase();
                      if (key.startsWith('_')) return;
@@ -2926,6 +3105,10 @@ function apiSaveTrackerBatch(personName, tasks, username) {
                      }
                  });
              }
+             // DISTRIBUCIÓN LATERAL ("Papa Caliente"): delega la fase y actualiza el timeline
+             try { internalApplyHotPotato(personName, taskData, username, false); }
+             catch (e) { console.warn("Papa Caliente: " + e.toString()); }
+
              // Prepare distribution data
              const distData = JSON.parse(JSON.stringify(taskData));
              delete distData._rowIndex;
@@ -2984,14 +3167,22 @@ function apiSaveTrackerBatch(personName, tasks, username) {
           }
 
           // Handle Reverse Sync (Vendor -> Antonia)
+          // Sanea ESTATUS/AVANCE/CUMPLIMIENTO y cierra la fase en el timeline.
           if (String(personName).toUpperCase().includes("(VENTAS)") && !isAntonia && distributionTasks.length > 0) {
-               internalBatchUpdateTasks("ANTONIA_VENTAS", distributionTasks, false);
+               internalReverseSyncToAntonia(personName, distributionTasks, username, false);
           }
 
           registrarLog(username, "BATCH_UPDATE", `Actualizadas ${tasks.length} tareas en ${personName}`);
       }
 
-      return { success: true, message: "Guardado exitoso" };
+      // AGENTS.md §2: se devuelve el objeto completo para que el frontend
+      // lo fusione y marque _isNew = false.
+      return {
+          success: true,
+          message: "Guardado exitoso",
+          data: (res && res.data) ? res.data : processedTasks,
+          routing: routing.redirected ? routing : null
+      };
 
     } catch (e) {
       return { success: false, message: e.toString() };
@@ -3194,5 +3385,1153 @@ function forzarPermisos() {
     console.log("¡Conexión establecida! Chakra fluyendo.");
   } catch (e) {
     console.log("Error (esperado si no hay internet, pero ya tienes permisos): " + e.toString());
+  }
+}
+
+/**
+ * ======================================================================
+ * MÓDULO DE PARIDAD DE MIGRACIÓN — HOLTMONT
+ * ======================================================================
+ * Funcionalidades que existían en el frontend / plan de negocio y que
+ * faltaban en el backend GAS tras la migración a Python:
+ *
+ *   A. Utilidades de nombre, correo y prefijos de folio
+ *   B. Ruteo protegido de ventas ("La Ley de Antonia")
+ *   C. Evaluación de progreso y estatus terminales
+ *   D. Papa Caliente (PROCESO_LOG / MAP COT) y Reverse Sync
+ *   E. NotifierService (Make.com -> Outlook)
+ *   F. Agente de métricas de cotizaciones (reglas + Gemini)
+ *   G. APIs sueltas que invoca index.html
+ *
+ * Todas las funciones son globales para que `google.script.run` las vea.
+ * Ver AGENTS.md §§2-5 para las reglas de negocio que implementan.
+ */
+
+// ----------------------------------------------------------------------
+// A. NOMBRES, CORREOS Y PREFIJOS DE FOLIO
+// ----------------------------------------------------------------------
+
+/** Normaliza un nombre de usuario/hoja: quita guiones bajos y el sufijo (VENTAS). */
+function normalizeStaffName(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/\s*\(VENTAS\)/ig, " ")
+    .replace(/[_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+/** Lee un valor del payload sin importar mayúsculas/minúsculas de la clave. */
+function pickTaskValue(task, keys) {
+  if (!task) return "";
+  const wanted = keys.map(k => String(k).toUpperCase().trim());
+  const taskKeys = Object.keys(task);
+  for (let w = 0; w < wanted.length; w++) {
+    for (let i = 0; i < taskKeys.length; i++) {
+      if (String(taskKeys[i]).toUpperCase().replace(/\n/g, ' ').replace(/\s+/g, ' ').trim() === wanted[w]) {
+        const val = task[taskKeys[i]];
+        if (val !== undefined && val !== null && val !== "") return val;
+      }
+    }
+  }
+  return "";
+}
+
+/**
+ * GENERADOR DE PREFIJOS DE FOLIO
+ * Usuarios conocidos usan sus iniciales oficiales (JO-, JC-, LC-, AV-, ...).
+ * Cualquier otro nombre genera iniciales dinámicas (MIGUEL GALLARDO -> MG-).
+ * Ante nombre vacío o error retorna siempre el fallback seguro "PPC-".
+ */
+function generatePrefix(name) {
+  try {
+    const raw = normalizeStaffName(String(name === null || name === undefined ? "" : name).replace(/[\-.]+/g, " "));
+    if (!raw) return FOLIO_PREFIX_FALLBACK;
+    if (Object.prototype.hasOwnProperty.call(FOLIO_PREFIX_MAP, raw)) {
+      return FOLIO_PREFIX_MAP[raw] + "-";
+    }
+    const words = raw.split(" ").filter(w => w && FOLIO_STOPWORDS.indexOf(w) === -1);
+    if (words.length === 0) return FOLIO_PREFIX_FALLBACK;
+    const candidate = (words.length === 1)
+      ? words[0].substring(0, 2)
+      : words[0].charAt(0) + words[1].charAt(0);
+    // Un prefijo debe empezar con letra: nombres numéricos caen al fallback.
+    if (!/^[A-ZÑ][A-ZÑ0-9]?$/.test(candidate)) return FOLIO_PREFIX_FALLBACK;
+    return candidate + "-";
+  } catch (e) {
+    console.warn("generatePrefix fallback: " + e.toString());
+    return FOLIO_PREFIX_FALLBACK;
+  }
+}
+
+/** Clave de secuencia por hoja (las tablas (VENTAS) comparten la del titular). */
+function folioSequenceKey(sheetName) {
+  const base = normalizeStaffName(sheetName) || "GENERAL";
+  if (base === "ANTONIA VENTAS") return "ANTONIA_SEQ";
+  return "SEQ_" + base.replace(/\s+/g, "_");
+}
+
+/** Folio completo para una hoja: prefijo del titular + consecutivo. */
+function generateFolioForSheet(sheetName) {
+  return generatePrefix(sheetName) + generateNumericSequence(folioSequenceKey(sheetName));
+}
+
+/** Correo corporativo de un usuario (USER_DB primero, derivado después). */
+function resolveUserEmail(name) {
+  try {
+    const clean = normalizeStaffName(name);
+    if (!clean) return "";
+    const dbKey = clean.replace(/\s+/g, "_");
+    if (Object.prototype.hasOwnProperty.call(USER_DB, dbKey) && USER_DB[dbKey].email) {
+      return USER_DB[dbKey].email;
+    }
+    // Derivación estándar nombre.apellido@holtmont.com para el resto del directorio
+    const words = clean.split(" ").filter(w => w && FOLIO_STOPWORDS.indexOf(w) === -1);
+    if (words.length === 0) return "";
+    const slug = (words.length === 1)
+      ? words[0]
+      : words[0] + "." + words[words.length - 1];
+    return slug
+      .toLowerCase()
+      .replace(/[ÁÀÄÂ]/gi, "a").replace(/[ÉÈËÊ]/gi, "e").replace(/[ÍÌÏÎ]/gi, "i")
+      .replace(/[ÓÒÖÔ]/gi, "o").replace(/[ÚÙÜÛ]/gi, "u").replace(/Ñ/gi, "n")
+      .replace(/[^a-z0-9.]/g, "") + "@" + NOTIFIER_CONFIG.domain;
+  } catch (e) {
+    return "";
+  }
+}
+
+// ----------------------------------------------------------------------
+// B. RUTEO PROTEGIDO DE VENTAS ("LA LEY DE ANTONIA")
+// ----------------------------------------------------------------------
+
+/**
+ * Resuelve a qué hoja debe escribirse realmente una tarea.
+ *  - Solo ANTONIA_VENTAS puede escribir en el core de ventas; a cualquier
+ *    otro usuario se le redirige a su tracker personal.
+ *  - El sufijo "(VENTAS)" solo lo respetan Toñita y el propio titular de
+ *    la hoja; para el resto se purga globalmente.
+ * @returns {{sheet: string, redirected: boolean, reason: string}}
+ */
+function resolveTrackerTarget(personName, username) {
+  const original = String(personName === null || personName === undefined ? "" : personName).trim();
+  const user = normalizeStaffName(username);
+  const isAntoniaUser = (user === "ANTONIA VENTAS");
+
+  if (original.toUpperCase().trim() === SALES_ROUTING_CONFIG.masterSalesSheet.toUpperCase() && !isAntoniaUser) {
+    return { sheet: SALES_ROUTING_CONFIG.antoniaPersonalSheet, redirected: true, reason: "CORE_VENTAS_PROTEGIDO" };
+  }
+
+  const base = original.replace(/\s*\(VENTAS\)/ig, "").trim();
+  if (base !== original) {
+    const isOwner = (normalizeStaffName(base) === user && user !== "");
+    if (!isAntoniaUser && !isOwner) {
+      return { sheet: base, redirected: true, reason: "SUFIJO_VENTAS_PURGADO" };
+    }
+  }
+  return { sheet: original, redirected: false, reason: "" };
+}
+
+/** ¿La hoja destino es una tabla de ventas (core o con sufijo)? */
+function isSalesSheet(sheetName) {
+  const up = String(sheetName || "").toUpperCase();
+  return up === SALES_ROUTING_CONFIG.masterSalesSheet.toUpperCase() || up.indexOf("(VENTAS)") > -1;
+}
+
+// ----------------------------------------------------------------------
+// C. PROGRESO Y ESTATUS
+// ----------------------------------------------------------------------
+
+/**
+ * Evalúa si un valor de AVANCE representa el 100 %.
+ * AGENTS.md §4: el número nativo 1 (celda con formato porcentaje) SÍ es 100 %,
+ * pero el string "1" o "1.0" (que el usuario teclea como 1 %) NO lo es.
+ */
+function isProgressComplete(value) {
+  if (value === null || value === undefined || value === "") return false;
+  if (value instanceof Date) return false;
+  if (typeof value === "number") {
+    return Math.abs(value - 1) < 0.001 || Math.abs(value - 100) < 0.01;
+  }
+  const raw = String(value).trim();
+  if (!raw) return false;
+  const clean = raw.replace("%", "").replace(",", ".").trim();
+  const num = parseFloat(clean);
+  if (isNaN(num)) return false;
+  return Math.abs(num - 100) < 0.01;
+}
+
+/** Estatus que cierran una tarea o cotización (archivado y métricas). */
+function isTerminalStatus(value) {
+  const up = String(value === null || value === undefined ? "" : value).toUpperCase().trim();
+  if (!up) return false;
+  if (TERMINAL_STATUSES.indexOf(up) > -1) return true;
+  return WIN_STATUSES.concat(LOSS_STATUSES).some(s => up.indexOf(s) === 0);
+}
+
+/** Clasifica el estatus de una cotización para las métricas. */
+function classifyQuoteStatus(value) {
+  const up = String(value === null || value === undefined ? "" : value).toUpperCase().trim();
+  if (!up) return "EN_PROCESO";
+  if (WIN_STATUSES.some(s => up.indexOf(s) === 0)) return "GANADA";
+  if (LOSS_STATUSES.some(s => up.indexOf(s) === 0)) return "PERDIDA";
+  return "EN_PROCESO";
+}
+
+/** Normaliza una celda para comparaciones (fechas -> dd/MM/yy). */
+function normalizeCellValue(value) {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, SS.getSpreadsheetTimeZone(), "dd/MM/yy");
+  }
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m) {
+    const yy = m[3].length === 4 ? m[3].slice(-2) : m[3];
+    return String(m[1]).padStart(2, "0") + "/" + String(m[2]).padStart(2, "0") + "/" + yy;
+  }
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return iso[3] + "/" + iso[2] + "/" + iso[1].slice(-2);
+  return raw.toUpperCase().replace(/\s+/g, " ").trim();
+}
+
+/** Convierte un valor de celda a Date (soporta dd/MM/yy y ISO). */
+function parseSheetDate(value) {
+  try {
+    if (!value) return null;
+    if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+    const raw = String(value).trim();
+    const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (m) {
+      let y = parseInt(m[3], 10);
+      if (y < 100) y += 2000;
+      return new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+    }
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ----------------------------------------------------------------------
+// D. PAPA CALIENTE (PROCESO_LOG / MAP COT) Y REVERSE SYNC
+// ----------------------------------------------------------------------
+
+/** Parsea PROCESO_LOG de forma tolerante (siempre retorna array). */
+function parseProcesoLog(value) {
+  try {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+/** 'CD' o 'Calculo y Diseño' -> 'CD'. Retorna "" si no es una fase válida. */
+function normalizePhaseId(value) {
+  const raw = String(value === null || value === undefined ? "" : value).trim();
+  if (!raw) return "";
+  const up = raw.toUpperCase();
+  if (PROCESS_STEPS.indexOf(up) > -1) return up;
+  for (let i = 0; i < PROCESS_STEPS.length; i++) {
+    const step = PROCESS_STEPS[i];
+    if (FULL_PROCESS_NAMES[step].toUpperCase() === up) return step;
+  }
+  // Formatos tipo "🔴 CD" o "🟢 L | 🔴 CD | ⚪ EP"
+  const match = raw.match(/[🔴🟡]\s*([A-Z]{1,3})/);
+  if (match && PROCESS_STEPS.indexOf(match[1]) > -1) return match[1];
+  return "";
+}
+
+/** Nombre completo de la fase ('CD' -> 'Calculo y Diseño'). */
+function phaseLabel(stepId) {
+  const id = normalizePhaseId(stepId);
+  return (id && FULL_PROCESS_NAMES[id]) ? FULL_PROCESS_NAMES[id] : String(stepId || "");
+}
+
+/** Extrae la fase marcada en un concepto: '... [Calculo y Diseño]' -> 'CD'. */
+function extractPhaseFromConcepto(concepto) {
+  const raw = String(concepto === null || concepto === undefined ? "" : concepto);
+  const matches = raw.match(/\[([^\]]+)\]/g);
+  if (!matches) return "";
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const inner = matches[i].replace(/^\[|\]$/g, "").trim();
+    const id = normalizePhaseId(inner);
+    if (id) return id;
+  }
+  return "";
+}
+
+/** Quita las marcas de fase de un concepto delegado. */
+function stripPhaseMarker(concepto) {
+  return String(concepto === null || concepto === undefined ? "" : concepto)
+    .replace(/\s*\[[^\]]+\]\s*$/g, "")
+    .trim();
+}
+
+/**
+ * Construye la columna MAP COT con la convención del visualizador:
+ *   🟢 etapa terminada · 🔴 etapa en curso · ⚪ etapa pendiente
+ */
+function buildMapCot(log, currentStep) {
+  const entries = parseProcesoLog(log);
+  const current = normalizePhaseId(currentStep);
+  const currentIdx = PROCESS_STEPS.indexOf(current);
+
+  return PROCESS_STEPS.map((step, idx) => {
+    const stepEntries = entries.filter(e => e && (e.step === step || e.to === step));
+    if (stepEntries.length > 0) {
+      const allDone = stepEntries.every(e => String(e.status || "").toUpperCase() === "DONE");
+      return (allDone ? "🟢 " : "🔴 ") + step;
+    }
+    if (currentIdx > -1 && idx < currentIdx) return "🟢 " + step;
+    if (step === current) return "🔴 " + step;
+    return "⚪ " + step;
+  }).join(" | ");
+}
+
+/** Marca una fase del PROCESO_LOG para un responsable dado. */
+function upsertProcesoLogEntry(log, stepId, assignee, status) {
+  const entries = parseProcesoLog(log);
+  const step = normalizePhaseId(stepId);
+  if (!step) return entries;
+  const who = String(assignee || "").trim();
+  const now = new Date();
+
+  let found = false;
+  entries.forEach(entry => {
+    if (!entry) return;
+    const entryStep = entry.step || entry.to;
+    if (entryStep !== step) return;
+    if (who && entry.assignee && String(entry.assignee).toUpperCase().trim() !== who.toUpperCase()) return;
+    entry.status = status;
+    entry.timestamp = now.getTime();
+    entry.dateStr = now.toLocaleString();
+    if (who && !entry.assignee) entry.assignee = who;
+    found = true;
+  });
+
+  if (!found) {
+    entries.push({
+      step: step,
+      status: status,
+      assignee: who,
+      timestamp: now.getTime(),
+      dateStr: now.toLocaleString()
+    });
+  }
+  return entries;
+}
+
+/** Lee una fila completa (objeto por encabezado) buscando por FOLIO/ID. */
+function internalFindRowObject(sheetName, folio) {
+  try {
+    const sheet = findSheetSmart(sheetName);
+    if (!sheet) return null;
+    const values = sheet.getDataRange().getValues();
+    const headerRowIndex = findHeaderRow(values);
+    if (headerRowIndex === -1) return null;
+    const headers = values[headerRowIndex].map(h => String(h).toUpperCase().replace(/\n/g, " ").replace(/\s+/g, " ").trim());
+    let folioIdx = headers.indexOf("FOLIO");
+    if (folioIdx === -1) folioIdx = headers.indexOf("ID");
+    if (folioIdx === -1) return null;
+    const target = String(folio).toUpperCase().trim();
+    for (let i = headerRowIndex + 1; i < values.length; i++) {
+      if (String(values[i][folioIdx]).toUpperCase().trim() === target) {
+        const obj = {};
+        headers.forEach((h, j) => { if (h) obj[h] = values[i][j]; });
+        obj._rowIndex = i + 1;
+        return obj;
+      }
+    }
+    return null;
+  } catch (e) {
+    console.warn("internalFindRowObject: " + e.toString());
+    return null;
+  }
+}
+
+/** Hoja destino de un trabajador: tracker personal y, si no existe, su tabla (VENTAS). */
+function resolveWorkerSheet(workerName) {
+  const clean = String(workerName || "").replace(/\s*\(VENTAS\)/ig, "").trim();
+  if (!clean) return null;
+  if (findSheetSmart(clean)) return clean;
+  if (findSheetSmart(clean + " (VENTAS)")) return clean + " (VENTAS)";
+  return null;
+}
+
+/**
+ * DISTRIBUCIÓN LATERAL ("PAPA CALIENTE")
+ * Detecta una delegación de fase dentro del payload y:
+ *   1. Actualiza PROCESO_LOG y MAP COT sobre el propio taskData (para que se
+ *      escriba en la hoja maestra en el mismo guardado).
+ *   2. Crea la fila delegada en la hoja de cada trabajador, marcando el
+ *      CONCEPTO con la fase, ej: "COTIZACION PLANTA [Calculo y Diseño]".
+ * Soporta el contrato del frontend (`_assignToWorker` + `_assignStep`) y el
+ * genérico (`PROCESO`/`ETAPA` + `INVOLUCRADOS`).
+ * @returns {{step: string, workers: Array<string>, targets: Array<string>}|null}
+ */
+function internalApplyHotPotato(sheetName, taskData, username, useOwnLock = true) {
+  try {
+    if (!taskData) return null;
+
+    // 1. Trabajadores destino
+    let workers = [];
+    if (taskData._assignToWorker) {
+      workers = Array.isArray(taskData._assignToWorker) ? taskData._assignToWorker.slice() : [taskData._assignToWorker];
+    }
+    if (workers.length === 0) {
+      const involucrados = pickTaskValue(taskData, ["INVOLUCRADOS", "RESPONSABLE", "ASIGNADO"]);
+      if (involucrados) workers = String(involucrados).split(",");
+    }
+    workers = workers.map(w => String(w || "").trim()).filter(w => w && normalizeStaffName(w) !== normalizeStaffName(sheetName));
+    if (workers.length === 0) return null;
+
+    // 2. Fase delegada
+    const step = normalizePhaseId(
+      taskData._assignStep ||
+      pickTaskValue(taskData, ["PROCESO", "ETAPA", "FASE", "MAP COT"])
+    );
+    if (!step) return null;
+
+    const folio = String(pickTaskValue(taskData, ["FOLIO", "ID"]) || "").trim();
+    if (!folio) return null;
+
+    // 3. Datos maestros de la cotización
+    const master = internalFindRowObject(sheetName, folio) || {};
+    const conceptoBase = stripPhaseMarker(pickTaskValue(taskData, ["CONCEPTO", "DESCRIPCION"]) || master["CONCEPTO"] || master["DESCRIPCION"] || "");
+    const cliente = pickTaskValue(taskData, ["CLIENTE"]) || master["CLIENTE"] || "";
+    const clasificacion = pickTaskValue(taskData, ["CLASIFICACION", "CLASI"]) || master["CLASIFICACION"] || "";
+    const fechaMaestra = pickTaskValue(taskData, ["FECHA", "FECHA ALTA", "ALTA"]) || master["FECHA"] || new Date();
+
+    // 4. PROCESO_LOG + MAP COT sobre la hoja maestra
+    let log = parseProcesoLog(pickTaskValue(taskData, ["PROCESO_LOG"]) || master["PROCESO_LOG"]);
+    workers.forEach(w => { log = upsertProcesoLogEntry(log, step, w, "IN_PROGRESS"); });
+    taskData["PROCESO_LOG"] = JSON.stringify(log);
+    taskData["MAP COT"] = buildMapCot(log, step);
+
+    // 5. Filas delegadas
+    const targets = [];
+    workers.forEach(worker => {
+      const targetSheet = resolveWorkerSheet(worker);
+      if (!targetSheet) {
+        registrarLog(username || "SISTEMA", "PAPA_CALIENTE_SKIP", "Sin hoja para " + worker + " (folio " + folio + ")");
+        return;
+      }
+      const delegated = {
+        FOLIO: folio,
+        CLIENTE: cliente,
+        CONCEPTO: conceptoBase + " [" + phaseLabel(step) + "]",
+        FECHA: fechaMaestra,
+        ESTATUS: "ASIGNADO",
+        AVANCE: "",
+        CLASIFICACION: clasificacion,
+        RESPONSABLE: worker,
+        VENDEDOR: worker,
+        COMENTARIOS: "Fase delegada desde " + sheetName + " por " + (username || "SISTEMA")
+      };
+      const res = internalBatchUpdateTasks(targetSheet, [delegated], useOwnLock);
+      if (res && res.success) {
+        targets.push(targetSheet);
+      } else {
+        registrarLog(username || "SISTEMA", "PAPA_CALIENTE_FAIL", targetSheet + ": " + (res && res.message));
+      }
+    });
+
+    registrarLog(username || "SISTEMA", "PAPA_CALIENTE",
+      "Folio " + folio + " fase " + step + " -> " + workers.join(", "));
+    return { step: step, workers: workers, targets: targets };
+  } catch (e) {
+    console.error("internalApplyHotPotato: " + e.toString());
+    return null;
+  }
+}
+
+/**
+ * REVERSE SYNC (trabajador -> ANTONIA_VENTAS)
+ * Replica en la hoja maestra los avances del trabajador PERO:
+ *   - Borra ESTATUS/AVANCE/CUMPLIMIENTO (comparación case-insensitive) para
+ *     que una fase parcial no cierre la venta global (AGENTS.md §3).
+ *   - No pisa el CONCEPTO maestro con el concepto marcado de la fase.
+ *   - Marca la fase como DONE en PROCESO_LOG y pinta MAP COT en verde.
+ */
+function internalReverseSyncToAntonia(sourceSheetName, tasks, username, useOwnLock = true) {
+  const blockedKeys = ["ESTATUS", "STATUS", "AVANCE", "AVANCE %", "% AVANCE", "CUMPLIMIENTO", "FECHA_TERMINO", "FECHA TERMINO"];
+  const master = SALES_ROUTING_CONFIG.masterSalesSheet;
+  const results = [];
+
+  (tasks || []).forEach(task => {
+    try {
+      const folio = String(pickTaskValue(task, ["FOLIO", "ID"]) || "").trim();
+      if (!folio) return;
+
+      // 1. Payload saneado
+      const clean = {};
+      Object.keys(task).forEach(key => {
+        if (key.startsWith("_")) return;
+        const up = String(key).toUpperCase().replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+        if (blockedKeys.indexOf(up) > -1) return;                       // cierre prematuro
+        if (up === "CONCEPTO" && /\[[^\]]+\]/.test(String(task[key]))) return; // concepto marcado
+        clean[key] = task[key];
+      });
+      clean["FOLIO"] = folio;
+
+      // 2. Estado real de la fila del trabajador
+      const workerRow = internalFindRowObject(sourceSheetName, folio) || {};
+      const phase = extractPhaseFromConcepto(workerRow["CONCEPTO"] || pickTaskValue(task, ["CONCEPTO"]));
+      const completed = isProgressComplete(workerRow["AVANCE"] !== undefined ? workerRow["AVANCE"] : pickTaskValue(task, ["AVANCE"]))
+        || isTerminalStatus(workerRow["ESTATUS"] !== undefined ? workerRow["ESTATUS"] : pickTaskValue(task, ["ESTATUS"]));
+
+      // 3. Timeline de la maestra
+      if (phase) {
+        const masterRow = internalFindRowObject(master, folio) || {};
+        const log = upsertProcesoLogEntry(
+          masterRow["PROCESO_LOG"],
+          phase,
+          normalizeStaffName(sourceSheetName),
+          completed ? "DONE" : "IN_PROGRESS"
+        );
+        clean["PROCESO_LOG"] = JSON.stringify(log);
+        clean["MAP COT"] = buildMapCot(log, phase);
+      }
+
+      const res = internalBatchUpdateTasks(master, [clean], useOwnLock, { skipNotify: true });
+      results.push({ folio: folio, phase: phase, completed: completed, success: !!(res && res.success) });
+      if (res && res.success) {
+        registrarLog(username || "SISTEMA", "REVERSE_SYNC",
+          "Folio " + folio + (phase ? (" fase " + phase + (completed ? " DONE" : " EN CURSO")) : "") + " desde " + sourceSheetName);
+      }
+    } catch (e) {
+      console.error("internalReverseSyncToAntonia: " + e.toString());
+    }
+  });
+  return results;
+}
+
+// ----------------------------------------------------------------------
+// E. NOTIFIER SERVICE (MAKE.COM -> OUTLOOK)
+// ----------------------------------------------------------------------
+
+const NotifierService = {
+  /** URL del webhook (configurable en Propiedades del Script). */
+  getWebhookUrl: function () {
+    try {
+      const props = PropertiesService.getScriptProperties();
+      const custom = props.getProperty(NOTIFIER_CONFIG.urlProperty);
+      return (custom && custom.trim()) ? custom.trim() : NOTIFIER_CONFIG.defaultUrl;
+    } catch (e) {
+      return NOTIFIER_CONFIG.defaultUrl;
+    }
+  },
+
+  isEnabled: function () {
+    try {
+      const flag = PropertiesService.getScriptProperties().getProperty(NOTIFIER_CONFIG.enabledProperty);
+      if (flag !== null && String(flag).toUpperCase() === "FALSE") return false;
+    } catch (e) { /* por defecto habilitado */ }
+    return !!this.getWebhookUrl();
+  },
+
+  /**
+   * Payload para Make.com. La fecha SIEMPRE viaja como .toISOString()
+   * (con milisegundos y "Z") para que Outlook conserve la zona horaria.
+   */
+  buildPayload: function (sheetName, task, assignee) {
+    const fecha = parseSheetDate(pickTaskValue(task, ["FECHA", "FECHA ALTA", "ALTA", "FECHA INICIO"])) || new Date();
+    const fechaFin = parseSheetDate(pickTaskValue(task, ["FECHA_RESPUESTA", "FECHA RESPUESTA", "FECHA FIN"]));
+    return {
+      evento: "TAREA_ASIGNADA",
+      hoja: sheetName,
+      origen: isSalesSheet(sheetName) ? "tabla de ventas" : "tracker general",
+      esVenta: isSalesSheet(sheetName),
+      folio: String(pickTaskValue(task, ["FOLIO", "ID"]) || ""),
+      concepto: String(pickTaskValue(task, ["CONCEPTO", "DESCRIPCION"]) || ""),
+      responsable: assignee,
+      email: resolveUserEmail(assignee),
+      cliente: String(pickTaskValue(task, ["CLIENTE"]) || ""),
+      clasificacion: String(pickTaskValue(task, ["CLASIFICACION", "CLASI"]) || ""),
+      estatus: String(pickTaskValue(task, ["ESTATUS", "STATUS"]) || "ASIGNADO"),
+      fechaInicio: fecha.toISOString(),
+      fechaFin: fechaFin ? fechaFin.toISOString() : "",
+      enviadoEn: new Date().toISOString()
+    };
+  },
+
+  /** Envía el payload al webhook. Nunca lanza: un fallo no debe romper el guardado. */
+  sendToOutlook: function (payload) {
+    try {
+      if (!this.isEnabled()) return { success: false, message: "Webhook deshabilitado" };
+      if (!payload || !payload.email) return { success: false, message: "Responsable sin correo corporativo" };
+      const response = UrlFetchApp.fetch(this.getWebhookUrl(), {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      const code = response.getResponseCode ? response.getResponseCode() : 200;
+      return { success: code >= 200 && code < 300, code: code };
+    } catch (e) {
+      console.warn("NotifierService.sendToOutlook: " + e.toString());
+      return { success: false, message: e.toString() };
+    }
+  },
+
+  /** Notifica la asignación de una tarea nueva a su responsable. */
+  notifyAssignment: function (sheetName, task) {
+    try {
+      const assignee = String(
+        pickTaskValue(task, ["RESPONSABLE", "INVOLUCRADOS", "VENDEDOR", "ENCARGADO", "ASIGNADO"]) || sheetName
+      ).split(",")[0].trim();
+      if (!assignee) return { success: false, message: "Sin responsable" };
+      const payload = this.buildPayload(sheetName, task, assignee);
+      if (!payload.email) return { success: false, message: "Sin correo para " + assignee };
+      return this.sendToOutlook(payload);
+    } catch (e) {
+      return { success: false, message: e.toString() };
+    }
+  }
+};
+
+/** Hojas que nunca disparan notificación (espejos y catálogos). */
+function shouldNotifySheet(sheetName) {
+  const up = String(sheetName || "").toUpperCase().trim();
+  if (!up) return false;
+  if (up.indexOf("DB_") === 0 || up.indexOf("LOG_") === 0) return false;
+  if (up === "ADMINISTRADOR") return false;   // hoja espejo de control
+  if (up === APP_CONFIG.ppcSheetName.toUpperCase() || up === "PPCV4") return false;
+  if (up === APP_CONFIG.draftSheetName.toUpperCase()) return false;
+  return true;
+}
+
+// ----------------------------------------------------------------------
+// F. AGENTE DE MÉTRICAS DE COTIZACIONES
+// ----------------------------------------------------------------------
+
+/** Lee ANTONIA_VENTAS (activas + TAREAS REALIZADAS) y calcula los KPIs. */
+function internalCollectQuoteMetrics(params) {
+  const opts = params || {};
+  const month = opts.month ? parseInt(opts.month, 10) : null;
+  const year = opts.year ? parseInt(opts.year, 10) : null;
+
+  const res = internalFetchSheetData(SALES_ROUTING_CONFIG.masterSalesSheet);
+  if (!res.success) throw new Error(res.message || "No se pudo leer " + SALES_ROUTING_CONFIG.masterSalesSheet);
+
+  // El historial (TAREAS REALIZADAS) es imprescindible: ahí viven las cerradas.
+  const rows = (res.data || []).concat(res.history || []);
+
+  const metrics = {
+    totalCount: 0,
+    month: month || (new Date().getMonth() + 1),
+    year: year || new Date().getFullYear(),
+    winLoss: { ganada: 0, perdida: 0, enProceso: 0, total: 0 },
+    closeRate: 0,
+    slaSummary: {
+      A: { slaLimit: METRICS_CONFIG.slaLimits.A, count: 0, ok: 0, fail: 0, avgDays: 0, pctOk: 0 },
+      AA: { slaLimit: METRICS_CONFIG.slaLimits.AA, count: 0, ok: 0, fail: 0, avgDays: 0, pctOk: 0 },
+      AAA: { slaLimit: METRICS_CONFIG.slaLimits.AAA, count: 0, ok: 0, fail: 0, avgDays: 0, pctOk: 0 }
+    },
+    byCotizadorArr: [],
+    byDepartmentArr: [],
+    aaaByClientArr: [],
+    alerts: []
+  };
+
+  const byCotizador = {};
+  const byDepartment = {};
+  const aaaByClient = {};
+  const slaDays = { A: [], AA: [], AAA: [] };
+  const hoy = new Date();
+
+  rows.forEach(row => {
+    const get = (keys) => pickTaskValue(row, keys);
+    const fecha = parseSheetDate(get(["FECHA", "FECHA INICIO", "FECHA ALTA", "ALTA"]));
+    if (month && year) {
+      if (!fecha) return;
+      if ((fecha.getMonth() + 1) !== month || fecha.getFullYear() !== year) return;
+    }
+
+    metrics.totalCount++;
+    const estatus = String(get(["ESTATUS", "STATUS"]) || "");
+    const bucket = classifyQuoteStatus(estatus);
+    if (bucket === "GANADA") metrics.winLoss.ganada++;
+    else if (bucket === "PERDIDA") metrics.winLoss.perdida++;
+    else metrics.winLoss.enProceso++;
+    metrics.winLoss.total++;
+
+    const vendedor = String(get(["VENDEDOR", "RESPONSABLE", "COTIZADOR"]) || "SIN ASIGNAR").toUpperCase().trim();
+    if (!byCotizador[vendedor]) byCotizador[vendedor] = { nombre: vendedor, total: 0, ganada: 0, perdida: 0, enProceso: 0 };
+    byCotizador[vendedor].total++;
+    if (bucket === "GANADA") byCotizador[vendedor].ganada++;
+    else if (bucket === "PERDIDA") byCotizador[vendedor].perdida++;
+    else byCotizador[vendedor].enProceso++;
+
+    const depto = String(get(["AREA", "DEPARTAMENTO", "ESPECIALIDAD"]) || "GENERAL").toUpperCase().trim();
+    if (!byDepartment[depto]) byDepartment[depto] = { nombre: depto, total: 0, ganada: 0, perdida: 0 };
+    byDepartment[depto].total++;
+    if (bucket === "GANADA") byDepartment[depto].ganada++;
+    if (bucket === "PERDIDA") byDepartment[depto].perdida++;
+
+    // SLA por clasificación
+    const clase = String(get(["CLASIFICACION", "CLASI"]) || "").toUpperCase().trim();
+    if (metrics.slaSummary[clase] && fecha) {
+      const cierre = parseSheetDate(get(["FECHA_TERMINO", "FECHA TERMINO", "FECHA REAL"]));
+      const referencia = cierre || hoy;
+      const dias = Math.floor((referencia.getTime() - fecha.getTime()) / 86400000);
+      const limite = metrics.slaSummary[clase].slaLimit;
+      metrics.slaSummary[clase].count++;
+      slaDays[clase].push(dias);
+      if (dias <= limite) {
+        metrics.slaSummary[clase].ok++;
+      } else {
+        metrics.slaSummary[clase].fail++;
+        metrics.alerts.push({
+          folio: String(get(["FOLIO", "ID"]) || ""),
+          cliente: String(get(["CLIENTE"]) || ""),
+          vendedor: vendedor,
+          clasificacion: clase,
+          dias: dias,
+          slaLimit: limite,
+          estatus: estatus
+        });
+      }
+      if (clase === "AAA") {
+        const cli = String(get(["CLIENTE"]) || "SIN CLIENTE").toUpperCase().trim();
+        if (!aaaByClient[cli]) aaaByClient[cli] = { cliente: cli, total: 0, fueraSla: 0 };
+        aaaByClient[cli].total++;
+        if (dias > limite) aaaByClient[cli].fueraSla++;
+      }
+    }
+  });
+
+  Object.keys(metrics.slaSummary).forEach(clase => {
+    const s = metrics.slaSummary[clase];
+    const dias = slaDays[clase];
+    s.avgDays = dias.length ? Math.round((dias.reduce((a, b) => a + b, 0) / dias.length) * 10) / 10 : 0;
+    s.pctOk = s.count ? Math.round((s.ok / s.count) * 1000) / 10 : 0;
+  });
+
+  const cerradas = metrics.winLoss.ganada + metrics.winLoss.perdida;
+  metrics.closeRate = cerradas ? Math.round((metrics.winLoss.ganada / cerradas) * 1000) / 10 : 0;
+
+  metrics.byCotizadorArr = Object.keys(byCotizador).map(k => byCotizador[k]).sort((a, b) => b.total - a.total);
+  metrics.byDepartmentArr = Object.keys(byDepartment).map(k => byDepartment[k]).sort((a, b) => b.total - a.total);
+  metrics.aaaByClientArr = Object.keys(aaaByClient).map(k => aaaByClient[k]).sort((a, b) => b.total - a.total);
+
+  return metrics;
+}
+
+/** API para el dashboard: métricas por reglas (sin IA). */
+function apiFetchQuoteAgentMetrics(params) {
+  try {
+    return { success: true, metrics: internalCollectQuoteMetrics(params) };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/** Construye el prompt del analista de ventas para Gemini. */
+function buildQuoteMetricsPrompt(metrics) {
+  const sla = metrics.slaSummary;
+  const topFallas = (metrics.alerts || []).slice(0, 15)
+    .map(a => `- Folio ${a.folio} (${a.clasificacion}) de ${a.vendedor}: ${a.dias} días vs SLA ${a.slaLimit}. Estatus: ${a.estatus}`)
+    .join("\n");
+
+  return [
+    "Eres el analista de operaciones de Holtmont. Analiza los KPIs de cotizaciones del periodo " +
+    metrics.month + "/" + metrics.year + " y responde en español en aproximadamente 180 palabras.",
+    "",
+    "DATOS:",
+    "- Cotizaciones totales: " + metrics.totalCount,
+    "- Ganadas: " + metrics.winLoss.ganada + " | Perdidas: " + metrics.winLoss.perdida + " | En proceso: " + metrics.winLoss.enProceso,
+    "- Tasa de cierre: " + metrics.closeRate + "%",
+    "- SLA A (" + sla.A.slaLimit + " días): " + sla.A.ok + " cumplidas / " + sla.A.fail + " fuera de tiempo (promedio " + sla.A.avgDays + " días)",
+    "- SLA AA (" + sla.AA.slaLimit + " días): " + sla.AA.ok + " cumplidas / " + sla.AA.fail + " fuera de tiempo (promedio " + sla.AA.avgDays + " días)",
+    "- SLA AAA (" + sla.AAA.slaLimit + " días): " + sla.AAA.ok + " cumplidas / " + sla.AAA.fail + " fuera de tiempo (promedio " + sla.AAA.avgDays + " días)",
+    "",
+    "SLAs INCUMPLIDOS:",
+    topFallas || "- Ninguno en el periodo.",
+    "",
+    "Entrega el texto en un solo bloque, sin listas ni markdown, y cierra siempre con una recomendación operativa concreta y accionable para el equipo de ventas."
+  ].join("\n");
+}
+
+/** Llama a Gemini con el prompt de métricas. Degrada con mensaje claro si no hay key. */
+function callGeminiForMetrics(prompt) {
+  try {
+    const key = PropertiesService.getScriptProperties().getProperty(METRICS_CONFIG.geminiKeyProperty);
+    if (!key) {
+      return { success: false, text: "Sin GEMINI_API_KEY configurada: el reporte se generó solo con reglas. Configúrala desde el dashboard para incluir el análisis de IA." };
+    }
+    const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+      METRICS_CONFIG.geminiModel + ":generateContent?key=" + key;
+    const response = UrlFetchApp.fetch(url, {
+      method: "post",
+      contentType: "application/json",
+      muteHttpExceptions: true,
+      payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+    const body = JSON.parse(response.getContentText());
+    const text = body && body.candidates && body.candidates[0] &&
+      body.candidates[0].content && body.candidates[0].content.parts &&
+      body.candidates[0].content.parts[0] ? body.candidates[0].content.parts[0].text : "";
+    if (!text) return { success: false, text: "Gemini no devolvió contenido analizable." };
+    return { success: true, text: String(text).trim() };
+  } catch (e) {
+    return { success: false, text: "Error al consultar Gemini: " + e.toString() };
+  }
+}
+
+/** AGENTE COMPLETO: reglas + Gemini + notificación. Lo dispara el dashboard. */
+function runQuoteMetricsAgent(params) {
+  try {
+    const metrics = internalCollectQuoteMetrics(params);
+    const gemini = callGeminiForMetrics(buildQuoteMetricsPrompt(metrics));
+
+    const lastRun = {
+      timestamp: new Date().toISOString(),
+      month: metrics.month,
+      year: metrics.year,
+      alerts: metrics.alerts,
+      geminiSummary: gemini.text,
+      geminiOk: gemini.success,
+      metrics: metrics
+    };
+
+    try {
+      PropertiesService.getScriptProperties()
+        .setProperty(METRICS_CONFIG.lastReportProperty, JSON.stringify(lastRun));
+    } catch (e) {
+      console.warn("No se pudo persistir el último reporte: " + e.toString());
+    }
+
+    try {
+      NotifierService.sendToOutlook({
+        evento: "REPORTE_METRICAS_COTIZACIONES",
+        origen: "tabla de ventas",
+        periodo: metrics.month + "/" + metrics.year,
+        email: resolveUserEmail("ANTONIA_VENTAS"),
+        tasaCierre: metrics.closeRate,
+        alertas: metrics.alerts.length,
+        resumen: gemini.text,
+        enviadoEn: new Date().toISOString()
+      });
+    } catch (e) { /* la notificación nunca bloquea al agente */ }
+
+    registrarLog((params && params.username) || "SISTEMA", "AGENTE_METRICAS",
+      `Periodo ${metrics.month}/${metrics.year} · ${metrics.alerts.length} alertas · cierre ${metrics.closeRate}%`);
+
+    return { success: true, lastRun: lastRun };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/** Versión para disparador diario/semanal: ejecuta el agente y vuelca el KPI a la hoja. */
+function autoUpdateQuoteMetrics() {
+  const now = new Date();
+  const params = { month: now.getMonth() + 1, year: now.getFullYear() };
+  const res = runQuoteMetricsAgent(params);
+  if (res.success) {
+    try { apiWriteQuoteMetricsToSheet(params); } catch (e) { console.warn(e.toString()); }
+  }
+  return res;
+}
+
+/** Vuelca las métricas a la hoja KPI_COTIZACIONES. */
+function apiWriteQuoteMetricsToSheet(params) {
+  try {
+    const metrics = internalCollectQuoteMetrics(params);
+    let sheet = findSheetSmart(METRICS_CONFIG.kpiSheetName);
+    if (!sheet) sheet = SS.insertSheet(METRICS_CONFIG.kpiSheetName);
+    sheet.clearContents();
+
+    const rows = [
+      ["KPI COTIZACIONES", "PERIODO", metrics.month + "/" + metrics.year, "GENERADO", new Date()],
+      [],
+      ["INDICADOR", "VALOR"],
+      ["Cotizaciones totales", metrics.totalCount],
+      ["Ganadas", metrics.winLoss.ganada],
+      ["Perdidas", metrics.winLoss.perdida],
+      ["En proceso", metrics.winLoss.enProceso],
+      ["Tasa de cierre (%)", metrics.closeRate],
+      [],
+      ["CLASE", "SLA (días)", "TOTAL", "EN TIEMPO", "FUERA DE SLA", "PROMEDIO DÍAS", "% CUMPLIMIENTO"]
+    ];
+    ["A", "AA", "AAA"].forEach(c => {
+      const s = metrics.slaSummary[c];
+      rows.push([c, s.slaLimit, s.count, s.ok, s.fail, s.avgDays, s.pctOk]);
+    });
+    rows.push([]);
+    rows.push(["COTIZADOR", "TOTAL", "GANADAS", "PERDIDAS", "EN PROCESO"]);
+    metrics.byCotizadorArr.forEach(v => rows.push([v.nombre, v.total, v.ganada, v.perdida, v.enProceso]));
+
+    const width = rows.reduce((m, r) => Math.max(m, r.length), 1);
+    const normalized = rows.map(r => r.concat(new Array(width - r.length).fill("")));
+    sheet.getRange(1, 1, normalized.length, width).setValues(normalized);
+    SpreadsheetApp.flush();
+
+    return { success: true, message: "KPI_COTIZACIONES actualizado", rows: normalized.length };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/** Último reporte guardado del agente (para pintar el dashboard al entrar). */
+function apiGetLastAgentReport() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(METRICS_CONFIG.lastReportProperty);
+    if (!raw) return { success: true, hasReport: false, lastRun: null };
+    return { success: true, hasReport: true, lastRun: JSON.parse(raw) };
+  } catch (e) {
+    return { success: false, hasReport: false, message: e.toString() };
+  }
+}
+
+/** Guarda la GEMINI_API_KEY en Propiedades del Script. */
+function apiSaveGeminiKey(key) {
+  try {
+    const clean = String(key || "").trim();
+    if (!clean) return { success: false, message: "La key no puede estar vacía." };
+    PropertiesService.getScriptProperties().setProperty(METRICS_CONFIG.geminiKeyProperty, clean);
+    registrarLog("ADMIN", "GEMINI_KEY", "Se actualizó la API Key de Gemini");
+    return { success: true, message: "Key guardada" };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/** ¿Hay key configurada? Devuelve solo un preview, nunca la key completa. */
+function apiCheckGeminiKey() {
+  try {
+    const key = PropertiesService.getScriptProperties().getProperty(METRICS_CONFIG.geminiKeyProperty);
+    if (!key) return { success: true, hasKey: false, keyPreview: "" };
+    return { success: true, hasKey: true, keyPreview: String(key).substring(0, 6) + "***" };
+  } catch (e) {
+    return { success: false, hasKey: false, message: e.toString() };
+  }
+}
+
+/** Agente de productividad por persona sobre los trackers del directorio. */
+function runTrackerProductivityAgent(params) {
+  try {
+    const opts = params || {};
+    const month = opts.month ? parseInt(opts.month, 10) : (new Date().getMonth() + 1);
+    const year = opts.year ? parseInt(opts.year, 10) : new Date().getFullYear();
+
+    const directory = getDirectoryFromDB() || [];
+    const seen = {};
+    const people = [];
+    directory.forEach(u => {
+      const name = String(u.name || "").trim();
+      if (!name || seen[name.toUpperCase()]) return;
+      seen[name.toUpperCase()] = true;
+      people.push({ name: name, dept: u.dept || "GENERAL" });
+    });
+
+    const resumen = [];
+    let totalActivas = 0, totalCerradas = 0;
+
+    people.forEach(person => {
+      if (!findSheetSmart(person.name)) return;
+      const res = internalFetchSheetData(person.name);
+      if (!res.success) return;
+
+      const enPeriodo = (row) => {
+        const f = parseSheetDate(pickTaskValue(row, ["FECHA", "FECHA ALTA", "ALTA", "FECHA INICIO"]));
+        if (!f) return false;
+        return (f.getMonth() + 1) === month && f.getFullYear() === year;
+      };
+
+      const activas = (res.data || []).filter(enPeriodo);
+      const cerradas = (res.history || []).filter(enPeriodo);
+      if (activas.length === 0 && cerradas.length === 0) return;
+
+      const vencidas = activas.filter(row => {
+        const clase = String(pickTaskValue(row, ["CLASIFICACION", "CLASI"]) || "").toUpperCase().trim();
+        const limite = METRICS_CONFIG.slaLimits[clase];
+        if (!limite) return false;
+        const f = parseSheetDate(pickTaskValue(row, ["FECHA", "FECHA ALTA", "ALTA"]));
+        if (!f) return false;
+        return Math.floor((new Date().getTime() - f.getTime()) / 86400000) > limite;
+      }).length;
+
+      totalActivas += activas.length;
+      totalCerradas += cerradas.length;
+
+      resumen.push({
+        nombre: person.name,
+        departamento: person.dept,
+        activas: activas.length,
+        cerradas: cerradas.length,
+        vencidas: vencidas,
+        cumplimiento: (activas.length + cerradas.length)
+          ? Math.round((cerradas.length / (activas.length + cerradas.length)) * 1000) / 10
+          : 0
+      });
+    });
+
+    resumen.sort((a, b) => b.cerradas - a.cerradas);
+
+    const notif = NotifierService.sendToOutlook({
+      evento: "REPORTE_PRODUCTIVIDAD_TRACKER",
+      origen: "tracker general",
+      periodo: month + "/" + year,
+      email: resolveUserEmail("LUIS_CARLOS"),
+      totalActivas: totalActivas,
+      totalCerradas: totalCerradas,
+      personas: resumen.length,
+      enviadoEn: new Date().toISOString()
+    });
+
+    registrarLog((opts.username) || "SISTEMA", "AGENTE_PRODUCTIVIDAD",
+      `Periodo ${month}/${year} · ${resumen.length} personas`);
+
+    return {
+      success: true,
+      data: {
+        month: month,
+        year: year,
+        totalActivas: totalActivas,
+        totalCerradas: totalCerradas,
+        personas: resumen,
+        emailSent: !!(notif && notif.success)
+      }
+    };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// ----------------------------------------------------------------------
+// G. APIs SUELTAS QUE INVOCA index.html
+// ----------------------------------------------------------------------
+
+/** Re-sincroniza DB_DIRECTORY con INITIAL_DIRECTORY sin borrar altas manuales. */
+function apiResyncDirectory() {
+  const lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(10000)) return { success: false, message: "Sistema ocupado, intenta de nuevo." };
+
+    let sheet = findSheetSmart(APP_CONFIG.directorySheetName);
+    if (!sheet) sheet = SS.insertSheet(APP_CONFIG.directorySheetName);
+
+    const values = sheet.getDataRange().getValues();
+    const existing = {};
+    for (let i = 1; i < values.length; i++) {
+      const name = String(values[i][0] || "").trim().toUpperCase();
+      const dept = String(values[i][1] || "").trim().toUpperCase();
+      if (name) existing[name + "|" + dept] = true;
+    }
+
+    const missing = INITIAL_DIRECTORY.filter(u =>
+      !existing[String(u.name).toUpperCase().trim() + "|" + String(u.dept).toUpperCase().trim()]);
+
+    if (values.length < 2) {
+      sheet.clear();
+      sheet.appendRow(["NOMBRE", "DEPARTAMENTO", "TIPO_HOJA"]);
+    }
+    if (missing.length > 0) {
+      const startRow = Math.max(sheet.getLastRow() + 1, 2);
+      sheet.getRange(startRow, 1, missing.length, 3)
+        .setValues(missing.map(u => [u.name, u.dept, u.type]));
+      SpreadsheetApp.flush();
+    }
+
+    registrarLog("ADMIN", "RESYNC_DIRECTORIO", `${missing.length} registros agregados`);
+    return {
+      success: true,
+      message: missing.length
+        ? `Directorio sincronizado: ${missing.length} registro(s) agregado(s).`
+        : "El directorio ya estaba sincronizado."
+    };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Auditoría de cambios de fecha en la tabla de ventas. */
+function apiLogDateChange(payload, username) {
+  try {
+    const p = payload || {};
+    registrarLog(
+      username || "DESCONOCIDO",
+      "CAMBIO_FECHA",
+      `Hoja: ${p.hoja || "-"} | Folio: ${p.folio || "-"} | Campo: ${p.campo || "-"} | ${p.anterior || "(vacío)"} -> ${p.nuevo || "(vacío)"}`
+    );
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/** Empresas (clientes) con cotizaciones en un año/mes dados, para el Banco de Información. */
+function apiFetchInfoBankCompanies(year, monthName) {
+  try {
+    const res = internalFetchSheetData(SALES_ROUTING_CONFIG.masterSalesSheet);
+    if (!res.success) return { success: false, message: res.message };
+
+    const monthMap = {
+      'ENERO': 0, 'FEBRERO': 1, 'MARZO': 2, 'ABRIL': 3, 'MAYO': 4, 'JUNIO': 5,
+      'JULIO': 6, 'AGOSTO': 7, 'SEPTIEMBRE': 8, 'OCTUBRE': 9, 'NOVIEMBRE': 10, 'DICIEMBRE': 11
+    };
+    const targetYear = parseInt(year, 10) || new Date().getFullYear();
+    let targetMonth = monthMap[String(monthName).toUpperCase().trim()];
+    if (targetMonth === undefined) {
+      const numeric = parseInt(monthName, 10);
+      targetMonth = isNaN(numeric) ? undefined : numeric - 1;
+    }
+    if (targetMonth === undefined) return { success: false, message: "Mes inválido: " + monthName };
+
+    const companies = {};
+    (res.data || []).concat(res.history || []).forEach(row => {
+      const cliente = String(pickTaskValue(row, ["CLIENTE"]) || "").trim();
+      if (!cliente) return;
+      const fecha = parseSheetDate(pickTaskValue(row, ["FECHA INICIO", "FECHA_INICIO", "FECHA", "ALTA", "FECHA ALTA"]));
+      if (!fecha) return;
+      if (fecha.getMonth() !== targetMonth || fecha.getFullYear() !== targetYear) return;
+      const key = cliente.toUpperCase();
+      if (!companies[key]) companies[key] = { name: cliente.toUpperCase(), count: 0 };
+      companies[key].count++;
+    });
+
+    return {
+      success: true,
+      data: Object.keys(companies).map(k => companies[k]).sort((a, b) => a.name.localeCompare(b.name))
+    };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * Agencia de agentes de texto (Paperclip). En GAS se resuelve con Gemini;
+ * el stack de Python expone el mismo contrato en /api/run_paperclip_agency.
+ */
+function runPaperclipAgents(requestText) {
+  try {
+    const texto = String(requestText || "").trim();
+    if (!texto) return { success: false, message: "Se requiere texto de entrada." };
+
+    const prompt = [
+      "Eres la agencia de agentes de Holtmont. Analiza la siguiente solicitud de obra",
+      "y responde en español con: (1) resumen ejecutivo, (2) alcance sugerido,",
+      "(3) riesgos detectados y (4) una recomendación operativa final.",
+      "",
+      "SOLICITUD:",
+      texto
+    ].join("\n");
+
+    const gemini = callGeminiForMetrics(prompt);
+    if (!gemini.success) return { success: false, message: gemini.text };
+
+    registrarLog("SISTEMA", "PAPERCLIP_AGENTS", texto.substring(0, 120));
+    return { success: true, result: gemini.text, output: gemini.text };
+  } catch (e) {
+    return { success: false, message: e.toString() };
   }
 }

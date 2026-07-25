@@ -87,6 +87,25 @@ class GoogleScriptRunAdapter {
             .catch(err => this._failureHandler(err));
     }
 
+    /**
+     * Helper interno: llama a un endpoint y enruta la respuesta a los
+     * handlers de éxito/fallo, igual que google.script.run.
+     */
+    _call(path, options) {
+        fetch(`${API_BASE_URL}${path}`, options)
+            .then(res => res.json())
+            .then(data => this._successHandler(data))
+            .catch(err => this._failureHandler(err));
+    }
+
+    _post(path, body) {
+        this._call(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+    }
+
     // Stubs for other methods to prevent crashes during partial migration
     apiLogout(username) {
         console.log("Logout:", username);
@@ -106,8 +125,7 @@ class GoogleScriptRunAdapter {
     }
 
     apiUpdateTask(sheet, data, user) {
-        console.warn("apiUpdateTask not implemented");
-        this._successHandler({ success: true });
+        this._post('/api/legacy/updateTask', { sheetName: sheet, task: data, username: user });
     }
 
     apiSavePPCData(payload, activeUser) {
@@ -186,23 +204,76 @@ class GoogleScriptRunAdapter {
     }
 
     apiFetchWeeklyPlanData(username) {
-        console.warn("apiFetchWeeklyPlanData stub called");
-        this._successHandler({ success: true, data: [], headers: [] });
+        this._call(`/api/legacy/weeklyPlan?username=${encodeURIComponent(username || '')}`);
     }
 
     apiUpdatePPCV3(row, username) {
-        console.warn("apiUpdatePPCV3 stub called");
-        this._successHandler({ success: true });
+        this._post('/api/legacy/updatePPCV3', { task: row, username: username });
+    }
+
+    apiFetchUnifiedAgenda(username) {
+        this._call(`/api/legacy/unifiedAgenda?username=${encodeURIComponent(username || '')}`);
     }
 
     apiFetchSalesHistory() {
-        console.warn("apiFetchSalesHistory stub called");
-        this._successHandler({ success: true, data: {} });
+        this._call('/api/legacy/salesHistory');
     }
 
     apiSaveTrackerBatch(sheetName, data, username) {
-        console.warn("apiSaveTrackerBatch stub called");
-        this._successHandler({ success: true });
+        this._post('/api/legacy/saveTrackerBatch', {
+            sheetName: sheetName,
+            tasks: Array.isArray(data) ? data : [data],
+            username: username
+        });
+    }
+
+    // --- Agente de métricas de cotizaciones ---
+
+    apiFetchQuoteAgentMetrics(params) {
+        const p = params || {};
+        this._call(`/api/legacy/quoteMetrics?month=${p.month || ''}&year=${p.year || ''}`);
+    }
+
+    runQuoteMetricsAgent(params) {
+        this._post('/api/legacy/runQuoteAgent', params || {});
+    }
+
+    apiGetLastAgentReport() {
+        this._call('/api/legacy/lastAgentReport');
+    }
+
+    apiWriteQuoteMetricsToSheet(params) {
+        this._post('/api/legacy/writeQuoteMetrics', params || {});
+    }
+
+    apiCheckGeminiKey() {
+        this._call('/api/legacy/geminiKey');
+    }
+
+    apiSaveGeminiKey(key) {
+        this._post('/api/legacy/geminiKey', { key: key });
+    }
+
+    runTrackerProductivityAgent(params) {
+        this._post('/api/legacy/trackerProductivity', params || {});
+    }
+
+    // --- Directorio, auditoría y banco de información ---
+
+    apiResyncDirectory() {
+        this._post('/api/legacy/resyncDirectory', {});
+    }
+
+    apiLogDateChange(payload, username) {
+        this._post('/api/legacy/logDateChange', { payload: payload, username: username });
+    }
+
+    apiFetchInfoBankCompanies(year, month) {
+        this._call(`/api/legacy/infoBankCompanies?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`);
+    }
+
+    runPaperclipAgents(text) {
+        this._post('/api/run_paperclip_agency', { text: text });
     }
 
     apiSaveHabitLog(payload) {
