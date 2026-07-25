@@ -81,7 +81,7 @@
 | 5.1d | CODIGO.js implementa la lógica PROCESO_LOG / MAP COT | sí | sí | ✅ PASA |
 | 5.2a | La tarea se archiva en la hoja de ANGEL SALINAS | archivada | archivada | ✅ PASA |
 | 5.2b | La COTIZACION se inserta en la celda correcta de ANTONIA_VENTAS | URL del archivo | https://drive.google.com/cot_2025.pdf | ✅ PASA |
-| 5.2c | PROCESO_LOG de Antonia marca la etapa como DONE | contiene DONE | [{"step":"CD","status":"DONE","assignee":"ANGEL SALINAS","timestamp":1784993009256,"dateStr":"7/25/2026, 3:23:29 PM"}] | ✅ PASA |
+| 5.2c | PROCESO_LOG de Antonia marca la etapa como DONE | contiene DONE | [{"step":"CD","status":"DONE","assignee":"ANGEL SALINAS","timestamp":<ts>,"dateStr":"<fecha>"}] | ✅ PASA |
 | 5.2d | MAP COT de CD cambia a 🟢 | 🟢 CD | 🟢 L \| 🟢 CD \| ⚪ EP \| ⚪ CI \| ⚪ EV \| ⚪ CEC \| ⚪ RCC | ✅ PASA |
 | 5.3a | El ESTATUS de Antonia NO se sobrescribe con el del trabajador | EN PROCESO | EN PROCESO | ✅ PASA |
 | 5.3b | El AVANCE de Antonia NO se sobrescribe con 100 | 40 | 40 | ✅ PASA |

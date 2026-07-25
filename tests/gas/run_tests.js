@@ -633,7 +633,12 @@ results.forEach(r => {
     lines.push('| # | Prueba | Esperado | Obtenido | Resultado |');
     lines.push('|---|--------|----------|----------|-----------|');
   }
-  const esc = (s) => String(s).replace(/\|/g, '\\|');
+  // Se enmascaran los valores volátiles (timestamps) para que volver a correr
+  // la suite no genere diffs espurios en el reporte versionado.
+  const esc = (s) => String(s)
+    .replace(/"timestamp":\s*\d+/g, '"timestamp":<ts>')
+    .replace(/"dateStr":\s*"[^"]*"/g, '"dateStr":"<fecha>"')
+    .replace(/\|/g, '\\|');
   lines.push(`| ${r.id} | ${esc(r.nombre)} | ${esc(r.esperado)} | ${esc(r.obtenido)} | ${r.ok ? '✅ PASA' : '❌ FALLA'} |`);
   if (r.nota) lines.push(`| | _${esc(r.nota)}_ | | | |`);
 });
