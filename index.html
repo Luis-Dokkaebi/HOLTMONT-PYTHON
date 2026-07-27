@@ -7438,7 +7438,7 @@ const filteredStaffTrackerData = computed(() => {
           row._isSaving = true;
 
           if (event && event.clientX) {
-             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && String(v) === '100') || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
+             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && (parseFloat(String(v).replace('%', '').trim()) === 100)) || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
              if (isCompleted) triggerConfetti(event.clientX, event.clientY);
           }
           const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
@@ -8227,7 +8227,7 @@ const filteredStaffTrackerData = computed(() => {
           const isCompleted = Object.entries(row).some(([k, v]) => {
               const kUp = String(k).toUpperCase().trim();
               const vStr = String(v).toUpperCase().trim();
-              if (kUp.includes('AVANCE') && (vStr === '100' || vStr === '100%')) return true;
+              if (kUp.includes('AVANCE') && parseFloat(vStr.replace('%', '')) === 100) return true;
               if (kUp.includes('ESTATUS') && ['HECHO', 'TERMINADO', 'FINALIZADO', 'REALIZADO', 'COMPLETADO', 'DONE'].includes(vStr)) return true;
               if (kUp.includes('CUMPLIMIENTO') && vStr === 'SI') return true;
               return false;
@@ -8387,7 +8387,7 @@ const filteredStaffTrackerData = computed(() => {
           }
 
           if (event && event.clientX) {
-             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && String(v) === '100') || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
+             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && (parseFloat(String(v).replace('%', '').trim()) === 100)) || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
              if (isCompleted) triggerConfetti(event.clientX, event.clientY);
           }
           Swal.showLoading();
@@ -8973,7 +8973,7 @@ const filteredStaffTrackerData = computed(() => {
       const isTaskDone = (task) => {
           const status = String(task.ESTATUS || '').toUpperCase();
           const avance = String(task.AVANCE || '').replace('%','').trim();
-          return status.includes('DONE') || status.includes('REALIZAD') || avance === '100';
+          return status.includes('DONE') || status.includes('REALIZAD') || parseFloat(avance) === 100;
       };
 
       const getResponsible = (task) => {
