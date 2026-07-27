@@ -103,7 +103,6 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
 
 ARCHIVE_SEPARATOR = "TAREAS REALIZADAS"
 REVERSE_SYNC_BLOCKED_KEYS = {
-    "ESTATUS", "STATUS", "AVANCE", "AVANCE %", "% AVANCE",
     "CUMPLIMIENTO", "FECHA_TERMINO", "FECHA TERMINO",
 }
 
@@ -243,7 +242,9 @@ def is_progress_complete(value: Any) -> bool:
         num = float(clean)
     except ValueError:
         return False
-    return abs(num - 100) < 0.01
+    if clean in ("1", "1.0", "1.00"):
+        return False
+    return abs(num - 100) < 0.01 or (abs(num - 1) < 0.001 and "%" not in raw)
 
 
 def is_terminal_status(value: Any) -> bool:
