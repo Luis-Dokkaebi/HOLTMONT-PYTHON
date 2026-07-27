@@ -2656,7 +2656,7 @@
                          <div v-else-if="isCol(h, ['REQUISITOR'])" class="d-flex" style="height:100%; width:100%; align-items:center;">
                              <input v-model="row[h]" :readonly="!isFieldEditable(h, row)" class="excel-input" style="flex:1; min-width:0;" spellcheck="false">
                          </div>
-                         <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA', 'F_ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO', 'F_INICIO')" style="position:absolute; inset:0; width:100%; height:100%; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA', 'F_ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
+                         <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F_ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO') || String(h).toUpperCase().includes('F_INICIO')" style="position:absolute; inset:0; width:100%; height:100%; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA', 'F_ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
                              <div style="position:absolute; inset:0; display:flex; align-items:center; padding-left:4px; font-size:12px; pointer-events:none; color: #000 !important;">{{ formatDisplayDate(row[h]) }}</div>
                              <input type="date" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;" :disabled="!isFieldEditable(h, row)" :value="toIsoDate(row[h])" @input="updateDateFromPicker($event, row, h)">
                          </div>
@@ -2710,7 +2710,7 @@
                                  :style="getAntoniaStatusStyle(row[h])">
                                  {{ row[h] }}
                             </div>
-                            <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA', 'F_ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO', 'F_INICIO')" style="position:absolute; inset:0; padding-left:4px; display:flex; align-items:center; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA', 'F_ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
+                            <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F_ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO') || String(h).toUpperCase().includes('F_INICIO')" style="position:absolute; inset:0; padding-left:4px; display:flex; align-items:center; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA', 'F_ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
                                  {{ formatDisplayDate(row[h]) }}
                             </div>
                             <div v-else-if="isCol(h, ['DIAS','RELOJ','DÍAS FINALIZ. COTIZ','DIAS FINALIZ. COTIZ'])" style="text-align:center; font-weight:bold; width:100%; height:100%; display:flex; align-items:center; justify-content:center;" :style="getTrafficStyle(row)">
@@ -7240,7 +7240,13 @@ const filteredStaffTrackerData = computed(() => {
                    // It's safer to use the Date(year, monthIndex, day) constructor
                    dObj = new Date(parseInt(y), parseInt(parts[1]) - 1, parseInt(parts[0]));
               } else {
-                   const parsed = new Date(val);
+                   let parsed;
+                   if (val.includes('-')) {
+                       const p = val.split('-');
+                       parsed = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+                   } else {
+                       parsed = new Date(val);
+                   }
                    if (!isNaN(parsed.getTime())) dObj = parsed;
               }
           }
@@ -7249,7 +7255,7 @@ const filteredStaffTrackerData = computed(() => {
               dObj.setHours(0,0,0,0);
               now.setHours(0,0,0,0);
               const diffTime = now - dObj;
-              const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+              const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
               row[hDias] = Math.max(0, diffDays);
           }
       };
@@ -7340,8 +7346,15 @@ const filteredStaffTrackerData = computed(() => {
           let dObj = null;
           if (val instanceof Date) dObj = val;
           else if (typeof val === 'string') {
-              const p = val.split('/');
-              if (p.length === 3) dObj = new Date(p[2].length===2?'20'+p[2]:p[2], p[1]-1, p[0]);
+              if (val.includes('/')) {
+                  const p = val.split('/');
+                  if (p.length === 3) dObj = new Date(p[2].length===2?'20'+p[2]:p[2], p[1]-1, p[0]);
+              } else if (val.includes('-')) {
+                  const p = val.split('-');
+                  dObj = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+              } else {
+                  dObj = new Date(val);
+              }
           }
           if (!dObj || isNaN(dObj.getTime())) return {};
 
@@ -7350,7 +7363,7 @@ const filteredStaffTrackerData = computed(() => {
           now.setHours(0,0,0,0);
           dObj.setHours(0,0,0,0);
           const diff = now - dObj;
-          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const days = Math.round(diff / (1000 * 60 * 60 * 24));
 
           const clasiKey = Object.keys(row).find(k => ['CLASIFICACION', 'CLASI'].includes(String(k).toUpperCase().trim()));
           const t = clasiKey ? String(row[clasiKey]).trim().toUpperCase() : '';
@@ -9749,13 +9762,19 @@ const filteredStaffTrackerData = computed(() => {
           const startDateRaw = (row['F. INICIO'] || row['F_INICIO']) || row['FECHA'] || row['ALTA'] || row['FECHA INICIO'] || row['FECHA_INICIO'];
           if (startDateRaw) {
               try {
-                  const parts = String(startDateRaw).split('/');
-                  if (parts.length === 3) {
-                      let yy = parseInt(parts[2]);
-                      if (yy < 100) yy += 2000;
-                      startDate = new Date(yy, parseInt(parts[1])-1, parseInt(parts[0]));
+                  const valStr = String(startDateRaw);
+                  if (valStr.includes('/')) {
+                      const parts = valStr.split('/');
+                      if (parts.length === 3) {
+                          let yy = parseInt(parts[2]);
+                          if (yy < 100) yy += 2000;
+                          startDate = new Date(yy, parseInt(parts[1])-1, parseInt(parts[0]));
+                      }
+                  } else if (valStr.includes('-')) {
+                      const parts = valStr.split('-');
+                      startDate = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
                   } else {
-                      startDate = new Date(startDateRaw);
+                      startDate = new Date(valStr);
                   }
               } catch(e) {}
           }
@@ -9855,11 +9874,16 @@ const filteredStaffTrackerData = computed(() => {
                   const val = row[k];
                   if (val instanceof Date) startDate = val;
                   else if (typeof val === 'string') {
-                      const parts = val.split('/');
-                      if (parts.length === 3) {
-                          let y = parts[2];
-                          if (y.length === 2) y = '20' + y;
-                          startDate = new Date(y, parts[1]-1, parts[0]);
+                      if (val.includes('/')) {
+                          const parts = val.split('/');
+                          if (parts.length === 3) {
+                              let y = parts[2];
+                              if (y.length === 2) y = '20' + y;
+                              startDate = new Date(y, parts[1]-1, parts[0]);
+                          }
+                      } else if (val.includes('-')) {
+                          const parts = val.split('-');
+                          startDate = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
                       } else {
                           const parsed = new Date(val);
                           if (!isNaN(parsed.getTime())) startDate = parsed;
