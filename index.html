@@ -22,6 +22,16 @@
     :root { --sidebar-w: 260px; --sidebar-mini: 65px; --primary: #1c1c1c; --accent: #3699ff; --bg-body: #f3f6f9; }
     body { font-family: 'Roboto', sans-serif; background: var(--bg-body); margin: 0; overflow: hidden; font-size: 13px; }
 
+    input[type="date"]::-webkit-calendar-picker-indicator {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+    }
+
     .content-wrapper { flex: 1; display: flex; flex-direction: column; background: var(--bg-body); overflow: hidden; position: relative; transition: margin-left 0.3s; }
     .content-wrapper.dark-mode { background: #111 !important; }
     .view-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 20px; width: 100%; box-sizing: border-box; }
