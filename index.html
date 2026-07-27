@@ -7438,7 +7438,7 @@ const filteredStaffTrackerData = computed(() => {
           row._isSaving = true;
 
           if (event && event.clientX) {
-             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && (String(v) === '100' || String(v) === '100%')) || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
+             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && (parseFloat(String(v).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(v).replace('%', '').replace(',', '.').trim()) === 1 && !String(v).includes('%')))) || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
              if (isCompleted) triggerConfetti(event.clientX, event.clientY);
           }
           const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
@@ -8227,7 +8227,7 @@ const filteredStaffTrackerData = computed(() => {
           const isCompleted = Object.entries(row).some(([k, v]) => {
               const kUp = String(k).toUpperCase().trim();
               const vStr = String(v).toUpperCase().trim();
-              if (kUp.includes('AVANCE') && (vStr === '100' || vStr === '100%')) return true;
+              if (kUp.includes('AVANCE') && (parseFloat(String(vStr).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(vStr).replace('%', '').replace(',', '.').trim()) === 1 && !String(vStr).includes('%')))) return true;
               if (kUp.includes('ESTATUS') && ['HECHO', 'TERMINADO', 'FINALIZADO', 'REALIZADO', 'COMPLETADO', 'DONE'].includes(vStr)) return true;
               if (kUp.includes('CUMPLIMIENTO') && vStr === 'SI') return true;
               return false;
@@ -8387,7 +8387,7 @@ const filteredStaffTrackerData = computed(() => {
           }
 
           if (event && event.clientX) {
-             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && (String(v) === '100' || String(v) === '100%')) || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
+             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && (parseFloat(String(v).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(v).replace('%', '').replace(',', '.').trim()) === 1 && !String(v).includes('%')))) || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
              if (isCompleted) triggerConfetti(event.clientX, event.clientY);
           }
           Swal.showLoading();
@@ -8906,7 +8906,7 @@ const filteredStaffTrackerData = computed(() => {
       const getTaskColor = (task) => {
           const status = String(task.ESTATUS || task.STATUS || '').toUpperCase();
           // 1. COMPLETADO (Verde)
-          if (status.includes('DONE') || status.includes('COMPLET') || status.includes('REALIZAD') || status === '100%') return '#28a745';
+          if (status.includes('DONE') || status.includes('COMPLET') || status.includes('REALIZAD') || (parseFloat(String(status).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(status).replace('%', '').replace(',', '.').trim()) === 1 && !String(status).includes('%')))) return '#28a745';
           // 2. CANCELADO (Rojo)
           if (status.includes('DETENID') || status.includes('CANCEL')) return '#dc3545';
 
@@ -8973,7 +8973,7 @@ const filteredStaffTrackerData = computed(() => {
       const isTaskDone = (task) => {
           const status = String(task.ESTATUS || '').toUpperCase();
           const avance = String(task.AVANCE || '').replace('%','').trim();
-          return status.includes('DONE') || status.includes('REALIZAD') || avance === '100';
+          return status.includes('DONE') || status.includes('REALIZAD') || (parseFloat(String(avance).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(avance).replace('%', '').replace(',', '.').trim()) === 1 && !String(avance).includes('%')));
       };
 
       const getResponsible = (task) => {
@@ -9054,7 +9054,7 @@ const filteredStaffTrackerData = computed(() => {
                       const timeB = b.time || '00:00';
                       return timeA.localeCompare(timeB);
                   }).map(t => {
-                      t.isDone = (t.status === 'DONE' || t.status === 'REALIZADO' || t.status === 'COMPLETADA' || t.status === '100%');
+                      t.isDone = (t.status === 'DONE' || t.status === 'REALIZADO' || t.status === 'COMPLETADA' || (parseFloat(String(t.status).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(t.status).replace('%', '').replace(',', '.').trim()) === 1 && !String(t.status).includes('%'))));
                       if(t.type === 'WORK' && isTaskDone(t.original)) t.isDone = true;
                       return t;
                   });
