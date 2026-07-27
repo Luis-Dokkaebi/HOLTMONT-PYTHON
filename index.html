@@ -725,6 +725,20 @@
         border-radius: 10px;
         pointer-events: none;
     }
+
+      /* Date picker hitboxes across all browsers */
+      input[type="date"]::-webkit-calendar-picker-indicator {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          margin: 0;
+          padding: 0;
+          opacity: 0;
+          cursor: pointer;
+      }
+
   </style>
 </head>
 <body>
