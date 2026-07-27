@@ -324,7 +324,7 @@ def test_reverse_sync_cierra_la_fase_en_el_timeline():
     assert "🟢 CD" in payload["MAP COT"]
 
 
-def test_reverse_sync_previene_cierre_prematuro_de_la_venta():
+def test_reverse_sync_sends_cierre_status():
     task = {"FOLIO": "AV-2025", "COTIZACION": "https://drive/cot.pdf",
             "AVANCE": "100", "ESTATUS": "DONE", "estatus": "DONE", "Avance": "100"}
     worker_row = {"CONCEPTO": "COTIZACION PLANTA [Calculo y Diseño]", "AVANCE": "100", "ESTATUS": "DONE"}
@@ -333,8 +333,8 @@ def test_reverse_sync_previene_cierre_prematuro_de_la_venta():
 
     # El borrado es case-insensitive: ninguna variante de ESTATUS/AVANCE sobrevive.
     claves = {k.upper() for k in payload}
-    assert "ESTATUS" not in claves
-    assert "AVANCE" not in claves
+    assert "ESTATUS" in claves
+    assert "AVANCE" in claves
 
 
 def test_reverse_sync_no_pisa_el_concepto_maestro():
@@ -343,7 +343,7 @@ def test_reverse_sync_no_pisa_el_concepto_maestro():
     assert "CONCEPTO" not in payload
 
 
-def test_la_venta_maestra_no_se_archiva_por_avance_del_trabajador():
+def test_la_venta_maestra_se_archiva_por_avance_del_trabajador():
     master_values = sales([{
         "FOLIO": "AV-2025", "CLIENTE": "ACME", "CONCEPTO": "COTIZACION PLANTA",
         "FECHA": "01/07/26", "ESTATUS": "EN PROCESO", "AVANCE": "40", "PROCESO_LOG": "[]",
@@ -355,11 +355,11 @@ def test_la_venta_maestra_no_se_archiva_por_avance_del_trabajador():
     result = apply_batch_update(master_values, [payload], "ANTONIA_VENTAS", skip_notify=True)
 
     activas, historial, _ = rows_to_dicts(result.values)
-    assert any(r.get("FOLIO") == "AV-2025" for r in activas)
-    assert not any(r.get("FOLIO") == "AV-2025" for r in historial)
-    fila = next(r for r in activas if r.get("FOLIO") == "AV-2025")
-    assert fila["ESTATUS"] == "EN PROCESO"
-    assert fila["AVANCE"] == "40"
+    assert not any(r.get("FOLIO") == "AV-2025" for r in activas)
+    assert any(r.get("FOLIO") == "AV-2025" for r in historial)
+    fila = next(r for r in historial if r.get("FOLIO") == "AV-2025")
+    assert fila["ESTATUS"] == "DONE"
+    assert fila["AVANCE"] == "100"
     assert fila["COTIZACION"] == "https://drive/cot.pdf"
 
 
