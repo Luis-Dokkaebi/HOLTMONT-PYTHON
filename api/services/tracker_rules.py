@@ -734,6 +734,99 @@ def should_notify_sheet(sheet_name: Any) -> bool:
 
 
 # ----------------------------------------------------------------------
+# PLANEACIÓN SEMANAL (equivalente de apiFetchWeeklyPlanData)
+# ----------------------------------------------------------------------
+
+def week_number(value: Any) -> Any:
+    """
+    Número de semana ISO 8601, igual que `getWeekNumber()` de `CODIGO.js`.
+
+    Aquella función desplaza la fecha al jueves de su semana y cuenta desde el
+    1 de enero, que es exactamente la definición ISO; `isocalendar()` la
+    implementa. Devuelve "-" cuando no hay fecha, como el original.
+    """
+    fecha = parse_sheet_date(value)
+    return fecha.isocalendar()[1] if fecha else "-"
+
+
+def map_weekly_plan_header(header: Any) -> str:
+    """
+    Traduce un encabezado de la hoja al nombre que espera la vista.
+
+    Copia literal de la cadena de `if` de `apiFetchWeeklyPlanData`, incluido el
+    orden: `ALTA`/`FECHA` se evalúa después de `DESCRIPCI`/`CONCEPTO`, y las
+    dos columnas de comentarios se comparan por igualdad exacta, no por
+    inclusión, para que "COMENTARIOS SEMANA PREVIA" no acabe en la de la
+    semana en curso.
+    """
+    up = normalize_header(header)
+    if "ESPECIALIDAD" in up or "AREA" in up or "DEPARTAMENTO" in up:
+        return "ESPECIALIDAD"
+    if "DESCRIPCI" in up or "CONCEPTO" in up:
+        return "CONCEPTO"
+    if "INVOLUCRADOS" in up or "RESPONSABLE" in up or "VENDEDOR" in up or "ENCARGADO" in up:
+        return "RESPONSABLE"
+    if "ALTA" in up or "FECHA" in up:
+        return "FECHA"
+    if "RELOJ" in up or "HORAS" in up:
+        return "RELOJ"
+    if "ARCHIV" in up or "CLIP" in up or "LINK" in up or "EVIDENCIA" in up:
+        return "ARCHIVO"
+    if "CUMPLIMIENTO" in up:
+        return "CUMPLIMIENTO"
+    if up in ("COMENTARIOS", "COMENTARIOS SEMANA EN CURSO") or "OBSERVACIONES" in up:
+        return "COMENTARIOS SEMANA EN CURSO"
+    if up in ("COMENTARIOS PREVIOS", "COMENTARIOS SEMANA PREVIA", "PREVIOS"):
+        return "COMENTARIOS SEMANA PREVIA"
+    return up
+
+
+def build_weekly_plan(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    (headers, data) de la vista "Planeación Semanal".
+
+    Reproduce `apiFetchWeeklyPlanData`: renombra los encabezados, antepone la
+    columna SEMANA que la vista pinta como `S{{ row.SEMANA }}`, descarta las
+    filas sin CONCEPTO ni FOLIO/ID, y devuelve el resultado invertido (lo más
+    reciente primero).
+    """
+    filas = list(rows or [])
+    if not filas:
+        return {"headers": [], "data": []}
+
+    originales: List[str] = []
+    for fila in filas:
+        for clave in fila.keys():
+            if not str(clave).startswith("_") and clave not in originales:
+                originales.append(clave)
+
+    mapeados = [map_weekly_plan_header(h) for h in originales]
+    # Si dos columnas mapean al mismo nombre gana la primera, como en GAS,
+    # donde el objeto se construye asignando en orden.
+    salida: List[Dict[str, Any]] = []
+    for fila in filas:
+        objeto: Dict[str, Any] = {}
+        for original, destino in zip(originales, mapeados):
+            objeto.setdefault(destino, fila.get(original))
+        if not (objeto.get("CONCEPTO") or objeto.get("FOLIO") or objeto.get("ID")):
+            continue
+        objeto["SEMANA"] = week_number(objeto.get("FECHA"))
+        if "_rowIndex" in fila:
+            objeto["_rowIndex"] = fila["_rowIndex"]
+        salida.append(objeto)
+
+    vistos = set()
+    encabezados = ["SEMANA"]
+    for destino in mapeados:
+        if destino not in vistos:
+            vistos.add(destino)
+            encabezados.append(destino)
+
+    salida.reverse()
+    return {"headers": encabezados, "data": salida}
+
+
+# ----------------------------------------------------------------------
 # GATEKEEPER ANTI-DUPLICACIÓN (equivalente a CacheService)
 # ----------------------------------------------------------------------
 

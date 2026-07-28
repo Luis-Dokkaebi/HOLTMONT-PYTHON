@@ -277,6 +277,70 @@ def resolve_source_sheet(tabla, sheet_name):
 def reset_source_sheet_cache():
     """Invalida el índice (las pruebas y un resync del directorio lo usan)."""
     _SOURCE_SHEET_CACHE.clear()
+    _PLAN_SEMANAL_CACHE.clear()
+
+
+# --- PPCV3: el PPC maestro ------------------------------------------------
+# `PPCV3` no existe como `source_sheet` en `tasks` ni como tabla propia: la
+# migración partió la hoja en dos. Las columnas de tarea fueron a `tasks`
+# etiquetadas con el tracker personal de cada quien (963 en `ADMINISTRADOR`,
+# 39 en `PPCV4`, 20 en `ANTONIA PINEDA LOPEZ`…), y `plan_semanal` quedó como
+# índice: sus 1.180 filas con `source_sheet='PPCV3'` guardan en `task_folio`
+# qué tareas pertenecen al PPC maestro.
+#
+# Reconstruir la hoja es entonces resolver ese índice contra `tasks`. Decisión
+# del dueño (2026-07) entre las tres reconstrucciones posibles; ver
+# docs/PLAN_BACKEND_PYTHON.md §7.7.
+
+PPC_MASTER_SHEET = "PPCV3"
+_PLAN_SEMANAL_CACHE = {}
+
+
+def folios_del_ppc_maestro():
+    """Folios que `plan_semanal` marca como parte del PPC maestro."""
+    if "folios" not in _PLAN_SEMANAL_CACHE:
+        folios = []
+        try:
+            for fila in sb_manager.select("plan_semanal", {"source_sheet": PPC_MASTER_SHEET}):
+                folio = fila.get("task_folio")
+                if folio:
+                    folios.append(folio)
+        except Exception as exc:  # la vista nunca debe romperse por esto
+            print(f"No se pudieron leer los folios de plan_semanal: {exc}")
+        _PLAN_SEMANAL_CACHE["folios"] = list(dict.fromkeys(folios))
+    return _PLAN_SEMANAL_CACHE["folios"]
+
+
+def _filas_del_ppc_maestro():
+    """
+    Las tareas del PPC maestro, resolviendo el índice de `plan_semanal`.
+
+    Se consulta `tasks` por folio en lotes: son ~1.100 folios y meterlos todos
+    en un `in.(...)` haría una URL que PostgREST rechaza.
+    """
+    folios = folios_del_ppc_maestro()
+    if not folios:
+        return []
+
+    encontradas = []
+    lote = 150
+    for inicio in range(0, len(folios), lote):
+        trozo = folios[inicio:inicio + lote]
+        try:
+            encontradas.extend(sb_manager.select_in("tasks", "folio", trozo))
+        except Exception as exc:
+            print(f"No se pudo leer el lote de tareas del PPC maestro: {exc}")
+
+    # Un mismo folio puede vivir en varias hojas por difusión lateral; aquí se
+    # quiere una fila por tarea, así que se deduplica por `id`.
+    vistas = set()
+    unicas = []
+    for fila in encontradas:
+        clave = fila.get("id") or fila.get("dedupe_key")
+        if clave not in vistas:
+            vistas.add(clave)
+            unicas.append(fila)
+    return unicas
 
 
 class MockSheet:
@@ -357,6 +421,15 @@ class GSheetsManager:
         # was migrated) - always fall through to the mock login below.
         elif sheet_name == "USERS":
             pass
+
+        # PPCV3 se reconstruye resolviendo el índice de `plan_semanal` contra
+        # `tasks`. Sin esto la consulta caía a la ruta legacy y preguntaba por
+        # una tabla `public.PPCV3` que no existe: PGRST205 en consola y una
+        # tabla vacía con `success: true` para todos menos Toñita.
+        elif str(sheet_name).strip().upper() == PPC_MASTER_SHEET:
+            values = _rows_to_values(_filas_del_ppc_maestro(), TASK_HEADER_MAP)
+            if values:
+                return values
 
         else:
             # Sales/quote hojas (e.g. ANTONIA_VENTAS) live in `quotes`,

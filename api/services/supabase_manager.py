@@ -113,6 +113,23 @@ class SupabaseManager:
             print(f"Error listing distinct {column} from {table}: {e}")
             return []
 
+    def select_in(self, table: str, column: str, values: List[Any]) -> List[Dict[str, Any]]:
+        """
+        Filas cuya `column` esté en `values` (un `IN` de SQL).
+
+        El llamador debe trocear: una lista larga produce una URL que PostgREST
+        rechaza. Se usa para resolver los ~1.100 folios que `plan_semanal`
+        marca como parte del PPC maestro.
+        """
+        if self._skip_unconfigured() or not values:
+            return []
+        try:
+            res = self.client.table(table).select("*").in_(column, list(values)).execute()
+            return res.data or []
+        except Exception as e:
+            print(f"Error fetching {table} by {column} IN (...): {e}")
+            return []
+
     def insert(self, table: str, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if self._skip_unconfigured():
             return None

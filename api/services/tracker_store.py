@@ -217,20 +217,25 @@ def fetch_weekly_plan(username: str = "") -> Dict[str, Any]:
         repartidos entre varias hojas (963 en `ADMINISTRADOR`, 39 en `PPCV4`…),
         no bajo un único `source_sheet`.
 
-    Reconstruir PPCV3 es entonces una decisión de negocio con tres respuestas
-    posibles y resultados muy distintos (1.701 filas, 1.056 o 1.180 casi
-    vacías). Mientras no se tome, esta función deja de fingir: marca la
-    respuesta con `_notImplemented`, igual que las lecturas no portadas.
+    Decisión del dueño (2026-07) entre las tres reconstrucciones posibles:
+    **`PPCV3` son las tareas cuyo folio aparece en `plan_semanal.task_folio`**,
+    resueltas contra `tasks`. `plan_semanal` actúa de índice del PPC maestro.
+    La resolución vive en `sheets.py::_filas_del_ppc_maestro()`.
     """
     sheet = "PPCV4" if rules.normalize_staff_name(username) == "ANTONIA VENTAS" else "PPCV3"
     active, history, headers = read_rows(sheet)
+
+    # La vista pinta `S{{ row.SEMANA }}` y espera los encabezados renombrados,
+    # igual que devolvía `apiFetchWeeklyPlanData`. Sin esto los datos llegan
+    # pero la tabla no los sabe colocar.
+    plan = rules.build_weekly_plan(active)
     respuesta: Dict[str, Any] = {
         "success": True,
-        "data": active,
+        "data": plan["data"],
         "history": history,
-        "headers": headers,
+        "headers": plan["headers"] or headers,
     }
-    if not active and not history and not headers:
+    if not plan["data"] and not history:
         respuesta["_notImplemented"] = True
         respuesta["message"] = (
             f"La hoja {sheet} no tiene equivalente en la base relacional todavía; "
