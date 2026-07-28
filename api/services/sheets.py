@@ -117,19 +117,25 @@ TASK_HEADER_MAP = [
 
 QUOTE_HEADER_MAP = [
     ("FOLIO", "folio"),
-    ("VENDEDOR", "vendedor_raw"),
-    ("CLIENTE", "cliente"),
     ("AREA", "area"),
-    ("CLASIFICACION", "clasificacion"),
+    ("CLIENTE", "cliente"),
     ("CONCEPTO", "concepto"),
-    ("F_VISITA", "f_visita"),
-    ("F_INICIO", "f_inicio"),
-    ("F_ENTREGA", "f_entrega"),
+    ("CLASIFICACION", "clasificacion"),
+    ("VENDEDOR", "vendedor_raw"),
+    ("F. VISITA", "f_visita"),
+    ("F. INICIO", "f_inicio"),
+    ("F. ENTREGA", "f_entrega"),
     ("DIAS", "dias"),
     ("AVANCE", "avance"),
     ("ESTATUS", "estatus"),
     ("COMENTARIOS", "comentarios"),
-    ("MONTO", "monto"),
+    ("REQUISITOR", "requisitor"),
+    ("PRIO. COT.", "prio_cot"),
+    ("INFO CLIENTE", "info_cliente"),
+    ("F2", "f2"),
+    ("COTIZACION", "cotizacion"),
+    ("TIMELINE", "timeline"),
+    ("LAYOUT", "layout"),
 ]
 
 def _rows_to_values(rows, header_map):

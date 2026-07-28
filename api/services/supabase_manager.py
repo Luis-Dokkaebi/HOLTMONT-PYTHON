@@ -98,13 +98,48 @@ class SupabaseManager:
             response = self.client.table(sheet_name).select("*").execute()
             data = response.data
 
+            expected_headers = []
+            if "VENTAS" in sheet_name.upper():
+                expected_headers = ["FOLIO", "AREA", "CLIENTE", "CONCEPTO", "CLASIFICACION", "VENDEDOR", "F. VISITA", "F. INICIO", "F. ENTREGA", "DIAS", "AVANCE", "ESTATUS", "COMENTARIOS", "REQUISITOR", "PRIO. COT.", "INFO CLIENTE", "F2", "COTIZACION", "TIMELINE", "LAYOUT"]
+
             if not data:
+                if expected_headers:
+                    return [expected_headers]
                 return []
 
-            headers = list(data[0].keys())
+            db_headers = list(data[0].keys())
+
+            if expected_headers:
+                headers = []
+                expected_upper = {c.upper() for c in expected_headers}
+                expected_alias = {c.replace(".", "").replace(" ", "_").upper() for c in expected_headers}
+
+                for col in expected_headers:
+                    headers.append(col)
+                for col in db_headers:
+                    col_upper = col.upper()
+                    if col_upper not in expected_upper and col_upper not in expected_alias:
+                        headers.append(col)
+            else:
+                headers = db_headers
+
             values = [headers]
+            db_keys_upper = {k.upper(): k for k in db_headers}
+
             for row in data:
-                values.append([str(row.get(col, "")) if row.get(col) is not None else "" for col in headers])
+                row_values = []
+                for col in headers:
+                    actual_key = col
+                    if col not in row:
+                        if col.upper() in db_keys_upper:
+                            actual_key = db_keys_upper[col.upper()]
+                        else:
+                            col_alt = col.replace(".", "").replace(" ", "_").upper()
+                            if col_alt in db_keys_upper:
+                                actual_key = db_keys_upper[col_alt]
+                    val = row.get(actual_key, "")
+                    row_values.append(str(val) if val is not None else "")
+                values.append(row_values)
 
             return values
 
