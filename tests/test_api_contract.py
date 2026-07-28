@@ -245,3 +245,124 @@ def test_todos_los_metodos_del_agente_de_metricas_estan_mapeados():
         "apiFetchInfoBankCompanies", "runPaperclipAgents",
     }
     assert requeridos.issubset(definidos), f"Faltan en el adaptador: {sorted(requeridos - definidos)}"
+
+
+# ----------------------------------------------------------------------
+# Planeación Semanal (PPCV3 / PPCV4)
+# ----------------------------------------------------------------------
+# `PPCV3` no existe como hoja ni como `source_sheet`: la migración partió esa
+# hoja en dos y dejó `plan_semanal` como índice (`task_folio`) de qué tareas
+# pertenecen al PPC maestro. La vista devolvía cero filas para todos menos
+# Toñita, con `success: true` y un PGRST205 en consola que nadie veía.
+
+
+def test_el_plan_semanal_marca_cuando_la_hoja_no_tiene_origen(monkeypatch):
+    """Si no hay datos, hay que decir por qué; no fingir que no hay actividad."""
+    from api.services import tracker_store
+
+    monkeypatch.setattr(tracker_store, "read_rows", lambda hoja: ([], [], []))
+    respuesta = tracker_store.fetch_weekly_plan("")
+
+    assert respuesta["success"] is True, "No debe bloquear el render"
+    assert respuesta["data"] == []
+    assert respuesta["_notImplemented"] is True
+    assert "PPCV3" in respuesta["message"]
+
+
+def test_el_plan_semanal_antepone_la_columna_semana(monkeypatch):
+    """La vista pinta `S{{ row.SEMANA }}`: sin esa columna no sabe colocar nada."""
+    from api.services import tracker_store
+
+    filas = [{"FOLIO": "PPC-1", "CONCEPTO": "X", "FECHA": "2026-06-09"}]
+    monkeypatch.setattr(tracker_store, "read_rows", lambda hoja: (filas, [], ["FOLIO"]))
+    respuesta = tracker_store.fetch_weekly_plan("")
+
+    assert respuesta["headers"][0] == "SEMANA"
+    assert respuesta["data"][0]["SEMANA"] == 24
+    assert "_notImplemented" not in respuesta
+
+
+def test_el_plan_semanal_renombra_los_encabezados_como_lo_hacia_gas(monkeypatch):
+    from api.services import tracker_store
+
+    filas = [{
+        "AREA": "COMPRAS", "DESCRIPCION": "COTIZAR", "INVOLUCRADOS": "JAIME OLIVO",
+        "FECHA ALTA": "2026-06-09", "HORAS": "8", "CLIP": "http://x",
+        "CUMPLIMIENTO": "NO", "COMENTARIOS SEMANA PREVIA": "previo",
+    }]
+    monkeypatch.setattr(tracker_store, "read_rows", lambda hoja: (filas, [], []))
+    fila = tracker_store.fetch_weekly_plan("")["data"][0]
+
+    assert fila["ESPECIALIDAD"] == "COMPRAS"
+    assert fila["CONCEPTO"] == "COTIZAR"
+    assert fila["RESPONSABLE"] == "JAIME OLIVO"
+    assert fila["FECHA"] == "2026-06-09"
+    assert fila["RELOJ"] == "8"
+    assert fila["ARCHIVO"] == "http://x"
+    # La de la semana previa no debe caer en la de la semana en curso.
+    assert fila["COMENTARIOS SEMANA PREVIA"] == "previo"
+    assert "COMENTARIOS SEMANA EN CURSO" not in fila
+
+
+def test_el_plan_semanal_descarta_las_filas_sin_concepto_ni_folio(monkeypatch):
+    from api.services import tracker_store
+
+    filas = [{"CONCEPTO": "SI"}, {"COMENTARIOS": "solo un comentario"}, {"FOLIO": "PPC-9"}]
+    monkeypatch.setattr(tracker_store, "read_rows", lambda hoja: (filas, [], []))
+    datos = tracker_store.fetch_weekly_plan("")["data"]
+    assert len(datos) == 2
+
+
+def test_ppcv4_sigue_yendo_a_su_propia_hoja(monkeypatch):
+    """PPCV4 sí existe como `source_sheet` en `tasks`; no debe tocarse."""
+    from api.services import tracker_store
+
+    pedidas = []
+
+    def espiar(hoja):
+        pedidas.append(hoja)
+        return ([{"FOLIO": "PPC-1", "CONCEPTO": "X"}], [], [])
+
+    monkeypatch.setattr(tracker_store, "read_rows", espiar)
+    tracker_store.fetch_weekly_plan("ANTONIA_VENTAS")
+    assert pedidas == ["PPCV4"]
+
+
+@pytest.mark.parametrize(
+    "fecha, semana",
+    [("2026-01-01", 1), ("2026-06-09", 24), ("2026-07-27", 31),
+     ("2025-12-31", 1), ("2026-12-28", 53), ("2024-02-29", 9), ("", "-")],
+)
+def test_el_numero_de_semana_coincide_con_getweeknumber_de_codigo_js(fecha, semana):
+    """Valores comprobados ejecutando `getWeekNumber()` de CODIGO.js en Node."""
+    from api.services.tracker_rules import week_number
+
+    assert week_number(fecha) == semana
+
+
+def test_el_ppc_maestro_se_resuelve_por_el_indice_de_plan_semanal(monkeypatch):
+    """
+    `PPCV3` = las tareas cuyo folio aparece en `plan_semanal.task_folio`.
+    Un mismo folio puede vivir en varias hojas por difusión lateral, así que
+    se deduplica por `id`: la vista quiere una fila por tarea.
+    """
+    from api.services import sheets
+
+    sheets.reset_source_sheet_cache()
+    monkeypatch.setattr(
+        sheets.sb_manager, "select",
+        lambda tabla, filtros=None: [{"task_folio": "PPC-1"}, {"task_folio": "PPC-2"},
+                                     {"task_folio": None}, {"task_folio": "PPC-1"}],
+    )
+    monkeypatch.setattr(
+        sheets.sb_manager, "select_in",
+        lambda tabla, col, valores: [
+            {"id": "a", "folio": "PPC-1", "concepto": "X"},
+            {"id": "a", "folio": "PPC-1", "concepto": "X"},   # difusión lateral
+            {"id": "b", "folio": "PPC-2", "concepto": "Y"},
+        ],
+    )
+    assert sheets.folios_del_ppc_maestro() == ["PPC-1", "PPC-2"]
+    filas = sheets._filas_del_ppc_maestro()
+    assert [f["id"] for f in filas] == ["a", "b"]
+    sheets.reset_source_sheet_cache()

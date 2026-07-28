@@ -9,6 +9,13 @@ gspread>=6.1
 google-auth>=2.35
 mcp>=1.2
 
+# --- Capa relacional (backend/, Fase 1) ---
+# Solo hacen falta para el motor SQLAlchemy, que es el de produccion y el unico
+# con transacciones reales. El motor PostgREST usa la biblioteca estandar, asi
+# que `backend/` se importa y su suite corre aunque estas dos no esten.
+sqlalchemy>=2.0
+psycopg[binary]>=3.1
+
 # --- Agentes de IA y utilidades (opcionales para el tracker) ---
 # api/paperclip_agents.py, api/ai_utils.py, api/engineering_agent.py y la app
 # de Streamlit. El backend del tracker arranca sin ellas, pero los tests de

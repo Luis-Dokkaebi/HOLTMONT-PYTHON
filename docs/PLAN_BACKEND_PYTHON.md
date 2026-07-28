@@ -715,8 +715,228 @@ aparecerá en la siguiente revisión.
 `--aplicar`. Deja un respaldo en `scripts/respaldos/` (ignorado por git: son
 datos de producción) suficiente para revertir, y es idempotente.
 
-## 7. Siguiente paso
+## 7. Fase 1 — capa de datos relacional para `tasks`
 
-Fase 0.5: construir `SupabaseSync` en `CODIGO.js` (decisión A). Bloqueado
-parcialmente por la decisión E: hace falta el esquema real para saber a qué
-columnas escribir.
+Alcance: solo `tasks`. `quotes` va en su propia tanda.
+
+### 7.1 Lo que se verificó al empezar (y lo que contradijo al documento previo)
+
+| Comprobación | Resultado |
+|---|---|
+| Suite base de pytest | **323**, no 325 (72+41+31+179). Verde. |
+| Backend GAS | 85/85. Verde. |
+| Salida TCP fuera del 443 | **No hay.** `github.com:22`, `…supabase.com:5432` y `:6543` agotan el tiempo de espera; todo sale por un proxy HTTPS. Solo la ruta REST funciona desde aquí. |
+| Paridad de `computeDedupeKey` | 26/26 contra el `CODIGO.js` real ejecutado en Node. |
+| `task_involucrados` | Confirmado: cero referencias en todo el repo. |
+
+Con credenciales, `scripts/verificar_base_tasks.py` confirmó **todo** lo que
+afirmaba el documento de partida:
+
+```
+tasks 4.626 · task_involucrados 7.246 · quotes 661 · people 54
+system_log 16.196 · plan_semanal 1.180 · profiles 0 · … (14 tablas, 14 OK)
+
+Paridad de dedupe_key            4.626/4.626
+dedupe_key única, sin nulos      OK
+folio NO única                   382 folios repartidos (JO-0009 en 10, SG-0065 en 9)
+status sin nulos                 OK
+avance                           rango 0-100, ningún valor en (0,1]
+```
+
+Y contradijo tres cosas:
+
+**1. `tasks` tiene NUEVE columnas NOT NULL, no solo `status`.** Son `id`,
+`folio`, `dedupe_key`, `folio_sintetico`, `concepto`, `avance`, `status`,
+`source_sheet` y `created_at`. De ellas, `folio`, `dedupe_key`, `concepto` y
+`source_sheet` **no tienen DEFAULT**: un alta sin `concepto` aborta con 23502.
+`avance` sí tiene default 0 y `status` default `'PENDIENTE'`.
+
+**2. Tres de los cuatro tipos deducidos sin evidencia estaban mal.**
+`folio_sintetico` es `boolean` (marca los 204 folios sintéticos tipo
+`ADMINISTRADOR::ROW1604`), y `hora_alta` y `hora_estimada_fin` son `time`, no
+texto. Solo `correo` era efectivamente `text`.
+
+**3. `tasks.correo` no contiene ni una dirección de correo.** Sus 2.266 valores
+son enlaces de Google Drive (2.157) y de Google Sheets (el resto), igual que
+`carpeta`; 2.084 filas traen las dos. Es una columna de archivos mal nombrada
+por la migración. Como los archivos de Drive quedan fuera del alcance de esta
+fase, se conserva como texto de solo lectura y no se acepta desde el cliente.
+
+### 7.2 El hallazgo que condicionó el diseño
+
+Preservar los tipos —el objetivo de la fase— **rompe el auto-archivado** si se
+hace de la forma obvia.
+
+`is_progress_complete()` está escrita para el dominio de la hoja, donde el
+número nativo `1` viene de una celda con formato porcentual y significa 100 %
+(AGENTS.md §4). En la base, `avance` ya está normalizado a escala 0-100 y ahí
+`1` solo puede significar 1 %. Alimentar la regla de la hoja con un valor ya
+normalizado archiva como terminada cualquier tarea al 1 %:
+
+```
+dominio HOJA          1 (int) -> True     '1' (str) -> False     correcto
+dominio BASE   avance=1.0     -> True                            archiva al 1 %
+               avance=100.0   -> True
+```
+
+Hoy está latente porque ninguna fila tiene avance en (0,1], pero
+`SupabaseSync.normalizeAvance` convierte tanto el string `"1"` como una celda
+porcentual de 1 % en el número `1`: la primera captura de un 1 % lo activaría.
+
+Solución: **dos funciones, un dominio cada una.** `is_progress_complete()` se
+queda intacta para la frontera de entrada (frontend y Apps Script) y se añade
+`is_progress_complete_pct()` para el dominio relacional. Los 72 tests de
+`tracker_rules` siguieron pasando sin tocarse, que era la red.
+
+### 7.3 Qué se construyó
+
+```
+backend/
+  core/       config, protocolo DataEngine, errores
+  core/engines/  sqlalchemy_engine · postgrest · memoria (doble de pruebas)
+  schemas/    TaskRead (28 columnas) y TaskWrite (sin las técnicas)
+  services/   identity: port de computeDedupeKey y normalizeAvance
+  repositories/  TaskRepository: lectura tipada + upsert transaccional
+  routers/    /api/v2/tasks
+```
+
+**Dos motores tras un mismo protocolo.** SQLAlchemy 2.x con pool
+(`pool_pre_ping`, `pool_recycle`) es el de producción y el único con
+transacciones reales; PostgREST es el que funciona sin TCP al 5432. El
+protocolo expone `soporta_transacciones` en vez de fingir que ambos son
+equivalentes, y el repositorio agrupa las filas por conjunto de columnas para
+que cada grupo quepa en una sola sentencia —atómica con los dos motores—.
+
+**El auto-archivado es un estado calculado**, no un reordenamiento: no existe
+columna `archivado` y no hace falta. `esta_archivada()` deriva el estado de la
+fila (avance 100 %, estatus terminal o `CUMPLIMIENTO = SI`) y el endpoint sigue
+devolviendo `{data, history}` como espera el frontend. El separador "TAREAS
+REALIZADAS" desaparece del modelo.
+
+**`id`, `dedupe_key`, `assignee_id`, `source_sheet`, `folio_sintetico` y
+`created_at` son de solo lectura de verdad**: `TaskWrite` usa `extra="forbid"`,
+así que mandarlas devuelve 422 en vez de descartarlas en silencio. Importa
+porque la lectura ya las expone y un round-trip ingenuo del frontend las
+reenviaría.
+
+**La escritura arranca apagada** (`BACKEND_TASKS_WRITE_ENABLED`). No es
+cautela genérica: `SupabaseSync` está construido pero **no desplegado**
+(confirmado con el dueño), así que Supabase es hoy una copia estática que se
+desactualiza desde la migración. Escribir ahí pisaría filas que la operación
+diaria ya cambió en la hoja. Con el interruptor apagado el endpoint responde
+503 con el motivo, nunca un `{success: true}` que no persiste.
+
+### 7.4 Verificación
+
+```
+pytest (4 módulos base + 2 nuevos)  ->  396 passed   (323 base + 73 nuevos)
+node tests/gas/run_tests.js         ->  85/85
+```
+
+Los 73 nuevos corren **sin base de datos**. La paridad de `dedupe_key` y
+`normalizeAvance` no se compara contra una copia escrita a mano: extrae las
+funciones del `CODIGO.js` real y las ejecuta en Node, de modo que si alguien
+toca el original la prueba se entera.
+
+`MemoryEngine` reproduce a propósito el `NOT NULL` de `tasks.status` con su
+código `23502`, el upsert que fusiona en vez de reemplazar, y la reversión de
+la transacción.
+
+### 7.5 Lectura de producción a través del repositorio
+
+Con el motor PostgREST contra la base real, leyendo por el repositorio nuevo:
+
+```
+'JAIME OLIVO'                    ->  19 activas /  19 archivadas
+'liliana aylin martinez ibarra'  ->  15 activas / 172 archivadas   (resuelve a
+                                     ' LILIANA AYLIN MARTINEZ IBARRA', con su
+                                     espacio inicial)
+'ADMINISTRADOR'                  -> 878 activas / 823 archivadas
+
+muestra: avance=0.0 (float) · fecha_alta=date(2026,7,22) ·
+         hora_alta=time(9,15) · folio_sintetico=False
+```
+
+43 hojas distintas, 4.626 filas, 3.101 archivadas (67 %) por el estado
+calculado. Una sola hoja con espacio inicial, la documentada.
+
+Sobre la trampa del 1 %: **hoy afectaría a 0 filas**, como decía el documento.
+Sigue siendo la corrección que más importa de esta fase, porque es la primera
+captura de un 1 % la que la activa, no el estado actual de los datos.
+
+`scripts/verificar_base_tasks.py` queda como comprobación reejecutable: verifica
+los 28 tipos uno a uno y el conjunto de columnas NOT NULL, así que un cambio de
+esquema por debajo se nota en vez de descubrirse en producción.
+
+### 7.6 Siguiente paso
+
+1. Desplegar `SupabaseSync` y re-sincronizar la base; solo entonces encender
+   `BACKEND_TASKS_WRITE_ENABLED`.
+2. Fase 2 (concurrencia: `idempotency_keys` y secuencias en Postgres) y después
+   `quotes`.
+
+Nota para `quotes`: conviene repetir ahí la verificación de tipos y de columnas
+NOT NULL antes de escribir nada. En `tasks`, tres de los cuatro tipos deducidos
+del código estaban mal y el número de columnas NOT NULL era nueve en vez de una.
+
+### 7.7 `PPCV3`: reconstruido desde el índice de `plan_semanal`
+
+`GET /api/legacy/weeklyPlan` (la vista "Planeación Semanal") devuelve **cero
+filas para todos los usuarios menos Toñita**, con `success: true` y un
+`PGRST205` en consola buscando una tabla `public.PPCV3` que no existe. Es el
+mismo fallo silencioso que la Fase 0 erradicó: el usuario no distingue "no hay
+nada planeado" de "la lectura está rota".
+
+`PPCV4` **sí** funciona: existe como `source_sheet` en `tasks`, con 51 filas.
+
+Lo que hay realmente para `PPCV3`, verificado contra la base:
+
+| Origen | Filas | Forma |
+|---|---|---|
+| `plan_semanal` con `source_sheet='PPCV3'` | 1.180 | Solo **62** con contenido real (`zona`, `ruta_critica`, `cuantificacion_req`, `dias`, `contratista`, `nota_cnc`) — filas de Last Planner. Ninguna de esas 62 tiene `task_folio`. |
+| Las otras filas de `plan_semanal` | 1.118 | Cascarones: `task_folio` + `especialidad` + `cumplimiento`. |
+| `tasks` alcanzables desde esos folios | 1.056 de 1.098 | Repartidas: 963 en `ADMINISTRADOR`, 39 en `PPCV4`, 20 en `ANTONIA PINEDA LOPEZ`… **no** bajo un único `source_sheet`. |
+| `tasks` con `source_sheet='PPCV3'` | **0** | No existe. |
+
+El detalle que decide: `apiFetchWeeklyPlanData` pinta ESPECIALIDAD, CONCEPTO,
+RESPONSABLE, FECHA, RELOJ, ARCHIVO y CUMPLIMIENTO, y calcula SEMANA **a partir
+de FECHA**. `plan_semanal` no tiene ninguna columna de fecha, así que servirla
+tal cual dejaría la vista con 1.180 filas casi vacías y sin SEMANA — peor que
+la tabla vacía de hoy, porque parecería corrupción de datos.
+
+Se evaluaron tres reconstrucciones. **Decisión del dueño (2026-07): la 2.**
+
+| # | Reconstrucción | Filas | Por qué sí / por qué no |
+|---|---|---|---|
+| 1 | `tasks` bajo `ADMINISTRADOR` | 1.701 | Simple y con FECHA, pero duplica el módulo "Control", que ya apunta a esa hoja. |
+| **2** | **`tasks` filtradas por `plan_semanal.task_folio`** | **1.056** | **Elegida.** Usa `plan_semanal` como índice de qué tareas pertenecen al PPC maestro: es la lectura que respeta la intención de la migración. |
+| 3 | `plan_semanal` directo | 1.180 | Requiere rehacer la vista para la forma de Last Planner (zona, días, cuantificación, CNC), que es otro módulo y otra fase. |
+
+Implementación en `sheets.py::_filas_del_ppc_maestro()`: resuelve los 1.098
+folios del índice contra `tasks` **en lotes de 150**, porque meterlos todos en
+un `in.(…)` produce una URL que PostgREST rechaza. Deduplica por `id`, ya que
+un mismo folio vive en varias hojas por difusión lateral y la vista quiere una
+fila por tarea.
+
+Además se portó lo que faltaba de `apiFetchWeeklyPlanData`, sin lo cual los
+datos llegaban pero la tabla no sabía colocarlos: el renombrado de encabezados
+(`AREA`→`ESPECIALIDAD`, `DESCRIPCION`→`CONCEPTO`, `INVOLUCRADOS`→`RESPONSABLE`…)
+y la columna **SEMANA**, que la vista pinta como `S{{ row.SEMANA }}`.
+`week_number()` usa ISO 8601, con paridad comprobada contra `getWeekNumber()`
+de `CODIGO.js` ejecutado en Node.
+
+Resultado contra la base real:
+
+```
+PPCV3 (todos menos Toñita)   1.056 filas · 26 columnas · 17 semanas distintas
+PPCV4 (Toñita)                  51 filas · 26 columnas   (antes 51, sin SEMANA)
+```
+
+Si algún día la reconstrucción se queda sin origen, `fetch_weekly_plan()` marca
+la respuesta con `_notImplemented` y explica por qué, en vez de devolver una
+tabla vacía con `success: true`.
+
+**Pendiente:** las 62 filas de Last Planner (`zona`, `ruta_critica`,
+`cuantificacion_req`, `dias`, `contratista`, `nota_cnc`) no las pinta ninguna
+vista actual. Falta confirmar con el equipo si las usan; si es que sí, son un
+módulo propio, no un caso de esta.
