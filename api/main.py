@@ -592,6 +592,20 @@ def api_legacy_resync_directory():
     }
 
 
+# ======================================================================
+# CAPA RELACIONAL (Fase 1) — /api/v2
+# ======================================================================
+# Convive con los endpoints de arriba en vez de sustituirlos: el sistema está
+# en uso diario y el corte por módulo es la última fase del plan. Si el paquete
+# no puede importarse, la app arranca igual: `/api/v2` simplemente no existe.
+try:
+    from backend.routers.tasks import router as tasks_v2_router
+
+    app.include_router(tasks_v2_router)
+except Exception as exc:  # pragma: no cover - depende del entorno
+    print(f"Capa relacional /api/v2 no disponible: {exc}")
+
+
 app.mount("/", StaticFiles(directory=".", html=True), name="root")
 
 if __name__ == "__main__":

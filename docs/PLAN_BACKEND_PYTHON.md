@@ -715,8 +715,117 @@ aparecerá en la siguiente revisión.
 `--aplicar`. Deja un respaldo en `scripts/respaldos/` (ignorado por git: son
 datos de producción) suficiente para revertir, y es idempotente.
 
-## 7. Siguiente paso
+## 7. Fase 1 — capa de datos relacional para `tasks`
 
-Fase 0.5: construir `SupabaseSync` en `CODIGO.js` (decisión A). Bloqueado
-parcialmente por la decisión E: hace falta el esquema real para saber a qué
-columnas escribir.
+Alcance: solo `tasks`. `quotes` va en su propia tanda.
+
+### 7.1 Lo que se verificó al empezar (y lo que contradijo al documento previo)
+
+| Comprobación | Resultado |
+|---|---|
+| Suite base de pytest | **323**, no 325 (72+41+31+179). Verde. |
+| Backend GAS | 85/85. Verde. |
+| Credenciales de Supabase en el entorno | **No hay.** Ni `.env` ni variables. |
+| Salida TCP fuera del 443 | **No hay.** `github.com:22`, `…supabase.com:5432` y `:6543` agotan el tiempo de espera; todo sale por un proxy HTTPS. |
+| Paridad de `computeDedupeKey` | 26/26 contra el `CODIGO.js` real ejecutado en Node. |
+| `task_involucrados` | Confirmado: cero referencias en todo el repo. |
+
+### 7.2 El hallazgo que condicionó el diseño
+
+Preservar los tipos —el objetivo de la fase— **rompe el auto-archivado** si se
+hace de la forma obvia.
+
+`is_progress_complete()` está escrita para el dominio de la hoja, donde el
+número nativo `1` viene de una celda con formato porcentual y significa 100 %
+(AGENTS.md §4). En la base, `avance` ya está normalizado a escala 0-100 y ahí
+`1` solo puede significar 1 %. Alimentar la regla de la hoja con un valor ya
+normalizado archiva como terminada cualquier tarea al 1 %:
+
+```
+dominio HOJA          1 (int) -> True     '1' (str) -> False     correcto
+dominio BASE   avance=1.0     -> True                            archiva al 1 %
+               avance=100.0   -> True
+```
+
+Hoy está latente porque ninguna fila tiene avance en (0,1], pero
+`SupabaseSync.normalizeAvance` convierte tanto el string `"1"` como una celda
+porcentual de 1 % en el número `1`: la primera captura de un 1 % lo activaría.
+
+Solución: **dos funciones, un dominio cada una.** `is_progress_complete()` se
+queda intacta para la frontera de entrada (frontend y Apps Script) y se añade
+`is_progress_complete_pct()` para el dominio relacional. Los 72 tests de
+`tracker_rules` siguieron pasando sin tocarse, que era la red.
+
+### 7.3 Qué se construyó
+
+```
+backend/
+  core/       config, protocolo DataEngine, errores
+  core/engines/  sqlalchemy_engine · postgrest · memoria (doble de pruebas)
+  schemas/    TaskRead (28 columnas) y TaskWrite (sin las técnicas)
+  services/   identity: port de computeDedupeKey y normalizeAvance
+  repositories/  TaskRepository: lectura tipada + upsert transaccional
+  routers/    /api/v2/tasks
+```
+
+**Dos motores tras un mismo protocolo.** SQLAlchemy 2.x con pool
+(`pool_pre_ping`, `pool_recycle`) es el de producción y el único con
+transacciones reales; PostgREST es el que funciona sin TCP al 5432. El
+protocolo expone `soporta_transacciones` en vez de fingir que ambos son
+equivalentes, y el repositorio agrupa las filas por conjunto de columnas para
+que cada grupo quepa en una sola sentencia —atómica con los dos motores—.
+
+**El auto-archivado es un estado calculado**, no un reordenamiento: no existe
+columna `archivado` y no hace falta. `esta_archivada()` deriva el estado de la
+fila (avance 100 %, estatus terminal o `CUMPLIMIENTO = SI`) y el endpoint sigue
+devolviendo `{data, history}` como espera el frontend. El separador "TAREAS
+REALIZADAS" desaparece del modelo.
+
+**`id`, `dedupe_key`, `assignee_id`, `source_sheet`, `folio_sintetico` y
+`created_at` son de solo lectura de verdad**: `TaskWrite` usa `extra="forbid"`,
+así que mandarlas devuelve 422 en vez de descartarlas en silencio. Importa
+porque la lectura ya las expone y un round-trip ingenuo del frontend las
+reenviaría.
+
+**La escritura arranca apagada** (`BACKEND_TASKS_WRITE_ENABLED`). No es
+cautela genérica: `SupabaseSync` está construido pero **no desplegado**
+(confirmado con el dueño), así que Supabase es hoy una copia estática que se
+desactualiza desde la migración. Escribir ahí pisaría filas que la operación
+diaria ya cambió en la hoja. Con el interruptor apagado el endpoint responde
+503 con el motivo, nunca un `{success: true}` que no persiste.
+
+### 7.4 Verificación
+
+```
+pytest (4 módulos base + 2 nuevos)  ->  384 passed   (323 base + 61 nuevos)
+node tests/gas/run_tests.js         ->  85/85
+```
+
+Los 61 nuevos corren **sin base de datos**. La paridad de `dedupe_key` y
+`normalizeAvance` no se compara contra una copia escrita a mano: extrae las
+funciones del `CODIGO.js` real y las ejecuta en Node, de modo que si alguien
+toca el original la prueba se entera.
+
+`MemoryEngine` reproduce a propósito el `NOT NULL` de `tasks.status` con su
+código `23502`, el upsert que fusiona en vez de reemplazar, y la reversión de
+la transacción.
+
+### 7.5 Lo que queda pendiente de la base real
+
+`scripts/verificar_base_tasks.py` (solo lectura) comprueba contra producción lo
+que desde aquí no se pudo: el esquema publicado por PostgREST frente a las 28
+columnas declaradas, los conteos, la paridad de `dedupe_key` sobre las 4.626
+filas, las restricciones y la escala de `avance`.
+
+Cuatro columnas se declararon **sin evidencia en el código** porque
+`SupabaseSync` nunca las escribe: `folio_sintetico`, `correo`, `hora_alta` y
+`hora_estimada_fin`. El script imprime sus tipos reales para corregirlas.
+
+### 7.6 Siguiente paso
+
+1. Correr `scripts/verificar_base_tasks.py` con credenciales y ajustar lo que
+   discrepe.
+2. Desplegar `SupabaseSync` y re-sincronizar la base; solo entonces encender
+   `BACKEND_TASKS_WRITE_ENABLED`.
+3. Fase 2 (concurrencia: `idempotency_keys` y secuencias en Postgres) y después
+   `quotes`.

@@ -248,6 +248,45 @@ def is_progress_complete(value: Any) -> bool:
     return abs(num - 100) < 0.01 or (abs(num - 1) < 0.001 and "%" not in raw)
 
 
+def is_progress_complete_pct(value: Any) -> bool:
+    """
+    ¿El AVANCE representa el 100 %, **leyéndolo desde la base relacional**?
+
+    Es la gemela de `is_progress_complete()` para el otro dominio, y la
+    diferencia entre ambas no es cosmética:
+
+    * En la **hoja**, el número nativo `1` viene de una celda con formato
+      porcentual y significa 100 % (AGENTS.md §4). Esa es la regla de arriba y
+      no se toca: gobierna lo que llega del frontend y de Apps Script.
+    * En la **base**, `avance` ya está normalizado a escala 0-100 por
+      `normalize_avance()`, que convirtió aquel `1` en `100`. Ahí el número `1`
+      solo puede significar 1 %.
+
+    Aplicar la regla de la hoja sobre un valor ya normalizado archiva como
+    terminada cualquier tarea al 1 %. Hoy la trampa está latente porque ninguna
+    fila tiene un avance en el intervalo (0,1], pero `SupabaseSync` convierte
+    tanto el string "1" como una celda porcentual de 1 % en el número `1`: la
+    primera captura de un 1 % la activaría.
+    """
+    if value is None or value == "":
+        return False
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (datetime, date)):
+        return False
+    if isinstance(value, (int, float)):
+        numero = float(value)
+    else:
+        crudo = str(value).strip()
+        if not crudo:
+            return False
+        try:
+            numero = float(crudo.replace("%", "").replace(",", ".").strip())
+        except ValueError:
+            return False
+    return numero >= 100 - 0.01
+
+
 def is_terminal_status(value: Any) -> bool:
     up = ("" if value is None else str(value)).upper().strip()
     if not up:
