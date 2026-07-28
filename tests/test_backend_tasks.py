@@ -9,14 +9,28 @@ la reversión de la transacción.
 
 from __future__ import annotations
 
+from datetime import time
+
 import pytest
 from pydantic import ValidationError
 
 from backend.core.config import Settings
 from backend.core.engines.memoria import MemoryEngine
-from backend.core.errors import ErrorDeMotor, EscrituraDeshabilitada
+from backend.core.errors import (
+    ColumnaObligatoriaFaltante,
+    ErrorDeMotor,
+    EscrituraDeshabilitada,
+)
 from backend.repositories.tasks import TaskRepository, esta_archivada
-from backend.schemas.task import COLUMNAS_TASKS, SOLO_LECTURA, TaskRead, TaskWrite
+from backend.schemas.task import (
+    COLUMNAS_TASKS,
+    NO_NULOS,
+    OBLIGATORIAS_AL_INSERTAR,
+    SOLO_LECTURA,
+    TIPOS_REALES,
+    TaskRead,
+    TaskWrite,
+)
 
 
 def _settings(escritura: bool = True) -> Settings:
@@ -335,11 +349,110 @@ def test_las_filas_se_agrupan_por_conjunto_de_columnas():
         [
             TaskWrite(folio="A-1", concepto="X", status="ASIGNADO"),
             TaskWrite(folio="A-2", concepto="Y", status="ASIGNADO"),
-            TaskWrite(folio="A-3", avance="50"),
+            TaskWrite(folio="A-3", concepto="Z", avance="50"),
         ],
     )
+    assert len(lotes) == 2, "Se esperaban dos grupos de columnas distintas"
     for lote in lotes:
         assert len(set(map(frozenset, lote))) == 1, "Un lote mezcla filas con columnas distintas"
+
+
+# --- Las nueve columnas NOT NULL ---------------------------------------
+
+
+def test_el_contrato_declara_las_nueve_columnas_not_null():
+    """El documento de partida solo mencionaba `status`. Son nueve."""
+    assert NO_NULOS == {
+        "id", "folio", "dedupe_key", "folio_sintetico", "concepto",
+        "avance", "status", "source_sheet", "created_at",
+    }
+    assert NO_NULOS <= set(COLUMNAS_TASKS)
+
+
+def test_las_obligatorias_al_insertar_son_las_que_no_tienen_default():
+    """`id`, `folio_sintetico`, `avance`, `status` y `created_at` sí lo tienen."""
+    assert OBLIGATORIAS_AL_INSERTAR == {"folio", "dedupe_key", "concepto", "source_sheet"}
+    assert OBLIGATORIAS_AL_INSERTAR < NO_NULOS
+
+
+def test_no_se_puede_dar_de_alta_una_tarea_sin_concepto(repo):
+    """`concepto` es NOT NULL y no tiene default: el alta abortaría con 23502."""
+    with pytest.raises(ColumnaObligatoriaFaltante) as exc:
+        repo.guardar_lote("JAIME OLIVO", [TaskWrite(folio="JO-NUEVA", avance="10")])
+    assert "concepto" in str(exc.value)
+    assert "JO-NUEVA" in str(exc.value)
+
+
+def test_actualizar_una_tarea_existente_no_exige_concepto(repo):
+    """En el merge, la columna ausente conserva lo que ya está en la base."""
+    guardadas = repo.guardar_lote("JAIME OLIVO", [TaskWrite(folio="JO-0009", avance="70")])
+    assert guardadas[0].avance == 70.0
+    assert guardadas[0].concepto == "REVISAR PLANOS"
+
+
+def test_un_avance_vacio_se_omite_en_vez_de_mandar_nulo(repo):
+    """
+    `avance` es NOT NULL con DEFAULT 0. Mandar nulo aborta el upsert; escribir
+    un 0 fabricaría un "0 %" que nadie capturó.
+    """
+    repo.guardar_lote("JAIME OLIVO", [TaskWrite(folio="JO-0009", avance=None, comentarios="X")])
+    fila = next(f for f in repo.engine.datos["tasks"] if f["folio"] == "JO-0009")
+    assert fila["avance"] == 45.0, "Se pisó el avance existente"
+
+
+def test_el_alta_toma_los_valores_por_defecto_de_la_base(repo):
+    """Omitir `status` o `avance` en un alta no falla: la base pone su default."""
+    repo.guardar_lote("JAIME OLIVO", [TaskWrite(folio="JO-NUEVA", concepto="ALTA LIMPIA")])
+    fila = next(f for f in repo.engine.datos["tasks"] if f["folio"] == "JO-NUEVA")
+    assert fila["status"] == "PENDIENTE"
+    assert fila["avance"] == 0
+    assert fila["folio_sintetico"] is False
+
+
+def test_el_motor_rechaza_un_alta_sin_columna_obligatoria():
+    engine = MemoryEngine({"tasks": []})
+    with pytest.raises(ErrorDeMotor) as exc:
+        engine.upsert(
+            "tasks",
+            [{"dedupe_key": "H::1", "folio": "1", "source_sheet": "H"}],  # sin concepto
+            en_conflicto="dedupe_key",
+        )
+    assert exc.value.codigo == "23502"
+
+
+# --- Tipos verificados contra el esquema real ---------------------------
+
+
+def test_los_tipos_declarados_cubren_las_28_columnas():
+    assert set(TIPOS_REALES) == set(COLUMNAS_TASKS)
+
+
+def test_folio_sintetico_es_booleano_no_texto():
+    """Se había deducido como texto sin evidencia; el esquema dice boolean."""
+    assert TIPOS_REALES["folio_sintetico"] == "boolean"
+    tarea = TaskRead.model_validate(
+        {"dedupe_key": "H::1", "folio": "H::ROW1604", "folio_sintetico": True}
+    )
+    assert tarea.folio_sintetico is True
+
+
+def test_las_horas_son_time_no_texto():
+    assert TIPOS_REALES["hora_alta"] == "time without time zone"
+    tarea = TaskRead.model_validate({"hora_alta": "13:55:00", "hora_estimada_fin": "17:33:00"})
+    assert tarea.hora_alta == time(13, 55)
+    assert tarea.hora_estimada_fin == time(17, 33)
+
+
+def test_correo_no_se_acepta_del_cliente():
+    """
+    La columna se llama `correo` pero no contiene ni una dirección: sus 2.266
+    valores son enlaces de Drive y de Sheets, igual que `carpeta`. Es una
+    columna de archivos mal nombrada por la migración, y los archivos quedan
+    fuera del alcance de esta fase.
+    """
+    assert "correo" in SOLO_LECTURA
+    assert "correo" not in TaskWrite.model_fields
+    assert "correo" in TaskRead.model_fields
 
 
 # --- Router /api/v2 -----------------------------------------------------

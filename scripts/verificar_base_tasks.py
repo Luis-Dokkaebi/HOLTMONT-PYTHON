@@ -43,7 +43,11 @@ sys.path.insert(0, str(RAIZ))
 
 from backend.core.engines.postgrest import PostgrestEngine  # noqa: E402
 from backend.core.errors import ErrorDeMotor  # noqa: E402
-from backend.schemas.task import COLUMNAS_TASKS, TIPOS_POR_CONFIRMAR  # noqa: E402
+from backend.schemas.task import (  # noqa: E402
+    COLUMNAS_TASKS,
+    NO_NULOS,
+    TIPOS_REALES,
+)
 from backend.services.identity import compute_dedupe_key  # noqa: E402
 
 # Conteos que documentó la sesión anterior. No son la verdad: son lo que hay
@@ -120,7 +124,7 @@ def verificar_esquema(engine: PostgrestEngine, v: Verificacion) -> None:
     reales = set(propiedades)
     declaradas = set(COLUMNAS_TASKS)
 
-    v.comprobar(f"`tasks` tiene 28 columnas", len(reales) == 28, f"tiene {len(reales)}")
+    v.comprobar("`tasks` tiene 28 columnas", len(reales) == 28, f"tiene {len(reales)}")
     faltan = declaradas - reales
     sobran = reales - declaradas
     v.comprobar("Las 28 columnas declaradas existen en la base", not faltan,
@@ -128,11 +132,24 @@ def verificar_esquema(engine: PostgrestEngine, v: Verificacion) -> None:
     v.comprobar("No hay columnas reales sin declarar", not sobran,
                 f"sin declarar: {sorted(sobran)}" if sobran else "")
 
-    print("\n   Tipos de las columnas que se dedujeron sin evidencia en el código:")
-    for columna in sorted(TIPOS_POR_CONFIRMAR):
+    # Los tipos, uno a uno. Tres de los cuatro que se dedujeron sin evidencia
+    # en el código estaban mal; esto impide que vuelva a pasar en silencio.
+    discrepantes = []
+    for columna, esperado in TIPOS_REALES.items():
         info = propiedades.get(columna, {})
-        tipo = info.get("format") or info.get("type") or "?"
-        print(f"     {columna:24} -> {tipo}")
+        real = info.get("format") or info.get("type") or "?"
+        if real != esperado:
+            discrepantes.append((columna, esperado, real))
+    v.comprobar("Los 28 tipos declarados coinciden con el esquema", not discrepantes)
+    for columna, esperado, real in discrepantes:
+        print(f"     {columna:26} declarado={esperado!r}  real={real!r}")
+
+    obligatorias = set(definicion.get("definitions", {}).get("tasks", {}).get("required", []))
+    v.comprobar(
+        f"Las columnas NOT NULL son las {len(NO_NULOS)} declaradas",
+        obligatorias == NO_NULOS,
+        f"en la base: {sorted(obligatorias)}" if obligatorias != NO_NULOS else "",
+    )
 
 
 # ----------------------------------------------------------------------

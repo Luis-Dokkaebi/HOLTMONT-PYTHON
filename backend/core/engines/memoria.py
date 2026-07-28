@@ -22,12 +22,35 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 from backend.core.errors import ErrorDeMotor
 
-# Restricciones verificadas del esquema real, reproducidas aquí para que las
-# pruebas fallen igual que la base. `tasks.status` es NOT NULL; `quotes.estatus`
-# no lo es (docs/PLAN_BACKEND_PYTHON.md §6).
+# Restricciones leídas del esquema real que publica PostgREST, reproducidas
+# aquí para que las pruebas fallen igual que la base.
+#
+# `tasks` tiene **nueve** columnas NOT NULL, no solo `status` como decía el
+# documento de partida. `quotes.estatus` sí admite nulo.
 NO_NULOS: Dict[str, tuple] = {
-    "tasks": ("dedupe_key", "status"),
+    "tasks": (
+        "id", "folio", "dedupe_key", "folio_sintetico", "concepto",
+        "avance", "status", "source_sheet", "created_at",
+    ),
     "quotes": ("folio",),
+}
+
+# Valores por defecto reales. Importan porque una columna NOT NULL **con**
+# default se puede omitir en un alta y una **sin** default no.
+DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "tasks": {
+        "id": "00000000-0000-0000-0000-000000000000",
+        "folio_sintetico": False,
+        "avance": 0,
+        "status": "PENDIENTE",
+        "created_at": "1970-01-01T00:00:00Z",
+    },
+}
+
+# Columnas NOT NULL sin default: en un alta hay que darlas o la base aborta.
+SIN_DEFAULT: Dict[str, tuple] = {
+    tabla: tuple(c for c in columnas if c not in DEFAULTS.get(tabla, {}))
+    for tabla, columnas in NO_NULOS.items()
 }
 
 
@@ -97,7 +120,9 @@ class MemoryEngine:
                 )
             existente = indice.get(clave)
             if existente is None:
-                nueva = copy.deepcopy(dict(fila))
+                self._validar_alta(tabla, fila)
+                nueva = dict(DEFAULTS.get(tabla, {}))
+                nueva.update(copy.deepcopy(dict(fila)))
                 destino.append(nueva)
                 indice[clave] = nueva
                 resultado.append(copy.deepcopy(nueva))
@@ -106,6 +131,16 @@ class MemoryEngine:
                 existente.update(copy.deepcopy(dict(fila)))
                 resultado.append(copy.deepcopy(existente))
         return resultado
+
+    def _validar_alta(self, tabla: str, fila: Dict[str, Any]) -> None:
+        """Un INSERT sin una columna NOT NULL y sin default aborta con 23502."""
+        faltan = [c for c in SIN_DEFAULT.get(tabla, ()) if c not in fila]
+        if faltan:
+            raise ErrorDeMotor(
+                f'null value in column "{faltan[0]}" of relation "{tabla}" '
+                f"violates not-null constraint",
+                codigo="23502",
+            )
 
     def _validar_no_nulos(self, tabla: str, filas: Sequence[Dict[str, Any]]) -> None:
         for columna in NO_NULOS.get(tabla, ()):

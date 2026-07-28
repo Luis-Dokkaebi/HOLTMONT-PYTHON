@@ -24,8 +24,13 @@ from api.services.tracker_rules import (
 )
 from backend.core.config import Settings, cargar_settings
 from backend.core.engine import DataEngine
-from backend.core.errors import EscrituraDeshabilitada
-from backend.schemas.task import SOLO_LECTURA, TaskRead, TaskWrite
+from backend.core.errors import ColumnaObligatoriaFaltante, EscrituraDeshabilitada
+from backend.schemas.task import (
+    OBLIGATORIAS_AL_INSERTAR,
+    SOLO_LECTURA,
+    TaskRead,
+    TaskWrite,
+)
 from backend.services.identity import compute_dedupe_key, primera_persona
 
 TABLA = "tasks"
@@ -179,8 +184,23 @@ class TaskRepository:
             # estatus nuevo, tirarlo en silencio perdería el dato.
             canonico = normalize_status(fila["status"])
             crudo = "" if fila["status"] is None else str(fila["status"]).strip()
-            # NOT NULL: `tasks.status` rechaza el nulo con 23502.
+            # NOT NULL: `tasks.status` rechaza el nulo con 23502. La cadena
+            # vacía es el "sin estatus" de esta tabla (143 filas reales la usan).
             fila["status"] = canonico or crudo
+
+        # `avance` también es NOT NULL, con DEFAULT 0. Si la petición lo trae
+        # vacío se **omite la columna** en vez de mandar nulo: mandarlo aborta
+        # el upsert con 23502, y escribir un 0 fabricaría un "0 %" que nadie
+        # capturó. Omitida, el merge conserva lo que ya había y un INSERT toma
+        # el default.
+        if "avance" in fila and fila["avance"] is None:
+            fila.pop("avance")
+
+        # Misma razón para el resto de columnas NOT NULL que el cliente puede
+        # dejar vacías: nunca se manda nulo a una de ellas.
+        for columna in ("folio", "concepto"):
+            if columna in fila and fila[columna] is None:
+                fila.pop(columna)
 
         if fila.get("assignee_raw"):
             persona = self.resolver_assignee_id(fila["assignee_raw"])
@@ -213,6 +233,8 @@ class TaskRepository:
         if not filas:
             return []
 
+        self._validar_altas(filas)
+
         guardadas: List[Dict[str, Any]] = []
         with self.engine.transaccion():
             for grupo in _agrupar_por_columnas(filas):
@@ -220,6 +242,32 @@ class TaskRepository:
                     self.engine.upsert(TABLA, grupo, en_conflicto=CLAVE_UPSERT)
                 )
         return [TaskRead.model_validate(f) for f in guardadas]
+
+    def _validar_altas(self, filas: Sequence[Dict[str, Any]]) -> None:
+        """
+        Comprueba que las filas **nuevas** traigan las columnas NOT NULL que no
+        tienen DEFAULT.
+
+        `tasks` tiene nueve columnas NOT NULL, no solo `status` como decía el
+        documento de partida. De ellas, `folio`, `dedupe_key`, `concepto` y
+        `source_sheet` no tienen valor por defecto: un alta sin `concepto`
+        aborta con 23502. Se detecta aquí para devolver qué falta y en qué
+        folio, en vez de un error crudo de Postgres a mitad del lote.
+
+        Solo aplica a las altas: en una actualización el merge conserva lo que
+        ya está en la base.
+        """
+        existentes = set(self.por_dedupe_keys([f[CLAVE_UPSERT] for f in filas]))
+        faltantes = [
+            (fila.get("folio"), sorted(OBLIGATORIAS_AL_INSERTAR - set(fila)))
+            for fila in filas
+            if fila[CLAVE_UPSERT] not in existentes and (OBLIGATORIAS_AL_INSERTAR - set(fila))
+        ]
+        if faltantes:
+            detalle = "; ".join(f"folio {folio!r} sin {', '.join(cols)}" for folio, cols in faltantes)
+            raise ColumnaObligatoriaFaltante(
+                f"No se puede dar de alta una tarea sin las columnas obligatorias: {detalle}"
+            )
 
 
 def _agrupar_por_columnas(filas: Iterable[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:

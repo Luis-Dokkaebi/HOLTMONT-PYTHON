@@ -18,7 +18,7 @@ Separación deliberada en dos modelos:
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -58,18 +58,68 @@ COLUMNAS_TASKS: tuple = (
 )
 
 # Columnas que el servidor calcula y el cliente no puede tocar.
+#
+# `correo` está aquí por lo que contiene, no por su nombre: **ninguno** de sus
+# 2.266 valores es una dirección de correo. Son enlaces de Google Drive (2.157)
+# y de Google Sheets (el resto), igual que `carpeta`, y 2.084 filas traen las
+# dos. Es una columna de archivos mal nombrada por la migración. Aceptarla
+# desde el cliente invitaría a escribir un correo encima de un enlace, y además
+# `SupabaseSync` nunca la escribe, así que hoy es un dato congelado. Los
+# archivos de Drive quedan fuera del alcance de esta fase: se conservan como
+# texto y no se tocan.
 SOLO_LECTURA: frozenset = frozenset(
-    {"id", "dedupe_key", "assignee_id", "source_sheet", "folio_sintetico", "created_at"}
+    {"id", "dedupe_key", "assignee_id", "source_sheet", "folio_sintetico", "created_at", "correo"}
 )
 
-# Tipos deducidos de `SupabaseSync.buildTaskRow` (`CODIGO.js`), que es la única
-# escritura viva contra estas columnas. Las cinco que el puente NUNCA escribe
-# —`folio_sintetico`, `correo`, `hora_alta`, `hora_estimada_fin`— no tienen
-# evidencia en el código y se declaran como texto hasta confirmarlo contra el
-# esquema real. `scripts/verificar_esquema_tasks.py` compara esta declaración
-# con lo que publica PostgREST y falla si difiere.
-TIPOS_POR_CONFIRMAR: frozenset = frozenset(
-    {"folio_sintetico", "correo", "hora_alta", "hora_estimada_fin"}
+# Tipos reales de `tasks`, leídos del esquema que publica PostgREST y
+# verificados contra las 4.626 filas. `scripts/verificar_base_tasks.py` los
+# comprueba y falla si el esquema cambia por debajo.
+#
+# Tres de los cuatro que se habían deducido sin evidencia estaban mal:
+# `folio_sintetico` es boolean (no texto) y las dos columnas `hora_*` son
+# `time`, no texto.
+TIPOS_REALES: Dict[str, str] = {
+    "id": "uuid",
+    "folio": "text",
+    "dedupe_key": "text",
+    "folio_sintetico": "boolean",
+    "assignee_id": "uuid",
+    "assignee_raw": "text",
+    "departamento": "text",
+    "fecha_alta": "date",
+    "hora_alta": "time without time zone",
+    "clasificacion": "text",
+    "concepto": "text",
+    "avance": "numeric",
+    "fecha_estimada_fin": "date",
+    "hora_estimada_fin": "time without time zone",
+    "reloj": "text",
+    "restricciones": "text",
+    "prioridad": "text",
+    "riesgos": "text",
+    "fecha_respuesta": "date",
+    "correo": "text",
+    "carpeta": "text",
+    "cumplimiento": "text",
+    "comentarios": "text",
+    "comentarios_semana": "text",
+    "comentarios_semana_previa": "text",
+    "status": "text",
+    "source_sheet": "text",
+    "created_at": "timestamp with time zone",
+}
+
+# Las NUEVE columnas NOT NULL. El documento de partida solo mencionaba `status`.
+NO_NULOS: frozenset = frozenset(
+    {"id", "folio", "dedupe_key", "folio_sintetico", "concepto", "avance",
+     "status", "source_sheet", "created_at"}
+)
+
+# De esas nueve, las que **no** tienen DEFAULT: en un INSERT hay que darlas o
+# la base aborta con 23502. `id`, `folio_sintetico` (false), `avance` (0),
+# `status` ('PENDIENTE') y `created_at` (now()) sí lo tienen.
+OBLIGATORIAS_AL_INSERTAR: frozenset = frozenset(
+    {"folio", "dedupe_key", "concepto", "source_sheet"}
 )
 
 # Nombre de columna -> alias de encabezado que usa el frontend/la hoja.
@@ -95,7 +145,6 @@ ALIAS_DE_HOJA: Dict[str, List[str]] = {
     "comentarios_semana": ["COMENTARIOS SEMANA EN CURSO"],
     "comentarios_semana_previa": ["COMENTARIOS PREVIOS", "PREVIOS", "COMENTARIOS SEMANA PREVIA"],
     "status": ["ESTATUS", "STATUS"],
-    "correo": ["CORREO", "EMAIL"],
     "hora_alta": ["HORA ALTA", "HORA_ALTA"],
     "hora_estimada_fin": ["HORA ESTIMADA FIN", "HORA_ESTIMADA_FIN"],
 }
@@ -117,19 +166,21 @@ class TaskWrite(BaseModel):
     assignee_raw: Optional[str] = None
     departamento: Optional[str] = None
     fecha_alta: Optional[date] = None
-    hora_alta: Optional[str] = None
+    hora_alta: Optional[time] = None
     clasificacion: Optional[str] = None
     concepto: Optional[str] = None
     avance: Optional[float] = None
     fecha_estimada_fin: Optional[date] = None
-    hora_estimada_fin: Optional[str] = None
+    hora_estimada_fin: Optional[time] = None
+    # `reloj` es texto y su contenido es heterogéneo en los datos reales:
+    # conviven horas ("17:00:00") y números sueltos ("70.0", "103.0"). Se
+    # conserva tal cual; interpretarlo sería inventar.
     reloj: Optional[str] = None
     restricciones: Optional[str] = None
     prioridad: Optional[str] = None
     riesgos: Optional[str] = None
     fecha_respuesta: Optional[date] = None
     carpeta: Optional[str] = None
-    correo: Optional[str] = None
     cumplimiento: Optional[str] = None
     comentarios: Optional[str] = None
     comentarios_semana: Optional[str] = None
@@ -168,18 +219,20 @@ class TaskRead(BaseModel):
     id: Optional[str] = None
     dedupe_key: Optional[str] = None
     folio: Optional[str] = None
-    folio_sintetico: Optional[str] = None
+    # Boolean, no texto: marca los 204 folios que generó la migración con la
+    # forma "HOJA::ROW1604" (caso 1 de `compute_dedupe_key`).
+    folio_sintetico: Optional[bool] = None
     source_sheet: Optional[str] = None
     assignee_raw: Optional[str] = None
     assignee_id: Optional[str] = None
     departamento: Optional[str] = None
     fecha_alta: Optional[date] = None
-    hora_alta: Optional[str] = None
+    hora_alta: Optional[time] = None
     clasificacion: Optional[str] = None
     concepto: Optional[str] = None
     avance: Optional[float] = None
     fecha_estimada_fin: Optional[date] = None
-    hora_estimada_fin: Optional[str] = None
+    hora_estimada_fin: Optional[time] = None
     reloj: Optional[str] = None
     restricciones: Optional[str] = None
     prioridad: Optional[str] = None

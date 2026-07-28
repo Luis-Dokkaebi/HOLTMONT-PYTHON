@@ -725,10 +725,42 @@ Alcance: solo `tasks`. `quotes` va en su propia tanda.
 |---|---|
 | Suite base de pytest | **323**, no 325 (72+41+31+179). Verde. |
 | Backend GAS | 85/85. Verde. |
-| Credenciales de Supabase en el entorno | **No hay.** Ni `.env` ni variables. |
-| Salida TCP fuera del 443 | **No hay.** `github.com:22`, `…supabase.com:5432` y `:6543` agotan el tiempo de espera; todo sale por un proxy HTTPS. |
+| Salida TCP fuera del 443 | **No hay.** `github.com:22`, `…supabase.com:5432` y `:6543` agotan el tiempo de espera; todo sale por un proxy HTTPS. Solo la ruta REST funciona desde aquí. |
 | Paridad de `computeDedupeKey` | 26/26 contra el `CODIGO.js` real ejecutado en Node. |
 | `task_involucrados` | Confirmado: cero referencias en todo el repo. |
+
+Con credenciales, `scripts/verificar_base_tasks.py` confirmó **todo** lo que
+afirmaba el documento de partida:
+
+```
+tasks 4.626 · task_involucrados 7.246 · quotes 661 · people 54
+system_log 16.196 · plan_semanal 1.180 · profiles 0 · … (14 tablas, 14 OK)
+
+Paridad de dedupe_key            4.626/4.626
+dedupe_key única, sin nulos      OK
+folio NO única                   382 folios repartidos (JO-0009 en 10, SG-0065 en 9)
+status sin nulos                 OK
+avance                           rango 0-100, ningún valor en (0,1]
+```
+
+Y contradijo tres cosas:
+
+**1. `tasks` tiene NUEVE columnas NOT NULL, no solo `status`.** Son `id`,
+`folio`, `dedupe_key`, `folio_sintetico`, `concepto`, `avance`, `status`,
+`source_sheet` y `created_at`. De ellas, `folio`, `dedupe_key`, `concepto` y
+`source_sheet` **no tienen DEFAULT**: un alta sin `concepto` aborta con 23502.
+`avance` sí tiene default 0 y `status` default `'PENDIENTE'`.
+
+**2. Tres de los cuatro tipos deducidos sin evidencia estaban mal.**
+`folio_sintetico` es `boolean` (marca los 204 folios sintéticos tipo
+`ADMINISTRADOR::ROW1604`), y `hora_alta` y `hora_estimada_fin` son `time`, no
+texto. Solo `correo` era efectivamente `text`.
+
+**3. `tasks.correo` no contiene ni una dirección de correo.** Sus 2.266 valores
+son enlaces de Google Drive (2.157) y de Google Sheets (el resto), igual que
+`carpeta`; 2.084 filas traen las dos. Es una columna de archivos mal nombrada
+por la migración. Como los archivos de Drive quedan fuera del alcance de esta
+fase, se conserva como texto de solo lectura y no se acepta desde el cliente.
 
 ### 7.2 El hallazgo que condicionó el diseño
 
@@ -797,11 +829,11 @@ diaria ya cambió en la hoja. Con el interruptor apagado el endpoint responde
 ### 7.4 Verificación
 
 ```
-pytest (4 módulos base + 2 nuevos)  ->  384 passed   (323 base + 61 nuevos)
+pytest (4 módulos base + 2 nuevos)  ->  396 passed   (323 base + 73 nuevos)
 node tests/gas/run_tests.js         ->  85/85
 ```
 
-Los 61 nuevos corren **sin base de datos**. La paridad de `dedupe_key` y
+Los 73 nuevos corren **sin base de datos**. La paridad de `dedupe_key` y
 `normalizeAvance` no se compara contra una copia escrita a mano: extrae las
 funciones del `CODIGO.js` real y las ejecuta en Node, de modo que si alguien
 toca el original la prueba se entera.
@@ -810,22 +842,39 @@ toca el original la prueba se entera.
 código `23502`, el upsert que fusiona en vez de reemplazar, y la reversión de
 la transacción.
 
-### 7.5 Lo que queda pendiente de la base real
+### 7.5 Lectura de producción a través del repositorio
 
-`scripts/verificar_base_tasks.py` (solo lectura) comprueba contra producción lo
-que desde aquí no se pudo: el esquema publicado por PostgREST frente a las 28
-columnas declaradas, los conteos, la paridad de `dedupe_key` sobre las 4.626
-filas, las restricciones y la escala de `avance`.
+Con el motor PostgREST contra la base real, leyendo por el repositorio nuevo:
 
-Cuatro columnas se declararon **sin evidencia en el código** porque
-`SupabaseSync` nunca las escribe: `folio_sintetico`, `correo`, `hora_alta` y
-`hora_estimada_fin`. El script imprime sus tipos reales para corregirlas.
+```
+'JAIME OLIVO'                    ->  19 activas /  19 archivadas
+'liliana aylin martinez ibarra'  ->  15 activas / 172 archivadas   (resuelve a
+                                     ' LILIANA AYLIN MARTINEZ IBARRA', con su
+                                     espacio inicial)
+'ADMINISTRADOR'                  -> 878 activas / 823 archivadas
+
+muestra: avance=0.0 (float) · fecha_alta=date(2026,7,22) ·
+         hora_alta=time(9,15) · folio_sintetico=False
+```
+
+43 hojas distintas, 4.626 filas, 3.101 archivadas (67 %) por el estado
+calculado. Una sola hoja con espacio inicial, la documentada.
+
+Sobre la trampa del 1 %: **hoy afectaría a 0 filas**, como decía el documento.
+Sigue siendo la corrección que más importa de esta fase, porque es la primera
+captura de un 1 % la que la activa, no el estado actual de los datos.
+
+`scripts/verificar_base_tasks.py` queda como comprobación reejecutable: verifica
+los 28 tipos uno a uno y el conjunto de columnas NOT NULL, así que un cambio de
+esquema por debajo se nota en vez de descubrirse en producción.
 
 ### 7.6 Siguiente paso
 
-1. Correr `scripts/verificar_base_tasks.py` con credenciales y ajustar lo que
-   discrepe.
-2. Desplegar `SupabaseSync` y re-sincronizar la base; solo entonces encender
+1. Desplegar `SupabaseSync` y re-sincronizar la base; solo entonces encender
    `BACKEND_TASKS_WRITE_ENABLED`.
-3. Fase 2 (concurrencia: `idempotency_keys` y secuencias en Postgres) y después
+2. Fase 2 (concurrencia: `idempotency_keys` y secuencias en Postgres) y después
    `quotes`.
+
+Nota para `quotes`: conviene repetir ahí la verificación de tipos y de columnas
+NOT NULL antes de escribir nada. En `tasks`, tres de los cuatro tipos deducidos
+del código estaban mal y el número de columnas NOT NULL era nueve en vez de una.

@@ -32,3 +32,14 @@ class ErrorDeMotor(BackendError):
 
 class CampoDeSoloLectura(BackendError):
     """El cliente mandó una columna que el servidor no acepta desde fuera."""
+
+
+class ColumnaObligatoriaFaltante(BackendError):
+    """
+    Falta una columna NOT NULL sin DEFAULT en un alta.
+
+    `tasks` tiene nueve columnas NOT NULL —no solo `status`—, y `folio`,
+    `dedupe_key`, `concepto` y `source_sheet` no tienen valor por defecto. Se
+    detecta antes de escribir para decir qué falta y en qué folio, en vez de
+    dejar que Postgres aborte el lote con un 23502 sin contexto.
+    """
