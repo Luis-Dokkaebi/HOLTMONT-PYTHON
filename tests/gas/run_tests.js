@@ -763,6 +763,80 @@ run('8.9', 'registrarLog se replica en `system_log`', () => {
     `envios=${envios.length}, usuario=${cuerpo.usuario}, fecha=${cuerpo.fecha_hora}`, ok);
 });
 
+run('8.11', 'normalizeStatus colapsa las 45 variantes reales', () => {
+  const S = envSupabase({}).api.SupabaseSync;
+  const casos = [
+    // Las 19 formas de escribir ASIGNADO que había en la base.
+    ['ASIGNADO', 'ASIGNADO'], ['Asignado', 'ASIGNADO'], ['asignado', 'ASIGNADO'],
+    ['ASIGNADA', 'ASIGNADO'], ['asignada', 'ASIGNADO'], ['ASIGANDO', 'ASIGNADO'],
+    ['ASIGANDA', 'ASIGNADO'], ['ASIGADO', 'ASIGNADO'], ['ASIGANDOA', 'ASIGNADO'],
+    ['ASIGANADO', 'ASIGNADO'], ['ASIGANADA', 'ASIGNADO'], ['ASIGANDa', 'ASIGNADO'],
+    ['asigando', 'ASIGNADO'], ['asigado', 'ASIGNADO'], ['asiganda', 'ASIGNADO'],
+    ['asigndo', 'ASIGNADO'], ['aSIGNADO', 'ASIGNADO'], ['asignadO', 'ASIGNADO'],
+    ['asignADO', 'ASIGNADO'],
+    ['PEDIENTE', 'PENDIENTE'], ['Pendiente', 'PENDIENTE'],
+    ['Falta Información', 'FALTA INFORMACION'],
+    ['En Revisión', 'EN REVISION'],
+    ['Cancelada x Planta', 'CANCELADA'],
+    ['Perdida x Tiempo', 'PERDIDA POR TIEMPO'],
+    ['perdida por tiempo', 'PERDIDA POR TIEMPO'],
+    ['BIERTO', 'ABIERTO'], ['abierto', 'ABIERTO'],
+    ['en proceso', 'EN PROCESO'],
+    ['Pendiente Visita', 'PENDIENTE VISITA'],
+    // Marcadores de vacío.
+    ['-', ''], ['-\n-', ''], ['', ''], [null, ''], ['   ', '']
+  ];
+  const fallos = casos.filter(c => S.normalizeStatus(c[0]) !== c[1])
+                      .map(c => `${JSON.stringify(c[0])} -> ${JSON.stringify(S.normalizeStatus(c[0]))} (esperado ${c[1]})`);
+  check('8.11', 'Estatus canónico en la escritura', '0 fallos',
+    fallos.length ? fallos.slice(0, 4).join(' | ') : '0 fallos', fallos.length === 0,
+    'Sin esto la columna vuelve a acumular variantes en cada captura');
+});
+
+run('8.12', 'Un estatus desconocido se conserva, no se descarta', () => {
+  const S = envSupabase({}).api.SupabaseSync;
+  const nuevo = S.normalizeStatus('EN LICITACION');
+  const basura = S.normalizeStatus('RAM');
+  const ok = nuevo === 'EN LICITACION' && basura === 'RAM';
+  check('8.12', 'Un valor no reconocido pasa tal cual', 'se conserva',
+    `'EN LICITACION'->${JSON.stringify(nuevo)}, 'RAM'->${JSON.stringify(basura)}`, ok,
+    'Si el equipo empieza a usar un estatus nuevo, tirarlo perderia el dato');
+});
+
+run('8.13', 'Normalizar no altera el auto-archivado', () => {
+  const env = envSupabase({});
+  const S = env.api.SupabaseSync;
+  const isTerminal = env.api.isTerminalStatus;
+  const valores = ['ASIGNADO', 'Asignado', 'ASIGNADA', 'PEDIENTE', 'Perdida x Tiempo',
+                   'perdida por tiempo', 'Cancelada x Planta', 'SUSPENDIDA',
+                   'HECHO', 'TERMINADO', 'GANADA', 'PERDIDA', '-', ''];
+  const fallos = valores.filter(v => isTerminal(v) !== isTerminal(S.normalizeStatus(v)))
+                        .map(v => `${JSON.stringify(v)}: ${isTerminal(v)} -> ${isTerminal(S.normalizeStatus(v))}`);
+  check('8.13', 'El estado terminal se conserva tras normalizar', '0 cambios',
+    fallos.length ? fallos.join(' | ') : '0 cambios', fallos.length === 0,
+    'Un alias mal mapeado archivaria o desarchivaria tareas');
+});
+
+run('8.14', 'El estatus se normaliza al escribir en la base', () => {
+  const env = envSupabase({});
+  env.api.SupabaseSync.mirrorBatch('JAIME OLIVO', [
+    { FOLIO: 'JO-1', CONCEPTO: 'X', ESTATUS: 'ASIGANDA' }
+  ]);
+  const cuerpo = JSON.parse(peticionesA(env, 'tasks')[0].params.payload)[0];
+  check('8.14', 'La errata ASIGANDA llega como ASIGNADO', 'ASIGNADO',
+    JSON.stringify(cuerpo.status), cuerpo.status === 'ASIGNADO');
+});
+
+run('8.15', 'tasks.status nunca se envía nulo (la columna es NOT NULL)', () => {
+  const env = envSupabase({});
+  env.api.SupabaseSync.mirrorBatch('JAIME OLIVO', [{ FOLIO: 'JO-2', CONCEPTO: 'SIN ESTATUS' }]);
+  const cuerpo = JSON.parse(peticionesA(env, 'tasks')[0].params.payload)[0];
+  const ok = cuerpo.status === '';
+  check('8.15', 'Sin estatus se envía cadena vacía, no null', '""',
+    JSON.stringify(cuerpo.status), ok,
+    'tasks.status tiene NOT NULL: un null aborta el upsert entero');
+});
+
 run('8.10', 'Las credenciales no están en el fuente', () => {
   const hardcodeada = /SUPABASE_(URL|KEY)\s*[:=]\s*["']http|sb_secret_|eyJhbGciOi/.test(CODIGO_SRC);
   check('8.10', 'SUPABASE_URL/KEY solo por Propiedades del Script', 'sin credenciales en CODIGO.js',

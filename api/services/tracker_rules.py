@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import unicodedata
 from datetime import datetime, date
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -265,6 +266,110 @@ def classify_quote_status(value: Any) -> str:
     if any(up.startswith(s) for s in LOSS_STATUSES):
         return "PERDIDA"
     return "EN_PROCESO"
+
+
+# ----------------------------------------------------------------------
+# NORMALIZACIÓN DE ESTATUS
+# ----------------------------------------------------------------------
+# La columna venía de captura libre en la hoja: 45 valores distintos en
+# `tasks` y 26 en `quotes` para lo que son ~10 estatus reales. Mezcla
+# mayúsculas/minúsculas, acentos, género (ASIGNADO/ASIGNADA), erratas
+# (ASIGANDO, PEDIENTE, BIERTO), marcadores de vacío ("-", "-\n-") y texto
+# que no es un estatus (iniciales, nombres, comentarios enteros).
+#
+# Los alias van escritos uno a uno a propósito: una coincidencia difusa
+# adivinaría, y aquí un error cambia si una tarea se archiva o no.
+
+CANONICAL_STATUSES = {
+    "ASIGNADO": [
+        # Género y erratas reales encontradas en los datos.
+        "ASIGNADA", "ASIGANDO", "ASIGANDA", "ASIGADO", "ASIGANDOA",
+        "ASIGANADO", "ASIGANADA", "ASIGNDO", "ASIGNADOO", "ASIGNAD",
+        "ASIGNSDO", "ASIGNBADO", "ASIGNADP",
+    ],
+    "PENDIENTE": ["PEDIENTE", "PENDIENT", "PENDINTE", "PEDIENTES", "PENDIENTES"],
+    "PENDIENTE VISITA": [
+        "PENDIENTE DE VISITA", "PDTE VISITA", "PENDIENTE VISTA",
+    ],
+    "PENDIENTE INFORMACION": [
+        "PENDIENTE INFORMACION POR PLANTA", "PENDIENTE DE INFORMACION",
+        "PENDIENTE INFO",
+    ],
+    "FALTA INFORMACION": ["FALTA INFO", "FALTA DE INFORMACION"],
+    "EN REVISION": ["REVISION", "EN REVISON", "EN REVICION"],
+    "EN PROCESO": ["PROCESO", "EN PROSESO"],
+    "ENVIADA": ["ENVIADO", "ENVIDA"],
+    "ABIERTO": ["ABIERTA", "BIERTO", "BIERTA"],
+    "SUSPENDIDA": ["SUSPENDIDO", "SUSPENDIA"],
+    "PERDIDA POR TIEMPO": [
+        "PERDIDA X TIEMPO", "PERDIDA POR TIEMPO", "PERDIDA TIEMPO",
+        "PERDIDO POR TIEMPO", "PERDIDO X TIEMPO",
+    ],
+    "CANCELADA": [
+        "CANCELADO", "CANCELADA X PLANTA", "CANCELADA POR PLANTA",
+        "CANCELADA X CLIENTE", "CANCELADA POR CLIENTE",
+    ],
+    # Terminales: se conservan tal cual para no alterar el auto-archivado.
+    "HECHO": [], "TERMINADO": [], "FINALIZADO": [], "REALIZADO": [],
+    "COMPLETADO": [], "DONE": [], "CERRADO": [],
+    "GANADA": ["GANADO"], "PERDIDA": ["PERDIDO"],
+}
+
+# Marcadores de "sin estatus" que la gente teclea en la hoja.
+STATUS_PLACEHOLDERS = {"", "-", "--", "---", "N/A", "NA", "NULL", "NINGUNO",
+                       ".", "..", "...", "#N/A", "ESTATUS", "STATUS"}
+
+
+def _status_key(value: Any) -> str:
+    """Mayúsculas, sin acentos, sin puntuación de relleno y con espacios colapsados."""
+    if value is None:
+        return ""
+    texto = unicodedata.normalize("NFKD", str(value))
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.replace("\n", " ").replace("\r", " ")
+    texto = re.sub(r"[.,;:_/\\-]+", " ", texto)
+    return re.sub(r"\s+", " ", texto).strip().upper()
+
+
+_STATUS_LOOKUP = {}
+for _canon, _alias in CANONICAL_STATUSES.items():
+    _STATUS_LOOKUP[_status_key(_canon)] = _canon
+    for _a in _alias:
+        _STATUS_LOOKUP[_status_key(_a)] = _canon
+
+
+def normalize_status(value: Any) -> Optional[str]:
+    """
+    Estatus canónico, o `None` si el valor no representa uno.
+
+    Devolver `None` en vez de inventar un estatus es deliberado: `RAM`,
+    `Nickey Torres` o un comentario entero no son estatus, y mapearlos a
+    `PENDIENTE` fabricaría información que nadie capturó.
+
+    No altera nunca si una tarea se considera terminal: cada alias se mapea a
+    un canónico de la misma familia (`Perdida x Tiempo` → `PERDIDA POR TIEMPO`,
+    que sigue empezando por `PERDIDA`).
+    """
+    clave = _status_key(value)
+    if not clave or clave in STATUS_PLACEHOLDERS:
+        return None
+    directo = _STATUS_LOOKUP.get(clave)
+    if directo:
+        return directo
+    # Familias con sufijo libre: "PERDIDA X TIEMPO DEL CLIENTE",
+    # "CANCELADA X PLANTA 3", etc.
+    for prefijo in ("PERDIDA", "PERDIDO"):
+        if clave.startswith(prefijo + " ") and "TIEMPO" in clave:
+            return "PERDIDA POR TIEMPO"
+    for prefijo, canon in (("CANCELAD", "CANCELADA"), ("SUSPENDID", "SUSPENDIDA")):
+        if clave.startswith(prefijo):
+            return canon
+    return None
+
+
+def is_status_like(value: Any) -> bool:
+    """¿El texto es reconocible como estatus? Útil para separar la basura."""
+    return normalize_status(value) is not None
 
 
 def normalize_cell_value(value: Any) -> str:

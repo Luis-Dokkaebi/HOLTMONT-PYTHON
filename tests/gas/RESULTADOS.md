@@ -2,7 +2,7 @@
 
 > Generado automáticamente por `node tests/gas/run_tests.js` contra `CODIGO.js` con mocks de Google Apps Script.
 
-**Total:** 80 · **Pasan:** 80 · **Fallan:** 0
+**Total:** 85 · **Pasan:** 85 · **Fallan:** 0
 
 
 ## 1. Semáforo / Formato condicional
@@ -127,5 +127,14 @@
 | | _Nunca guardar el string compuesto como si fuera una persona_ | | | |
 | 8.8 | Con la red caída la tarea se guarda igual | success=true y 1 fila en la hoja | success=true, filas=1 | ✅ PASA |
 | | _INVARIANTE: mejor perder una réplica que una tarea_ | | | |
-| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-07-28T04:25:04.258Z | ✅ PASA |
+| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-07-28T04:53:52.400Z | ✅ PASA |
+| 8.11 | Estatus canónico en la escritura | 0 fallos | 0 fallos | ✅ PASA |
+| | _Sin esto la columna vuelve a acumular variantes en cada captura_ | | | |
+| 8.12 | Un valor no reconocido pasa tal cual | se conserva | 'EN LICITACION'->"EN LICITACION", 'RAM'->"RAM" | ✅ PASA |
+| | _Si el equipo empieza a usar un estatus nuevo, tirarlo perderia el dato_ | | | |
+| 8.13 | El estado terminal se conserva tras normalizar | 0 cambios | 0 cambios | ✅ PASA |
+| | _Un alias mal mapeado archivaria o desarchivaria tareas_ | | | |
+| 8.14 | La errata ASIGANDA llega como ASIGNADO | ASIGNADO | "ASIGNADO" | ✅ PASA |
+| 8.15 | Sin estatus se envía cadena vacía, no null | "" | "" | ✅ PASA |
+| | _tasks.status tiene NOT NULL: un null aborta el upsert entero_ | | | |
 | 8.10 | SUPABASE_URL/KEY solo por Propiedades del Script | sin credenciales en CODIGO.js | sin credenciales | ✅ PASA |

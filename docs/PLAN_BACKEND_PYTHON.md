@@ -646,7 +646,76 @@ Mientras tanto, lo que el usuario ve en ventas está incompleto pero **no
 corrupto**: es una lectura parcial, y las escrituras de esa vista no llegan a
 persistir en Supabase de todos modos (§1.8).
 
-## 6. Siguiente paso
+## 6. Normalización de estatus — ejecutada
+
+La columna venía de captura libre en la hoja y había acumulado **45 valores
+distintos en `tasks`** y **26 en `quotes`** para lo que son ~11 estatus reales.
+
+Cuatro clases de suciedad conviviendo:
+
+| Clase | Ejemplos reales |
+|---|---|
+| Mayúsculas y género | `ASIGNADO` / `Asignado` / `asignado` / `ASIGNADA` / `asignada` |
+| Erratas | `ASIGANDO`, `ASIGANDA`, `ASIGADO`, `ASIGANDOA`, `asigndo`, `PEDIENTE`, `BIERTO` |
+| Marcadores de vacío | `-`, `-\n-`, `-\n-\n-` |
+| Texto que no es estatus | `RAM`, `TG`, `MANZ`, `Nickey Torres`, `100.0`, `es referente al primer correo enviado` |
+
+Solo `ASIGNADO` tenía **19 formas distintas** de escribirse.
+
+### La regla
+
+`normalize_status()` en `api/services/tracker_rules.py`, con lista de alias
+**explícita**. Nada de coincidencia difusa: aquí un error cambia si una tarea
+se archiva o no, y adivinar no es aceptable.
+
+Un valor no reconocido devuelve `None` en vez de mapearse a `PENDIENTE`:
+`RAM` o un comentario entero no son estatus, e inventarlo fabricaría
+información que nadie capturó.
+
+**Invariante que hizo segura la migración:** cada alias apunta a un canónico de
+su misma familia, así que `is_terminal_status()` da el mismo resultado antes y
+después. Verificado contra las 5.287 filas reales: **0 cambian de estado
+terminal**, es decir, ninguna tarea se archivó ni se desarchivó.
+
+### El resultado
+
+```
+tasks.status    45 valores -> 12   (11 canónicos + vacío)
+quotes.estatus  26 valores -> 11   (10 canónicos + vacío)
+sin normalizar: 0 en ambas          conteos intactos: 4.626 / 661
+```
+
+Los 24 textos que no eran estatus se **preservaron** en `comentarios` con el
+prefijo `[ESTATUS ORIGINAL]` antes de vaciar la columna. Todas esas filas
+tenían `comentarios` vacío, así que no se pisó nada.
+
+### Un detalle del esquema que costó un intento
+
+`tasks.status` tiene **`NOT NULL`** y `quotes.estatus` no. El primer intento
+falló con `23502` al escribir nulo en `tasks`. `tasks` se vacía con cadena
+vacía; `quotes` con nulo. El frontend lee ambos igual.
+
+El fallo abortó la tabla **antes de escribir**, así que no hubo estado a medias.
+
+### Que no se vuelva a ensuciar
+
+De nada sirve limpiar si la siguiente captura reintroduce las variantes.
+`SupabaseSync.normalizeStatus()` en `CODIGO.js` aplica la misma regla en el
+camino de escritura, con **paridad verificada 57/57** contra la implementación
+de Python.
+
+Diferencia deliberada con el script de limpieza: en vivo, un valor **no
+reconocido se conserva tal cual** en vez de descartarse. Si mañana el equipo
+empieza a usar un estatus nuevo, tirarlo en silencio perdería el dato;
+aparecerá en la siguiente revisión.
+
+### Reejecutable
+
+`scripts/normalizar_estatus.py` simula por defecto y solo escribe con
+`--aplicar`. Deja un respaldo en `scripts/respaldos/` (ignorado por git: son
+datos de producción) suficiente para revertir, y es idempotente.
+
+## 7. Siguiente paso
 
 Fase 0.5: construir `SupabaseSync` en `CODIGO.js` (decisión A). Bloqueado
 parcialmente por la decisión E: hace falta el esquema real para saber a qué

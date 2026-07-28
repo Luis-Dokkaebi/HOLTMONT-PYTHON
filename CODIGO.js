@@ -3956,6 +3956,53 @@ const SUPABASE_CONFIG = {
   timestampFolioRegex: /^\d{10,}(?:\.0+)?$/
 };
 
+// --- ESTATUS CANÓNICOS (espejo de api/services/tracker_rules.py) ---
+// Los alias van escritos uno a uno a propósito: una coincidencia difusa
+// adivinaría, y aquí un error cambia si una tarea se archiva o no.
+// Cada alias apunta a un canónico de SU MISMA familia, de modo que
+// isTerminalStatus() da el mismo resultado antes y después de normalizar.
+const CANONICAL_STATUSES = {
+  "ASIGNADO": ["ASIGNADA", "ASIGANDO", "ASIGANDA", "ASIGADO", "ASIGANDOA",
+               "ASIGANADO", "ASIGANADA", "ASIGNDO", "ASIGNADOO", "ASIGNAD",
+               "ASIGNSDO", "ASIGNBADO", "ASIGNADP"],
+  "PENDIENTE": ["PEDIENTE", "PENDIENT", "PENDINTE", "PEDIENTES", "PENDIENTES"],
+  "PENDIENTE VISITA": ["PENDIENTE DE VISITA", "PDTE VISITA", "PENDIENTE VISTA"],
+  "PENDIENTE INFORMACION": ["PENDIENTE INFORMACION POR PLANTA",
+                            "PENDIENTE DE INFORMACION", "PENDIENTE INFO"],
+  "FALTA INFORMACION": ["FALTA INFO", "FALTA DE INFORMACION"],
+  "EN REVISION": ["REVISION", "EN REVISON", "EN REVICION"],
+  "EN PROCESO": ["PROCESO", "EN PROSESO"],
+  "ENVIADA": ["ENVIADO", "ENVIDA"],
+  "ABIERTO": ["ABIERTA", "BIERTO", "BIERTA"],
+  "SUSPENDIDA": ["SUSPENDIDO", "SUSPENDIA"],
+  "PERDIDA POR TIEMPO": ["PERDIDA X TIEMPO", "PERDIDA TIEMPO",
+                         "PERDIDO POR TIEMPO", "PERDIDO X TIEMPO"],
+  "CANCELADA": ["CANCELADO", "CANCELADA X PLANTA", "CANCELADA POR PLANTA",
+                "CANCELADA X CLIENTE", "CANCELADA POR CLIENTE"],
+  // Terminales: se conservan tal cual para no alterar el auto-archivado.
+  "HECHO": [], "TERMINADO": [], "FINALIZADO": [], "REALIZADO": [],
+  "COMPLETADO": [], "DONE": [], "CERRADO": [],
+  "GANADA": ["GANADO"], "PERDIDA": ["PERDIDO"]
+};
+
+const STATUS_PLACEHOLDERS = ["", "-", "--", "---", "N/A", "NA", "NULL",
+                             "NINGUNO", ".", "..", "...", "#N/A",
+                             "ESTATUS", "STATUS"];
+
+const STATUS_LOOKUP = (function () {
+  const mapa = {};
+  const clave = function (s) {
+    let t = String(s);
+    if (t.normalize) t = t.normalize("NFD").replace(/[̀-ͯ]/g, "");
+    return t.replace(/[.,;:_/\\-]+/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+  };
+  Object.keys(CANONICAL_STATUSES).forEach(function (canon) {
+    mapa[clave(canon)] = canon;
+    CANONICAL_STATUSES[canon].forEach(function (a) { mapa[clave(a)] = canon; });
+  });
+  return mapa;
+})();
+
 const SupabaseSync = {
 
   // --- Configuración -------------------------------------------------
@@ -4035,6 +4082,39 @@ const SupabaseSync = {
     if (isNaN(num)) return null;
     // Texto: se toma tal cual, ya está en escala 0-100.
     return Math.round(num * 100) / 100;
+  },
+
+  /**
+   * Estatus canónico para escribir en la base.
+   *
+   * La columna venía de captura libre y acumuló 45 valores distintos en
+   * `tasks` para lo que son ~11 estatus: mayúsculas, acentos, género
+   * (ASIGNADO/ASIGNADA) y erratas (ASIGANDO, PEDIENTE, BIERTO). Se limpió una
+   * vez con scripts/normalizar_estatus.py; esto evita que se vuelva a ensuciar.
+   *
+   * Un valor no reconocido se conserva tal cual (solo recortado). Descartarlo
+   * sería peor: si mañana el equipo empieza a usar un estatus nuevo, tirarlo
+   * en silencio perdería el dato. Aparecerá en la próxima revisión.
+   */
+  normalizeStatus: function (value) {
+    if (value === null || value === undefined) return "";
+    var crudo = String(value).replace(/[\n\r]+/g, " ").trim();
+    if (!crudo) return "";
+
+    // Clave: mayúsculas, sin acentos, sin puntuación de relleno.
+    var clave = crudo.normalize ? crudo.normalize("NFD").replace(/[̀-ͯ]/g, "") : crudo;
+    clave = clave.replace(/[.,;:_/\\-]+/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+
+    if (!clave || STATUS_PLACEHOLDERS.indexOf(clave) >= 0) return "";
+    if (STATUS_LOOKUP[clave]) return STATUS_LOOKUP[clave];
+
+    // Familias con sufijo libre ("PERDIDA X TIEMPO DEL CLIENTE").
+    if ((clave.indexOf("PERDIDA ") === 0 || clave.indexOf("PERDIDO ") === 0) &&
+        clave.indexOf("TIEMPO") >= 0) return "PERDIDA POR TIEMPO";
+    if (clave.indexOf("CANCELAD") === 0) return "CANCELADA";
+    if (clave.indexOf("SUSPENDID") === 0) return "SUSPENDIDA";
+
+    return crudo;   // desconocido: se conserva
   },
 
   /** Fecha -> "YYYY-MM-DD" (columnas `date`). Devuelve null si no es fecha. */
@@ -4187,7 +4267,8 @@ const SupabaseSync = {
       comentarios: this._texto(pickTaskValue(task, ["COMENTARIOS", "COMENTARIO", "OBSERVACIONES", "NOTAS"])),
       comentarios_semana: this._texto(pickTaskValue(task, ["COMENTARIOS SEMANA EN CURSO"])),
       comentarios_semana_previa: this._texto(pickTaskValue(task, ["COMENTARIOS PREVIOS", "PREVIOS", "COMENTARIOS SEMANA PREVIA"])),
-      status: this._texto(pickTaskValue(task, ["ESTATUS", "STATUS"]))
+      // Estatus canonico: evita que la columna vuelva a acumular 45 variantes.
+      status: this.normalizeStatus(pickTaskValue(task, ["ESTATUS", "STATUS"]))
     };
 
     const personId = this._resolvePersonId(responsable, peopleMap);
@@ -4222,7 +4303,7 @@ const SupabaseSync = {
       f_inicio: this.toIsoDate(pickTaskValue(task, ["F_INICIO", "F. INICIO", "FECHA", "FECHA INICIO"])),
       f_entrega: this.toIsoDate(pickTaskValue(task, ["F_ENTREGA", "F. ENTREGA", "FECHA DE ENTREGA"])),
       avance: this.normalizeAvance(pickTaskValue(task, ["AVANCE", "AVANCE %", "% AVANCE"])),
-      estatus: this._texto(pickTaskValue(task, ["ESTATUS", "STATUS"])),
+      estatus: this.normalizeStatus(pickTaskValue(task, ["ESTATUS", "STATUS"])),
       comentarios: this._texto(pickTaskValue(task, ["COMENTARIOS", "COMENTARIO", "OBSERVACIONES"])),
       archivo: this._texto(pickTaskValue(task, ["ARCHIVO", "LINK", "URL"])),
       cotizacion: this._texto(pickTaskValue(task, ["COTIZACION", "COTIZACIÓN"])),
