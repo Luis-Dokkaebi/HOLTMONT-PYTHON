@@ -2,7 +2,7 @@
 
 > Generado automáticamente por `node tests/gas/run_tests.js` contra `CODIGO.js` con mocks de Google Apps Script.
 
-**Total:** 70 · **Pasan:** 70 · **Fallan:** 0
+**Total:** 80 · **Pasan:** 80 · **Fallan:** 0
 
 
 ## 1. Semáforo / Formato condicional
@@ -110,3 +110,22 @@
 | 7.1b | Métodos de guardado del adaptador FastAPI que siguen siendo stubs | 0 stubs | 0 stubs | ✅ PASA |
 | | _Un stub responde {success:true} sin persistir nada en Supabase/FastAPI_ | | | |
 | 7.2 | La respuesta incluye res.data con la tarea actualizada | res.data presente | presente | ✅ PASA |
+
+## 8. Supabase Sync (escritura doble)
+
+| # | Prueba | Esperado | Obtenido | Resultado |
+|---|--------|----------|----------|-----------|
+| 8.1 | Clave de identidad de fila para los 10 casos reales | 0 fallos | 0 fallos | ✅ PASA |
+| | _JO-0009 vive en 10 trackers: cada copia necesita su propia clave_ | | | |
+| 8.2 | Papa Caliente: JO-0009 no se colapsa en una sola fila | 3 claves distintas | 3 distintas | ✅ PASA |
+| 8.3 | AVANCE normalizado a escala 0-100 sin confundir 1 con "1" | 0 fallos | 0 fallos | ✅ PASA |
+| | _Colapsar ambos casos archivaria como terminadas las tareas al 1%_ | | | |
+| 8.4 | El espejo queda inerte mientras no se configure | cero peticiones | 0 peticiones, skipped=true | ✅ PASA |
+| 8.5 | Upsert a tasks con la clave y el AVANCE correctos | on_conflict=dedupe_key, avance=100 | envios=1, key=JAIME OLIVO::JO-0009, avance=100 | ✅ PASA |
+| 8.6 | Ruteo por tipo de hoja y monto limpiado | quotes, folio, monto=1500.5 | quotes=1, tasks=0, monto=1500.5 | ✅ PASA |
+| 8.7 | Se resuelve la primera persona y se conserva el texto completo | uuid-ramiro | assignee_id=uuid-ramiro | ✅ PASA |
+| | _Nunca guardar el string compuesto como si fuera una persona_ | | | |
+| 8.8 | Con la red caída la tarea se guarda igual | success=true y 1 fila en la hoja | success=true, filas=1 | ✅ PASA |
+| | _INVARIANTE: mejor perder una réplica que una tarea_ | | | |
+| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-07-28T01:09:38.530Z | ✅ PASA |
+| 8.10 | SUPABASE_URL/KEY solo por Propiedades del Script | sin credenciales en CODIGO.js | sin credenciales | ✅ PASA |
