@@ -106,7 +106,34 @@ class GoogleScriptRunAdapter {
         });
     }
 
-    // Stubs for other methods to prevent crashes during partial migration
+    /**
+     * Operación de ESCRITURA todavía no portada a FastAPI.
+     *
+     * Antes estos métodos respondían `{success: true}` sin persistir nada: el
+     * frontend marcaba la fila como guardada (`_isNew = false`), limpiaba el
+     * borrador local y el usuario se quedaba con la impresión de haber guardado.
+     * Se perdía el dato en silencio.
+     *
+     * Ahora devuelven la envoltura de error estándar, que el frontend ya sabe
+     * mostrar, para que la pérdida sea visible mientras se completa la
+     * migración (ver docs/PLAN_BACKEND_PYTHON.md, Fase 5).
+     */
+    _noPortado(nombre) {
+        const message = `"${nombre}" aún no está disponible en el backend Python. ` +
+            `El cambio NO se guardó; usa la versión de Google Apps Script para esta operación.`;
+        console.error(`[api_service] ${nombre}: operación de escritura no portada.`);
+        this._successHandler({ success: false, message: message, _notImplemented: true });
+    }
+
+    /** Operación de LECTURA no portada: se responde vacío, pero avisando. */
+    _lecturaVacia(nombre, extra) {
+        console.warn(`[api_service] ${nombre}: lectura no portada, se devuelve vacío.`);
+        this._successHandler(Object.assign(
+            { success: true, data: [], _notImplemented: true },
+            extra || {}
+        ));
+    }
+
     apiLogout(username) {
         console.log("Logout:", username);
         // No callback usually needed for logout in this app flow
@@ -120,8 +147,7 @@ class GoogleScriptRunAdapter {
     }
 
     apiFetchPPCData() {
-         console.warn("apiFetchPPCData not implemented");
-         this._successHandler({ success: true, data: [] });
+        this._lecturaVacia('apiFetchPPCData');
     }
 
     apiUpdateTask(sheet, data, user) {
@@ -146,61 +172,54 @@ class GoogleScriptRunAdapter {
         .catch(err => this._failureHandler(err));
     }
 
-    // --- Stubs to prevent crashes ---
+    // --- Pendientes de portar (Fase 5 de docs/PLAN_BACKEND_PYTHON.md) ---
 
     apiFetchCombinedCalendarData(target) {
-        console.warn("apiFetchCombinedCalendarData stub called");
-        this._successHandler({ success: true, data: [] });
+        this._lecturaVacia('apiFetchCombinedCalendarData');
     }
 
     apiFetchCascadeTree() {
-        console.warn("apiFetchCascadeTree stub called");
-        this._successHandler({ success: true, data: [] });
+        this._lecturaVacia('apiFetchCascadeTree');
     }
 
     apiFetchDrafts() {
-        console.warn("apiFetchDrafts stub called");
-        this._successHandler({ success: true, data: [] });
+        this._lecturaVacia('apiFetchDrafts');
     }
 
     apiFetchInfoBankData(year, month, company, folder) {
-        console.warn("apiFetchInfoBankData stub called");
-        this._successHandler({ success: true, data: [] });
-    }
-
-    uploadFileToDrive(data, type, name) {
-        console.warn("uploadFileToDrive stub called");
-        this._successHandler({ success: true, fileUrl: "http://mock.url/file" });
-    }
-
-    apiAddEmployee(employee) {
-        console.warn("apiAddEmployee stub called");
-        this._successHandler({ success: true });
-    }
-
-    apiDeleteEmployee(name) {
-        console.warn("apiDeleteEmployee stub called");
-        this._successHandler({ success: true });
+        this._lecturaVacia('apiFetchInfoBankData');
     }
 
     apiFetchProjectTasks(projectName) {
-        console.warn("apiFetchProjectTasks stub called");
-        this._successHandler({ success: true, data: [], headers: [] });
+        this._lecturaVacia('apiFetchProjectTasks', { headers: [] });
+    }
+
+    // Escrituras: fallan de forma visible en vez de fingir éxito.
+
+    uploadFileToDrive(data, type, name) {
+        // Devolver una fileUrl falsa era lo más dañino del adaptador: la URL
+        // inventada se guardaba en la base como si el archivo existiera.
+        this._noPortado('uploadFileToDrive');
+    }
+
+    apiAddEmployee(employee) {
+        this._noPortado('apiAddEmployee');
+    }
+
+    apiDeleteEmployee(name) {
+        this._noPortado('apiDeleteEmployee');
     }
 
     apiSaveProjectTask(row, projectName, username) {
-        console.warn("apiSaveProjectTask stub called");
-        this._successHandler({ success: true });
+        this._noPortado('apiSaveProjectTask');
     }
 
     apiSaveSubProject(data) {
-        console.warn("apiSaveSubProject stub called");
-        this._successHandler({ success: true });
+        this._noPortado('apiSaveSubProject');
     }
 
     apiSaveSite(data) {
-        console.warn("apiSaveSite stub called");
-        this._successHandler({ success: true });
+        this._noPortado('apiSaveSite');
     }
 
     apiFetchWeeklyPlanData(username) {
@@ -277,23 +296,21 @@ class GoogleScriptRunAdapter {
     }
 
     apiSaveHabitLog(payload) {
-        console.warn("apiSaveHabitLog stub called");
-        this._successHandler({ success: true });
+        this._noPortado('apiSaveHabitLog');
     }
 
     apiSavePersonalEvent(payload) {
-        console.warn("apiSavePersonalEvent stub called");
-        this._successHandler({ success: true });
+        this._noPortado('apiSavePersonalEvent');
     }
 
     apiSyncDrafts(drafts) {
-        console.warn("apiSyncDrafts stub called");
-        this._successHandler({ success: true });
+        // Al fallar, el frontend conserva los borradores locales en vez de
+        // darlos por sincronizados. Es el comportamiento correcto.
+        this._noPortado('apiSyncDrafts');
     }
 
     apiClearDrafts() {
-        console.warn("apiClearDrafts stub called");
-        this._successHandler({ success: true });
+        this._noPortado('apiClearDrafts');
     }
 }
 

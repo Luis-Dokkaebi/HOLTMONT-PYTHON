@@ -156,13 +156,11 @@ class MockSheet:
 
 class MockSpreadsheet:
     def __init__(self):
+        # La hoja "USERS" traía las contraseñas reales de producción escritas en
+        # el fuente, y el login caía aquí siempre que no hubiera base de datos.
+        # Se eliminó: el login de desarrollo se define ahora por entorno con
+        # DEV_LOGIN_USERS (ver .env.example y api/main.py).
         self.sheets = {
-            "USERS": [
-                ["USERNAME", "PASSWORD", "ROLE", "LABEL"],
-                ["LUIS_CARLOS", "admin2025", "ADMIN", "Administrador"],
-                ["ANTONIA_VENTAS", "tonita2025", "TONITA", "Ventas"],
-                ["JESUS_CANTU", "ppc2025", "PPC_ADMIN", "PPC Manager"]
-            ],
             "ANTONIA_VENTAS": [
                 ["FOLIO", "CLIENTE", "CONCEPTO", "FECHA", "ESTATUS", "AVANCE"],
                 ["1001", "CLIENTE A", "TEST TASK", "01/01/25", "PENDIENTE", "0%"]

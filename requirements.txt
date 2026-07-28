@@ -1,17 +1,24 @@
-fastapi
-uvicorn
-gspread
-google-auth
-pydantic
-python-multipart
+# --- Núcleo del backend (necesario para arrancar api/main.py y correr la suite) ---
+# Versiones mínimas verificadas: con estas pasan los 99 tests de pytest.
+fastapi>=0.115
+uvicorn>=0.30
+pydantic>=2.9
+python-multipart>=0.0.9
+supabase>=2.10
+gspread>=6.1
+google-auth>=2.35
+mcp>=1.2
+
+# --- Agentes de IA y utilidades (opcionales para el tracker) ---
+# api/paperclip_agents.py, api/ai_utils.py, api/engineering_agent.py y la app
+# de Streamlit. El backend del tracker arranca sin ellas, pero los tests de
+# tests/test_text_agents.py y tests/test_ai_utils_ffmpeg.py sí las necesitan.
 groq
 langchain-groq
 langchain-community
+langchain-google-genai
 langgraph
 tavily-python
 pypdf
 ffmpeg-python
 streamlit
-langchain-google-genai
-mcp
-supabase

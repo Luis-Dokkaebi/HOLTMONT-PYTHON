@@ -1,0 +1,8 @@
+# Dependencias para correr la suite de pruebas.
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   ./run_tests.sh
+#
+# Las pruebas de extremo a extremo (tests/conftest.py) levantan api/main.py,
+# asi que requirements.txt tambien hace falta.
+pytest>=8.0
+playwright>=1.40

@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
 import json
+import secrets
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from fastapi import UploadFile, File, Form
@@ -47,10 +48,17 @@ elif os.path.exists("../.env"):
 app = FastAPI(title="Holtmont Workspace Backend")
 
 # CORS Configuration
+#
+# `allow_origins=["*"]` junto con `allow_credentials=True` es una combinación
+# que los navegadores rechazan y que, de aplicarse, dejaría la API abierta a
+# cualquier origen. Los orígenes permitidos se declaran por entorno
+# (CORS_ORIGINS, separados por coma); sin ellos no se permiten credenciales.
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins or ["*"],
+    allow_credentials=bool(_cors_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -305,27 +313,43 @@ def api_login(creds: LoginRequest):
         except ValueError:
             pass
 
+    # NOTA: aquí vivía un diccionario de usuarios con contraseñas reales y
+    # funcionales escritas en el fuente. Se eliminó: unas credenciales
+    # versionadas en el repo son un riesgo, no un modo de prueba. Para
+    # desarrollo sin base, define DEV_LOGIN_USERS en el entorno.
     if not user_found and gs_manager.is_mock:
-        MOCK_USER_DB = {
-            "LUIS_CARLOS":      {"pass": "admin2025", "role": "ADMIN", "label": "Administrador (Mock)"},
-            "ANTONIA_VENTAS":   {"pass": "tonita2025", "role": "TONITA", "label": "Ventas (Mock)"},
-            "PREWORK_ORDER":    {"pass": "workorder2026", "role": "WORKORDER_USER", "label": "Workorder (Mock)"},
-        }
-
-        if username_key in MOCK_USER_DB:
-            u = MOCK_USER_DB[username_key]
-            if u["pass"] == creds.password:
-                user_found = {
-                    "success": True,
-                    "role": u["role"],
-                    "name": u["label"],
-                    "username": username_key
-                }
+        user_found = _login_desde_entorno(username_key, creds.password)
 
     if user_found:
         return user_found
 
     return {"success": False, "message": "Usuario o contraseña incorrectos."}
+
+
+def _login_desde_entorno(username_key: str, password: str) -> Optional[Dict[str, Any]]:
+    """
+    Login de desarrollo definido por entorno, nunca por código fuente.
+
+    Formato de `DEV_LOGIN_USERS` (ver .env.example):
+        USUARIO:contrasena:ROL:Etiqueta,OTRO:...
+
+    Es un puente temporal hasta que la Fase 4 del plan sustituya este endpoint
+    por Supabase Auth con JWT (docs/PLAN_BACKEND_PYTHON.md).
+    """
+    crudo = os.environ.get("DEV_LOGIN_USERS", "").strip()
+    if not crudo:
+        return None
+
+    for entrada in crudo.split(","):
+        partes = [p.strip() for p in entrada.split(":")]
+        if len(partes) < 3 or not partes[0]:
+            continue
+        usuario, clave, rol = partes[0].upper(), partes[1], partes[2]
+        etiqueta = partes[3] if len(partes) > 3 else usuario
+        # compare_digest evita filtrar la contraseña por tiempo de respuesta.
+        if usuario == username_key and secrets.compare_digest(clave, password):
+            return {"success": True, "role": rol, "name": etiqueta, "username": username_key}
+    return None
 
 @app.get("/api/data")
 def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):

@@ -336,7 +336,47 @@ ventana de rollback (reapuntar `api_service.js` a GAS).
 
 ---
 
-## 3. Decisiones que requieren tu input
+## 3. Decisiones
+
+**Estado: A, B, C y D acordadas. E sigue abierta y bloquea la Fase 1.**
+
+| # | Decisión | Acordado |
+|---|---|---|
+| A | Puente durante la transición | **Construir `SupabaseSync` primero** en `CODIGO.js` |
+| B | Archivos de Drive | **Supabase Storage para lo nuevo, Drive de solo lectura para lo histórico** |
+| C | Frontend | **Mantener `api_service.js`** como capa de compatibilidad |
+| D | `INVOLUCRADOS` | **Conservar el string**; `task_involucrados` queda derivada |
+| E | Acceso a la base | *pendiente* |
+
+Consecuencias sobre el plan:
+
+- **A** antepone una fase nueva (**Fase 0.5**) antes de la capa de datos: escribir
+  el módulo `SupabaseSync` en `CODIGO.js` con escritura doble Sheets → Supabase.
+  Es JavaScript sobre GAS, se prueba con los mocks de `tests/gas/` y no requiere
+  tocar el backend Python. A partir de su despliegue, Supabase deja de
+  desactualizarse y el resto de la migración pierde la presión de tiempo.
+- **B** convierte la Fase 6 en dos piezas: un servicio de subida contra Supabase
+  Storage para lo nuevo, y la conservación intacta de las URLs de Drive
+  existentes. No hay reescritura masiva de URLs. Conviene arreglar
+  `APP_CONFIG.folderIdUploads`, hoy vacío (`CODIGO.js:14`), para que lo que aún
+  vaya a Drive deje de caer en la raíz.
+- **C** confirma que no se toca `index.html`. El mapeo función-vieja →
+  endpoint-nuevo se documenta en `api_service.js`.
+- **D** mantiene el contrato de `INVOLUCRADOS` como string con comas en ambos
+  sentidos. El backend puede poblar `task_involucrados` como proyección para
+  consultas, pero la fuente de verdad sigue siendo la columna de texto. Evita
+  tocar el frontend.
+
+### E. Acceso a la base (pendiente)
+
+Para las Fases 0 y 1 hace falta o bien credenciales de Supabase en el entorno, o
+bien un `pg_dump --schema-only`. Sin eso el trabajo va a ciegas sobre un esquema
+que no se puede verificar, y dado que `migration/` no existe (§1.1), no hay otra
+fuente para el DDL.
+
+---
+
+## 3-bis. Decisiones tal como se plantearon (referencia)
 
 ### A. Puente durante la transición — la más urgente
 
@@ -386,20 +426,45 @@ backend nuevo pasa a N:M real (implica tocar el frontend, que hoy manda y
 espera un string con comas), o se conserva el string y `task_involucrados` queda
 como estructura derivada para consultas?
 
-### E. Acceso a la base
-
-Para las Fases 0 y 1 hace falta o bien credenciales de Supabase en el entorno, o
-bien un `pg_dump --schema-only` que puedas pegar. Sin eso trabajo a ciegas sobre
-un esquema que no puedo verificar.
-
 ---
 
-## 4. Acción inmediata sugerida
+## 4. Fase 0 — ejecutada
 
-Independiente de las decisiones anteriores, dos cosas que se pueden hacer hoy
-y reducen daño:
+Reducción de daño y suite reproducible. No depende de ninguna decisión abierta.
 
-1. **Que los stubs fallen en vez de mentir** (§1.9). Diez operaciones de
-   escritura reportan éxito sin guardar.
-2. **Quitar `MOCK_USER_DB`** de `api/main.py:309-313`: son credenciales
-   funcionales en un repo.
+| Cambio | Detalle |
+|---|---|
+| Escrituras que mentían | Los 10 stubs de `api_service.js` que devolvían `{success: true}` sin persistir ahora responden la envoltura de error (`_noPortado`). `uploadFileToDrive` ya no inventa una `fileUrl`. |
+| Lecturas no portadas | Siguen devolviendo vacío para no bloquear el render, pero marcadas con `_notImplemented` y aviso en consola (`_lecturaVacia`). |
+| Credenciales en el fuente | Eliminadas de **dos** sitios: el `MOCK_USER_DB` de `api/main.py` y la hoja `USERS` del `MockSpreadsheet` en `api/services/sheets.py`. |
+| Login de desarrollo | Sustituido por `DEV_LOGIN_USERS` (variable de entorno), con `secrets.compare_digest`. |
+| CORS | `allow_credentials` solo si hay `CORS_ORIGINS` explícitos; se acabó `*` con credenciales. |
+| Dependencias | `requirements.txt` con mínimos verificados y núcleo separado de opcionales; `requirements-dev.txt` nuevo. |
+| `.env.example` | Completo: `DATABASE_URL`, `MAKE_WEBHOOK_URL`, `GEMINI_API_KEY`, `CORS_ORIGINS`, `PORT`, `DEV_LOGIN_USERS`. |
+
+Sobre las credenciales: quitar solo el `MOCK_USER_DB` **no habría bastado**. Sin
+base de datos, la búsqueda de la hoja `USERS` caía al `MockSpreadsheet`, donde
+estaban las mismas contraseñas de producción. Se verificó que `admin2025` y
+`tonita2025` ya no autentican.
+
+Tests nuevos que impiden la regresión (`tests/test_api_contract.py`):
+`test_escrituras_no_portadas_no_fingen_exito` (10 casos),
+`test_upload_a_drive_no_inventa_una_url`,
+`test_no_hay_credenciales_hardcodeadas` (2 módulos),
+`test_cors_no_permite_credenciales_con_origen_comodin`.
+
+```
+python -m pytest tests/test_tracker_rules.py tests/test_api_contract.py  ->  113 passed
+node tests/gas/run_tests.js                                             ->  70 PASAN / 0 FALLAN
+```
+
+**Nota operativa:** estos cambios solo afectan al despliegue FastAPI. En el
+despliegue de Apps Script, `<script src="api_service.js">` no resuelve y
+`window.google.script.run` real permanece intacto, así que la operación diaria
+sobre GAS no se ve tocada.
+
+## 5. Siguiente paso
+
+Fase 0.5: construir `SupabaseSync` en `CODIGO.js` (decisión A). Bloqueado
+parcialmente por la decisión E: hace falta el esquema real para saber a qué
+columnas escribir.
