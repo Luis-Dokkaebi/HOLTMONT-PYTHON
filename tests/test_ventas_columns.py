@@ -213,3 +213,97 @@ def test_un_avance_de_cero_no_se_muestra_vacio(fake):
 def test_los_encabezados_no_se_duplican():
     nombres = [h for h, _ in sheets.QUOTE_HEADER_MAP]
     assert len(nombres) == len(set(nombres)), "Hay encabezados repetidos en QUOTE_HEADER_MAP"
+
+
+# ----------------------------------------------------------------------
+# 4. Completitud: no se puede perder ninguna columna
+# ----------------------------------------------------------------------
+# Los mapas escritos a mano se quedaban cortos (quotes exponía 23 de 37,
+# tasks 16 de 28) y un nombre mal escrito no lo detectaba nadie. El mapa se
+# completa ahora con las columnas que traigan los datos.
+
+COLUMNAS_QUOTES = [
+    "folio", "area", "cliente", "concepto", "clasificacion", "vendedor_id",
+    "vendedor_raw", "f_visita", "f_inicio", "f_entrega", "dias", "avance",
+    "estatus", "comentarios", "requisitor", "prioridad_cot", "info_cliente",
+    "f2", "cotizacion", "timeline", "layout", "proceso", "proceso_log",
+    "map_cot", "monto", "source_sheet", "extra", "created_at", "archivo",
+    "fecha", "comentario", "estatus_2", "fecha_envio", "dias_2",
+    "llamada_cliente", "reloj", "completada",
+]
+
+COLUMNAS_TASKS = [
+    "id", "folio", "dedupe_key", "folio_sintetico", "assignee_id",
+    "assignee_raw", "departamento", "fecha_alta", "hora_alta", "clasificacion",
+    "concepto", "avance", "fecha_estimada_fin", "hora_estimada_fin", "reloj",
+    "restricciones", "prioridad", "riesgos", "fecha_respuesta", "correo",
+    "carpeta", "cumplimiento", "comentarios", "comentarios_semana",
+    "comentarios_semana_previa", "status", "source_sheet", "created_at",
+]
+
+
+@pytest.mark.parametrize("columnas,mapa_base,tabla", [
+    (COLUMNAS_QUOTES, sheets.QUOTE_HEADER_MAP, "quotes"),
+    (COLUMNAS_TASKS, sheets.TASK_HEADER_MAP, "tasks"),
+])
+def test_se_exponen_todas_las_columnas_de_la_tabla(columnas, mapa_base, tabla):
+    fila = {c: None for c in columnas}
+    expuestas = {col for _, col in sheets.build_header_map([fila], mapa_base)}
+    faltan = sorted(set(columnas) - expuestas)
+    assert not faltan, f"Columnas de {tabla} que no llegan al frontend: {faltan}"
+
+
+def test_una_columna_nueva_en_postgres_aparece_sola():
+    """
+    El objetivo del cambio: añadir una columna al esquema no debe exigir tocar
+    el código para que se vea.
+    """
+    fila = {c: None for c in COLUMNAS_QUOTES}
+    fila["columna_inventada_manana"] = "VALOR"
+    mapa = sheets.build_header_map([fila], sheets.QUOTE_HEADER_MAP)
+    assert ("COLUMNA_INVENTADA_MANANA", "columna_inventada_manana") in mapa
+
+
+def test_las_columnas_curadas_conservan_su_orden_y_nombre():
+    """Las de trabajo van primero y con el nombre que espera el frontend."""
+    fila = {c: None for c in COLUMNAS_QUOTES}
+    mapa = sheets.build_header_map([fila], sheets.QUOTE_HEADER_MAP)
+    assert mapa[:len(sheets.QUOTE_HEADER_MAP)] == list(sheets.QUOTE_HEADER_MAP)
+
+
+def test_las_columnas_tecnicas_van_al_final():
+    fila = {c: None for c in COLUMNAS_QUOTES}
+    nombres = [h for h, _ in sheets.build_header_map([fila], sheets.QUOTE_HEADER_MAP)]
+    assert nombres.index("COMENTARIO") < nombres.index("CREATED_AT")
+    assert nombres.index("ESTATUS_2") < nombres.index("SOURCE_SHEET")
+
+
+def test_no_se_generan_encabezados_duplicados():
+    """Una columna ya cubierta por el mapa curado no se vuelve a añadir."""
+    fila = {c: None for c in COLUMNAS_QUOTES}
+    nombres = [h for h, _ in sheets.build_header_map([fila], sheets.QUOTE_HEADER_MAP)]
+    assert len(nombres) == len(set(nombres)), f"Encabezados repetidos: {nombres}"
+
+
+def test_se_descubren_columnas_aunque_la_primera_fila_las_traiga_nulas(fake):
+    """
+    Si solo se mirara la primera fila, una columna que llega vacía ahí
+    desaparecería para todas las demás.
+    """
+    fake(quotes=[
+        {"folio": "AV-1", "source_sheet": "ANTONIA_VENTAS"},
+        {"folio": "AV-2", "source_sheet": "ANTONIA_VENTAS", "estatus_2": "CERRADA"},
+    ])
+    valores = sheets.gs_manager.get_sheet_values("ANTONIA_VENTAS")
+    assert "ESTATUS_2" in encabezados(valores)
+    assert fila_como_dict(valores, 2)["ESTATUS_2"] == "CERRADA"
+
+
+def test_todas_las_filas_tienen_tantas_celdas_como_encabezados(fake):
+    fake(quotes=[
+        cotizacion(folio="AV-1"),
+        {"folio": "AV-2", "source_sheet": "ANTONIA_VENTAS", "columna_rara": "X"},
+    ])
+    valores = sheets.gs_manager.get_sheet_values("ANTONIA_VENTAS")
+    ancho = len(valores[0])
+    assert all(len(f) == ancho for f in valores[1:])

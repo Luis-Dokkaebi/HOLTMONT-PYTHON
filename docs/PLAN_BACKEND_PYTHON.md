@@ -587,23 +587,60 @@ hay coincidencia se consulta el nombre pedido tal cual, para no inventar hojas.
 
 Cubierto por `tests/test_ventas_columns.py` (23 casos, sin necesidad de base).
 
-### Por qué esto sigue sin ser la solución definitiva
+### Corrección de raíz: el mapa deja de mantenerse a mano
 
-Las correcciones anteriores hacen que la vista de ventas vuelva a ser usable,
-pero el adaptador sigue siendo el modelo equivocado: convierte una tabla
-relacional en una matriz de strings para que el motor de reglas la trate como
-hoja. Mientras eso siga así:
+Ampliar la lista curada resolvía el síntoma del día y garantizaba repetirlo: es
+exactamente lo que ya había pasado dos veces (`QUOTE_HEADER_MAP` se quedó corto,
+y `prio_cot` se escribió mal sin que nadie lo notara).
 
-- cada columna nueva hay que darla de alta a mano en el mapa, y equivocarse de
-  nombre (como pasó con `prio_cot`) no lo detecta nadie hasta que un usuario lo
-  reporta;
-- todo sale serializado a texto, así que la distinción entre el número `1` y el
-  string `"1"` —de la que depende la regla de `AVANCE`— se pierde igual;
-- 14 columnas de `quotes` siguen sin exponerse.
+`build_header_map()` construye ahora el mapa en dos tramos:
 
-Corresponde a la **Fase 1**: repositorios que devuelvan las 37 columnas con sus
+1. Las columnas **curadas** primero, con el nombre y el orden que el frontend
+   espera (`FOLIO`, `CLIENTE`, `F. VISITA`, …).
+2. Detrás, **todas** las columnas que traigan los datos y no estén ya cubiertas,
+   con su nombre en mayúsculas. Las técnicas (`source_sheet`, `created_at`,
+   `vendedor_id`, `id`, `dedupe_key`…) van al final para no estorbar.
+
+Las columnas se descubren recorriendo **todas** las filas, no solo la primera:
+una columna que llegue nula en el primer registro habría desaparecido para
+todos los demás.
+
+Cobertura resultante, verificada contra la base real:
+
+| Tabla | Antes | Ahora |
+|---|---|---|
+| `quotes` | 23 de 37 | **37 de 37** |
+| `tasks` | 16 de 28 | **28 de 28** |
+
+```
+ANTONIA_VENTAS               583 filas, 37 columnas
+SEBASTIAN PADILLA (VENTAS)    19 filas, 37 columnas
+EDUARDO MANZANARES (VENTAS)   19 filas, 37 columnas
+RAMIRO RODRIGUEZ (VENTAS)     17 filas, 37 columnas
+TERESA GARZA (VENTAS)         13 filas, 37 columnas
+JUAN JOSE SANCHEZ (VENTAS)     9 filas, 37 columnas
+tracker JAIME OLIVO           38 filas, 28 columnas
+```
+
+A partir de aquí, una columna nueva en Postgres aparece sola y un nombre mal
+escrito en el mapa curado se nota enseguida, porque la columna real sale
+igualmente con su nombre crudo.
+
+### Lo que sigue pendiente para la Fase 1
+
+Con esto la vista ya muestra todo, pero el adaptador continúa convirtiendo una
+tabla relacional en una matriz de strings. Eso implica que la distinción entre
+el número `1` y el string `"1"` —de la que depende la regla de `AVANCE`— se
+pierde igual al serializar.
+
+Corresponde a la **Fase 1**: repositorios que devuelvan las columnas con sus
 tipos y modelos Pydantic en la frontera. Se hace junto con la escritura, porque
 son el mismo cambio.
+
+Nota para cuando llegue: ahora se exponen también `id`, `dedupe_key` y
+`assignee_id`. Hoy es inocuo porque las escrituras no llegan a Supabase, pero al
+activar la escritura hay que tratarlas como **solo lectura** y no aceptarlas
+desde el cliente.
 
 Mientras tanto, lo que el usuario ve en ventas está incompleto pero **no
 corrupto**: es una lectura parcial, y las escrituras de esa vista no llegan a

@@ -167,13 +167,67 @@ def _celda(valor):
     return str(valor)
 
 
+# Columnas técnicas: se exponen igual (la vista debe mostrarlo todo), pero al
+# final, para que las columnas de trabajo sigan apareciendo primero.
+COLUMNAS_TECNICAS = ("source_sheet", "created_at", "vendedor_id", "assignee_id",
+                     "dedupe_key", "folio_sintetico", "id")
+
+
+def _nombre_visible(columna):
+    """`prioridad_cot` -> `PRIORIDAD_COT`. Predecible y reversible."""
+    return str(columna).upper()
+
+
+def build_header_map(rows, header_map):
+    """
+    Mapa de columnas completo: las curadas primero, y detrás **todas** las que
+    traiga la tabla y no estén ya cubiertas.
+
+    Los mapas escritos a mano se quedaban cortos y había que ampliarlos en cada
+    cambio de esquema: `quotes` exponía 23 de 37 columnas y `tasks` 16 de 28.
+    Peor, un nombre mal escrito (el caso real de `prio_cot`, que no existe) no
+    lo detectaba nadie hasta que un usuario reportaba la columna vacía.
+
+    Descubriendo las columnas desde los datos, una columna nueva en Postgres
+    aparece sola y una mal escrita en el mapa curado se nota enseguida, porque
+    la columna real sale igualmente con su nombre crudo.
+    """
+    mapa = list(header_map)
+    ya_mapeadas = {col for _, col in mapa}
+    nombres_usados = {h.upper() for h, _ in mapa}
+
+    presentes = []
+    vistas = set()
+    for fila in rows or []:
+        for col in fila.keys():
+            if col not in vistas:
+                vistas.add(col)
+                presentes.append(col)
+
+    def agregar(columnas):
+        for col in columnas:
+            if col in ya_mapeadas:
+                continue
+            visible = _nombre_visible(col)
+            if visible in nombres_usados:      # no duplicar encabezados
+                continue
+            nombres_usados.add(visible)
+            ya_mapeadas.add(col)
+            mapa.append((visible, col))
+
+    agregar([c for c in presentes if c not in COLUMNAS_TECNICAS])
+    agregar([c for c in presentes if c in COLUMNAS_TECNICAS])
+    return mapa
+
+
 def _rows_to_values(rows, header_map):
     if not rows:
         return None
-    headers = [h for h, _ in header_map]
+    mapa = build_header_map(rows, header_map)
+    headers = [h for h, _ in mapa]
     values = [headers]
     for row in rows:
-        values.append([_celda(row.get(col)) for _, col in header_map])
+        values.append([_celda(row.get(col)) for _, col in mapa])
     return values
 
 
