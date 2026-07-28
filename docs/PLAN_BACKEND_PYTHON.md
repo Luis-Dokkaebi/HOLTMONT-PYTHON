@@ -463,7 +463,108 @@ despliegue de Apps Script, `<script src="api_service.js">` no resuelve y
 `window.google.script.run` real permanece intacto, así que la operación diaria
 sobre GAS no se ve tocada.
 
-## 5. Siguiente paso
+## 5. Diagnóstico: por qué no se ven todas las columnas de ANTONIA_VENTAS
+
+Síntoma reportado, reproducido contra la base real. Solo afecta al despliegue
+FastAPI; en Apps Script la hoja se lee completa.
+
+```
+GET /api/data?sheet=ANTONIA_VENTAS
+  -> 583 filas, 14 encabezados
+     FOLIO, VENDEDOR, CLIENTE, AREA, CLASIFICACION, CONCEPTO, F_VISITA,
+     F_INICIO, F_ENTREGA, DIAS, AVANCE, ESTATUS, COMENTARIOS, MONTO
+```
+
+La tabla `quotes` tiene **37 columnas**. Se devuelven **14**. Son tres causas
+independientes, y las tres viven en `api/services/sheets.py`.
+
+### Causa 1 — `QUOTE_HEADER_MAP` solo proyecta 14 de 37 columnas
+
+`sheets.py:118-133` enumera a mano las columnas que se exponen. Las otras 23 no
+salen nunca, aunque tengan datos:
+
+| Columna omitida | Filas con datos |
+|---|---|
+| `cotizacion` | 227 / 661 |
+| `requisitor` | 222 / 661 |
+| `info_cliente` | 219 / 661 |
+| `timeline` | 106 / 661 |
+| `f2` | 98 / 661 |
+| `layout` | 69 / 661 |
+| `map_cot` | 34 / 661 |
+| `prioridad_cot` | 33 / 661 |
+| `comentario` | 28 / 661 |
+| `estatus_2` | 24 / 661 |
+| `proceso_log` | 21 / 661 |
+| `vendedor_id` | 564 / 661 |
+
+Seis de ellas son parte del contrato que el frontend espera para una hoja de
+ventas (`DEFAULT_SALES_HEADERS`, `CODIGO.js:92`): **`FECHA`, `ARCHIVO`, `F2`,
+`COTIZACION`, `TIMELINE`, `LAYOUT`**. `COTIZACION`, `TIMELINE`, `LAYOUT` y `F2`
+son precisamente las columnas de archivos de Drive, así que la vista de ventas
+se queda sin sus enlaces.
+
+### Causa 2 — el filtro por hoja distingue mayúsculas
+
+`sb_manager.select("quotes", {"source_sheet": sheet_name})` hace un `eq` exacto.
+Los nombres guardados en `source_sheet` no están normalizados:
+
+```
+ANTONIA_VENTAS                 583
+Sebastian Padilla (VENTAS)      19     <- capitalización mixta
+Eduardo Manzanares (VENTAS)     19
+Ramiro Rodriguez (VENTAS)       17
+TERESA GARZA (VENTAS)           13     <- mayúsculas
+Juan Jose Sanchez (VENTAS)       9
+Edgar Lopez (VENTAS)             1
+```
+
+`ANTONIA_VENTAS` coincide por casualidad. Los trackers de ventas individuales
+no: el frontend pide `SEBASTIAN PADILLA (VENTAS)` en mayúsculas y la base tiene
+`Sebastian Padilla (VENTAS)`.
+
+```
+GET /api/data?sheet=SEBASTIAN PADILLA (VENTAS)   -> 0 filas
+GET /api/data?sheet=Sebastian Padilla (VENTAS)   -> 19 filas
+```
+
+Es decir: **cinco de las siete hojas de ventas devuelven cero filas**, no solo
+columnas incompletas. Contradice la regla de encabezados tolerantes
+(`AGENTS.md` §4) y la de comparación insensible a mayúsculas.
+
+Peor: cuando el `select` no encuentra nada, `get_sheet_values` cae a la ruta
+legacy y consulta una tabla llamada literalmente `SEBASTIAN PADILLA (VENTAS)`,
+que no existe. El error se imprime en consola y la respuesta sale vacía con
+`success: true`.
+
+### Causa 3 — todo se convierte a texto
+
+`_rows_to_values` (`sheets.py:141`) hace `str(row.get(col, "") or "")` sobre cada
+celda. Efectos:
+
+- `monto = 0` y `avance = 0` se vuelven `""`, porque `0 or ""` es `""` en Python.
+  Un avance de 0 % se pierde y se muestra vacío.
+- Se borra la distinción numérico/texto de la que depende la regla de `AVANCE`
+  (§1.5): tras pasar por aquí, el número `1` y el string `"1"` son
+  indistinguibles.
+- Las fechas quedan como texto sin formato definido.
+
+### Por qué no se arregla ampliando el mapa
+
+Añadir las 23 columnas que faltan taparía el síntoma visible, pero el adaptador
+seguiría siendo el modelo equivocado: convierte una tabla relacional en una
+matriz de strings para que el motor de reglas la trate como hoja. La causa 3 no
+se puede arreglar sin dejar de serializar a texto.
+
+Corresponde a la **Fase 1**: repositorios que devuelvan las 37 columnas con sus
+tipos, filtro de hoja insensible a mayúsculas y espacios, y modelos Pydantic en
+la frontera. Se hace junto con la escritura, porque son el mismo cambio.
+
+Mientras tanto, lo que el usuario ve en ventas está incompleto pero **no
+corrupto**: es una lectura parcial, y las escrituras de esa vista no llegan a
+persistir en Supabase de todos modos (§1.8).
+
+## 6. Siguiente paso
 
 Fase 0.5: construir `SupabaseSync` en `CODIGO.js` (decisión A). Bloqueado
 parcialmente por la decisión E: hace falta el esquema real para saber a qué
