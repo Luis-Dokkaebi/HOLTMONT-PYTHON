@@ -592,6 +592,258 @@ run('7.2', 'apiSaveTrackerBatch devuelve res.data para fusionar en el frontend (
 });
 
 // ======================================================================
+// 8. SUPABASE SYNC (escritura doble Sheets -> Postgres)
+// ======================================================================
+section('8. Supabase Sync (escritura doble)');
+
+/** Entorno con SupabaseSync configurado y las peticiones capturadas. */
+function envSupabase(sheets, opciones) {
+  const cfg = opciones || {};
+  const peticiones = [];
+  const env = createEnv(sheets, {
+    fetchHandler: (url, params) => {
+      peticiones.push({ url, params });
+      if (cfg.lanzar) throw new Error('red caída');
+      if (url.indexOf('/people?') >= 0) {
+        return { code: 200, text: JSON.stringify(cfg.people || []) };
+      }
+      return { code: cfg.code === undefined ? 201 : cfg.code, text: '' };
+    }
+  });
+  if (!cfg.sinConfigurar) {
+    env.scriptProps.set('SUPABASE_URL', 'https://proyecto.supabase.co');
+    env.scriptProps.set('SUPABASE_KEY', 'clave-de-prueba');
+  }
+  env.peticiones = peticiones;
+  return env;
+}
+
+/** Peticiones dirigidas a una tabla concreta (ignora el lookup de people). */
+function peticionesA(env, tabla) {
+  return env.peticiones.filter(p => p.url.indexOf('/rest/v1/' + tabla) >= 0);
+}
+
+run('8.1', 'computeDedupeKey: paridad con los 4,626 registros migrados', () => {
+  const env = envSupabase({});
+  const S = env.api.SupabaseSync;
+  const casos = [
+    // [folio, hoja, esperado, por qué]
+    ['PPC-301831732', 'ADMINISTRADOR', 'PPC-301831732', 'secuencia global'],
+    ['AV-0042', 'ANTONIA_VENTAS', 'AV-0042', 'secuencia global de ventas'],
+    ['TG-0003', 'TERESA GARZA', 'TG-0003', 'secuencia global'],
+    ['1772639658256', 'ADMINISTRADOR', '1772639658256', 'id tipo timestamp'],
+    ['1772639658256.0', 'ADMINISTRADOR', '1772639658256.0', 'timestamp con .0 de Sheets'],
+    // Los folios con iniciales de persona NO son globales.
+    ['JO-0009', 'JAIME OLIVO', 'JAIME OLIVO::JO-0009', 'inicial de persona -> local'],
+    ['SP-0007', 'ADMINISTRADOR', 'ADMINISTRADOR::SP-0007', 'inicial de persona -> local'],
+    ['JO-513177087', 'ADMINISTRADOR', 'ADMINISTRADOR::JO-513177087', 'inicial + digitos -> local'],
+    ['1308.0', 'ADMINISTRADOR', 'ADMINISTRADOR::1308.0', 'numerico corto -> local'],
+    ['ADMINISTRADOR::ROW1604', 'ADMINISTRADOR', 'ADMINISTRADOR::ROW1604', 'folio sintetico intacto'],
+    // Hoja real con espacio inicial: la clave migrada lo conserva. Recortarlo
+    // generaria una clave distinta y el upsert duplicaria la fila.
+    ['LM-1940', ' LILIANA AYLIN MARTINEZ IBARRA', ' LILIANA AYLIN MARTINEZ IBARRA::LM-1940', 'espacio inicial preservado']
+  ];
+  const fallos = casos.filter(c => S.computeDedupeKey(c[0], c[1]) !== c[2])
+                      .map(c => `${c[0]}@${c[1]} -> ${S.computeDedupeKey(c[0], c[1])} (esperado ${c[2]})`);
+  check('8.1', 'Clave de identidad de fila para los 10 casos reales', '0 fallos',
+    fallos.length ? fallos.join(' | ') : '0 fallos', fallos.length === 0,
+    'JO-0009 vive en 10 trackers: cada copia necesita su propia clave');
+});
+
+run('8.2', 'El mismo folio difundido a varias hojas produce claves distintas', () => {
+  const env = envSupabase({});
+  const S = env.api.SupabaseSync;
+  const hojas = ['JAIME OLIVO', 'TERESA GARZA', 'RAMIRO RODRIGUEZ'];
+  const claves = hojas.map(h => S.computeDedupeKey('JO-0009', h));
+  const unicas = new Set(claves).size === claves.length;
+  check('8.2', 'Papa Caliente: JO-0009 no se colapsa en una sola fila', '3 claves distintas',
+    `${new Set(claves).size} distintas`, unicas);
+});
+
+run('8.3', 'normalizeAvance respeta AGENTS.md §4', () => {
+  const env = envSupabase({});
+  const S = env.api.SupabaseSync;
+  const casos = [
+    [1, 100, 'numero 1 = celda con formato % = 100%'],
+    ['1', 1, 'string "1" lo tecleo una persona = 1%'],
+    ['1.0', 1, 'string "1.0" tambien es 1%'],
+    [0.5, 50, 'numero 0.5 = 50%'],
+    [100, 100, 'ya en escala 0-100'],
+    ['100%', 100, 'texto con %'],
+    ['0%', 0, 'cero textual'],
+    [0, 0, 'cero numerico'],
+    ['', null, 'vacio -> null'],
+    ['N/A', null, 'no numerico -> null']
+  ];
+  const fallos = casos.filter(c => S.normalizeAvance(c[0]) !== c[1])
+                      .map(c => `${JSON.stringify(c[0])} -> ${S.normalizeAvance(c[0])} (esperado ${c[1]}) [${c[2]}]`);
+  check('8.3', 'AVANCE normalizado a escala 0-100 sin confundir 1 con "1"', '0 fallos',
+    fallos.length ? fallos.join(' | ') : '0 fallos', fallos.length === 0,
+    'Colapsar ambos casos archivaria como terminadas las tareas al 1%');
+});
+
+run('8.4', 'Sin credenciales configuradas no se envía nada', () => {
+  const env = envSupabase({}, { sinConfigurar: true });
+  const res = env.api.SupabaseSync.mirrorBatch('JAIME OLIVO', [{ FOLIO: 'JO-1', CONCEPTO: 'X' }]);
+  const silencioso = env.peticiones.length === 0 && res.skipped === true;
+  check('8.4', 'El espejo queda inerte mientras no se configure', 'cero peticiones',
+    `${env.peticiones.length} peticiones, skipped=${res.skipped}`, silencioso);
+});
+
+run('8.5', 'Un tracker se replica en `tasks` con upsert por dedupe_key', () => {
+  const env = envSupabase({});
+  env.api.SupabaseSync.mirrorBatch('JAIME OLIVO', [
+    { FOLIO: 'JO-0009', CONCEPTO: 'REVISAR PLANOS', AVANCE: 1, ESTATUS: 'HECHO', RESPONSABLE: 'JAIME OLIVO' }
+  ]);
+  const envios = peticionesA(env, 'tasks');
+  const url = envios.length ? envios[0].url : '';
+  const cuerpo = envios.length ? JSON.parse(envios[0].params.payload)[0] : {};
+  const ok = envios.length === 1 &&
+             url.indexOf('on_conflict=dedupe_key') >= 0 &&
+             String(envios[0].params.headers.Prefer).indexOf('merge-duplicates') >= 0 &&
+             cuerpo.dedupe_key === 'JAIME OLIVO::JO-0009' &&
+             cuerpo.avance === 100 &&
+             cuerpo.source_sheet === 'JAIME OLIVO';
+  check('8.5', 'Upsert a tasks con la clave y el AVANCE correctos', 'on_conflict=dedupe_key, avance=100',
+    `envios=${envios.length}, key=${cuerpo.dedupe_key}, avance=${cuerpo.avance}`, ok);
+});
+
+run('8.6', 'Una hoja de ventas se replica en `quotes`, no en `tasks`', () => {
+  const env = envSupabase({});
+  env.api.SupabaseSync.mirrorBatch('ANTONIA_VENTAS', [
+    { FOLIO: 'AV-0042', CLIENTE: 'ACME', CONCEPTO: 'NAVE', VENDEDOR: 'ANTONIA PINEDA LOPEZ', MONTO: '$1,500.50' }
+  ]);
+  const aQuotes = peticionesA(env, 'quotes');
+  const aTasks = peticionesA(env, 'tasks');
+  const cuerpo = aQuotes.length ? JSON.parse(aQuotes[0].params.payload)[0] : {};
+  const ok = aQuotes.length === 1 && aTasks.length === 0 &&
+             aQuotes[0].url.indexOf('on_conflict=folio') >= 0 &&
+             cuerpo.folio === 'AV-0042' && cuerpo.monto === 1500.5;
+  check('8.6', 'Ruteo por tipo de hoja y monto limpiado', 'quotes, folio, monto=1500.5',
+    `quotes=${aQuotes.length}, tasks=${aTasks.length}, monto=${cuerpo.monto}`, ok);
+});
+
+run('8.7', 'INVOLUCRADOS compuesto no ensucia `people` (AGENTS.md §3)', () => {
+  const env = envSupabase({}, {
+    people: [
+      { id: 'uuid-ramiro', nombre: 'RAMIRO RODRIGUEZ' },
+      { id: 'uuid-alfonso', nombre: 'ALFONSO CORREA' }
+    ]
+  });
+  env.api.SupabaseSync.mirrorBatch('RAMIRO RODRIGUEZ', [
+    { FOLIO: 'RR-1', CONCEPTO: 'X', INVOLUCRADOS: 'RAMIRO RODRIGUEZ, ALFONSO CORREA, TERESA GARZA' }
+  ]);
+  const cuerpo = JSON.parse(peticionesA(env, 'tasks')[0].params.payload)[0];
+  const ok = cuerpo.assignee_id === 'uuid-ramiro' &&
+             cuerpo.assignee_raw === 'RAMIRO RODRIGUEZ, ALFONSO CORREA, TERESA GARZA';
+  check('8.7', 'Se resuelve la primera persona y se conserva el texto completo', 'uuid-ramiro',
+    `assignee_id=${cuerpo.assignee_id}`, ok,
+    'Nunca guardar el string compuesto como si fuera una persona');
+});
+
+run('8.8', 'Si Supabase falla, el guardado en Sheets NO se rompe', () => {
+  const env = envSupabase({ 'JAIME OLIVO': tracker([]), 'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']] },
+                          { lanzar: true });
+  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [{ CONCEPTO: 'TAREA CRITICA', FECHA: '08/07/26', _tempId: 't9' }], 'JAIME_OLIVO');
+  const enLaHoja = countRowsContaining(env, 'JAIME OLIVO', 'TAREA CRITICA');
+  const ok = res && res.success === true && enLaHoja === 1;
+  check('8.8', 'Con la red caída la tarea se guarda igual', 'success=true y 1 fila en la hoja',
+    `success=${res && res.success}, filas=${enLaHoja}`, ok,
+    'INVARIANTE: mejor perder una réplica que una tarea');
+});
+
+run('8.9', 'registrarLog se replica en `system_log`', () => {
+  const env = envSupabase({ 'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']] });
+  env.api.registrarLog('LUIS_CARLOS', 'LOGIN', 'Acceso exitoso');
+  const envios = peticionesA(env, 'system_log');
+  const cuerpo = envios.length ? JSON.parse(envios[0].params.payload)[0] : {};
+  const ok = envios.length === 1 && cuerpo.usuario === 'LUIS_CARLOS' && cuerpo.accion === 'LOGIN' &&
+             /^\d{4}-\d{2}-\d{2}T/.test(String(cuerpo.fecha_hora));
+  check('8.9', 'Auditoría espejada con fecha ISO', '1 envío con usuario y accion',
+    `envios=${envios.length}, usuario=${cuerpo.usuario}, fecha=${cuerpo.fecha_hora}`, ok);
+});
+
+run('8.11', 'normalizeStatus colapsa las 45 variantes reales', () => {
+  const S = envSupabase({}).api.SupabaseSync;
+  const casos = [
+    // Las 19 formas de escribir ASIGNADO que había en la base.
+    ['ASIGNADO', 'ASIGNADO'], ['Asignado', 'ASIGNADO'], ['asignado', 'ASIGNADO'],
+    ['ASIGNADA', 'ASIGNADO'], ['asignada', 'ASIGNADO'], ['ASIGANDO', 'ASIGNADO'],
+    ['ASIGANDA', 'ASIGNADO'], ['ASIGADO', 'ASIGNADO'], ['ASIGANDOA', 'ASIGNADO'],
+    ['ASIGANADO', 'ASIGNADO'], ['ASIGANADA', 'ASIGNADO'], ['ASIGANDa', 'ASIGNADO'],
+    ['asigando', 'ASIGNADO'], ['asigado', 'ASIGNADO'], ['asiganda', 'ASIGNADO'],
+    ['asigndo', 'ASIGNADO'], ['aSIGNADO', 'ASIGNADO'], ['asignadO', 'ASIGNADO'],
+    ['asignADO', 'ASIGNADO'],
+    ['PEDIENTE', 'PENDIENTE'], ['Pendiente', 'PENDIENTE'],
+    ['Falta Información', 'FALTA INFORMACION'],
+    ['En Revisión', 'EN REVISION'],
+    ['Cancelada x Planta', 'CANCELADA'],
+    ['Perdida x Tiempo', 'PERDIDA POR TIEMPO'],
+    ['perdida por tiempo', 'PERDIDA POR TIEMPO'],
+    ['BIERTO', 'ABIERTO'], ['abierto', 'ABIERTO'],
+    ['en proceso', 'EN PROCESO'],
+    ['Pendiente Visita', 'PENDIENTE VISITA'],
+    // Marcadores de vacío.
+    ['-', ''], ['-\n-', ''], ['', ''], [null, ''], ['   ', '']
+  ];
+  const fallos = casos.filter(c => S.normalizeStatus(c[0]) !== c[1])
+                      .map(c => `${JSON.stringify(c[0])} -> ${JSON.stringify(S.normalizeStatus(c[0]))} (esperado ${c[1]})`);
+  check('8.11', 'Estatus canónico en la escritura', '0 fallos',
+    fallos.length ? fallos.slice(0, 4).join(' | ') : '0 fallos', fallos.length === 0,
+    'Sin esto la columna vuelve a acumular variantes en cada captura');
+});
+
+run('8.12', 'Un estatus desconocido se conserva, no se descarta', () => {
+  const S = envSupabase({}).api.SupabaseSync;
+  const nuevo = S.normalizeStatus('EN LICITACION');
+  const basura = S.normalizeStatus('RAM');
+  const ok = nuevo === 'EN LICITACION' && basura === 'RAM';
+  check('8.12', 'Un valor no reconocido pasa tal cual', 'se conserva',
+    `'EN LICITACION'->${JSON.stringify(nuevo)}, 'RAM'->${JSON.stringify(basura)}`, ok,
+    'Si el equipo empieza a usar un estatus nuevo, tirarlo perderia el dato');
+});
+
+run('8.13', 'Normalizar no altera el auto-archivado', () => {
+  const env = envSupabase({});
+  const S = env.api.SupabaseSync;
+  const isTerminal = env.api.isTerminalStatus;
+  const valores = ['ASIGNADO', 'Asignado', 'ASIGNADA', 'PEDIENTE', 'Perdida x Tiempo',
+                   'perdida por tiempo', 'Cancelada x Planta', 'SUSPENDIDA',
+                   'HECHO', 'TERMINADO', 'GANADA', 'PERDIDA', '-', ''];
+  const fallos = valores.filter(v => isTerminal(v) !== isTerminal(S.normalizeStatus(v)))
+                        .map(v => `${JSON.stringify(v)}: ${isTerminal(v)} -> ${isTerminal(S.normalizeStatus(v))}`);
+  check('8.13', 'El estado terminal se conserva tras normalizar', '0 cambios',
+    fallos.length ? fallos.join(' | ') : '0 cambios', fallos.length === 0,
+    'Un alias mal mapeado archivaria o desarchivaria tareas');
+});
+
+run('8.14', 'El estatus se normaliza al escribir en la base', () => {
+  const env = envSupabase({});
+  env.api.SupabaseSync.mirrorBatch('JAIME OLIVO', [
+    { FOLIO: 'JO-1', CONCEPTO: 'X', ESTATUS: 'ASIGANDA' }
+  ]);
+  const cuerpo = JSON.parse(peticionesA(env, 'tasks')[0].params.payload)[0];
+  check('8.14', 'La errata ASIGANDA llega como ASIGNADO', 'ASIGNADO',
+    JSON.stringify(cuerpo.status), cuerpo.status === 'ASIGNADO');
+});
+
+run('8.15', 'tasks.status nunca se envía nulo (la columna es NOT NULL)', () => {
+  const env = envSupabase({});
+  env.api.SupabaseSync.mirrorBatch('JAIME OLIVO', [{ FOLIO: 'JO-2', CONCEPTO: 'SIN ESTATUS' }]);
+  const cuerpo = JSON.parse(peticionesA(env, 'tasks')[0].params.payload)[0];
+  const ok = cuerpo.status === '';
+  check('8.15', 'Sin estatus se envía cadena vacía, no null', '""',
+    JSON.stringify(cuerpo.status), ok,
+    'tasks.status tiene NOT NULL: un null aborta el upsert entero');
+});
+
+run('8.10', 'Las credenciales no están en el fuente', () => {
+  const hardcodeada = /SUPABASE_(URL|KEY)\s*[:=]\s*["']http|sb_secret_|eyJhbGciOi/.test(CODIGO_SRC);
+  check('8.10', 'SUPABASE_URL/KEY solo por Propiedades del Script', 'sin credenciales en CODIGO.js',
+    hardcodeada ? 'HAY credenciales en el fuente' : 'sin credenciales', !hardcodeada);
+});
+
+// ======================================================================
 // REPORTE
 // ======================================================================
 const total = results.length;

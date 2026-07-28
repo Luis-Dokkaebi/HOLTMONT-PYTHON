@@ -18,3 +18,8 @@ tests/.cdn_cache/
 
 # Notas de Prework Order generadas en runtime (y por las pruebas)
 Notas/Prework_Orders/
+
+# Respaldos que deja scripts/normalizar_estatus.py antes de escribir.
+# Son datos de produccion (folios y estatus reales): se quedan en la maquina
+# que ejecuta la migracion, no en el repositorio.
+scripts/respaldos/

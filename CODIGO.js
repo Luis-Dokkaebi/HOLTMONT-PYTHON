@@ -234,6 +234,11 @@ function registrarLog(user, action, details) {
     }
     sheet.appendRow([new Date(), user, action, details]);
   } catch (e) { console.error(e); }
+
+  // Espejo en Supabase.system_log. Aparte del try/catch anterior a propósito:
+  // un fallo de red no debe impedir que el log quede en la hoja, ni al revés.
+  try { SupabaseSync.mirrorLog(user, action, details); }
+  catch (e) { console.warn("Espejo de log fallido: " + e.toString()); }
 }
 
 /* LOGIN */
@@ -1233,6 +1238,12 @@ function internalBatchUpdateTasks(sheetName, tasksArray, useOwnLock = true, opti
     }
     
     SpreadsheetApp.flush();
+
+    // 5-bis. ESPEJO EN SUPABASE (nunca bloquea el guardado)
+    // Va después del flush: Sheets ya es la fuente de verdad y esto solo
+    // replica. Si Supabase falla, se registra y la operación continúa.
+    try { SupabaseSync.mirrorBatch(sheetName, tasksArray); }
+    catch (e) { console.warn("Espejo Supabase fallido: " + e.toString()); }
 
     // 6. NOTIFICACIÓN MAKE.COM -> OUTLOOK (nunca bloquea el guardado)
     if (notifyQueue.length > 0) {
@@ -3910,6 +3921,469 @@ function internalReverseSyncToAntonia(sourceSheetName, tasks, username, useOwnLo
   });
   return results;
 }
+
+// ----------------------------------------------------------------------
+// D-bis. SUPABASE SYNC (ESCRITURA DOBLE SHEETS -> POSTGRES)
+// ----------------------------------------------------------------------
+/**
+ * Replica en Supabase cada escritura que la app hace en Sheets.
+ *
+ * Es el puente de la migración: mientras exista, Sheets sigue siendo la fuente
+ * de verdad y Supabase deja de ser una copia estática que se desactualiza.
+ * Ver docs/PLAN_BACKEND_PYTHON.md (Fase 0.5).
+ *
+ * INVARIANTE: este módulo NUNCA puede romper un guardado. Todo va envuelto en
+ * try/catch y `muteHttpExceptions`; si Supabase está caído, lento o mal
+ * configurado, la escritura en Sheets ya ocurrió y la operación continúa. Se
+ * comporta igual que NotifierService: mejor perder una réplica que una tarea.
+ *
+ * Configuración por Propiedades del Script (nunca en el fuente):
+ *   SUPABASE_URL           https://<proyecto>.supabase.co
+ *   SUPABASE_KEY           clave de servicio (service_role)
+ *   SUPABASE_SYNC_ENABLED  "false" para desactivar sin borrar credenciales
+ */
+const SUPABASE_CONFIG = {
+  urlProperty: "SUPABASE_URL",
+  keyProperty: "SUPABASE_KEY",
+  enabledProperty: "SUPABASE_SYNC_ENABLED",
+  timeoutMs: 15000,
+
+  // Folios con secuencia global: son únicos en todo el sistema.
+  globalFolioPrefixes: ["PPC-", "AV-", "TG-", "WO-", "SITE-", "PROJ-"],
+
+  // IDs tipo timestamp. El sufijo ".0" opcional es real: Google Sheets entrega
+  // los folios numéricos como número y al serializarlos aparece "1772639658256.0".
+  timestampFolioRegex: /^\d{10,}(?:\.0+)?$/
+};
+
+// --- ESTATUS CANÓNICOS (espejo de api/services/tracker_rules.py) ---
+// Los alias van escritos uno a uno a propósito: una coincidencia difusa
+// adivinaría, y aquí un error cambia si una tarea se archiva o no.
+// Cada alias apunta a un canónico de SU MISMA familia, de modo que
+// isTerminalStatus() da el mismo resultado antes y después de normalizar.
+const CANONICAL_STATUSES = {
+  "ASIGNADO": ["ASIGNADA", "ASIGANDO", "ASIGANDA", "ASIGADO", "ASIGANDOA",
+               "ASIGANADO", "ASIGANADA", "ASIGNDO", "ASIGNADOO", "ASIGNAD",
+               "ASIGNSDO", "ASIGNBADO", "ASIGNADP"],
+  "PENDIENTE": ["PEDIENTE", "PENDIENT", "PENDINTE", "PEDIENTES", "PENDIENTES"],
+  "PENDIENTE VISITA": ["PENDIENTE DE VISITA", "PDTE VISITA", "PENDIENTE VISTA"],
+  "PENDIENTE INFORMACION": ["PENDIENTE INFORMACION POR PLANTA",
+                            "PENDIENTE DE INFORMACION", "PENDIENTE INFO"],
+  "FALTA INFORMACION": ["FALTA INFO", "FALTA DE INFORMACION"],
+  "EN REVISION": ["REVISION", "EN REVISON", "EN REVICION"],
+  "EN PROCESO": ["PROCESO", "EN PROSESO"],
+  "ENVIADA": ["ENVIADO", "ENVIDA"],
+  "ABIERTO": ["ABIERTA", "BIERTO", "BIERTA"],
+  "SUSPENDIDA": ["SUSPENDIDO", "SUSPENDIA"],
+  "PERDIDA POR TIEMPO": ["PERDIDA X TIEMPO", "PERDIDA TIEMPO",
+                         "PERDIDO POR TIEMPO", "PERDIDO X TIEMPO"],
+  "CANCELADA": ["CANCELADO", "CANCELADA X PLANTA", "CANCELADA POR PLANTA",
+                "CANCELADA X CLIENTE", "CANCELADA POR CLIENTE"],
+  // Terminales: se conservan tal cual para no alterar el auto-archivado.
+  "HECHO": [], "TERMINADO": [], "FINALIZADO": [], "REALIZADO": [],
+  "COMPLETADO": [], "DONE": [], "CERRADO": [],
+  "GANADA": ["GANADO"], "PERDIDA": ["PERDIDO"]
+};
+
+const STATUS_PLACEHOLDERS = ["", "-", "--", "---", "N/A", "NA", "NULL",
+                             "NINGUNO", ".", "..", "...", "#N/A",
+                             "ESTATUS", "STATUS"];
+
+const STATUS_LOOKUP = (function () {
+  const mapa = {};
+  const clave = function (s) {
+    let t = String(s);
+    if (t.normalize) t = t.normalize("NFD").replace(/[̀-ͯ]/g, "");
+    return t.replace(/[.,;:_/\\-]+/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+  };
+  Object.keys(CANONICAL_STATUSES).forEach(function (canon) {
+    mapa[clave(canon)] = canon;
+    CANONICAL_STATUSES[canon].forEach(function (a) { mapa[clave(a)] = canon; });
+  });
+  return mapa;
+})();
+
+const SupabaseSync = {
+
+  // --- Configuración -------------------------------------------------
+
+  _props: function () {
+    try { return PropertiesService.getScriptProperties(); } catch (e) { return null; }
+  },
+
+  getConfig: function () {
+    const props = this._props();
+    if (!props) return null;
+    const url = String(props.getProperty(SUPABASE_CONFIG.urlProperty) || "").trim().replace(/\/+$/, "");
+    const key = String(props.getProperty(SUPABASE_CONFIG.keyProperty) || "").trim();
+    if (!url || !key) return null;
+    const enabled = String(props.getProperty(SUPABASE_CONFIG.enabledProperty) || "true").trim().toLowerCase();
+    if (enabled === "false" || enabled === "0" || enabled === "no") return null;
+    return { url: url, key: key };
+  },
+
+  isEnabled: function () { return this.getConfig() !== null; },
+
+  // --- Reglas de negocio ---------------------------------------------
+
+  /**
+   * Clave de identidad de fila en `tasks`. Verificada con paridad exacta
+   * contra los 4,626 registros ya migrados.
+   *
+   * Orden de evaluación (importa):
+   *   1. El folio ya trae "::"  -> es sintético ("HOJA::ROW123"), se usa tal cual.
+   *   2. Prefijo de secuencia global (PPC-, AV-, TG-, ...) -> único global.
+   *   3. ID tipo timestamp (10+ dígitos) -> único global.
+   *   4. Cualquier otro -> "<hoja>::<folio>", único solo dentro de su hoja.
+   *
+   * OJO: los folios con iniciales de persona (JO-0009, SP-0007, GM-0123) caen
+   * en el caso 4, NO en el 2. Un mismo JO-0009 vive en 10 trackers distintos
+   * (difusión "papa caliente") y cada copia necesita su propia clave.
+   */
+  computeDedupeKey: function (folio, sheetName) {
+    const f = String(folio === null || folio === undefined ? "" : folio).trim();
+    if (!f) return null;
+    if (f.indexOf("::") >= 0) return f;
+    const up = f.toUpperCase();
+    for (let i = 0; i < SUPABASE_CONFIG.globalFolioPrefixes.length; i++) {
+      if (up.indexOf(SUPABASE_CONFIG.globalFolioPrefixes[i]) === 0) return f;
+    }
+    if (SUPABASE_CONFIG.timestampFolioRegex.test(f)) return f;
+    // OJO: el nombre de la hoja va SIN trim, a propósito. Varias hojas reales
+    // tienen un espacio inicial (" LILIANA AYLIN MARTINEZ IBARRA") y la
+    // migración lo conservó dentro de la clave. Normalizarlo aquí generaría
+    // una clave distinta a la ya almacenada y el upsert insertaría un
+    // duplicado en vez de actualizar la fila existente.
+    return String(sheetName === null || sheetName === undefined ? "" : sheetName) + "::" + f;
+  },
+
+  /**
+   * AVANCE a escala 0-100 (AGENTS.md §4).
+   *
+   * El número nativo 1 viene de una celda con formato porcentual y significa
+   * 100 %. El string "1" lo tecleó una persona y significa 1 %. Colapsar
+   * ambos casos archivaría como terminadas las tareas al 1 %.
+   */
+  normalizeAvance: function (value) {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "boolean") return null;
+    if (value instanceof Date) return null;
+
+    if (typeof value === "number") {
+      if (!isFinite(value)) return null;
+      // Celda con formato porcentual: 1 = 100 %, 0.5 = 50 %.
+      const n = (value > 0 && value <= 1) ? value * 100 : value;
+      return Math.round(n * 100) / 100;
+    }
+
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const num = parseFloat(raw.replace("%", "").replace(",", ".").trim());
+    if (isNaN(num)) return null;
+    // Texto: se toma tal cual, ya está en escala 0-100.
+    return Math.round(num * 100) / 100;
+  },
+
+  /**
+   * Estatus canónico para escribir en la base.
+   *
+   * La columna venía de captura libre y acumuló 45 valores distintos en
+   * `tasks` para lo que son ~11 estatus: mayúsculas, acentos, género
+   * (ASIGNADO/ASIGNADA) y erratas (ASIGANDO, PEDIENTE, BIERTO). Se limpió una
+   * vez con scripts/normalizar_estatus.py; esto evita que se vuelva a ensuciar.
+   *
+   * Un valor no reconocido se conserva tal cual (solo recortado). Descartarlo
+   * sería peor: si mañana el equipo empieza a usar un estatus nuevo, tirarlo
+   * en silencio perdería el dato. Aparecerá en la próxima revisión.
+   */
+  normalizeStatus: function (value) {
+    if (value === null || value === undefined) return "";
+    var crudo = String(value).replace(/[\n\r]+/g, " ").trim();
+    if (!crudo) return "";
+
+    // Clave: mayúsculas, sin acentos, sin puntuación de relleno.
+    var clave = crudo.normalize ? crudo.normalize("NFD").replace(/[̀-ͯ]/g, "") : crudo;
+    clave = clave.replace(/[.,;:_/\\-]+/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+
+    if (!clave || STATUS_PLACEHOLDERS.indexOf(clave) >= 0) return "";
+    if (STATUS_LOOKUP[clave]) return STATUS_LOOKUP[clave];
+
+    // Familias con sufijo libre ("PERDIDA X TIEMPO DEL CLIENTE").
+    if ((clave.indexOf("PERDIDA ") === 0 || clave.indexOf("PERDIDO ") === 0) &&
+        clave.indexOf("TIEMPO") >= 0) return "PERDIDA POR TIEMPO";
+    if (clave.indexOf("CANCELAD") === 0) return "CANCELADA";
+    if (clave.indexOf("SUSPENDID") === 0) return "SUSPENDIDA";
+
+    return crudo;   // desconocido: se conserva
+  },
+
+  /** Fecha -> "YYYY-MM-DD" (columnas `date`). Devuelve null si no es fecha. */
+  toIsoDate: function (value) {
+    if (value === null || value === undefined || value === "") return null;
+    let d = null;
+    if (value instanceof Date) {
+      d = value;
+    } else {
+      const raw = String(value).trim();
+      if (!raw) return null;
+      // dd/MM/yy y dd/MM/yyyy, el formato que teclea el equipo.
+      const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (m) {
+        let anio = parseInt(m[3], 10);
+        if (anio < 100) anio += 2000;
+        d = new Date(anio, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+      } else {
+        const parsed = new Date(raw);
+        if (!isNaN(parsed.getTime())) d = parsed;
+      }
+    }
+    if (!d || isNaN(d.getTime())) return null;
+    const mes = ("0" + (d.getMonth() + 1)).slice(-2);
+    const dia = ("0" + d.getDate()).slice(-2);
+    return d.getFullYear() + "-" + mes + "-" + dia;
+  },
+
+  /**
+   * Nombre de hoja tal cual, sin recortar. Los datos ya migrados conservan
+   * los espacios del nombre real (hay hojas con espacio inicial), así que
+   * normalizarlo aquí reescribiría `source_sheet` en cada upsert.
+   */
+  _sheetTag: function (sheetName) {
+    if (sheetName === null || sheetName === undefined) return null;
+    const s = String(sheetName);
+    return s === "" ? null : s;
+  },
+
+  /** Texto plano, o null si viene vacío (evita ensuciar con cadenas ""). */
+  _texto: function (value) {
+    if (value === null || value === undefined) return null;
+    if (value instanceof Date) return this.toIsoDate(value);
+    const s = String(value).trim();
+    return s ? s : null;
+  },
+
+  // --- Transporte -----------------------------------------------------
+
+  /**
+   * Llamada a PostgREST. Nunca lanza: devuelve {success, code, body}.
+   */
+  _request: function (metodo, ruta, payload, preferencias) {
+    const cfg = this.getConfig();
+    if (!cfg) return { success: false, message: "Supabase no configurado" };
+    try {
+      const opciones = {
+        method: metodo,
+        contentType: "application/json",
+        muteHttpExceptions: true,
+        headers: {
+          apikey: cfg.key,
+          Authorization: "Bearer " + cfg.key,
+          Prefer: preferencias || "return=minimal"
+        }
+      };
+      if (payload !== null && payload !== undefined) {
+        opciones.payload = JSON.stringify(payload);
+      }
+      const respuesta = UrlFetchApp.fetch(cfg.url + "/rest/v1/" + ruta, opciones);
+      const code = respuesta.getResponseCode();
+      const ok = code >= 200 && code < 300;
+      if (!ok) {
+        console.warn("[SupabaseSync] " + metodo + " " + ruta + " -> " + code + ": " +
+                     String(respuesta.getContentText()).slice(0, 300));
+      }
+      return { success: ok, code: code, body: respuesta.getContentText() };
+    } catch (e) {
+      console.warn("[SupabaseSync] Fallo de red en " + ruta + ": " + e.toString());
+      return { success: false, message: e.toString() };
+    }
+  },
+
+  // --- Directorio (para resolver assignee_id) --------------------------
+
+  /** Mapa NOMBRE -> people.id, cacheado 10 min para no consultar por fila. */
+  _peopleMap: function () {
+    let cache = null;
+    try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+    if (cache) {
+      const guardado = cache.get("SB_PEOPLE_MAP");
+      if (guardado) { try { return JSON.parse(guardado); } catch (e) {} }
+    }
+    const res = this._request("GET", "people?select=id,nombre", null, "count=none");
+    if (!res.success) return {};
+    let filas = [];
+    try { filas = JSON.parse(res.body) || []; } catch (e) { return {}; }
+    const mapa = {};
+    filas.forEach(function (p) {
+      const n = String(p.nombre || "").toUpperCase().trim();
+      if (n && !mapa[n]) mapa[n] = p.id;
+    });
+    if (cache) { try { cache.put("SB_PEOPLE_MAP", JSON.stringify(mapa), 600); } catch (e) {} }
+    return mapa;
+  },
+
+  /**
+   * Resuelve el id de una persona. Si el valor trae varios nombres separados
+   * por coma o salto de línea (columna INVOLUCRADOS), toma el primero: nunca
+   * se debe crear una persona llamada "RAMIRO RODRIGUEZ, ALFONSO CORREA".
+   */
+  _resolvePersonId: function (nombreCrudo, mapa) {
+    const crudo = String(nombreCrudo || "").trim();
+    if (!crudo) return null;
+    const primero = crudo.split(/[,\n;]/)[0];
+    const limpio = normalizeStaffName(String(primero).replace(SALES_ROUTING_CONFIG.salesSuffixRegex, ""));
+    if (!limpio) return null;
+    return mapa[limpio] || null;
+  },
+
+  // --- Espejo de tareas ------------------------------------------------
+
+  /** Objeto de tarea (forma de hoja) -> fila de `tasks`. */
+  buildTaskRow: function (task, sheetName, peopleMap) {
+    const folio = pickTaskValue(task, ["FOLIO", "ID"]);
+    const dedupeKey = this.computeDedupeKey(folio, sheetName);
+    if (!dedupeKey) return null;
+
+    const responsable = pickTaskValue(task, ["RESPONSABLE", "INVOLUCRADOS", "VENDEDOR", "ENCARGADO", "ASIGNADO"]);
+    const fila = {
+      dedupe_key: dedupeKey,
+      folio: this._texto(folio),
+      // Sin trim, por lo mismo que computeDedupeKey: el valor ya migrado
+      // conserva los espacios del nombre real de la hoja.
+      source_sheet: this._sheetTag(sheetName),
+      assignee_raw: this._texto(responsable),
+      departamento: this._texto(pickTaskValue(task, ["AREA", "ESPECIALIDAD", "DEPARTAMENTO", "ALTA"])),
+      fecha_alta: this.toIsoDate(pickTaskValue(task, ["FECHA", "FECHA ALTA", "ALTA", "FECHA DE ALTA"])),
+      clasificacion: this._texto(pickTaskValue(task, ["CLASIFICACION", "CLASI"])),
+      concepto: this._texto(pickTaskValue(task, ["CONCEPTO", "DESCRIPCION", "ACTIVIDAD"])),
+      avance: this.normalizeAvance(pickTaskValue(task, ["AVANCE", "AVANCE %", "% AVANCE"])),
+      fecha_estimada_fin: this.toIsoDate(pickTaskValue(task, ["FECHA ESTIMADA DE FIN", "FECHA ESTIMADA", "FECHA_FIN", "FECHA FIN"])),
+      reloj: this._texto(pickTaskValue(task, ["RELOJ"])),
+      restricciones: this._texto(pickTaskValue(task, ["RESTRICCIONES", "RESTRICCION"])),
+      prioridad: this._texto(pickTaskValue(task, ["PRIORIDAD", "PRIORIDADES"])),
+      riesgos: this._texto(pickTaskValue(task, ["RIESGOS", "RIESGO"])),
+      fecha_respuesta: this.toIsoDate(pickTaskValue(task, ["FECHA_RESPUESTA", "FECHA RESPUESTA", "DEADLINE"])),
+      carpeta: this._texto(pickTaskValue(task, ["ARCHIVO", "CARPETA", "LINK", "URL", "EVIDENCIA"])),
+      cumplimiento: this._texto(pickTaskValue(task, ["CUMPLIMIENTO", "CUMPL.", "CUMP"])),
+      comentarios: this._texto(pickTaskValue(task, ["COMENTARIOS", "COMENTARIO", "OBSERVACIONES", "NOTAS"])),
+      comentarios_semana: this._texto(pickTaskValue(task, ["COMENTARIOS SEMANA EN CURSO"])),
+      comentarios_semana_previa: this._texto(pickTaskValue(task, ["COMENTARIOS PREVIOS", "PREVIOS", "COMENTARIOS SEMANA PREVIA"])),
+      // Estatus canonico: evita que la columna vuelva a acumular 45 variantes.
+      status: this.normalizeStatus(pickTaskValue(task, ["ESTATUS", "STATUS"]))
+    };
+
+    const personId = this._resolvePersonId(responsable, peopleMap);
+    if (personId) fila.assignee_id = personId;
+
+    // Solo se envían columnas con valor: en un upsert con merge, una columna
+    // ausente conserva lo que ya había en la base en vez de borrarlo.
+    const limpia = {};
+    Object.keys(fila).forEach(function (k) {
+      if (fila[k] !== null && fila[k] !== undefined) limpia[k] = fila[k];
+    });
+    limpia.dedupe_key = dedupeKey;   // siempre presente: es la clave del upsert
+    return limpia;
+  },
+
+  /** Objeto de cotización -> fila de `quotes` (PK: folio). */
+  buildQuoteRow: function (task, sheetName, peopleMap) {
+    const folio = pickTaskValue(task, ["FOLIO", "ID"]);
+    const f = this._texto(folio);
+    if (!f) return null;
+
+    const vendedor = pickTaskValue(task, ["VENDEDOR", "RESPONSABLE", "INVOLUCRADOS"]);
+    const fila = {
+      folio: f,
+      source_sheet: this._sheetTag(sheetName),
+      vendedor_raw: this._texto(vendedor),
+      cliente: this._texto(pickTaskValue(task, ["CLIENTE"])),
+      area: this._texto(pickTaskValue(task, ["AREA", "ESPECIALIDAD", "DEPARTAMENTO"])),
+      clasificacion: this._texto(pickTaskValue(task, ["CLASIFICACION", "CLASI"])),
+      concepto: this._texto(pickTaskValue(task, ["CONCEPTO", "DESCRIPCION"])),
+      f_visita: this.toIsoDate(pickTaskValue(task, ["F_VISITA", "F. VISITA", "FECHA VISITA"])),
+      f_inicio: this.toIsoDate(pickTaskValue(task, ["F_INICIO", "F. INICIO", "FECHA", "FECHA INICIO"])),
+      f_entrega: this.toIsoDate(pickTaskValue(task, ["F_ENTREGA", "F. ENTREGA", "FECHA DE ENTREGA"])),
+      avance: this.normalizeAvance(pickTaskValue(task, ["AVANCE", "AVANCE %", "% AVANCE"])),
+      estatus: this.normalizeStatus(pickTaskValue(task, ["ESTATUS", "STATUS"])),
+      comentarios: this._texto(pickTaskValue(task, ["COMENTARIOS", "COMENTARIO", "OBSERVACIONES"])),
+      archivo: this._texto(pickTaskValue(task, ["ARCHIVO", "LINK", "URL"])),
+      cotizacion: this._texto(pickTaskValue(task, ["COTIZACION", "COTIZACIÓN"])),
+      // "TIMEOUT" es una errata real de "TIMELINE" en varias hojas.
+      timeline: this._texto(pickTaskValue(task, ["TIMELINE", "TIMEOUT"])),
+      layout: this._texto(pickTaskValue(task, ["LAYOUT"])),
+      f2: this._texto(pickTaskValue(task, ["F2"])),
+      proceso: this._texto(pickTaskValue(task, ["PROCESO"])),
+      proceso_log: this._texto(pickTaskValue(task, ["PROCESO_LOG"])),
+      map_cot: this._texto(pickTaskValue(task, ["MAP_COT"])),
+      requisitor: this._texto(pickTaskValue(task, ["REQUISITOR"])),
+      prioridad_cot: this._texto(pickTaskValue(task, ["PRIORIDAD", "PRIORIDAD_COT"])),
+      reloj: this._texto(pickTaskValue(task, ["RELOJ"]))
+    };
+
+    const monto = parseFloat(String(pickTaskValue(task, ["MONTO"]) || "").replace(/[^0-9.\-]/g, ""));
+    if (!isNaN(monto)) fila.monto = monto;
+
+    const vendedorId = this._resolvePersonId(vendedor, peopleMap);
+    if (vendedorId) fila.vendedor_id = vendedorId;
+
+    const limpia = {};
+    Object.keys(fila).forEach(function (k) {
+      if (fila[k] !== null && fila[k] !== undefined) limpia[k] = fila[k];
+    });
+    limpia.folio = f;
+    return limpia;
+  },
+
+  /**
+   * Punto de entrada: replica un lote ya escrito en Sheets.
+   * Se llama DESPUÉS del flush, igual que las notificaciones.
+   */
+  mirrorBatch: function (sheetName, tasks) {
+    try {
+      if (!this.isEnabled()) return { success: false, skipped: true };
+      if (!tasks || !tasks.length) return { success: true, count: 0 };
+
+      const esVentas = isSalesSheet(sheetName);
+      const peopleMap = this._peopleMap();
+      const self = this;
+      const filas = [];
+      tasks.forEach(function (t) {
+        const fila = esVentas ? self.buildQuoteRow(t, sheetName, peopleMap)
+                              : self.buildTaskRow(t, sheetName, peopleMap);
+        if (fila) filas.push(fila);
+      });
+      if (!filas.length) return { success: true, count: 0 };
+
+      const tabla = esVentas ? "quotes" : "tasks";
+      const conflicto = esVentas ? "folio" : "dedupe_key";
+      const res = this._request(
+        "POST", tabla + "?on_conflict=" + conflicto, filas,
+        "resolution=merge-duplicates,return=minimal"
+      );
+      return { success: res.success, count: filas.length, table: tabla };
+    } catch (e) {
+      console.warn("[SupabaseSync] mirrorBatch falló: " + e.toString());
+      return { success: false, message: e.toString() };
+    }
+  },
+
+  /** Espejo de registrarLog() en la tabla `system_log`. */
+  mirrorLog: function (usuario, accion, detalles) {
+    try {
+      if (!this.isEnabled()) return { success: false, skipped: true };
+      const fila = {
+        fecha_hora: new Date().toISOString(),
+        usuario: this._texto(usuario) || "DESCONOCIDO",
+        accion: this._texto(accion),
+        detalles: this._texto(detalles)
+      };
+      const res = this._request("POST", "system_log", [fila], "return=minimal");
+      return { success: res.success };
+    } catch (e) {
+      console.warn("[SupabaseSync] mirrorLog falló: " + e.toString());
+      return { success: false, message: e.toString() };
+    }
+  }
+};
 
 // ----------------------------------------------------------------------
 // E. NOTIFIER SERVICE (MAKE.COM -> OUTLOOK)

@@ -52,6 +52,23 @@ METODOS_CRITICOS = [
     "apiFetchSalesHistory",
 ]
 
+# Escrituras todavía no portadas a FastAPI. Mientras no lo estén, deben fallar
+# de forma visible: un `{success: true}` sin persistencia hace que el frontend
+# marque la fila como guardada y descarte el borrador, perdiendo el dato en
+# silencio. Al portar una, se quita de esta lista y pasa a METODOS_CRITICOS.
+ESCRITURAS_NO_PORTADAS = [
+    "uploadFileToDrive",
+    "apiAddEmployee",
+    "apiDeleteEmployee",
+    "apiSaveSite",
+    "apiSaveSubProject",
+    "apiSaveProjectTask",
+    "apiSavePersonalEvent",
+    "apiSaveHabitLog",
+    "apiSyncDrafts",
+    "apiClearDrafts",
+]
+
 
 def leer(path):
     with open(path, "r", encoding="utf-8") as fh:
@@ -131,6 +148,60 @@ def test_metodos_criticos_no_son_stubs(metodo):
     assert cuerpo, f"{metodo} no está definido en el adaptador"
     assert "not implemented" not in cuerpo and "stub" not in cuerpo.lower(), f"{metodo} sigue siendo un stub"
     assert "_post(" in cuerpo or "_call(" in cuerpo or "fetch(" in cuerpo, f"{metodo} no llama al backend"
+
+
+@pytest.mark.parametrize("metodo", ESCRITURAS_NO_PORTADAS)
+def test_escrituras_no_portadas_no_fingen_exito(metodo):
+    """
+    Una escritura sin backend debe reportar el fallo, no responder éxito.
+
+    Regresión real: estos diez métodos devolvían `{success: true}` sin llamar a
+    nada. El usuario veía su fila guardada y no se guardaba nada.
+    """
+    cuerpo = cuerpo_de_metodo(metodo)
+    assert cuerpo, f"{metodo} no está definido en el adaptador"
+
+    if "_post(" in cuerpo or "_call(" in cuerpo or "fetch(" in cuerpo:
+        return  # ya fue portado: llama al backend de verdad
+
+    assert "_noPortado(" in cuerpo, (
+        f"{metodo} no llama al backend y tampoco usa _noPortado(): "
+        f"estaría reportando éxito sin persistir nada"
+    )
+    assert "success: true" not in cuerpo.replace(" ", " "), (
+        f"{metodo} responde success:true sin persistir"
+    )
+
+
+def test_upload_a_drive_no_inventa_una_url():
+    """
+    `uploadFileToDrive` devolvía una fileUrl falsa que se guardaba en la base
+    como si el archivo existiera. Es la variante más dañina del problema.
+    """
+    cuerpo = cuerpo_de_metodo("uploadFileToDrive")
+    assert "mock.url" not in cuerpo, "uploadFileToDrive sigue devolviendo una URL inventada"
+
+
+@pytest.mark.parametrize("modulo", ["api/main.py", "api/services/sheets.py"])
+def test_no_hay_credenciales_hardcodeadas(modulo):
+    """
+    Las contraseñas de producción estaban en DOS sitios del backend Python:
+    un MOCK_USER_DB en main.py y la hoja "USERS" del MockSpreadsheet en
+    sheets.py. Quitar solo el primero dejaba el login abierto igual, porque
+    sin base de datos la búsqueda caía al mock.
+    """
+    contenido = leer(os.path.join(ROOT, *modulo.split("/")))
+    assert "MOCK_USER_DB" not in contenido, f"Volvió el MOCK_USER_DB en {modulo}"
+    for clave in ("admin2025", "tonita2025", "workorder2026", "ppc2025"):
+        assert clave not in contenido, f"Contraseña '{clave}' hardcodeada en {modulo}"
+
+
+def test_cors_no_permite_credenciales_con_origen_comodin():
+    """`allow_origins=['*']` + `allow_credentials=True` deja la API abierta."""
+    contenido = leer(MAIN_PY)
+    assert 'allow_origins=["*"],\n    allow_credentials=True' not in contenido, (
+        "CORS permite credenciales desde cualquier origen"
+    )
 
 
 def test_frontend_no_llama_metodos_inexistentes_en_el_adaptador():

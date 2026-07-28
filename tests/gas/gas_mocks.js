@@ -209,7 +209,7 @@ function formatDate(date, tz, fmt) {
  * @param {Object<string, Array<Array<*>>>} sheets  nombre -> matriz de valores
  * @returns {{api: Object, ss: MockSpreadsheet, spy: Object}}
  */
-function createEnv(sheets) {
+function createEnv(sheets, options) {
   const ss = new MockSpreadsheet();
   Object.entries(sheets || {}).forEach(([name, values]) => {
     ss.sheets.push(new MockSheet(name, values));
@@ -280,9 +280,23 @@ function createEnv(sheets) {
     newBlob: (data, type, name) => ({ getBytes: () => data, getName: () => name, setName: () => { }, getContentType: () => type })
   };
 
+  // `options.fetchHandler(url, params)` permite a una prueba controlar la
+  // respuesta HTTP (o lanzar, para verificar que un fallo de red no rompe el
+  // guardado). Si devuelve undefined, se usa la respuesta por defecto.
+  const fetchHandler = (options || {}).fetchHandler;
+
   const UrlFetchApp = {
     fetch: (url, params) => {
       spy.urlFetchCalls.push({ url, params });
+      if (fetchHandler) {
+        const r = fetchHandler(url, params);   // puede lanzar a propósito
+        if (r !== undefined && r !== null) {
+          return {
+            getContentText: () => (typeof r.text === 'string' ? r.text : JSON.stringify(r.text || {})),
+            getResponseCode: () => (r.code === undefined ? 200 : r.code)
+          };
+        }
+      }
       return {
         getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: 'MOCK' }] } }] }),
         getResponseCode: () => 200
@@ -319,13 +333,27 @@ function createEnv(sheets) {
       deleteTrigger: () => { }
     },
     console,
-    JSON, Math, Date, String, Number, Array, Object, parseInt, parseFloat, isNaN, RegExp, Error
+    JSON, Math, Date, String, Number, Array, Object, parseInt, parseFloat, isNaN, isFinite, RegExp, Error
   };
   sandbox.globalThis = sandbox;
 
   const context = vm.createContext(sandbox);
   const source = fs.readFileSync(CODIGO_PATH, 'utf8');
   vm.runInContext(source, context, { filename: 'CODIGO.js' });
+
+  // Las declaraciones `function` de CODIGO.js quedan como propiedades del
+  // contexto, pero las `const` (SupabaseSync, NotifierService, APP_CONFIG...)
+  // viven en el ámbito léxico del script y no son visibles desde fuera.
+  // Se exponen explícitamente para poder probarlas.
+  ['SupabaseSync', 'NotifierService', 'APP_CONFIG', 'SUPABASE_CONFIG',
+   'USER_DB', 'SALES_ROUTING_CONFIG', 'FOLIO_PREFIX_MAP'].forEach(nombre => {
+    try {
+      vm.runInContext(
+        `if (typeof ${nombre} !== 'undefined') { globalThis.${nombre} = ${nombre}; }`,
+        context
+      );
+    } catch (e) { /* si no existe, se ignora */ }
+  });
 
   return { api: context, ss, spy, scriptProps, cache };
 }
