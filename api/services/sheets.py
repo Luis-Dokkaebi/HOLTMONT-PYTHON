@@ -130,13 +130,42 @@ QUOTE_HEADER_MAP = [
     ("ESTATUS", "estatus"),
     ("COMENTARIOS", "comentarios"),
     ("REQUISITOR", "requisitor"),
-    ("PRIO. COT.", "prio_cot"),
+    # La columna real es `prioridad_cot`. Apuntar a `prio_cot` (que no existe
+    # en el esquema) dejaba la columna permanentemente vacía pese a tener
+    # datos en 33 de las 661 cotizaciones.
+    ("PRIO. COT.", "prioridad_cot"),
     ("INFO CLIENTE", "info_cliente"),
     ("F2", "f2"),
     ("COTIZACION", "cotizacion"),
     ("TIMELINE", "timeline"),
     ("LAYOUT", "layout"),
+    # MONTO forma parte de DEFAULT_SALES_HEADERS (CODIGO.js): el frontend lo
+    # espera en toda hoja de ventas.
+    ("MONTO", "monto"),
+    # Alimentan el timeline de cotización ("Papa Caliente") en la vista.
+    ("MAP COT", "map_cot"),
+    ("PROCESO_LOG", "proceso_log"),
 ]
+
+def _celda(valor):
+    """
+    Serializa una celda preservando el cero.
+
+    `str(valor or "")` convertía 0 en cadena vacía, porque en Python `0 or ""`
+    es `""`. Eso borraba el avance de 198 cotizaciones que están al 0 %: la
+    vista las mostraba en blanco, como si nadie hubiera capturado el dato.
+    """
+    if valor is None:
+        return ""
+    if isinstance(valor, bool):
+        return "SI" if valor else "NO"
+    # `numeric` de Postgres llega como float: 0.0 y 45.0 se mostraban como
+    # "0.0" y "45.0" en la tabla. Se rinden como enteros cuando no hay parte
+    # decimal, que es como se veían en la hoja.
+    if isinstance(valor, float) and valor.is_integer():
+        return str(int(valor))
+    return str(valor)
+
 
 def _rows_to_values(rows, header_map):
     if not rows:
@@ -144,8 +173,56 @@ def _rows_to_values(rows, header_map):
     headers = [h for h, _ in header_map]
     values = [headers]
     for row in rows:
-        values.append([str(row.get(col, "") or "") for _, col in header_map])
+        values.append([_celda(row.get(col)) for _, col in header_map])
     return values
+
+
+# --- Resolución tolerante del nombre de hoja -------------------------------
+# `source_sheet` guarda el nombre tal como estaba en el Spreadsheet, sin
+# normalizar: hay capitalización mixta ("Sebastian Padilla (VENTAS)") y hojas
+# con espacio inicial (" LILIANA AYLIN MARTINEZ IBARRA"). El frontend pide los
+# nombres en mayúsculas, así que una comparación exacta fallaba y cinco de las
+# siete hojas de ventas devolvían cero filas.
+#
+# AGENTS.md §4 exige comparación insensible; aquí se traduce el nombre pedido
+# al que realmente está almacenado.
+
+_SOURCE_SHEET_CACHE = {}
+
+
+def _clave_hoja(nombre):
+    return " ".join(str(nombre or "").split()).upper()
+
+
+def resolve_source_sheet(tabla, sheet_name):
+    """
+    Devuelve el `source_sheet` real que corresponde a `sheet_name`.
+
+    Si no hay coincidencia, devuelve el nombre pedido sin tocar, para que la
+    consulta se comporte como antes en vez de inventar una hoja.
+    """
+    pedido = str(sheet_name or "")
+    if not pedido:
+        return pedido
+
+    indice = _SOURCE_SHEET_CACHE.get(tabla)
+    if indice is None:
+        indice = {}
+        try:
+            for fila in sb_manager.select_distinct(tabla, "source_sheet"):
+                real = fila.get("source_sheet")
+                if real and _clave_hoja(real) not in indice:
+                    indice[_clave_hoja(real)] = real
+        except Exception as exc:  # la resolución nunca debe tumbar la lectura
+            print(f"No se pudo indexar source_sheet de {tabla}: {exc}")
+        _SOURCE_SHEET_CACHE[tabla] = indice
+
+    return indice.get(_clave_hoja(pedido), pedido)
+
+
+def reset_source_sheet_cache():
+    """Invalida el índice (las pruebas y un resync del directorio lo usan)."""
+    _SOURCE_SHEET_CACHE.clear()
 
 
 class MockSheet:
@@ -232,12 +309,12 @@ class GSheetsManager:
             # everything else (staff trackers, PPCV3, ADMINISTRADOR mirror,
             # etc.) lives in `tasks`. Both keep the original hoja name in
             # `source_sheet`.
-            rows = sb_manager.select("quotes", {"source_sheet": sheet_name})
+            rows = sb_manager.select("quotes", {"source_sheet": resolve_source_sheet("quotes", sheet_name)})
             values = _rows_to_values(rows, QUOTE_HEADER_MAP)
             if values:
                 return values
 
-            rows = sb_manager.select("tasks", {"source_sheet": sheet_name})
+            rows = sb_manager.select("tasks", {"source_sheet": resolve_source_sheet("tasks", sheet_name)})
             values = _rows_to_values(rows, TASK_HEADER_MAP)
             if values:
                 return values

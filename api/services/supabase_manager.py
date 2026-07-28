@@ -79,6 +79,40 @@ class SupabaseManager:
             print(f"Error fetching from Supabase table {table}: {e}")
             return []
 
+    def select_distinct(self, table: str, column: str) -> List[Dict[str, Any]]:
+        """
+        Valores distintos de una columna.
+
+        PostgREST no expone DISTINCT, así que se paginan los valores y se
+        deduplican aquí. Se usa para indexar `source_sheet` y poder resolver
+        el nombre de hoja sin distinguir mayúsculas ni espacios.
+        """
+        if self._skip_unconfigured():
+            return []
+        try:
+            page_size = 1000
+            vistos = set()
+            salida: List[Dict[str, Any]] = []
+            offset = 0
+            while True:
+                page = (
+                    self.client.table(table)
+                    .select(column)
+                    .range(offset, offset + page_size - 1)
+                    .execute()
+                ).data or []
+                for fila in page:
+                    valor = fila.get(column)
+                    if valor is not None and valor not in vistos:
+                        vistos.add(valor)
+                        salida.append({column: valor})
+                if len(page) < page_size:
+                    return salida
+                offset += page_size
+        except Exception as e:
+            print(f"Error listing distinct {column} from {table}: {e}")
+            return []
+
     def insert(self, table: str, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if self._skip_unconfigured():
             return None

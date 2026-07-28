@@ -549,16 +549,61 @@ celda. Efectos:
   indistinguibles.
 - Las fechas quedan como texto sin formato definido.
 
-### Por qué no se arregla ampliando el mapa
+### Estado tras los PR #98 y #99 (arreglo parcial, ya corregido aquí)
 
-Añadir las 23 columnas que faltan taparía el síntoma visible, pero el adaptador
-seguiría siendo el modelo equivocado: convierte una tabla relacional en una
-matriz de strings para que el motor de reglas la trate como hoja. La causa 3 no
-se puede arreglar sin dejar de serializar a texto.
+Mientras se hacía esta auditoría entraron a `main` dos PR que atacaban el mismo
+síntoma. Ampliaron `QUOTE_HEADER_MAP` de 14 a 20 columnas, pero dejaron el
+problema a medias e introdujeron dos defectos nuevos:
+
+| Qué pasaba | Estado |
+|---|---|
+| `PRIO. COT.` mapeaba a `prio_cot`, **columna que no existe** (la real es `prioridad_cot`, con datos en 33 filas) | corregido |
+| `MONTO` se **eliminó** del mapa, aunque `DEFAULT_SALES_HEADERS` lo exige | restaurado |
+| Causa 2 (mayúsculas) sin tocar: 5 de 7 hojas de ventas seguían en cero filas | corregido |
+| Causa 3 (`str(v or "")`): 198 cotizaciones al 0 % seguían mostrándose vacías | corregido |
+| `map_cot` y `proceso_log`, que alimentan el timeline de Papa Caliente, sin exponer | expuestos |
+| El cambio en `supabase_manager.py` es **código muerto** para ventas: `sheets.py` retorna antes por `_rows_to_values` y nunca llega ahí | documentado |
+
+Correcciones aplicadas en esta rama, verificadas contra la base real:
+
+```
+ANTONIA_VENTAS               583 filas, 23 columnas
+SEBASTIAN PADILLA (VENTAS)    19 filas   (antes 0)
+EDUARDO MANZANARES (VENTAS)   19 filas   (antes 0)
+RAMIRO RODRIGUEZ (VENTAS)     17 filas   (antes 0)
+TERESA GARZA (VENTAS)         13 filas
+JUAN JOSE SANCHEZ (VENTAS)     9 filas   (antes 0)
+LILIANA AYLIN MARTINEZ IBARRA 187 filas  (antes 0, hoja con espacio inicial)
+```
+
+`EDGAR LOPEZ (VENTAS)` devuelve 0 filas y **es correcto**: su única fila en
+`quotes` es un encabezado mal migrado (`folio = "FOLIO"`, `cliente = "CLIENTE"`),
+que el endpoint filtra bien. Es un residuo del pipeline de migración, no un
+fallo de lectura; conviene depurarlo en la base.
+
+La resolución del nombre de hoja se hace con un índice de `source_sheet`
+cacheado en proceso, comparando sin distinguir mayúsculas ni espacios. Si no
+hay coincidencia se consulta el nombre pedido tal cual, para no inventar hojas.
+
+Cubierto por `tests/test_ventas_columns.py` (23 casos, sin necesidad de base).
+
+### Por qué esto sigue sin ser la solución definitiva
+
+Las correcciones anteriores hacen que la vista de ventas vuelva a ser usable,
+pero el adaptador sigue siendo el modelo equivocado: convierte una tabla
+relacional en una matriz de strings para que el motor de reglas la trate como
+hoja. Mientras eso siga así:
+
+- cada columna nueva hay que darla de alta a mano en el mapa, y equivocarse de
+  nombre (como pasó con `prio_cot`) no lo detecta nadie hasta que un usuario lo
+  reporta;
+- todo sale serializado a texto, así que la distinción entre el número `1` y el
+  string `"1"` —de la que depende la regla de `AVANCE`— se pierde igual;
+- 14 columnas de `quotes` siguen sin exponerse.
 
 Corresponde a la **Fase 1**: repositorios que devuelvan las 37 columnas con sus
-tipos, filtro de hoja insensible a mayúsculas y espacios, y modelos Pydantic en
-la frontera. Se hace junto con la escritura, porque son el mismo cambio.
+tipos y modelos Pydantic en la frontera. Se hace junto con la escritura, porque
+son el mismo cambio.
 
 Mientras tanto, lo que el usuario ve en ventas está incompleto pero **no
 corrupto**: es una lectura parcial, y las escrituras de esa vista no llegan a
