@@ -29,3 +29,4 @@ tavily-python
 pypdf
 ffmpeg-python
 streamlit
+fastmcp
