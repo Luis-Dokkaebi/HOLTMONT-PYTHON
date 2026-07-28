@@ -245,3 +245,41 @@ def test_todos_los_metodos_del_agente_de_metricas_estan_mapeados():
         "apiFetchInfoBankCompanies", "runPaperclipAgents",
     }
     assert requeridos.issubset(definidos), f"Faltan en el adaptador: {sorted(requeridos - definidos)}"
+
+
+# ----------------------------------------------------------------------
+# Una lectura vacía tiene que decir por qué lo está
+# ----------------------------------------------------------------------
+# La Fase 0 estableció la regla para `api_service.js`: un stub devuelve vacío
+# para no bloquear el render, pero marcado con `_notImplemented`. El mismo
+# criterio aplica a una lectura cuyo origen no existe en la base.
+
+
+def test_el_plan_semanal_marca_cuando_la_hoja_no_tiene_origen(monkeypatch):
+    """
+    `PPCV3` no existe con esa forma en ninguna tabla: la vista devolvía una
+    tabla vacía con success=true mientras la consola registraba un PGRST205.
+    El usuario no podía distinguir "no hay nada planeado" de "esto está roto".
+    """
+    from api.services import tracker_store
+
+    monkeypatch.setattr(tracker_store, "read_rows", lambda hoja: ([], [], []))
+    respuesta = tracker_store.fetch_weekly_plan("")
+
+    assert respuesta["success"] is True, "No debe bloquear el render"
+    assert respuesta["data"] == []
+    assert respuesta["_notImplemented"] is True
+    assert "PPCV3" in respuesta["message"]
+
+
+def test_el_plan_semanal_no_marca_cuando_si_hay_datos(monkeypatch):
+    """PPCV4 sí resuelve contra `tasks`; no debe quedar marcada."""
+    from api.services import tracker_store
+
+    filas = [{"FOLIO": "PPC-1", "CONCEPTO": "X"}]
+    monkeypatch.setattr(tracker_store, "read_rows", lambda hoja: (filas, [], ["FOLIO"]))
+    respuesta = tracker_store.fetch_weekly_plan("ANTONIA_VENTAS")
+
+    assert respuesta["data"] == filas
+    assert "_notImplemented" not in respuesta
+    assert "message" not in respuesta

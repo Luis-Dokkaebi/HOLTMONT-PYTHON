@@ -878,3 +878,43 @@ esquema por debajo se nota en vez de descubrirse en producción.
 Nota para `quotes`: conviene repetir ahí la verificación de tipos y de columnas
 NOT NULL antes de escribir nada. En `tasks`, tres de los cuatro tipos deducidos
 del código estaban mal y el número de columnas NOT NULL era nueve en vez de una.
+
+### 7.7 `PPCV3`: decisión pendiente (afecta a una vista viva)
+
+`GET /api/legacy/weeklyPlan` (la vista "Planeación Semanal") devuelve **cero
+filas para todos los usuarios menos Toñita**, con `success: true` y un
+`PGRST205` en consola buscando una tabla `public.PPCV3` que no existe. Es el
+mismo fallo silencioso que la Fase 0 erradicó: el usuario no distingue "no hay
+nada planeado" de "la lectura está rota".
+
+`PPCV4` **sí** funciona: existe como `source_sheet` en `tasks`, con 51 filas.
+
+Lo que hay realmente para `PPCV3`, verificado contra la base:
+
+| Origen | Filas | Forma |
+|---|---|---|
+| `plan_semanal` con `source_sheet='PPCV3'` | 1.180 | Solo **62** con contenido real (`zona`, `ruta_critica`, `cuantificacion_req`, `dias`, `contratista`, `nota_cnc`) — filas de Last Planner. Ninguna de esas 62 tiene `task_folio`. |
+| Las otras filas de `plan_semanal` | 1.118 | Cascarones: `task_folio` + `especialidad` + `cumplimiento`. |
+| `tasks` alcanzables desde esos folios | 1.056 de 1.098 | Repartidas: 963 en `ADMINISTRADOR`, 39 en `PPCV4`, 20 en `ANTONIA PINEDA LOPEZ`… **no** bajo un único `source_sheet`. |
+| `tasks` con `source_sheet='PPCV3'` | **0** | No existe. |
+
+El detalle que decide: `apiFetchWeeklyPlanData` pinta ESPECIALIDAD, CONCEPTO,
+RESPONSABLE, FECHA, RELOJ, ARCHIVO y CUMPLIMIENTO, y calcula SEMANA **a partir
+de FECHA**. `plan_semanal` no tiene ninguna columna de fecha, así que servirla
+tal cual dejaría la vista con 1.180 filas casi vacías y sin SEMANA — peor que
+la tabla vacía de hoy, porque parecería corrupción de datos.
+
+Tres reconstrucciones posibles, con resultados muy distintos:
+
+1. **`tasks` bajo `ADMINISTRADOR`** — 1.701 filas, con FECHA, así que SEMANA
+   funciona. Pero duplica el módulo "Control", que ya apunta a esa hoja.
+2. **`tasks` filtradas por `plan_semanal.task_folio`** — 1.056 filas; usa
+   `plan_semanal` como índice de qué tareas pertenecen al PPC maestro. Es la
+   lectura que más respeta la intención de la migración.
+3. **`plan_semanal` directo** — 1.180 filas sin fecha; solo tiene sentido si
+   además se rehace la vista para la forma de Last Planner (zona, días,
+   cuantificación, CNC), que es un módulo distinto del que hay hoy.
+
+Mientras no se decida, `fetch_weekly_plan()` marca la respuesta con
+`_notImplemented` y un mensaje que dice que la hoja no tiene equivalente, en
+vez de fingir que no hay actividad. `PPCV4` no se ve afectado.

@@ -193,10 +193,52 @@ def update_ppcv3(task: Dict[str, Any], username: str = "") -> Dict[str, Any]:
 
 
 def fetch_weekly_plan(username: str = "") -> Dict[str, Any]:
-    """Equivalente de `apiFetchWeeklyPlanData`."""
+    """
+    Equivalente de `apiFetchWeeklyPlanData`.
+
+    `PPCV4` (Toñita) sí resuelve: existe como `source_sheet` en `tasks` con 51
+    filas. `PPCV3` **no existe en ninguna tabla con esa forma**, así que para
+    todos los demás usuarios esta vista devolvía una tabla vacía con
+    `success: true` mientras la consola registraba un `PGRST205` buscando una
+    tabla `public.PPCV3` inexistente. Es el mismo fallo silencioso que la Fase 0
+    erradicó de `api_service.js`: el usuario no distingue "no hay nada
+    planeado" de "la lectura está rota".
+
+    Qué se sabe de `PPCV3` (verificado contra la base):
+
+      * `plan_semanal` tiene 1.180 filas con `source_sheet = 'PPCV3'`, pero solo
+        **62** llevan contenido real de planeación (`zona`, `ruta_critica`,
+        `cuantificacion_req`, `dias`, `contratista`, `nota_cnc`) y ninguna de
+        esas 62 tiene `task_folio`. Son filas de Last Planner, una forma que
+        esta vista no sabe pintar: no tiene columna de fecha, así que la
+        columna SEMANA que calcula `apiFetchWeeklyPlanData` saldría vacía.
+      * Las otras 1.118 son cascarones con `task_folio` + `especialidad` +
+        `cumplimiento`. De sus 1.098 folios, **1.056 resuelven a `tasks`**,
+        repartidos entre varias hojas (963 en `ADMINISTRADOR`, 39 en `PPCV4`…),
+        no bajo un único `source_sheet`.
+
+    Reconstruir PPCV3 es entonces una decisión de negocio con tres respuestas
+    posibles y resultados muy distintos (1.701 filas, 1.056 o 1.180 casi
+    vacías). Mientras no se tome, esta función deja de fingir: marca la
+    respuesta con `_notImplemented`, igual que las lecturas no portadas.
+    """
     sheet = "PPCV4" if rules.normalize_staff_name(username) == "ANTONIA VENTAS" else "PPCV3"
     active, history, headers = read_rows(sheet)
-    return {"success": True, "data": active, "history": history, "headers": headers}
+    respuesta: Dict[str, Any] = {
+        "success": True,
+        "data": active,
+        "history": history,
+        "headers": headers,
+    }
+    if not active and not history and not headers:
+        respuesta["_notImplemented"] = True
+        respuesta["message"] = (
+            f"La hoja {sheet} no tiene equivalente en la base relacional todavía; "
+            "no es que no haya actividad planeada. Ver fetch_weekly_plan() y "
+            "docs/PLAN_BACKEND_PYTHON.md §7.7."
+        )
+        print(f"[tracker_store] {sheet} sin origen en la base: se devuelve vacío marcado.")
+    return respuesta
 
 
 def fetch_sales_history() -> Dict[str, Any]:
