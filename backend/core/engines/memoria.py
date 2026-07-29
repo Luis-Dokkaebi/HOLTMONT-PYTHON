@@ -132,6 +132,27 @@ class MemoryEngine:
                 resultado.append(copy.deepcopy(existente))
         return resultado
 
+    def insertar(self, tabla: str, filas: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not filas:
+            return []
+        self._validar_no_nulos(tabla, filas)
+        destino = self.datos.setdefault(tabla, [])
+        nuevas = []
+        for fila in filas:
+            nueva = dict(DEFAULTS.get(tabla, {}))
+            nueva.update(copy.deepcopy(dict(fila)))
+            destino.append(nueva)
+            nuevas.append(copy.deepcopy(nueva))
+        return nuevas
+
+    def borrar(self, tabla: str, donde: Dict[str, Any]) -> None:
+        if not donde:
+            raise ErrorDeMotor(f"DELETE sobre {tabla} sin filtros: se aborta por seguridad")
+        self.datos[tabla] = [
+            f for f in self.datos.get(tabla, [])
+            if any(f.get(col) != val for col, val in donde.items())
+        ]
+
     def _validar_alta(self, tabla: str, fila: Dict[str, Any]) -> None:
         """Un INSERT sin una columna NOT NULL y sin default aborta con 23502."""
         faltan = [c for c in SIN_DEFAULT.get(tabla, ()) if c not in fila]

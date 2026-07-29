@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.schemas.hoja import a_fecha, a_hora, columnas_desde_hoja, indice_de_alias
 from backend.services.identity import normalize_avance
 
 # Las 28 columnas de `tasks`, en el orden en que se documentan.
@@ -149,6 +150,10 @@ ALIAS_DE_HOJA: Dict[str, List[str]] = {
     "hora_estimada_fin": ["HORA ESTIMADA FIN", "HORA_ESTIMADA_FIN"],
 }
 
+# Encabezado normalizado -> columna. Se construye una vez: es el diccionario
+# que usa `TaskWrite.desde_hoja()` en cada fila de cada lote.
+INDICE_ALIAS: Dict[str, str] = indice_de_alias(ALIAS_DE_HOJA)
+
 
 class TaskWrite(BaseModel):
     """
@@ -203,6 +208,40 @@ class TaskWrite(BaseModel):
         esta validación el valor está en escala 0-100 y `1` significa 1 %.
         """
         return normalize_avance(valor)
+
+    @field_validator("fecha_alta", "fecha_estimada_fin", "fecha_respuesta", mode="before")
+    @classmethod
+    def _fecha_de_hoja(cls, valor: Any) -> Any:
+        """
+        La hoja escribe `dd/mm/yy`, que Pydantic no sabe leer.
+
+        Sin esto, todo guardado que viniera del frontend monolítico moría con un
+        422 en la primera fecha, porque `index.html` no manda ISO.
+        """
+        return a_fecha(valor)
+
+    @field_validator("hora_alta", "hora_estimada_fin", mode="before")
+    @classmethod
+    def _hora_de_hoja(cls, valor: Any) -> Any:
+        return a_hora(valor)
+
+    @classmethod
+    def desde_hoja(cls, fila: Dict[str, Any]) -> "TaskWrite":
+        """
+        Construye el modelo desde una fila con encabezados de hoja.
+
+        Es la entrada del camino legacy (`/api/legacy/saveTrackerBatch`), donde
+        las claves llegan como `FOLIO`, `CONCEPTO` o `folio`, mezcladas con
+        metadatos del frontend (`_tempId`) y con columnas que esta tabla no
+        tiene (`CLIENTE`, `REQUISITOR`, …). Lo que no corresponde a una columna
+        de `tasks` se descarta aquí, y solo aquí, en vez de estrellarse contra
+        el `extra="forbid"` del modelo.
+        """
+        columnas = columnas_desde_hoja(fila, INDICE_ALIAS)
+        temp_id = fila.get("_tempId") or fila.get("_tempid")
+        if temp_id:
+            columnas["_tempId"] = temp_id
+        return cls.model_validate(columnas)
 
     def columnas(self) -> Dict[str, Any]:
         """Solo las columnas presentes en la petición, sin los metadatos."""

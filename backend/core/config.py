@@ -40,8 +40,13 @@ class Settings:
         return bool(self.supabase_url and self.supabase_key)
 
 
-def _bandera(nombre: str) -> bool:
-    return os.environ.get(nombre, "").strip().lower() in {"1", "true", "si", "sí", "yes", "on"}
+def _bandera(nombre: str, por_defecto: bool = False) -> bool:
+    crudo = os.environ.get(nombre, "").strip().lower()
+    if not crudo:
+        return por_defecto
+    if crudo in {"0", "false", "no", "off"}:
+        return False
+    return crudo in {"1", "true", "si", "sí", "yes", "on"}
 
 
 def _texto(nombre: str) -> Optional[str]:
@@ -62,13 +67,18 @@ def cargar_settings() -> Settings:
         supabase_url=_texto(ENV_SUPABASE_URL),
         supabase_key=_texto(ENV_SUPABASE_KEY),
         motor_forzado=(_texto(ENV_MOTOR) or "").lower() or None,
-        # La escritura arranca APAGADA a propósito.
+        # La escritura está ENCENDIDA por defecto desde que Supabase es la base
+        # de la aplicación (decisión del dueño, 2026-07: "que cada usuario
+        # guarde en su respectiva tabla").
         #
-        # `SupabaseSync` está construido pero no desplegado (decisión del dueño,
-        # 2026-07), así que Supabase es hoy una copia estática que se
-        # desactualiza desde la migración: Sheets sigue siendo la única fuente
-        # de verdad. Escribir aquí pisaría filas que la operación diaria ya
-        # cambió en la hoja. El interruptor se enciende cuando el puente esté
-        # desplegado y la base re-sincronizada.
-        escritura_habilitada=_bandera(ENV_ESCRITURA),
+        # Arrancó apagada mientras Supabase era una copia estática de la
+        # migración y Google Sheets seguía siendo la fuente de verdad: escribir
+        # entonces habría pisado filas que la operación diaria ya había
+        # cambiado en la hoja. Con la aplicación leyendo y escribiendo contra
+        # Supabase esa razón desaparece, y dejarla apagada tiene el costo
+        # contrario y peor: cada guardado del tracker se pierde.
+        #
+        # `BACKEND_TASKS_WRITE_ENABLED=0` sigue siendo el interruptor de
+        # emergencia: apaga la escritura sin desplegar nada.
+        escritura_habilitada=_bandera(ENV_ESCRITURA, por_defecto=True),
     )

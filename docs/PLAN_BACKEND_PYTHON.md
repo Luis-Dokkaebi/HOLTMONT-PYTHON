@@ -940,3 +940,113 @@ tabla vacía con `success: true`.
 `cuantificacion_req`, `dias`, `contratista`, `nota_cnc`) no las pinta ninguna
 vista actual. Falta confirmar con el equipo si las usan; si es que sí, son un
 módulo propio, no un caso de esta.
+
+---
+
+## 8. Integración de la base: cada usuario guarda en su tabla — ejecutada
+
+Encargo del dueño (2026-07-29): *"haz la integración de la BD que ya tenemos y
+que cada usuario guarde en su respectiva tabla tal cual está diseñado el
+sistema"*. Esto cierra el fallo de §1.8 y §1.9: hasta aquí la aplicación
+**leía** de Supabase pero no escribía en ninguna parte.
+
+### 8.1 Dónde se perdían los datos
+
+`/api/legacy/saveTrackerBatch` —el endpoint que usa `index.html` para todo
+guardado del tracker— terminaba en `GSheetsManager.write_values()`. Ese método
+tiene tres caminos y en el despliegue tomaba el peor:
+
+1. Google Sheets real vía `gspread`: necesita `credentials.json`, que no existe.
+2. Modo mock: un `dict` en memoria del proceso. **Este.**
+3. Supabase: no existía.
+
+En Vercel cada invocación es un proceso nuevo, así que ese diccionario moría al
+terminar la petición. El frontend recibía `{success: true}`, marcaba
+`_isNew = false`, limpiaba el borrador local y el usuario se quedaba con la
+impresión de haber guardado. Lo mismo pasaba en `/api/savePPC` (work orders,
+que además escribía los bloques hijos contra tablas `public.DB_WO_*` que no
+existen) y en `apiLogDateChange` (hoja `LOG_SISTEMA`, cuya tabla se llama
+`system_log`).
+
+### 8.2 Qué significa "su respectiva tabla"
+
+En Google Sheets cada persona tenía su hoja. El esquema relacional lo conserva
+como **partición**: la columna `source_sheet` de `tasks` y de `quotes` guarda el
+nombre de la hoja original. Guardar "en la tabla de cada usuario" es entonces
+escribir con el `source_sheet` correcto, y la identidad de la fila la da
+`compute_dedupe_key()`:
+
+| Tipo de folio | Clave | Consecuencia |
+|---|---|---|
+| Iniciales de persona (`JO-0009`, `RC-…`) | `<hoja>::<folio>` | una fila **por hoja**: la difusión lateral crea copias legítimas (382 folios viven en varias) |
+| Secuencia global (`PPC-`, `AV-`, `TG-`, `WO-`…) | el folio | **una sola fila** en toda la base (verificado: 0 de los 1.570 está en dos hojas) |
+| Cotizaciones (`quotes`) | `folio` (clave primaria) | una cotización vive en **una sola** hoja (verificado: 661 folios, ninguno compartido) |
+
+### 8.3 Qué se construyó
+
+* `backend/schemas/hoja.py` — la frontera hoja ↔ columnas: resolución de alias
+  insensible a mayúsculas, acentos y puntuación (`PRIO. COT.` → `prioridad_cot`)
+  y coerciones de tipo (`27/07/26` → `date`, `"$ 1,250.50"` → `1250.5`).
+* `backend/schemas/quote.py` y `backend/repositories/quotes.py` — el contrato y
+  el repositorio de `quotes`, con las 37 columnas y sus tipos **leídos del
+  esquema**, no deducidos. `scripts/verificar_base_quotes.py` los recomprueba.
+* `backend/services/persistencia.py` — el puente: elige tabla, resuelve la hoja
+  y proyecta `task_involucrados`.
+* `backend/services/auditoria.py` — `system_log`, que no tenía ni una escritura
+  desde Python (§1.11).
+* `api/services/tracker_store.py`, `api/services/work_order.py` y
+  `api/services/sheets.py` reapuntados a todo lo anterior.
+
+### 8.4 Tres cosas que la base enseñó al escribir
+
+1. **Toda actualización parcial fallaba con un 400.** El upsert de PostgREST es
+   un `INSERT ... ON CONFLICT DO UPDATE` y Postgres valida las restricciones
+   NOT NULL sobre la tupla del INSERT *antes* de resolver el conflicto. Guardar
+   solo el AVANCE mandaba `{dedupe_key, avance}` y la base contestaba
+   `null value in column "folio" … violates not-null constraint` (23502). Se
+   corrige completando `folio`, `concepto` y `source_sheet` desde la fila
+   almacenada. **El mismo agujero sigue abierto en `SupabaseSync.buildTaskRow`
+   de `CODIGO.js`**, que también descarta las columnas sin valor.
+2. **`source_sheet` de una fila existente no se pisa.** Con folio global hay una
+   sola fila, así que reescribirla se llevaba la tarea de la hoja de su
+   responsable en cuanto alguien la abría desde otra vista. Es una divergencia
+   deliberada con `mirrorBatch`, que sí la reescribe; conviene alinear el puente
+   de GAS en esta dirección.
+3. **Los bloques hijos de la work order son claves foráneas de `work_orders`.**
+   Insertarlos antes de registrar el folio los rechaza con un 409.
+
+### 8.5 Decisiones de comportamiento
+
+* **`PPCV3` no es una partición**, es el índice de `plan_semanal` (§7.7).
+  Escribir ahí con `source_sheet='PPCV3'` habría estrenado una hoja que la
+  vista no lee. El puente manda la tarea a la hoja de su responsable (o a
+  `ADMINISTRADOR` si no trae) y añade el renglón del índice.
+* **El auto-archivado se calcula al leer.** En la hoja las terminadas viven
+  debajo del separador `TAREAS REALIZADAS`; en la base no hay filas "debajo" de
+  nada, así que `api/services/sheets.py` reconstruye el separador según el
+  estado. Sin esto el tracker mostraba como activas las 3.101 tareas terminadas
+  y el historial salía vacío.
+* **La escritura arranca encendida** (`BACKEND_TASKS_WRITE_ENABLED` pasa a ser
+  parada de emergencia). La razón para tenerla apagada era que Supabase fuera
+  una copia estática de la migración; con la aplicación leyendo y escribiendo
+  ahí, dejarla apagada solo garantiza perder cada guardado.
+* **Ninguna prueba escribe en producción.** `tests/conftest.py` desconecta las
+  credenciales para toda la sesión de pytest; las pruebas que necesitan base
+  usan `MemoryEngine`. Se añadió después de que una corrida dejara una tarea, su
+  índice, su folio y una línea de bitácora en la base real.
+
+### 8.6 Lo que sigue sin tener dónde guardarse
+
+Tres bloques del formulario de Pre Work Order —**viáticos, transporte e
+ingeniería**— no tienen tabla en el esquema. No se inventó una: el guardado
+devuelve un aviso que llega hasta la respuesta del endpoint y el detalle queda
+en la nota de Obsidian. Lo mismo con las columnas del formulario que `tasks` no
+tiene (`CLIENTE`, `REQUISITOR`, `CONTACTO`, `CELULAR`, `FECHA_COTIZACION`,
+`DETALLES_EXTRA`).
+
+Sigue pendiente de las fases anteriores: la concurrencia (Fase 2 — el Gatekeeper
+es un `dict` en memoria y la secuencia de work orders se deduce del máximo de
+`work_orders`, lo que quita el fallo sistemático pero no la carrera) y la
+autenticación (Fase 4 — `profiles` existe y está vacía, y `/api/login` sigue
+comparando contra `DEV_LOGIN_USERS`; lo que sí se añadió es la línea de
+auditoría en `system_log`).

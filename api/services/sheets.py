@@ -231,6 +231,59 @@ def _rows_to_values(rows, header_map):
     return values
 
 
+# --- Auto-archivado al leer -----------------------------------------------
+# En la hoja, las tareas terminadas viven debajo de un separador literal
+# "TAREAS REALIZADAS": `apiFetchStaffTrackerData` corta ahí y devuelve
+# `{data, history}`. En la base no hay filas por debajo de nada, así que el
+# separador se reconstruye al leer, colocando cada tarea de un lado o del otro
+# según su estado (avance al 100 %, estatus terminal o CUMPLIMIENTO = SI).
+#
+# Sin esto, la tabla del tracker mostraba TODO como activo —incluidas 3.101 de
+# las 4.626 tareas, que están terminadas— y el historial salía vacío. El
+# frontend no cambia: sigue viendo la misma forma que le daba Apps Script.
+
+SEPARADOR_ARCHIVO = "TAREAS REALIZADAS"
+
+
+def _valores_de_tareas(rows):
+    """Matriz de una hoja de tareas con su separador de archivadas."""
+    from api.services.tracker_rules import (
+        is_progress_complete_pct,
+        is_terminal_status,
+    )
+
+    def archivada(fila):
+        if is_progress_complete_pct(fila.get("avance")):
+            return True
+        if is_terminal_status(fila.get("status")):
+            return True
+        return str(fila.get("cumplimiento") or "").upper().strip() == "SI"
+
+    if not rows:
+        return None
+
+    # El mapa de columnas se calcula sobre TODAS las filas, no sobre cada
+    # grupo: si se hiciera por grupo, una columna que solo aparece en las
+    # archivadas desplazaría los encabezados entre una mitad y otra.
+    mapa = build_header_map(rows, TASK_HEADER_MAP)
+    headers = [h for h, _ in mapa]
+
+    def a_celdas(fila):
+        return [_celda(fila.get(col)) for _, col in mapa]
+
+    activas = [f for f in rows if not archivada(f)]
+    archivadas = [f for f in rows if archivada(f)]
+
+    values = [headers]
+    values.extend(a_celdas(f) for f in activas)
+    if archivadas:
+        separador = ["" for _ in headers]
+        separador[2 if len(headers) > 2 else 0] = SEPARADOR_ARCHIVO
+        values.append(separador)
+        values.extend(a_celdas(f) for f in archivadas)
+    return values
+
+
 # --- Resolución tolerante del nombre de hoja -------------------------------
 # `source_sheet` guarda el nombre tal como estaba en el Spreadsheet, sin
 # normalizar: hay capitalización mixta ("Sebastian Padilla (VENTAS)") y hojas
@@ -296,6 +349,34 @@ PPC_MASTER_SHEET = "PPCV3"
 _PLAN_SEMANAL_CACHE = {}
 
 
+# --- Hojas cuyo equivalente relacional cambió de nombre --------------------
+# La migración renombró varias hojas al pasarlas a tablas. El código legacy
+# sigue pidiéndolas por su nombre de hoja y, al no existir una tabla con ese
+# nombre, PostgREST respondía PGRST205 y `supabase_manager` devolvía `[]`: una
+# vista vacía indistinguible de "no hay nada", que es justo el fallo silencioso
+# que la Fase 0 se dedicó a erradicar.
+#
+# Solo están las que se pudieron confirmar contra el esquema real; una hoja sin
+# equivalente comprobado NO se adivina aquí.
+TABLAS_POR_HOJA = {
+    "AGENDA_PERSONAL": "personal_agenda",
+    "HABITOS_LOG": "habits_log",
+    "LOG_SISTEMA": "system_log",
+    "KPI_COTIZACIONES": "kpi_cotizaciones",
+    "PPC_BORRADORES": "ppc_borradores",
+    "BANCO_DATOS": "banco_datos",
+    "CATALOGOS": "catalogos",
+    "DB_WO_MATERIALES": "wo_materiales",
+    "DB_WO_MANO_OBRA": "wo_mano_obra",
+    "DB_WO_HERRAMIENTAS": "wo_herramientas",
+    "DB_WO_EQUIPOS": "wo_equipos",
+    "DB_WO_PROGRAMA": "wo_programa",
+    "DB_SITIOS": "sites",
+    "DB_PROYECTOS": "projects",
+    "WORK_ORDERS": "work_orders",
+}
+
+
 def folios_del_ppc_maestro():
     """Folios que `plan_semanal` marca como parte del PPC maestro."""
     if "folios" not in _PLAN_SEMANAL_CACHE:
@@ -341,6 +422,25 @@ def _filas_del_ppc_maestro():
             vistas.add(clave)
             unicas.append(fila)
     return unicas
+
+
+def _alta_en_directorio(values):
+    """
+    `append_row("DB_DIRECTORY", [nombre, depto, tipo])` -> alta en `people`.
+
+    La hoja `DB_DIRECTORY` es la tabla `people`, con las columnas renombradas
+    (`PEOPLE_HEADER_MAP`). Lo usa `apiResyncDirectory`.
+    """
+    fila = list(values or [])
+    nombre = str(fila[0] if fila else "").strip()
+    if not nombre:
+        return None
+    registro = {"nombre": nombre}
+    if len(fila) > 1 and str(fila[1]).strip():
+        registro["departamento"] = str(fila[1]).strip()
+    if len(fila) > 2 and str(fila[2]).strip():
+        registro["tipo_hoja"] = str(fila[2]).strip()
+    return sb_manager.insert("people", registro)
 
 
 class MockSheet:
@@ -427,7 +527,7 @@ class GSheetsManager:
         # una tabla `public.PPCV3` que no existe: PGRST205 en consola y una
         # tabla vacía con `success: true` para todos menos Toñita.
         elif str(sheet_name).strip().upper() == PPC_MASTER_SHEET:
-            values = _rows_to_values(_filas_del_ppc_maestro(), TASK_HEADER_MAP)
+            values = _valores_de_tareas(_filas_del_ppc_maestro())
             if values:
                 return values
 
@@ -442,9 +542,17 @@ class GSheetsManager:
                 return values
 
             rows = sb_manager.select("tasks", {"source_sheet": resolve_source_sheet("tasks", sheet_name)})
-            values = _rows_to_values(rows, TASK_HEADER_MAP)
+            values = _valores_de_tareas(rows)
             if values:
                 return values
+
+        # Nombres de hoja que en el esquema relacional son una tabla con otro
+        # nombre (ver TABLAS_POR_HOJA).
+        tabla = TABLAS_POR_HOJA.get(str(sheet_name).strip().upper())
+        if tabla:
+            res = sb_manager.get_sheet_values(tabla)
+            if res:
+                return res
 
         # Legacy path: sheet_name used directly as a Supabase table name
         # (only relevant for tables not covered by the relational schema).
@@ -458,45 +566,40 @@ class GSheetsManager:
                 return self.ss.worksheet(sheet_name).get_all_values()
             sheet = self.ss.worksheet(sheet_name)
             return sheet.get_all_values()
-        except Exception as e:
+        except Exception:
             return None
 
-    def write_values(self, sheet_name, values):
-        """
-        Reemplaza el contenido completo de una hoja/tabla.
-
-        Necesario para el motor del tracker (auto-archivado y reordenamiento
-        de filas), que recalcula la matriz entera. Precedencia:
-          1. Google Sheets real (gspread) -> clear + update.
-          2. Modo mock -> reemplazo en memoria.
-          3. Supabase relacional -> aún no soporta reemplazo de matriz; se
-             insertan solo las filas nuevas y se avisa por consola.
-        """
-        if not values:
-            return False
-        try:
-            if self.is_mock:
-                self.ss.sheets[sheet_name] = [list(r) for r in values]
-                return True
-
-            try:
-                sheet = self.ss.worksheet(sheet_name)
-            except gspread.WorksheetNotFound:
-                sheet = self.ss.add_worksheet(title=sheet_name, rows=max(len(values) + 50, 100), cols=26)
-
-            sheet.clear()
-            sheet.update(values)
-            return True
-        except Exception as e:
-            print(f"Error writing values to sheet {sheet_name}: {e}")
-            return False
+    # `write_values` —reemplazar la matriz completa de una hoja— se retiró.
+    #
+    # Era una operación de Google Sheets sin traducción a una base relacional:
+    # "reemplaza todas las filas" no se puede hacer contra una tabla sin borrar
+    # datos que nadie pidió borrar. Además era el punto donde se perdían los
+    # guardados: sin `credentials.json` caía al modo mock y escribía en un
+    # diccionario en memoria que muere con la invocación.
+    #
+    # El tracker escribe ahora por `backend/services/persistencia.py`, fila a
+    # fila y por clave, y los KPIs por `tracker_store.write_quote_metrics_to_sheet`,
+    # que inserta una instantánea en `kpi_cotizaciones`.
 
     def append_row(self, sheet_name, values):
-        # Using Supabase instead of Google Sheets
-        res = sb_manager.append_row(sheet_name, values)
-        if res:
-            return res
-            
+        # El nombre de hoja se traduce a su tabla real antes de insertar: sin
+        # esto, `append_row("DB_DIRECTORY", ...)` preguntaba por una tabla
+        # `public.DB_DIRECTORY` que no existe y el alta se perdía en silencio.
+        destino = str(sheet_name).strip().upper()
+        if destino == "DB_DIRECTORY":
+            res = _alta_en_directorio(values)
+            if res:
+                return res
+        else:
+            tabla = TABLAS_POR_HOJA.get(destino, sheet_name)
+            res = sb_manager.append_row(tabla, values)
+            if res:
+                return res
+
+        if sb_manager.is_configured:
+            print(f"[sheets] append_row({sheet_name}): no se pudo insertar en la base.")
+            return None
+
         try:
             if self.is_mock:
                 try:

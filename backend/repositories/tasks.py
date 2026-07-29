@@ -102,6 +102,27 @@ class TaskRepository:
             self._indice_hojas = indice
         return self._indice_hojas.get(_clave_hoja(pedido), pedido)
 
+    def hoja_existe(self, sheet_name: str) -> bool:
+        """
+        ¿Hay ya una partición con ese nombre?
+
+        Distinto de `resolver_hoja`, que devuelve lo pedido cuando no hay
+        coincidencia y por tanto no permite distinguir "existe con ese mismo
+        nombre" de "no existe".
+        """
+        self.resolver_hoja(sheet_name)  # asegura el índice
+        return _clave_hoja(sheet_name) in (self._indice_hojas or {})
+
+    def nombre_de_persona(self, valor: Any) -> Optional[str]:
+        """El `people.nombre` almacenado, para no estrenar hojas mal escritas."""
+        buscado = normalize_staff_name(primera_persona(valor))
+        if not buscado:
+            return None
+        for fila in self.engine.select("people", columnas=["nombre"]):
+            if normalize_staff_name(fila.get("nombre")) == buscado:
+                return fila.get("nombre")
+        return None
+
     def invalidar_caches(self) -> None:
         self._indice_hojas = None
         self._personas = None
@@ -221,10 +242,9 @@ class TaskRepository:
         """
         if not self.settings.escritura_habilitada:
             raise EscrituraDeshabilitada(
-                "La escritura de tareas está deshabilitada. `SupabaseSync` aún no está "
-                f"desplegado, así que Supabase no refleja lo que Sheets tiene hoy; "
-                f"escribir ahora pisaría datos vivos. Actívala con BACKEND_TASKS_WRITE_ENABLED=1 "
-                f"cuando el puente esté desplegado y la base re-sincronizada."
+                "La escritura de tareas está deshabilitada por BACKEND_TASKS_WRITE_ENABLED=0. "
+                "Quita esa variable (o ponla en 1) para volver a guardar en la base; "
+                "mientras esté apagada, ningún guardado del tracker se persiste."
             )
         if not tareas:
             return []
@@ -233,7 +253,10 @@ class TaskRepository:
         if not filas:
             return []
 
-        self._validar_altas(filas)
+        existentes = self.por_dedupe_keys([f[CLAVE_UPSERT] for f in filas])
+        self._validar_altas(filas, existentes)
+        for fila in filas:
+            _completar_obligatorias(fila, existentes.get(fila[CLAVE_UPSERT]))
 
         guardadas: List[Dict[str, Any]] = []
         with self.engine.transaccion():
@@ -243,7 +266,9 @@ class TaskRepository:
                 )
         return [TaskRead.model_validate(f) for f in guardadas]
 
-    def _validar_altas(self, filas: Sequence[Dict[str, Any]]) -> None:
+    def _validar_altas(
+        self, filas: Sequence[Dict[str, Any]], existentes: Dict[str, TaskRead]
+    ) -> None:
         """
         Comprueba que las filas **nuevas** traigan las columnas NOT NULL que no
         tienen DEFAULT.
@@ -254,10 +279,9 @@ class TaskRepository:
         aborta con 23502. Se detecta aquí para devolver qué falta y en qué
         folio, en vez de un error crudo de Postgres a mitad del lote.
 
-        Solo aplica a las altas: en una actualización el merge conserva lo que
-        ya está en la base.
+        Solo aplica a las altas: para una actualización, `_completar_obligatorias`
+        rellena lo que falte desde la fila ya almacenada.
         """
-        existentes = set(self.por_dedupe_keys([f[CLAVE_UPSERT] for f in filas]))
         faltantes = [
             (fila.get("folio"), sorted(OBLIGATORIAS_AL_INSERTAR - set(fila)))
             for fila in filas
@@ -268,6 +292,50 @@ class TaskRepository:
             raise ColumnaObligatoriaFaltante(
                 f"No se puede dar de alta una tarea sin las columnas obligatorias: {detalle}"
             )
+
+
+def _completar_obligatorias(fila: Dict[str, Any], previa: Optional[TaskRead]) -> None:
+    """
+    Rellena desde la fila almacenada las columnas NOT NULL que la petición no
+    trajo.
+
+    Sin esto, **toda actualización parcial fallaba con un 400**. La razón es
+    que un upsert de PostgREST es un `INSERT ... ON CONFLICT DO UPDATE`, y
+    Postgres valida las restricciones NOT NULL sobre la tupla del INSERT
+    *antes* de resolver el conflicto. Guardar solo el AVANCE de una tarea que
+    ya existe mandaba `{dedupe_key, avance}` y la base contestaba:
+
+        null value in column "folio" of relation "tasks" violates not-null
+        constraint   (código 23502)
+
+    Comprobado contra la base real. Es el mismo agujero que tiene hoy
+    `SupabaseSync.buildTaskRow` en `CODIGO.js`, que también descarta las
+    columnas sin valor antes de mandar el lote.
+    """
+    if previa is None:
+        return
+    for columna in OBLIGATORIAS_AL_INSERTAR:
+        if fila.get(columna) is None:
+            valor = getattr(previa, columna, None)
+            if valor is not None:
+                fila[columna] = valor
+
+    # `source_sheet` de una fila que ya existe NO se pisa: manda el dueño
+    # almacenado.
+    #
+    # Para los folios con iniciales de persona (`JO-0009`) da igual: la hoja va
+    # dentro del `dedupe_key`, así que la fila encontrada ya es la de esa hoja.
+    # Importa para los folios de secuencia global (`PPC-`, `AV-`), cuya clave es
+    # el folio a secas y por tanto tienen **una sola** fila en toda la base.
+    # Sin esta regla, abrir una tarea desde el PPC maestro y guardarla se la
+    # llevaría de la hoja de su responsable, y una distribución lateral se la
+    # robaría al dueño anterior.
+    #
+    # Es una divergencia deliberada con `SupabaseSync.mirrorBatch` de
+    # `CODIGO.js`, que sí reescribe `source_sheet` en cada espejo; conviene
+    # alinear el puente en esa dirección cuando se despliegue.
+    if previa.source_sheet:
+        fila["source_sheet"] = previa.source_sheet
 
 
 def _agrupar_por_columnas(filas: Iterable[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
