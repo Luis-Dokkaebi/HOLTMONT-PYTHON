@@ -56,6 +56,20 @@ class DataEngine(Protocol):
         """Inserta o actualiza por `en_conflicto`. Devuelve las filas resultantes."""
         ...
 
+    def insertar(self, tabla: str, filas: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        INSERT sin resolución de conflicto.
+
+        Para las tablas que no tienen una clave con la que hacer upsert:
+        `system_log` es un apéndice (cada evento es una fila nueva) y
+        `task_involucrados` es una proyección que se reemplaza por completo.
+        """
+        ...
+
+    def borrar(self, tabla: str, donde: Dict[str, Any]) -> None:
+        """DELETE con filtros de igualdad. Sin filtros no borra nada: lanza."""
+        ...
+
     @contextmanager
     def transaccion(self) -> Iterator["DataEngine"]:
         """Contexto transaccional. En PostgREST no hay tal cosa y se documenta."""

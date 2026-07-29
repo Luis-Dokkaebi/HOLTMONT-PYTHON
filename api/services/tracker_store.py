@@ -3,9 +3,15 @@
 ORQUESTADOR DEL TRACKER — capa de persistencia sobre tracker_rules
 ======================================================================
 Aplica las reglas de negocio (idénticas a las de CODIGO.js) sobre los
-datos reales y los persiste con `gs_manager`. Los imports de la capa de
-datos son perezosos a propósito: `tracker_rules` debe poder probarse sin
-credenciales de Supabase.
+datos reales y los persiste en Supabase: cada fila cae en la partición
+`source_sheet` de su dueño, en `tasks` o en `quotes` según la hoja.
+
+La lectura sigue entrando por `gs_manager`, que reconstruye la matriz de la
+hoja desde las tablas; la escritura va por `backend/services/persistencia.py`,
+que trabaja con columnas y claves en vez de con una matriz de texto.
+
+Los imports de la capa de datos son perezosos a propósito: `tracker_rules`
+debe poder probarse sin credenciales de Supabase.
 """
 
 from __future__ import annotations
@@ -14,7 +20,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from api.services import tracker_rules as rules
@@ -45,14 +51,6 @@ def read_values(sheet_name: str) -> List[List[Any]]:
     except Exception as exc:  # pragma: no cover - depende de la infraestructura
         print(f"[tracker_store] No se pudo leer {sheet_name}: {exc}")
         return []
-
-
-def write_values(sheet_name: str, values: List[List[Any]]) -> bool:
-    try:
-        return bool(_manager().write_values(sheet_name, values))
-    except Exception as exc:  # pragma: no cover
-        print(f"[tracker_store] No se pudo escribir {sheet_name}: {exc}")
-        return False
 
 
 def read_rows(sheet_name: str):
@@ -113,14 +111,134 @@ def send_to_outlook(payload: Dict[str, Any]) -> Dict[str, Any]:
 # Guardado de tareas
 # ----------------------------------------------------------------------
 
-def _persist_batch(sheet_name: str, tasks: List[Dict[str, Any]], skip_notify: bool = False) -> rules.BatchResult:
+def _persistencia():
+    """
+    Puente hacia la base relacional, construido en cada llamada.
+
+    Diferido a propósito: `tracker_rules` y este módulo tienen que poder
+    importarse (y probarse) sin credenciales de Supabase, y en serverless cada
+    invocación es un proceso nuevo, así que cachear el motor solo escondería de
+    qué entorno vino.
+    """
+    from backend.services.persistencia import PersistenciaTracker
+
+    return PersistenciaTracker()
+
+
+# Encabezados con los que se estrena la hoja de alguien que todavía no tiene
+# tareas. Sin esto, el primer guardado de una persona nueva moría con "Sin
+# cabeceras válidas": `apply_batch_update` necesita una fila de encabezados para
+# saber en qué columna va cada dato, y una partición vacía no tiene ninguna.
+# Son los nombres de `TASK_HEADER_MAP` / `QUOTE_HEADER_MAP`, es decir, los
+# mismos que devuelve la lectura cuando la hoja sí tiene filas.
+ENCABEZADOS_TAREA = [
+    "FOLIO", "RESPONSABLE", "AREA", "FECHA", "CLASIFICACION", "CONCEPTO", "AVANCE",
+    "FECHA_ESTIMADA_FIN", "RELOJ", "RESTRICCIONES", "PRIORIDAD", "RIESGOS",
+    "FECHA_RESPUESTA", "CUMPLIMIENTO", "COMENTARIOS", "ESTATUS",
+]
+ENCABEZADOS_VENTAS = [
+    "FOLIO", "AREA", "CLIENTE", "CONCEPTO", "CLASIFICACION", "VENDEDOR", "F. VISITA",
+    "F. INICIO", "F. ENTREGA", "DIAS", "AVANCE", "ESTATUS", "COMENTARIOS", "REQUISITOR",
+    "PRIO. COT.", "INFO CLIENTE", "F2", "COTIZACION", "TIMELINE", "LAYOUT", "MONTO",
+]
+
+
+def _matriz_de_trabajo(sheet_name: str) -> List[List[Any]]:
+    """La matriz de la hoja, o solo sus encabezados si la partición está vacía."""
     values = read_values(sheet_name)
-    result = rules.apply_batch_update(values, tasks, sheet_name, skip_notify=skip_notify)
-    if result.success:
-        write_values(sheet_name, result.values)
-        for payload in result.notifications:
-            send_to_outlook(payload)
+    if values:
+        return values
+    return [list(ENCABEZADOS_VENTAS if rules.is_sales_sheet(sheet_name) else ENCABEZADOS_TAREA)]
+
+
+def _secuencia_desde_la_base(persistencia, sheet_name: str):
+    """
+    Proveedor de consecutivos para `apply_batch_update`, anclado en la base.
+
+    El proveedor por defecto de `tracker_rules` es un contador en memoria del
+    proceso; en serverless devolvía 1001 en cada invocación y la segunda tarea
+    sin folio de una hoja acababa con el mismo que la primera. Aquí se parte del
+    mayor consecutivo que ya existe. El folio se rellena a cuatro dígitos, que
+    es como están los 4.626 existentes (`SP-0007`, `AV-3250`).
+
+    La lectura es perezosa: solo se consulta la base si el lote trae de verdad
+    alguna fila sin folio.
+    """
+    prefijo = rules.generate_prefix(sheet_name)
+    estado = {"n": None}
+
+    def siguiente(_clave: str) -> str:
+        if estado["n"] is None:
+            estado["n"] = persistencia.ultimo_consecutivo(prefijo, sheet_name)
+        estado["n"] += 1
+        return str(estado["n"]).zfill(4)
+
+    return siguiente
+
+
+def _persist_batch(sheet_name: str, tasks: List[Dict[str, Any]], skip_notify: bool = False,
+                   username: str = "", persistencia=None) -> rules.BatchResult:
+    """
+    Aplica las reglas y **persiste el resultado en Supabase**.
+
+    Las dos mitades tienen dueños distintos y conviene verlas separadas:
+
+    1. `rules.apply_batch_update` decide qué pasa con cada fila (búsqueda por
+       folio, gatekeeper por `_tempId`, fallback CONCEPTO+FECHA, asignación de
+       folio con prefijo, estatus por defecto y notificaciones). Sigue operando
+       sobre la matriz de la hoja porque ahí está la paridad probada con
+       `CODIGO.js`, y esa matriz ahora se construye leyendo la base.
+    2. `PersistenciaTracker` escribe las filas resultantes en `tasks` o en
+       `quotes`, cada una bajo el `source_sheet` de su dueño.
+
+    Antes, el paso 2 era `gs_manager.write_values()`, que sin `credentials.json`
+    cae en el modo mock y guarda en un diccionario en memoria. En Vercel ese
+    diccionario muere al terminar la invocación: el usuario veía "Guardado
+    exitoso" y su captura no existía en ningún lado. Es el fallo que describe
+    §1.8 del plan y el motivo de esta integración.
+
+    `persistencia` se recibe de fuera cuando un mismo guardado toca varias
+    hojas (papa caliente, reverse sync): el puente cachea el índice de
+    `source_sheet` y el directorio de `people`, y rehacerlo por cada hoja
+    multiplicaría las lecturas de un guardado.
+    """
+    persistencia = persistencia or _persistencia()
+    values = _matriz_de_trabajo(sheet_name)
+    result = rules.apply_batch_update(
+        values, tasks, sheet_name,
+        sequence_provider=_secuencia_desde_la_base(persistencia, sheet_name),
+        skip_notify=skip_notify,
+    )
+    if not result.success:
+        return result
+
+    guardado = persistencia.guardar(sheet_name, result.data)
+    if not guardado.exito:
+        # Un fallo de escritura NO puede salir como éxito: el frontend marcaría
+        # `_isNew = false` y borraría el borrador local del usuario.
+        return rules.BatchResult(result.values, [], False, 0, [], message=guardado.mensaje)
+
+    _auditar(persistencia, guardado, username)
+    for payload in result.notifications:
+        send_to_outlook(payload)
     return result
+
+
+def _auditar(persistencia, guardado, username: str) -> None:
+    """Una línea en `system_log` por fila guardada, como hacía `registrarLog()`."""
+    from backend.services import auditoria
+
+    auditoria.registrar_lote(
+        [
+            auditoria.evento(
+                username,
+                auditoria.ACCION_ACTUALIZAR,
+                auditoria.detalle_tarea(getattr(fila, "folio", None), guardado.hoja),
+            )
+            for fila in guardado.filas
+        ],
+        engine=persistencia.engine,
+    )
 
 
 def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: str = "") -> Dict[str, Any]:
@@ -134,6 +252,10 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
     routing = rules.resolve_tracker_target(person_name, username)
     target = routing["sheet"]
     is_antonia = target.upper() == rules.SALES_MASTER_SHEET.upper()
+    # Un solo puente para todo el guardado: la papa caliente y el reverse sync
+    # tocan varias hojas y cada uno rehaciéndolo volvería a leer el índice de
+    # `source_sheet` y el directorio de `people`.
+    persistencia = _persistencia()
 
     processed: List[Dict[str, Any]] = []
     for raw_task in tasks:
@@ -143,13 +265,17 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
             master = find_row_object(target, folio) if folio else None
             hot = rules.apply_hot_potato(target, task, master, username)
             if hot:
+                # Distribución lateral: cada trabajador recibe la fila en SU
+                # hoja, es decir, en su propia partición `source_sheet`.
                 for worker, row in zip(hot["workers"], hot["rows"]):
                     worker_sheet = resolve_worker_sheet(worker)
                     if worker_sheet:
-                        _persist_batch(worker_sheet, [row])
+                        _persist_batch(worker_sheet, [row], username=username,
+                                       persistencia=persistencia)
         processed.append(task)
 
-    result = _persist_batch(target, processed)
+    result = _persist_batch(target, processed, username=username,
+                            persistencia=persistencia)
     if not result.success:
         return {"success": False, "message": result.message}
 
@@ -165,7 +291,8 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
                 find_row_object(rules.SALES_MASTER_SHEET, folio),
             )
             if payload:
-                _persist_batch(rules.SALES_MASTER_SHEET, [payload], skip_notify=True)
+                _persist_batch(rules.SALES_MASTER_SHEET, [payload], skip_notify=True,
+                               username=username, persistencia=persistencia)
 
     return {
         "success": True,
@@ -186,7 +313,7 @@ def update_task(person_name: str, task: Dict[str, Any], username: str = "") -> D
 def update_ppcv3(task: Dict[str, Any], username: str = "") -> Dict[str, Any]:
     """Equivalente de `apiUpdatePPCV3`: PPCV4 para Toñita, PPCV3 para el resto."""
     sheet = "PPCV4" if rules.normalize_staff_name(username) == "ANTONIA VENTAS" else "PPCV3"
-    result = _persist_batch(sheet, [dict(task)], skip_notify=True)
+    result = _persist_batch(sheet, [dict(task)], skip_notify=True, username=username)
     if not result.success:
         return {"success": False, "message": result.message}
     return {"success": True, "data": result.data[0] if result.data else None}
@@ -339,32 +466,51 @@ def check_gemini_key() -> Dict[str, Any]:
 
 
 def write_quote_metrics_to_sheet(month: Optional[int] = None, year: Optional[int] = None) -> Dict[str, Any]:
-    """Vuelca los KPIs a la hoja/tabla KPI_COTIZACIONES."""
-    metrics = fetch_quote_metrics(month, year)["metrics"]
-    rows: List[List[Any]] = [
-        ["KPI COTIZACIONES", "PERIODO", f"{metrics['month']}/{metrics['year']}", "GENERADO", rules.to_iso_z(datetime.utcnow())],
-        [],
-        ["INDICADOR", "VALOR"],
-        ["Cotizaciones totales", metrics["totalCount"]],
-        ["Ganadas", metrics["winLoss"]["ganada"]],
-        ["Perdidas", metrics["winLoss"]["perdida"]],
-        ["En proceso", metrics["winLoss"]["enProceso"]],
-        ["Tasa de cierre (%)", metrics["closeRate"]],
-        [],
-        ["CLASE", "SLA (días)", "TOTAL", "EN TIEMPO", "FUERA DE SLA", "PROMEDIO DÍAS", "% CUMPLIMIENTO"],
-    ]
-    for clase in ("A", "AA", "AAA"):
-        s = metrics["slaSummary"][clase]
-        rows.append([clase, s["slaLimit"], s["count"], s["ok"], s["fail"], s["avgDays"], s["pctOk"]])
-    rows.append([])
-    rows.append(["COTIZADOR", "TOTAL", "GANADAS", "PERDIDAS", "EN PROCESO"])
-    for v in metrics["byCotizadorArr"]:
-        rows.append([v["nombre"], v["total"], v["ganada"], v["perdida"], v["enProceso"]])
+    """
+    Guarda una instantánea de los KPIs de cotizaciones en `kpi_cotizaciones`.
 
-    width = max(len(r) for r in rows)
-    normalized = [r + [""] * (width - len(r)) for r in rows]
-    ok = write_values("KPI_COTIZACIONES", normalized)
-    return {"success": ok, "message": "KPI_COTIZACIONES actualizado" if ok else "No se pudo escribir la hoja de KPIs"}
+    En la hoja, esto pintaba un reporte de varias secciones (indicadores, SLA
+    por clase, desglose por cotizador). La tabla relacional tiene otra forma y
+    es mejor: `(departamento, total, ganadas, perdidas, snapshot_at)`, una fila
+    por cotizador y por corrida, así que las instantáneas se acumulan y se puede
+    ver la evolución en vez de solo el último volcado.
+
+    El reporte completo sigue disponible en `/api/legacy/quoteMetrics`, que lo
+    calcula al vuelo; lo que se persiste aquí es el histórico.
+    """
+    metrics = fetch_quote_metrics(month, year)["metrics"]
+    momento = datetime.now(timezone.utc).isoformat()
+
+    filas: List[Dict[str, Any]] = [{
+        # "TOTAL" es el agregado del periodo; los demás son por cotizador.
+        "departamento": "TOTAL",
+        "total": metrics["totalCount"],
+        "ganadas": metrics["winLoss"]["ganada"],
+        "perdidas": metrics["winLoss"]["perdida"],
+        "snapshot_at": momento,
+    }]
+    for v in metrics["byCotizadorArr"]:
+        filas.append({
+            "departamento": str(v["nombre"]).upper().strip() or "SIN ASIGNAR",
+            "total": v["total"],
+            "ganadas": v["ganada"],
+            "perdidas": v["perdida"],
+            "snapshot_at": momento,
+        })
+
+    try:
+        from backend.core.engine import construir_engine
+
+        construir_engine().insertar("kpi_cotizaciones", filas)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tracker_store] No se pudieron guardar los KPIs: {exc}")
+        return {"success": False, "message": f"No se pudieron guardar los KPIs: {exc}"}
+
+    return {
+        "success": True,
+        "message": (f"Instantánea de KPIs guardada: {len(filas)} fila(s) "
+                    f"para {metrics['month']}/{metrics['year']}."),
+    }
 
 
 def fetch_info_bank_companies(year: Any, month: Any) -> Dict[str, Any]:
@@ -401,6 +547,12 @@ def fetch_unified_agenda(username: str = "") -> Dict[str, Any]:
     """
     Equivalente de `apiFetchUnifiedAgenda`: tareas de trabajo del tracker del
     usuario, eventos personales y hábitos, en una sola respuesta.
+
+    Los eventos y los hábitos se filtran por `usuario_raw`, que es la columna
+    real de `personal_agenda` y `habits_log`. Antes se filtraba por `USUARIO`,
+    que no existe en ninguna de las dos: la condición nunca se cumplía y todo el
+    mundo veía la agenda de todo el mundo (27 eventos en total, así que el fallo
+    pasaba desapercibido).
     """
     target = username or ""
     work_tasks: List[Dict[str, Any]] = []
@@ -411,25 +563,34 @@ def fetch_unified_agenda(username: str = "") -> Dict[str, Any]:
             active, _history, _headers = read_rows(f"{target} (VENTAS)")
             work_tasks = list(active)
 
+    quien = rules.normalize_staff_name(username)
+
+    def es_del_usuario(fila: Dict[str, Any]) -> bool:
+        dueno = rules.pick_task_value(fila, ["USUARIO_RAW", "USUARIO"])
+        # Sin dueño la fila es de todos: así estaban las 27 filas migradas.
+        return not dueno or rules.normalize_staff_name(dueno) == quien
+
     personal_active, _h, _hd = read_rows("AGENDA_PERSONAL")
-    personal_events = [e for e in personal_active
-                       if not e.get("USUARIO") or str(e["USUARIO"]).upper() == str(username).upper()]
+    personal_events = [e for e in personal_active if es_del_usuario(e)]
 
     habits_active, _h2, _hd2 = read_rows("HABITOS_LOG")
-    habits = [h for h in habits_active
-              if not h.get("USUARIO") or str(h["USUARIO"]).upper() == str(username).upper()]
+    habits = [h for h in habits_active if es_del_usuario(h)]
 
     return {"success": True, "workTasks": work_tasks, "personalEvents": personal_events, "habits": habits}
 
 
 def log_date_change(payload: Dict[str, Any], username: str = "") -> Dict[str, Any]:
-    """Auditoría de cambios de fecha en la tabla de ventas."""
+    """
+    Auditoría de cambios de fecha en la tabla de ventas.
+
+    Escribía en una hoja `LOG_SISTEMA` que no existe en el esquema relacional
+    (la tabla se llama `system_log`), así que cada cambio de fecha se perdía sin
+    ruido. Ahora va donde están los otros 16.196 eventos.
+    """
+    from backend.services import auditoria
+
     detail = (f"Hoja: {payload.get('hoja', '-')} | Folio: {payload.get('folio', '-')} | "
               f"Campo: {payload.get('campo', '-')} | {payload.get('anterior') or '(vacío)'} -> "
               f"{payload.get('nuevo') or '(vacío)'}")
-    try:
-        _manager().append_row("LOG_SISTEMA", [rules.to_iso_z(datetime.utcnow()), username or "DESCONOCIDO",
-                                              "CAMBIO_FECHA", detail])
-    except Exception as exc:  # pragma: no cover
-        print(f"[tracker_store] No se pudo registrar el cambio de fecha: {exc}")
-    return {"success": True}
+    registrado = auditoria.registrar(username, auditoria.ACCION_CAMBIO_FECHA, detail)
+    return {"success": True, "logged": registrado}

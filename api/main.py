@@ -320,6 +320,22 @@ def api_login(creds: LoginRequest):
     if not user_found and gs_manager.is_mock:
         user_found = _login_desde_entorno(username_key, creds.password)
 
+    # Auditoría: `registrarLog()` de Apps Script deja una línea por intento de
+    # acceso y ahí están las 16.196 entradas históricas de `system_log`. El
+    # backend Python no escribía ninguna, así que desde la migración no había
+    # rastro de quién entró (§1.11 del plan).
+    try:
+        from backend.services import auditoria
+
+        auditoria.registrar(
+            username_key,
+            auditoria.ACCION_LOGIN,
+            f"Acceso exitoso ({user_found['role']})" if user_found
+            else "Acceso denegado: usuario o contraseña incorrectos",
+        )
+    except Exception as exc:  # noqa: BLE001 - auditar no puede impedir el login
+        print(f"[login] No se pudo auditar el acceso: {exc}")
+
     if user_found:
         return user_found
 

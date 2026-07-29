@@ -40,6 +40,41 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
 
 
 # --------------------------------------------------------------------------- #
+# 0. Ninguna prueba escribe en la base de produccion
+# --------------------------------------------------------------------------- #
+# Desde que el backend escribe de verdad en Supabase, una prueba que llame a un
+# endpoint de guardado con `.env` presente inserta filas en la base real. Ya
+# paso: una corrida de `test_backend_refactor.py` dejo una tarea, su renglon en
+# `plan_semanal`, su folio en `work_orders` y una linea en `system_log`.
+#
+# Aqui se desconectan las credenciales para toda la sesion de pytest. Las
+# pruebas que necesitan una base usan `MemoryEngine`, que reproduce el upsert
+# que fusiona, el NOT NULL con su 23502 y la reversion de la transaccion.
+#
+# Para correr a proposito contra una base real (una verificacion manual, no la
+# suite): HOLTMONT_TEST_ALLOW_DB=1. No lo pongas en CI.
+
+@pytest.fixture(scope="session", autouse=True)
+def _sin_base_de_produccion():
+    if os.environ.get("HOLTMONT_TEST_ALLOW_DB", "").strip() in {"1", "true", "yes"}:
+        yield
+        return
+
+    guardadas = {
+        clave: os.environ.pop(clave, None)
+        for clave in ("SUPABASE_URL", "SUPABASE_KEY", "DATABASE_URL")
+    }
+    os.environ["BACKEND_ENGINE"] = "memoria"
+    try:
+        yield
+    finally:
+        os.environ.pop("BACKEND_ENGINE", None)
+        for clave, valor in guardadas.items():
+            if valor is not None:
+                os.environ[clave] = valor
+
+
+# --------------------------------------------------------------------------- #
 # 1. Servidor FastAPI compartido
 # --------------------------------------------------------------------------- #
 

@@ -1,11 +1,97 @@
 import json
 import os
+import re
 from datetime import datetime
-from api.services.sheets import gs_manager
 
 SEQUENCES_FILE = "sequences.json"
 
+# --- Persistencia de la Pre Work Order ------------------------------------
+# Cada bloque del formulario tiene su tabla en el esquema relacional. Los
+# nombres de hoja (`DB_WO_MATERIALES`) y los encabezados en mayúsculas siguen
+# siendo los del formulario; aquí se traducen a tabla y columnas.
+#
+# Tres bloques del formulario —viáticos, transporte e ingeniería— **no tienen
+# tabla** en la base. No se inventa una: se devuelve un aviso que llega hasta la
+# respuesta del endpoint, y el detalle queda en la nota de Obsidian, que sí los
+# recoge. Crear el esquema para ellos es trabajo aparte y con dueño (ver
+# docs/PLAN_BACKEND_PYTHON.md, Fase 5).
+
+TABLAS_WO = {
+    "DB_WO_MATERIALES": ("wo_materiales", {
+        "FOLIO": "folio", "CANTIDAD": "cantidad", "UNIDAD": "unidad", "TIPO": "tipo",
+        "DESCRIPCION": "descripcion", "COSTO": "costo", "ESPECIFICACION": "especificacion",
+        "TOTAL": "total", "RESIDENTE": "residente", "COMPRAS": "compras",
+        "CONTROLLER": "controller", "ORDEN_COMPRA": "orden_compra", "PAGOS": "pagos",
+        "ALMACEN": "almacen", "LOGISTICA": "logistica", "RESIDENTE_OBRA": "residente_obra",
+    }),
+    "DB_WO_MANO_OBRA": ("wo_mano_obra", {
+        "FOLIO": "folio", "CATEGORIA": "categoria", "SALARIO": "salario",
+        "PERSONAL": "personal", "SEMANAS": "semanas", "EXTRAS": "extras",
+        "NOCTURNO": "nocturno", "FIN_SEMANA": "fin_semana", "OTROS": "otros",
+        "TOTAL": "total",
+    }),
+    "DB_WO_HERRAMIENTAS": ("wo_herramientas", {
+        "FOLIO": "folio", "CANTIDAD": "cantidad", "UNIDAD": "unidad",
+        "DESCRIPCION": "descripcion", "COSTO": "costo", "TOTAL": "total",
+        "RESIDENTE": "residente", "CONTROLLER": "controller", "ALMACEN": "almacen",
+        "LOGISTICA": "logistica", "RESIDENTE_FIN": "residente_fin",
+    }),
+    "DB_WO_EQUIPOS": ("wo_equipos", {
+        "FOLIO": "folio", "CANTIDAD": "cantidad", "UNIDAD": "unidad", "TIPO": "tipo",
+        "DESCRIPCION": "descripcion", "ESPECIFICACION": "especificacion",
+        "DIAS": "dias", "HORAS": "horas", "COSTO": "costo", "TOTAL": "total",
+    }),
+    "DB_WO_PROGRAMA": ("wo_programa", {
+        "FOLIO": "folio", "DESCRIPCION": "descripcion", "FECHA": "fecha",
+        "DURACION": "duracion", "UNIDAD_DURACION": "unidad_duracion", "UNIDAD": "unidad",
+        "CANTIDAD": "cantidad", "PRECIO": "precio", "TOTAL": "total",
+        "RESPONSABLE": "responsable", "SECCION": "seccion", "ESTATUS": "estatus",
+    }),
+}
+
+# Columnas numéricas y de fecha de esas tablas: el formulario las manda como
+# texto ("10", "$1,000.00", "01/01/25") y Postgres las rechaza así.
+COLUMNAS_NUMERICAS = {
+    "cantidad", "costo", "total", "salario", "personal", "semanas", "extras",
+    "nocturno", "fin_semana", "otros", "dias", "horas", "duracion", "precio",
+}
+COLUMNAS_FECHA = {"fecha"}
+
+
+def _engine():
+    from backend.core.engine import construir_engine
+
+    return construir_engine()
+
+
+def _hay_base():
+    from backend.core.config import cargar_settings
+
+    cfg = cargar_settings()
+    return cfg.hay_sqlalchemy or cfg.hay_postgrest
+
+
 def get_next_sequence(key, increment=False):
+    """
+    Siguiente consecutivo.
+
+    Con base de datos, el de work orders se deduce de `work_orders`: el folio
+    tiene la forma `####<INI-CLIENTE> <Depto> <ddmmyy>` y los cuatro primeros
+    dígitos son la secuencia. `sequences.json` no sirve en el despliegue —vive
+    en un filesystem efímero, así que cada arranque en frío volvía a empezar en
+    1000 y repetía folios ya usados—, y ahora que `work_orders.folio` es clave
+    primaria un folio repetido hace fallar el guardado en vez de duplicar en
+    silencio. Sigue usándose el archivo cuando no hay base (desarrollo local).
+
+    No es un candado: dos peticiones simultáneas pueden leer el mismo máximo.
+    La solución definitiva es una secuencia de Postgres (Fase 2 del plan); esto
+    quita el fallo sistemático, no la carrera.
+    """
+    if key == "WORKORDER_SEQ" and _hay_base():
+        maximo = _max_secuencia_work_orders()
+        if maximo is not None:
+            return str(maximo + 1 if increment else maximo)
+
     sequences = {}
     if os.path.exists(SEQUENCES_FILE):
         try:
@@ -23,30 +109,96 @@ def get_next_sequence(key, increment=False):
 
     return str(current_val)
 
+
+def _max_secuencia_work_orders():
+    """Mayor consecutivo ya usado en `work_orders`, o None si no se pudo leer."""
+    try:
+        folios = _engine().select("work_orders", columnas=["folio"])
+    except Exception as exc:  # noqa: BLE001
+        print(f"[work_order] No se pudo leer la secuencia desde la base: {exc}")
+        return None
+    maximo = 1000
+    for fila in folios:
+        coincide = re.match(r"^(\d{4})", str(fila.get("folio") or ""))
+        if coincide:
+            maximo = max(maximo, int(coincide.group(1)))
+    return maximo
+
 def format_date_value(val):
     if not val:
         return ""
     return str(val)
 
+
+def _numero(valor):
+    """`"$ 1,250.50"` -> 1250.5; lo que no es número -> None (la columna admite nulo)."""
+    from backend.schemas.hoja import a_numero
+
+    return a_numero(valor)
+
+
+def _fecha(valor):
+    from backend.schemas.hoja import a_fecha
+
+    fecha = a_fecha(valor)
+    return fecha.isoformat() if fecha else None
+
+
 def save_child_data(sheet_name, items, headers):
+    """
+    Guarda un bloque hijo de la work order (materiales, mano de obra, …).
+
+    Antes escribía con `gs_manager.append_row(sheet_name, ...)`, que usaba el
+    nombre de hoja como nombre de tabla: `public.DB_WO_MATERIALES` no existe,
+    PostgREST devolvía PGRST205 y el bloque entero se perdía sin que nadie se
+    enterara.
+
+    Devuelve `None` si todo fue bien, o `(clase, texto)` con `clase` en
+    `{"error", "aviso"}`: un rechazo de la base es un error que el usuario tiene
+    que ver, y un bloque sin tabla en el esquema es un aviso, porque no hay nada
+    que reintentar hasta que exista esa tabla.
+    """
     if not items:
-        return
+        return None
 
-    # Ensure sheet exists or create headers
-    current_values = gs_manager.get_sheet_values(sheet_name)
-    if not current_values or len(current_values) == 0:
-        # Sheet doesn't exist or is empty, add headers
-        gs_manager.append_row(sheet_name, headers)
+    destino = TABLAS_WO.get(sheet_name)
+    if not destino:
+        return ("aviso", f"{sheet_name} no tiene tabla en la base todavía: "
+                         f"{len(items)} fila(s) solo quedaron en la nota de Obsidian")
 
-    # Map items to rows
+    tabla, columnas = destino
+    filas = []
     for item in items:
-        row = []
-        for h in headers:
-            val = item.get(h)
-            if val is None:
-                val = item.get(h.replace(" ", "_"), "")
-            row.append(str(val))
-        gs_manager.append_row(sheet_name, row)
+        fila = {}
+        for encabezado, columna in columnas.items():
+            valor = item.get(encabezado)
+            if valor is None:
+                valor = item.get(encabezado.replace(" ", "_"))
+            if valor is None or str(valor).strip() == "":
+                continue
+            if columna in COLUMNAS_NUMERICAS:
+                valor = _numero(valor)
+            elif columna in COLUMNAS_FECHA:
+                valor = _fecha(valor)
+            if valor is not None:
+                fila[columna] = valor
+        if fila.get("folio"):
+            filas.append(fila)
+
+    if not filas:
+        return None
+    try:
+        # PostgREST exige las mismas claves en todo el arreglo; se agrupa igual
+        # que en los repositorios.
+        grupos = {}
+        for fila in filas:
+            grupos.setdefault(tuple(sorted(fila)), []).append(fila)
+        motor = _engine()
+        for grupo in grupos.values():
+            motor.insertar(tabla, grupo)
+    except Exception as exc:  # noqa: BLE001
+        return ("error", f"no se pudieron guardar {len(filas)} fila(s) de {tabla}: {exc}")
+    return None
 
 def generate_work_order_folio(client_name, dept_name):
     # Get next sequence
@@ -175,9 +327,17 @@ def save_to_obsidian(item, item_id):
 
 def process_and_save_work_order(items, active_user):
     generated_ids = []
+    errores = []
+    avisos = []
+
+    def guardar_hijos(sheet_name, items_hijos, headers):
+        """Guarda un bloque y acumula lo que no se pudo guardar."""
+        resultado = save_child_data(sheet_name, items_hijos, headers)
+        if resultado:
+            clase, texto = resultado
+            (errores if clase == "error" else avisos).append(texto)
 
     # Config (Mirrors APP_CONFIG)
-    PPC_SHEET_NAME = "PPCV3"
     WO_MATERIALS_SHEET = "DB_WO_MATERIALES"
     WO_LABOR_SHEET = "DB_WO_MANO_OBRA"
     WO_TOOLS_SHEET = "DB_WO_HERRAMIENTAS"
@@ -186,11 +346,6 @@ def process_and_save_work_order(items, active_user):
     WO_VIATICOS_SHEET = "DB_WO_VIATICOS"
     WO_TRANSPORTE_SHEET = "DB_WO_TRANSPORTE"
     WO_INGENIERIA_SHEET = "DB_WO_INGENIERIA"
-
-    # Ensure main sheet exists
-    current_ppc = gs_manager.get_sheet_values(PPC_SHEET_NAME)
-    if not current_ppc or len(current_ppc) == 0:
-        gs_manager.append_row(PPC_SHEET_NAME, ["ID", "ESPECIALIDAD", "DESCRIPCION", "RESPONSABLE", "FECHA", "RELOJ", "CUMPLIMIENTO", "ARCHIVO", "COMENTARIOS", "COMENTARIOS PREVIOS", "ESTATUS", "AVANCE", "CLASIFICACION", "PRIORIDAD", "RIESGOS", "FECHA_RESPUESTA", "DETALLES_EXTRA", "CLIENTE", "TRABAJO", "REQUISITOR", "CONTACTO", "CELULAR", "FECHA_COTIZACION"])
 
     for item in items:
         # ID Generation
@@ -203,6 +358,12 @@ def process_and_save_work_order(items, active_user):
                 item_id = "PPC-" + str(random.randint(100000, 999999))
 
         generated_ids.append(item_id)
+
+        # El folio se registra ANTES que los bloques hijos: `wo_materiales`,
+        # `wo_mano_obra`, `wo_herramientas`, `wo_equipos` y `wo_programa`
+        # apuntan a `work_orders.folio` con una clave foránea, así que
+        # insertarlos primero los rechaza con un 409.
+        _registrar_work_order(item_id)
 
         # Child Data Saving
         # A. Materiales
@@ -232,7 +393,7 @@ def process_and_save_work_order(items, active_user):
                     "RESIDENTE_OBRA": pc.get("residenteObra", "")
                 })
                 mat_items.append(new_m)
-            save_child_data(WO_MATERIALS_SHEET, mat_items, ["FOLIO", "CANTIDAD", "UNIDAD", "TIPO", "DESCRIPCION", "COSTO", "ESPECIFICACION", "TOTAL", "RESIDENTE", "COMPRAS", "CONTROLLER", "ORDEN_COMPRA", "PAGOS", "ALMACEN", "LOGISTICA", "RESIDENTE_OBRA"])
+            guardar_hijos(WO_MATERIALS_SHEET, mat_items, ["FOLIO", "CANTIDAD", "UNIDAD", "TIPO", "DESCRIPCION", "COSTO", "ESPECIFICACION", "TOTAL", "RESIDENTE", "COMPRAS", "CONTROLLER", "ORDEN_COMPRA", "PAGOS", "ALMACEN", "LOGISTICA", "RESIDENTE_OBRA"])
 
         # B. Mano de Obra
         if item.get("manoObra"):
@@ -255,7 +416,7 @@ def process_and_save_work_order(items, active_user):
                 new_l["HORAS_REQUERIDAS"] = l.get("horas_req", "")
                 new_l["TOTAL"] = l.get("total", "")
                 labor_items.append(new_l)
-            save_child_data(WO_LABOR_SHEET, labor_items, ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "UNIDAD", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "EPP_6_PORCIENTO", "COSTO_HORA", "HORAS_REQUERIDAS", "TOTAL"])
+            guardar_hijos(WO_LABOR_SHEET, labor_items, ["FOLIO", "CATEGORIA", "SALARIO", "PERSONAL", "SEMANAS", "UNIDAD", "EXTRAS", "NOCTURNO", "FIN_SEMANA", "OTROS", "EPP_6_PORCIENTO", "COSTO_HORA", "HORAS_REQUERIDAS", "TOTAL"])
 
         # C. Herramientas
         if item.get("herramientas"):
@@ -279,7 +440,7 @@ def process_and_save_work_order(items, active_user):
                     "RESIDENTE_FIN": pc.get("residenteFin", "")
                 })
                 tool_items.append(new_t)
-            save_child_data(WO_TOOLS_SHEET, tool_items, ["FOLIO", "CANTIDAD", "UNIDAD", "DESCRIPCION", "COSTO", "TOTAL", "RESIDENTE", "CONTROLLER", "ALMACEN", "LOGISTICA", "RESIDENTE_FIN"])
+            guardar_hijos(WO_TOOLS_SHEET, tool_items, ["FOLIO", "CANTIDAD", "UNIDAD", "DESCRIPCION", "COSTO", "TOTAL", "RESIDENTE", "CONTROLLER", "ALMACEN", "LOGISTICA", "RESIDENTE_FIN"])
 
         # D. Equipos
         if item.get("equipos"):
@@ -298,7 +459,7 @@ def process_and_save_work_order(items, active_user):
                 new_e["COSTO"] = e.get("cost", "")
                 new_e["TOTAL"] = e.get("total", "")
                 eq_items.append(new_e)
-            save_child_data(WO_EQUIP_SHEET, eq_items, ["FOLIO", "CANTIDAD", "UNIDAD", "TIPO", "DESCRIPCION", "ESPECIFICACION", "DIAS", "HORAS", "COSTO", "TOTAL"])
+            guardar_hijos(WO_EQUIP_SHEET, eq_items, ["FOLIO", "CANTIDAD", "UNIDAD", "TIPO", "DESCRIPCION", "ESPECIFICACION", "DIAS", "HORAS", "COSTO", "TOTAL"])
 
         # E. Programa
         if item.get("programa"):
@@ -334,7 +495,7 @@ def process_and_save_work_order(items, active_user):
                     new_p["ESTATUS"] = "BLOQUEADO_SIN_ARCHIVO"
 
                 prog_items.append(new_p)
-            save_child_data(WO_PROGRAM_SHEET, prog_items, ["FOLIO", "DESCRIPCION", "FECHA", "DURACION", "UNIDAD_DURACION", "UNIDAD", "CANTIDAD", "PRECIO", "TOTAL", "RESPONSABLE", "FECHA_INICIO", "FECHA_ENTREGA", "ARCHIVO", "SECCION", "ESTATUS"])
+            guardar_hijos(WO_PROGRAM_SHEET, prog_items, ["FOLIO", "DESCRIPCION", "FECHA", "DURACION", "UNIDAD_DURACION", "UNIDAD", "CANTIDAD", "PRECIO", "TOTAL", "RESPONSABLE", "FECHA_INICIO", "FECHA_ENTREGA", "ARCHIVO", "SECCION", "ESTATUS"])
 
         # F. Viaticos
         if item.get("viaticos"):
@@ -347,7 +508,7 @@ def process_and_save_work_order(items, active_user):
                 new_v["COSTO_UNITARIO"] = v.get("costo_unitario", "")
                 new_v["TOTAL"] = v.get("total", "")
                 viaticos_items.append(new_v)
-            save_child_data(WO_VIATICOS_SHEET, viaticos_items, ["FOLIO", "CONCEPTO", "CANTIDAD", "COSTO_UNITARIO", "TOTAL"])
+            guardar_hijos(WO_VIATICOS_SHEET, viaticos_items, ["FOLIO", "CONCEPTO", "CANTIDAD", "COSTO_UNITARIO", "TOTAL"])
 
         # G. Transporte
         if item.get("transporte"):
@@ -362,7 +523,7 @@ def process_and_save_work_order(items, active_user):
                 new_t["COSTO_TOTAL"] = t.get("costo_total", "")
                 new_t["NOTAS_CONTROL"] = t.get("notas_control", "")
                 transporte_items.append(new_t)
-            save_child_data(WO_TRANSPORTE_SHEET, transporte_items, ["FOLIO", "VEHICULO", "CHOFER", "TIEMPO", "LTS_GASOLINA", "COSTO_TOTAL", "NOTAS_CONTROL"])
+            guardar_hijos(WO_TRANSPORTE_SHEET, transporte_items, ["FOLIO", "VEHICULO", "CHOFER", "TIEMPO", "LTS_GASOLINA", "COSTO_TOTAL", "NOTAS_CONTROL"])
 
         # H. Ingenieria
         if item.get("ingenieria"):
@@ -375,7 +536,7 @@ def process_and_save_work_order(items, active_user):
                 new_i["COSTO_HORA"] = i.get("costo_hora", "")
                 new_i["TOTAL"] = i.get("total", "")
                 ingenieria_items.append(new_i)
-            save_child_data(WO_INGENIERIA_SHEET, ingenieria_items, ["FOLIO", "ENTREGABLE", "HORAS_DISENO", "COSTO_HORA", "TOTAL"])
+            guardar_hijos(WO_INGENIERIA_SHEET, ingenieria_items, ["FOLIO", "ENTREGABLE", "HORAS_DISENO", "COSTO_HORA", "TOTAL"])
 
         # I. Detalles Extra JSON
         detalles_extra = ""
@@ -415,42 +576,89 @@ def process_and_save_work_order(items, active_user):
             'DETALLES_EXTRA': detalles_extra
         }
 
-        # Save to PPCV3
-        ppc_headers = ["ID", "ESPECIALIDAD", "DESCRIPCION", "RESPONSABLE", "FECHA", "RELOJ", "CUMPLIMIENTO", "ARCHIVO", "COMENTARIOS", "COMENTARIOS PREVIOS", "ESTATUS", "AVANCE", "CLASIFICACION", "PRIORIDAD", "RIESGOS", "FECHA_RESPUESTA", "DETALLES_EXTRA", "CLIENTE", "TRABAJO", "REQUISITOR", "CONTACTO", "CELULAR", "FECHA_COTIZACION"]
-
-        ppc_row = []
-        for h in ppc_headers:
-            val = ""
-            if h == "ID": val = task_data.get("FOLIO", "")
-            elif h == "ESPECIALIDAD": val = task_data.get("AREA", "")
-            elif h == "DESCRIPCION": val = task_data.get("CONCEPTO", "")
-            elif h == "RESPONSABLE": val = task_data.get("INVOLUCRADOS", "")
-            elif h == "FECHA_RESPUESTA": val = task_data.get("FECHA_RESPUESTA", "")
-            else: val = task_data.get(h, "")
-
-            ppc_row.append(str(val))
-
-        gs_manager.append_row(PPC_SHEET_NAME, ppc_row)
-
-        # Save to ADMINISTRADOR
-        admin_sheet = "ADMINISTRADOR"
-        current_admin = gs_manager.get_sheet_values(admin_sheet)
-        if not current_admin or len(current_admin) == 0:
-             gs_manager.append_row(admin_sheet, ppc_headers)
-
-        gs_manager.append_row(admin_sheet, ppc_row)
-
-        # Distribution logic (Staff sheets)
-        responsables = str(item.get("responsable", "")).split(",")
-        for resp in responsables:
-            resp_name = resp.strip()
-            if resp_name and "(VENTAS)" not in resp_name.upper():
-                current_staff = gs_manager.get_sheet_values(resp_name)
-                if not current_staff or len(current_staff) == 0:
-                    gs_manager.append_row(resp_name, ppc_headers)
-                gs_manager.append_row(resp_name, ppc_row)
+        # --- Persistencia de la tarea ---------------------------------
+        # `task_data` ya viene con encabezados de hoja; el puente lo traduce a
+        # columnas y decide en qué partición cae.
+        errores.extend(_distribuir_tarea(task_data, item, item_id, active_user))
 
         # Save to Obsidian automatically
         save_to_obsidian(item, item_id)
 
-    return {"success": True, "message": "Datos procesados y distribuidos correctamente.", "ids": generated_ids}
+    if errores:
+        return {
+            "success": False,
+            "message": "No se guardó todo: " + "; ".join(errores),
+            "ids": generated_ids,
+            "warnings": avisos,
+        }
+    mensaje = "Datos procesados y distribuidos correctamente."
+    if avisos:
+        mensaje += " Aviso: " + "; ".join(dict.fromkeys(avisos)) + "."
+    return {"success": True, "message": mensaje, "ids": generated_ids, "warnings": avisos}
+
+
+def _registrar_work_order(folio):
+    """Alta idempotente del folio en `work_orders` (su clave primaria)."""
+    try:
+        _engine().upsert("work_orders", [{"folio": folio}], en_conflicto="folio")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[work_order] No se pudo registrar el folio {folio}: {exc}")
+
+
+def _distribuir_tarea(task_data, item, item_id, active_user):
+    """
+    Guarda la tarea en la tabla de cada responsable y la indexa en el PPC.
+
+    Qué cambia frente a la versión de hoja, y por qué:
+
+    * La hoja `PPCV3` no existe como partición: es un índice en `plan_semanal`
+      (§7.7 del plan). Guardar aquí con `source_sheet='PPCV3'` habría estrenado
+      una partición que la vista de Planeación Semanal no lee. El puente se
+      encarga: manda la tarea a la hoja de su responsable y añade el renglón
+      del índice.
+    * Los folios `PPC-` son de secuencia global, así que en la base son **una
+      sola fila** aunque la tarea se reparta entre varias personas: es lo que
+      dice `computeDedupeKey` y lo que muestran los datos migrados (ninguno de
+      los 1.143 folios `PPC-` está en más de una hoja). El reparto entre varias
+      personas queda registrado en `task_involucrados`, que el puente proyecta
+      desde el string de responsables.
+    * El sufijo `(VENTAS)` se sigue filtrando: AGENTS.md §3 prohíbe enrutar
+      tareas generales a hojas de ventas.
+    """
+    from backend.services.persistencia import PersistenciaTracker
+
+    errores = []
+    try:
+        persistencia = PersistenciaTracker()
+    except Exception as exc:  # noqa: BLE001 - sin base configurada
+        return [f"Folio {item_id}: no hay base de datos configurada ({exc})"]
+
+    # El PPC maestro decide el dueño y añade el índice de `plan_semanal`.
+    resultado = persistencia.guardar("PPCV3", [task_data])
+    if not resultado.exito:
+        return [f"Folio {item_id}: {resultado.mensaje}"]
+
+    destinos = []
+    for resp in str(item.get("responsable", "")).split(","):
+        nombre = resp.strip()
+        if nombre and "(VENTAS)" not in nombre.upper():
+            destinos.append(nombre)
+
+    for nombre in destinos:
+        hoja = persistencia.resolver_hoja(nombre)
+        parcial = persistencia.guardar(hoja, [task_data])
+        if not parcial.exito:
+            errores.append(f"Folio {item_id} hacia {hoja}: {parcial.mensaje}")
+
+    _auditar_alta(persistencia, item_id, resultado.hoja, active_user)
+    return errores
+
+
+def _auditar_alta(persistencia, folio, hoja, usuario):
+    from backend.services import auditoria
+
+    auditoria.registrar_lote(
+        [auditoria.evento(usuario, auditoria.ACCION_CREAR,
+                          auditoria.detalle_tarea(folio, hoja, es_alta=True))],
+        engine=persistencia.engine,
+    )

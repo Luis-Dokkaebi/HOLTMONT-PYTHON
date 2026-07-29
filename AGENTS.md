@@ -60,6 +60,9 @@ Este documento define el contexto técnico, las reglas de negocio y las "skills"
     - Backend GAS (semáforo, ruteo VENTAS, gatekeeper, reverse sync, métricas): `node tests/gas/run_tests.js` (ver `tests/gas/README.md`)
     - Motor de reglas en Python (paridad con CODIGO.js): `python -m pytest tests/test_tracker_rules.py`
     - Contrato index.html -> api_service.js -> api/main.py: `python -m pytest tests/test_api_contract.py`
+    - Persistencia en Supabase (cada usuario en su partición `source_sheet`): `python -m pytest tests/test_integracion_supabase.py tests/test_backend_tasks.py tests/test_backend_refactor.py`
+    - Esquema real de la base (solo lectura, requiere credenciales): `python scripts/verificar_base_tasks.py` y `python scripts/verificar_base_quotes.py`
+  - **Ninguna prueba debe escribir en la base de produccion.** `tests/conftest.py` desconecta `SUPABASE_URL`/`SUPABASE_KEY` durante toda la sesion de pytest y fuerza `BACKEND_ENGINE=memoria`. Si necesitas correr contra una base real, hazlo a proposito con `HOLTMONT_TEST_ALLOW_DB=1` y nunca en CI.
     - Directorio y Departamentos: `node test_departments.js`
     - Sintaxis y Lógica de Frontend: `node check_html2.js` (si `check_html.js` falla por errores de parseo o compatibilidad, utiliza `check_html2.js` como respaldo funcional).
 

@@ -149,6 +149,25 @@ class PostgrestEngine:
         )
         return resultado if isinstance(resultado, list) else []
 
+    def insertar(self, tabla: str, filas: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """INSERT puro: un conflicto de clave es un error, no una fusión."""
+        if not filas:
+            return []
+        resultado = self._pedir("POST", tabla, list(filas), prefer="return=representation")
+        return resultado if isinstance(resultado, list) else []
+
+    def borrar(self, tabla: str, donde: Dict[str, Any]) -> None:
+        """
+        DELETE acotado por igualdad.
+
+        Sin filtros PostgREST borraría la tabla entera, así que aquí eso es un
+        error de programación y se detiene antes de salir a la red.
+        """
+        if not donde:
+            raise ErrorDeMotor(f"DELETE sobre {tabla} sin filtros: se aborta por seguridad")
+        consulta = urllib.parse.urlencode([(col, f"eq.{val}") for col, val in donde.items()])
+        self._pedir("DELETE", f"{tabla}?{consulta}")
+
     @contextmanager
     def transaccion(self) -> Iterator["PostgrestEngine"]:
         """

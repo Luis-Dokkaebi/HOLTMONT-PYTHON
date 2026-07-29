@@ -148,6 +148,39 @@ class SqlAlchemyEngine:
         except Exception as exc:
             raise ErrorDeMotor(f"UPSERT sobre {tabla} falló: {exc}") from exc
 
+    def insertar(self, tabla: str, filas: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """INSERT puro: un conflicto de clave es un error, no una fusión."""
+        if not filas:
+            return []
+        from sqlalchemy import insert as sa_insert
+
+        t = self._tabla(tabla)
+        sentencia = sa_insert(t).values(list(filas)).returning(t)
+        try:
+            with self._ejecutor() as conexion:
+                return [dict(fila) for fila in conexion.execute(sentencia).mappings()]
+        except ErrorDeMotor:
+            raise
+        except Exception as exc:
+            raise ErrorDeMotor(f"INSERT sobre {tabla} falló: {exc}") from exc
+
+    def borrar(self, tabla: str, donde: Dict[str, Any]) -> None:
+        if not donde:
+            raise ErrorDeMotor(f"DELETE sobre {tabla} sin filtros: se aborta por seguridad")
+        from sqlalchemy import delete as sa_delete
+
+        t = self._tabla(tabla)
+        sentencia = sa_delete(t)
+        for col, val in donde.items():
+            sentencia = sentencia.where(t.c[col] == val)
+        try:
+            with self._ejecutor() as conexion:
+                conexion.execute(sentencia)
+        except ErrorDeMotor:
+            raise
+        except Exception as exc:
+            raise ErrorDeMotor(f"DELETE sobre {tabla} falló: {exc}") from exc
+
     @contextmanager
     def transaccion(self) -> Iterator["SqlAlchemyEngine"]:
         """Transacción real: si algo revienta dentro, no queda nada a medias."""

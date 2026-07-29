@@ -517,4 +517,7 @@ def test_el_endpoint_avisa_con_503_si_la_escritura_esta_apagada(repo):
     finally:
         app.dependency_overrides.clear()
     assert respuesta.status_code == 503
-    assert "SupabaseSync" in respuesta.json()["detail"]
+    # El interruptor ya no arranca apagado (la base es la fuente de verdad),
+    # pero sigue existiendo como parada de emergencia y tiene que decir cuál es
+    # y cómo se quita, no fallar con un mensaje genérico.
+    assert "BACKEND_TASKS_WRITE_ENABLED" in respuesta.json()["detail"]
