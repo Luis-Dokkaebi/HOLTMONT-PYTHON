@@ -135,8 +135,9 @@ class GoogleScriptRunAdapter {
     }
 
     apiLogout(username) {
-        console.log("Logout:", username);
-        // No callback usually needed for logout in this app flow
+        // El original registra LOGOUT en LOG_SISTEMA. `system_log` guarda 16.196
+        // accesos historicos y sin esto solo se anotaba la mitad del par.
+        this._post('/api/legacy/logout', { username: username || '' });
     }
 
     /**
@@ -157,7 +158,7 @@ class GoogleScriptRunAdapter {
     }
 
     apiFetchPPCData() {
-        this._lecturaVacia('apiFetchPPCData');
+        this._call('/api/legacy/ppcData');
     }
 
     /**
@@ -252,7 +253,7 @@ class GoogleScriptRunAdapter {
     // --- Pendientes de portar (Fase 5 de docs/PLAN_BACKEND_PYTHON.md) ---
 
     apiFetchCombinedCalendarData(target) {
-        this._lecturaVacia('apiFetchCombinedCalendarData');
+        this._call(`/api/legacy/combinedCalendar?sheet=${encodeURIComponent(target || '')}`);
     }
 
     apiFetchCascadeTree() {
@@ -260,11 +261,15 @@ class GoogleScriptRunAdapter {
     }
 
     apiFetchDrafts() {
-        this._lecturaVacia('apiFetchDrafts');
+        this._call('/api/legacy/drafts');
     }
 
     apiFetchInfoBankData(year, month, company, folder) {
-        this._lecturaVacia('apiFetchInfoBankData');
+        const params = new URLSearchParams({
+            year: year || '', month: month || '',
+            company: company || '', folder: folder || ''
+        });
+        this._call(`/api/legacy/infoBankData?${params}`);
     }
 
     apiFetchProjectTasks(projectName) {
@@ -280,11 +285,14 @@ class GoogleScriptRunAdapter {
     }
 
     apiAddEmployee(employee) {
-        this._noPortado('apiAddEmployee');
+        const e = employee || {};
+        this._post('/api/legacy/addEmployee', {
+            name: e.name || '', dept: e.dept || '', type: e.type || 'ESTANDAR'
+        });
     }
 
     apiDeleteEmployee(name) {
-        this._noPortado('apiDeleteEmployee');
+        this._post('/api/legacy/deleteEmployee', { name: name || '' });
     }
 
     apiSaveProjectTask(row, projectName, username) {
@@ -385,21 +393,21 @@ class GoogleScriptRunAdapter {
     }
 
     apiSaveHabitLog(payload) {
-        this._noPortado('apiSaveHabitLog');
+        const p = payload || {};
+        this._post('/api/legacy/habitLog', { payload: p, username: p.USUARIO || p.usuario || '' });
     }
 
     apiSavePersonalEvent(payload) {
-        this._noPortado('apiSavePersonalEvent');
+        const p = payload || {};
+        this._post('/api/legacy/personalEvent', { payload: p, username: p.USUARIO || p.usuario || '' });
     }
 
     apiSyncDrafts(drafts) {
-        // Al fallar, el frontend conserva los borradores locales en vez de
-        // darlos por sincronizados. Es el comportamiento correcto.
-        this._noPortado('apiSyncDrafts');
+        this._post('/api/legacy/syncDrafts', { drafts: drafts || [] });
     }
 
     apiClearDrafts() {
-        this._noPortado('apiClearDrafts');
+        this._post('/api/legacy/clearDrafts', {});
     }
 }
 

@@ -677,3 +677,297 @@ def save_project_task(task: Dict[str, Any], project_name: str,
         fila[clave] = f"{comentarios} {etiqueta}".strip()
 
     return update_task(PROJECT_TASKS_SHEET, fila, username)
+
+
+# ----------------------------------------------------------------------
+# BANCO DE INFORMACIÓN, PPC MAESTRO Y CALENDARIO
+# ----------------------------------------------------------------------
+
+# Hoja maestra del PPC. Se importa de `sheets` para no repetir el literal, que
+# es el anti-patrón §23.5 (nombres de tabla como cadenas dispersas).
+from api.services.sheets import PPC_MASTER_SHEET  # noqa: E402
+
+MESES = {"ENERO": 1, "FEBRERO": 2, "MARZO": 3, "ABRIL": 4, "MAYO": 5, "JUNIO": 6,
+         "JULIO": 7, "AGOSTO": 8, "SEPTIEMBRE": 9, "OCTUBRE": 10, "NOVIEMBRE": 11,
+         "DICIEMBRE": 12}
+
+
+def _mes_numero(mes: Any) -> Optional[int]:
+    numero = MESES.get(str(mes).upper().strip())
+    if numero is not None:
+        return numero
+    try:
+        valor = int(mes)
+    except (TypeError, ValueError):
+        return None
+    return valor if 1 <= valor <= 12 else None
+
+
+def fetch_info_bank_data(year: Any, month: Any, company: Any = "",
+                         folder: Any = "") -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchInfoBankData`: cotizaciones de un cliente en un mes.
+
+    El original compara el cliente con inclusión **bidireccional**
+    (`rowClient.includes(target) || target.includes(rowClient)`) para tolerar que
+    en la hoja el nombre esté abreviado o con sufijos. Se conserva: exigir
+    igualdad dejaría fuera la mayoría de las filas reales.
+
+    `folder` lo manda el frontend y el original tampoco lo usa para filtrar;
+    se acepta y se ignora para no cambiar la firma.
+    """
+    mes = _mes_numero(month)
+    if mes is None:
+        return {"success": False, "message": f"Mes inválido: {month}"}
+    try:
+        anio = int(year)
+    except (TypeError, ValueError):
+        anio = datetime.now().year
+
+    objetivo = str(company or "").upper().strip()
+    active, history, headers = read_rows(rules.SALES_MASTER_SHEET)
+
+    filas = []
+    for row in list(active) + list(history):
+        cliente = str(rules.pick_task_value(row, ["CLIENTE"]) or "").upper().strip()
+        if not cliente:
+            continue
+        if objetivo and not (objetivo in cliente or cliente in objetivo):
+            continue
+        fecha = rules.parse_sheet_date(
+            rules.pick_task_value(row, ["FECHA INICIO", "F. INICIO", "FECHA", "ALTA", "FECHA ALTA"]))
+        if not fecha or fecha.month != mes or fecha.year != anio:
+            continue
+        filas.append(row)
+
+    return {"success": True, "data": filas, "headers": headers}
+
+
+def fetch_ppc_data() -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchPPCData`: las actividades del PPC maestro.
+
+    Dos detalles del original que se conservan porque el frontend depende de
+    ellos: se devuelven **las últimas 300** filas (con 1.180 en `plan_semanal`,
+    mandarlas todas hacía lenta la vista) y en orden inverso.
+    """
+    active, history, _headers = read_rows(PPC_MASTER_SHEET)
+    filas = list(active) + list(history)
+
+    salida = []
+    for row in filas:
+        concepto = rules.pick_task_value(row, ["CONCEPTO", "DESCRIPCION", "DESCRIPCIÓN"])
+        if not str(concepto or "").strip():
+            continue
+        salida.append({
+            "id": rules.pick_task_value(row, ["ID", "FOLIO"]) or "",
+            "especialidad": rules.pick_task_value(row, ["ESPECIALIDAD"]) or "",
+            "concepto": concepto,
+            "responsable": rules.pick_task_value(row, ["RESPONSABLE", "INVOLUCRADOS"]) or "",
+            "fechaAlta": rules.pick_task_value(row, ["FECHA", "FECHA ALTA", "ALTA"]) or "",
+            "horas": rules.pick_task_value(row, ["RELOJ", "HORAS"]) or "",
+            "cumplimiento": rules.pick_task_value(row, ["CUMPLIMIENTO"]) or "",
+            "archivoUrl": rules.pick_task_value(row, ["ARCHIVO", "CLIP"]) or "",
+            "comentarios": rules.pick_task_value(row, ["COMENTARIOS"]) or "",
+            "comentariosPrevios": rules.pick_task_value(
+                row, ["COMENTARIOS PREVIOS", "PREVIOS", "COMENTARIOS_PREVIOS"]) or "",
+        })
+
+    salida = salida[-300:]
+    salida.reverse()
+    return {"success": True, "data": salida}
+
+
+def fetch_combined_calendar(sheet_name: str) -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchCombinedCalendarData`.
+
+    Une el tracker de la persona, su hoja `(VENTAS)` si la tiene, y sus eventos
+    personales marcados como `CLIENTE = PERSONAL`. Deduplica por ID/FOLIO y, a
+    falta de ambos, por CONCEPTO+FECHA — la misma cadena de identidad que usa el
+    Gatekeeper al guardar.
+    """
+    base = rules.SALES_SUFFIX_RE.sub("", str(sheet_name or "")).strip()
+    if not base:
+        return {"success": False, "message": "Falta la hoja a consultar."}
+
+    # Toñita distribuye desde la tabla maestra: no se le suma una hoja (VENTAS).
+    if base.upper() == "ANTONIA_VENTAS":
+        objetivos = ["ANTONIA_VENTAS"]
+    else:
+        objetivos = [base, f"{base} (VENTAS)"]
+
+    filas: List[Dict[str, Any]] = []
+    for objetivo in objetivos:
+        active, _history, _headers = read_rows(objetivo)
+        filas.extend(active)
+
+    quien = rules.normalize_staff_name(base)
+    personales, _h, _hd = read_rows("AGENDA_PERSONAL")
+    for evento in personales:
+        dueno = rules.pick_task_value(evento, ["USUARIO_RAW", "USUARIO"])
+        if rules.normalize_staff_name(dueno) != quien:
+            continue
+        copia = dict(evento)
+        # El frontend pinta el calendario por CONCEPTO y distingue lo personal
+        # por CLIENTE: así lo hacía el original.
+        copia["CONCEPTO"] = rules.pick_task_value(evento, ["TITULO"]) or copia.get("CONCEPTO", "")
+        copia["CLIENTE"] = "PERSONAL"
+        filas.append(copia)
+
+    unicas: Dict[str, Dict[str, Any]] = {}
+    for fila in filas:
+        clave = str(rules.pick_task_value(fila, ["ID", "FOLIO"]) or "").strip()
+        if not clave:
+            concepto = str(rules.pick_task_value(fila, ["CONCEPTO"]) or "").strip()
+            fecha = str(rules.pick_task_value(fila, ["FECHA"]) or "").strip()
+            clave = f"{concepto}{fecha}" if concepto else ""
+        if clave:
+            unicas[clave] = fila
+
+    return {"success": True, "data": list(unicas.values())}
+
+
+def logout(username: str = "") -> Dict[str, Any]:
+    """
+    Equivalente de `apiLogout`: cierra sesión dejando la línea de auditoría.
+
+    No hay sesión que invalidar todavía (la autenticación con JWT es Fase 4 del
+    plan), pero el registro sí importa: `system_log` guarda 16.196 entradas
+    históricas de accesos y sin esto la mitad del par LOGIN/LOGOUT se perdía.
+    """
+    try:
+        from backend.services import auditoria
+
+        auditoria.registrar(str(username or "DESCONOCIDO").upper().strip(),
+                            "LOGOUT", "Sesión cerrada")
+    except Exception as exc:  # noqa: BLE001 - auditar no puede impedir el cierre
+        print(f"[logout] No se pudo auditar: {exc}")
+    return {"success": True}
+
+
+# ----------------------------------------------------------------------
+# BORRADORES, AGENDA Y DIRECTORIO
+# ----------------------------------------------------------------------
+# Delegan en `backend/repositories/agenda.py`, que es quien conoce las tablas.
+# Aquí solo se traduce a la envoltura `{success, ...}` que espera el frontend.
+
+
+def _repo(clase):
+    from backend.core.engine import construir_engine
+
+    return clase(construir_engine())
+
+
+def _envolver(accion, exito: Dict[str, Any]) -> Dict[str, Any]:
+    """Ejecuta y traduce cualquier fallo a un mensaje visible, nunca a un vacío."""
+    from backend.repositories.agenda import TablaAusente
+
+    try:
+        resultado = accion()
+    except TablaAusente as exc:
+        return {"success": False, "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"{type(exc).__name__}: {exc}"}
+    salida = dict(exito)
+    if resultado is not None:
+        salida["data"] = resultado
+    return salida
+
+
+def fetch_drafts() -> Dict[str, Any]:
+    """apiFetchDrafts."""
+    from backend.repositories.agenda import RepositorioBorradores
+
+    return _envolver(lambda: _repo(RepositorioBorradores).listar(), {"success": True})
+
+
+def sync_drafts(drafts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """apiSyncDrafts: reemplaza la cola completa."""
+    from backend.repositories.agenda import RepositorioBorradores
+
+    repo = _repo(RepositorioBorradores)
+    res = _envolver(lambda: repo.reemplazar(drafts or []), {"success": True})
+    if res.get("success"):
+        # `data` sería el conteo; el frontend solo mira `success`.
+        res["message"] = f"{res.pop('data', 0)} borrador(es) sincronizado(s)."
+    return res
+
+
+def clear_drafts() -> Dict[str, Any]:
+    """apiClearDrafts."""
+    from backend.repositories.agenda import RepositorioBorradores
+
+    repo = _repo(RepositorioBorradores)
+    return _envolver(lambda: repo.limpiar(), {"success": True})
+
+
+def save_personal_event(event: Dict[str, Any], username: str = "") -> Dict[str, Any]:
+    """apiSavePersonalEvent."""
+    from backend.repositories.agenda import RepositorioAgenda
+
+    repo = _repo(RepositorioAgenda)
+    return _envolver(lambda: repo.guardar_evento(event, username), {"success": True})
+
+
+def save_habit_log(habit: Dict[str, Any], username: str = "") -> Dict[str, Any]:
+    """apiSaveHabitLog. Falla con instrucciones si `habits_log` no existe."""
+    from backend.repositories.agenda import RepositorioAgenda
+
+    repo = _repo(RepositorioAgenda)
+    return _envolver(lambda: repo.guardar_habito(habit, username), {"success": True})
+
+
+def add_employee(name: Any, dept: Any, tipo: Any = "ESTANDAR") -> Dict[str, Any]:
+    """
+    apiAddEmployee: alta en el directorio (`people`).
+
+    El original valida duplicados por (nombre, departamento) y crea las hojas de
+    tracker según `type`. Aquí no hay hojas que crear: una persona nueva empieza
+    sin filas en `tasks` y su tracker aparece vacío en cuanto está en `people`.
+    """
+    from api.services.sheets import get_directory_from_db
+
+    limpio = str(name or "").upper().strip()
+    depto = str(dept or "").upper().strip()
+    if not limpio or not depto:
+        return {"success": False, "message": "Nombre y departamento son obligatorios."}
+
+    existentes = {(u["name"].upper().strip(), u["dept"].upper().strip())
+                  for u in get_directory_from_db()}
+    if (limpio, depto) in existentes:
+        return {"success": False, "message": f"{limpio} ya está en {depto}."}
+
+    fila = _manager().append_row("DB_DIRECTORY", [limpio, depto, str(tipo or "ESTANDAR").upper()])
+    if fila is None:
+        return {"success": False,
+                "message": "No se pudo escribir en el directorio. El alta NO se guardó."}
+    return {"success": True, "message": f"{limpio} agregado a {depto}."}
+
+
+def delete_employee(name: Any) -> Dict[str, Any]:
+    """
+    apiDeleteEmployee: baja del directorio.
+
+    Se borra por nombre, que es la clave lógica de `people` igual que en la hoja
+    `DB_DIRECTORY`. Las tareas de la persona **no** se tocan: son historia y
+    borrarlas sería pérdida de datos que el original tampoco hace.
+    """
+    from backend.core.engine import construir_engine
+
+    limpio = str(name or "").upper().strip()
+    if not limpio:
+        return {"success": False, "message": "Falta el nombre a dar de baja."}
+
+    try:
+        engine = construir_engine()
+        filas = engine.select("people", columnas=["nombre"]) or []
+        objetivo = next((f["nombre"] for f in filas
+                         if str(f.get("nombre") or "").upper().strip() == limpio), None)
+        if objetivo is None:
+            return {"success": False, "message": f"{limpio} no está en el directorio."}
+        engine.borrar("people", {"nombre": objetivo})
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"No se pudo dar de baja: {exc}"}
+
+    return {"success": True, "message": f"{limpio} dado de baja."}

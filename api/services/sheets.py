@@ -581,33 +581,19 @@ def get_directory_from_db():
     return directory
 
 def find_header_row(values):
-    limit = min(100, len(values))
-    for i in range(limit):
-        # Join columns with |, normalize spaces, uppercase
-        row_str = "|".join([str(c).upper().replace("\n", " ").strip() for c in values[i]])
+    """
+    Detector dinámico de encabezados. Delega en `tracker_rules.find_header_row`.
 
-        if "ID_SITIO" in row_str or "ID_PROYECTO" in row_str:
-            return i
+    Había dos implementaciones y **no eran equivalentes**: esta reconocía la
+    agenda personal y los hábitos, y la de `tracker_rules` no. Como
+    `rows_to_dicts` usa la de allá, `fetch_unified_agenda` devolvía la agenda
+    vacía mientras `/api/data`, que usa esta, la leía sin problema.
 
-        has_folio = "FOLIO" in row_str
-        has_concepto = "CONCEPTO" in row_str
-        has_date_status = any(x in row_str for x in ["ALTA", "AVANCE", "STATUS", "FECHA"])
+    Con la delegación la regla vive en un solo sitio y la divergencia no puede
+    repetirse (anti-patrón §23.4).
+    """
+    from api.services.tracker_rules import find_header_row as _find
 
-        if has_folio and has_concepto and has_date_status:
-            return i
-
-        if "ID" in row_str and "RESPONSABLE" in row_str:
-            return i
-
-        if (("FOLIO" in row_str or "ID" in row_str) and
-            ("DESCRIPCI" in row_str or "RESPONSABLE" in row_str or "CONCEPTO" in row_str)):
-            return i
-
-        if "CLIENTE" in row_str and ("VENDEDOR" in row_str or "AREA" in row_str or "CLASIFICACION" in row_str):
-            return i
-
-        # Extra checks from original code
-        if "ID" in row_str and "TITULO" in row_str and "USUARIO" in row_str: return i
-        if "ID" in row_str and "HABITO" in row_str and "USUARIO" in row_str: return i
+    return _find(values)
 
     return -1

@@ -783,6 +783,101 @@ def api_legacy_save_project_task(req: ProjectTaskRequest):
 
 
 # ======================================================================
+# BORRADORES, AGENDA, BANCO Y DIRECTORIO
+# ======================================================================
+
+
+class DraftsRequest(BaseModel):
+    drafts: List[Dict[str, Any]] = []
+
+
+class PersonalEventRequest(BaseModel):
+    payload: Dict[str, Any]
+    username: Optional[str] = ""
+
+
+class EmployeeRequest(BaseModel):
+    name: str
+    dept: str = ""
+    type: Optional[str] = "ESTANDAR"
+
+
+class LogoutRequest(BaseModel):
+    username: Optional[str] = ""
+
+
+@app.get("/api/legacy/drafts")
+def api_legacy_drafts():
+    """apiFetchDrafts."""
+    return tracker_store.fetch_drafts()
+
+
+@app.post("/api/legacy/syncDrafts")
+def api_legacy_sync_drafts(req: DraftsRequest):
+    """apiSyncDrafts: la cola se reemplaza entera, no se fusiona."""
+    return tracker_store.sync_drafts(req.drafts)
+
+
+@app.post("/api/legacy/clearDrafts")
+def api_legacy_clear_drafts():
+    """apiClearDrafts."""
+    return tracker_store.clear_drafts()
+
+
+@app.post("/api/legacy/personalEvent")
+def api_legacy_personal_event(req: PersonalEventRequest):
+    """apiSavePersonalEvent."""
+    return tracker_store.save_personal_event(req.payload, req.username or "")
+
+
+@app.post("/api/legacy/habitLog")
+def api_legacy_habit_log(req: PersonalEventRequest):
+    """apiSaveHabitLog. Avisa qué crear si `habits_log` no existe."""
+    return tracker_store.save_habit_log(req.payload, req.username or "")
+
+
+@app.get("/api/legacy/infoBankData")
+def api_legacy_info_bank_data(
+    year: str = Query(...),
+    month: str = Query(...),
+    company: str = Query("", description="Cliente"),
+    folder: str = Query("", description="Se acepta por compatibilidad; no filtra"),
+):
+    """apiFetchInfoBankData."""
+    return tracker_store.fetch_info_bank_data(year, month, company, folder)
+
+
+@app.get("/api/legacy/ppcData")
+def api_legacy_ppc_data():
+    """apiFetchPPCData: las últimas 300 actividades del PPC maestro."""
+    return tracker_store.fetch_ppc_data()
+
+
+@app.get("/api/legacy/combinedCalendar")
+def api_legacy_combined_calendar(sheet: str = Query(..., description="Hoja/persona")):
+    """apiFetchCombinedCalendarData."""
+    return tracker_store.fetch_combined_calendar(sheet)
+
+
+@app.post("/api/legacy/logout")
+def api_legacy_logout(req: LogoutRequest):
+    """apiLogout: registra el cierre en system_log."""
+    return tracker_store.logout(req.username or "")
+
+
+@app.post("/api/legacy/addEmployee")
+def api_legacy_add_employee(req: EmployeeRequest):
+    """apiAddEmployee."""
+    return tracker_store.add_employee(req.name, req.dept, req.type)
+
+
+@app.post("/api/legacy/deleteEmployee")
+def api_legacy_delete_employee(req: EmployeeRequest):
+    """apiDeleteEmployee."""
+    return tracker_store.delete_employee(req.name)
+
+
+# ======================================================================
 # CAPA RELACIONAL (Fase 1) — /api/v2
 # ======================================================================
 # Convive con los endpoints de arriba en vez de sustituirlos: el sistema está

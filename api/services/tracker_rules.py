@@ -882,6 +882,27 @@ def find_header_row(values: Sequence[Sequence[Any]]) -> int:
             return i
         if "CLIENTE" in row_str and any(x in row_str for x in ("VENDEDOR", "AREA", "CLASIFICACION")):
             return i
+        # Agenda personal y hábitos. Sus encabezados no tienen FOLIO, CONCEPTO,
+        # RESPONSABLE ni CLIENTE, así que ninguna de las reglas anteriores los
+        # reconocía.
+        #
+        # Estas dos reglas **existían en `sheets.find_header_row`** y no aquí:
+        # había dos implementaciones del detector y solo una sabía leer la
+        # agenda (anti-patrón §23.4). La consecuencia era que `/api/data`, que
+        # usa la de `sheets`, sí la leía, mientras `rows_to_dicts` —y con él
+        # `fetch_unified_agenda`— devolvía (0, 0, 0) filas: la vista "Mi Agenda
+        # Personal" salía vacía con 27 eventos en la base, y los hábitos igual.
+        # El fallo era silencioso porque una hoja sin encabezados válidos y una
+        # hoja sin datos se ven iguales desde el frontend.
+        #
+        # Se copian aquí y `sheets.find_header_row` pasa a delegar, para que no
+        # puedan volver a divergir. La condición es algo más laxa que la
+        # original (no exige la columna de usuario): un export de agenda sin ella
+        # también debe poder leerse.
+        if "TITULO" in row_str and any(x in row_str for x in ("FECHA", "HORA_INICIO", "TIPO")):
+            return i
+        if "HABITO" in row_str:
+            return i
     return -1
 
 
