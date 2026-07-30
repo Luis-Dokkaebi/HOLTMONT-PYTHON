@@ -339,6 +339,58 @@ def test_la_fuente_buena_no_deja_a_nadie_fuera():
     assert migrar.comparar_con_el_organigrama(cuentas) == []
 
 
+def test_sin_columna_de_contrasena_el_script_aborta(monkeypatch):
+    """
+    El esquema desplegado no tiene `password` (comprobado contra la base real el
+    2026-07-30). Escribir igual dejaría `profiles` con 41 filas y ninguna
+    credencial: el login seguiría rechazando a todo el mundo, ahora sin la
+    excusa de que la tabla está vacía. Se aborta antes de escribir.
+    """
+    import scripts.migrar_perfiles as migrar
+
+    monkeypatch.setattr(migrar, "columnas_reales",
+                        lambda: {"id", "username", "role", "label", "email",
+                                 "dept", "seller", "person_id", "created_at"})
+
+    with pytest.raises(SystemExit) as exc:
+        migrar.revisar_esquema([{"username": "X", "password": "p", "role": "ADMIN"}])
+
+    mensaje = str(exc.value)
+    assert "no tiene columna de contraseña" in mensaje
+    assert "ADD COLUMN IF NOT EXISTS password" in mensaje
+
+
+def test_se_omiten_las_columnas_que_la_tabla_no_tiene(monkeypatch):
+    """
+    `staff_name` está en USER_DB pero no en la tabla desplegada. Mandarlo hacía
+    que PostgREST contestara 400 sin decir cuál era la columna sobrante, y la
+    migración entera fallaba por un campo que el organigrama sabe resolver solo.
+    """
+    import scripts.migrar_perfiles as migrar
+
+    monkeypatch.setattr(migrar, "columnas_reales",
+                        lambda: {"username", "password", "role", "label",
+                                 "email", "dept", "seller"})
+
+    cuentas = migrar.revisar_esquema([{
+        "username": "X", "password": "p", "role": "ADMIN", "label": "X",
+        "email": "x@y.com", "staff_name": "X Y", "dept": "CEO", "seller": False,
+    }])
+
+    assert "staff_name" not in cuentas[0]
+    assert cuentas[0]["password"] == "p", "la contraseña no se puede perder por el camino"
+    assert cuentas[0]["username"] == "X"
+
+
+def test_si_no_se_puede_introspeccionar_no_se_bloquea(monkeypatch):
+    """Con DATABASE_URL directo no hay OpenAPI que leer; se intenta igual."""
+    import scripts.migrar_perfiles as migrar
+
+    monkeypatch.setattr(migrar, "columnas_reales", lambda: None)
+    cuentas = [{"username": "X", "password": "p"}]
+    assert migrar.revisar_esquema(cuentas) == cuentas
+
+
 def test_el_script_no_versiona_ninguna_contrasena():
     """
     El script lee las contraseñas del CODIGO.js del otro repo, no las trae

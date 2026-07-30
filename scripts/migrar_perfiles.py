@@ -44,7 +44,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
@@ -151,11 +151,94 @@ def comparar_con_el_organigrama(cuentas: List[Dict[str, Any]]) -> List[str]:
     return faltantes
 
 
+SQL_COLUMNA_CONTRASENA = """\
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS password TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_username_key
+    ON public.profiles (username);"""
+
+
+def columnas_reales() -> Optional[set]:
+    """
+    Columnas que `profiles` tiene de verdad, o None si no se pudo averiguar.
+
+    Hace falta porque el esquema desplegado y el `docs/DDL_PENDIENTE.sql` de este
+    repo no coinciden: la tabla real tiene `id` y `person_id`, no tiene
+    `staff_name`, y —lo importante— no tiene `password`. Mandar una columna que
+    no existe hace que PostgREST conteste 400 sin decir cuál, así que se
+    comprueba antes y se avisa con el nombre.
+
+    Se lee del OpenAPI que PostgREST publica en la raíz, que es la única forma de
+    ver el esquema cuando la tabla está vacía: sin filas, un SELECT no revela
+    ninguna columna.
+    """
+    import json
+    import urllib.request
+
+    base = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    clave = os.environ.get("SUPABASE_KEY", "").strip()
+    if not base or not clave:
+        return None  # con DATABASE_URL directo esto no aplica
+
+    try:
+        pedido = urllib.request.Request(
+            f"{base}/rest/v1/",
+            headers={"apikey": clave, "Authorization": f"Bearer {clave}",
+                     "Accept": "application/openapi+json"},
+        )
+        with urllib.request.urlopen(pedido, timeout=30) as resp:
+            spec = json.load(resp)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ! No se pudo leer el esquema de `{TABLA}`: {exc}")
+        return None
+
+    definicion = spec.get("definitions", {}).get(TABLA)
+    if not definicion:
+        return None
+    return set(definicion.get("properties", {}))
+
+
+def revisar_esquema(cuentas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Comprueba que se pueda escribir, y recorta los campos que la tabla no tiene.
+
+    Aborta si falta la columna de contraseña: sin ella el upsert "funciona" pero
+    deja a `profiles` sin credenciales, y `/api/login` sigue sin dejar entrar a
+    nadie. Es justo el fallo silencioso que hay que evitar.
+    """
+    columnas = columnas_reales()
+    if columnas is None:
+        return cuentas  # no se pudo introspeccionar: se intenta tal cual
+
+    from api.services.organigrama import columnas_de_credencial
+
+    if not (columnas & set(columnas_de_credencial())):
+        raise SystemExit(
+            f"\n`{TABLA}` no tiene columna de contraseña.\n"
+            f"  columnas actuales: {', '.join(sorted(columnas))}\n\n"
+            "Sin ella no se pueden guardar las credenciales y el login seguirá\n"
+            "rechazando a todo el mundo. Córrelo en el SQL Editor de Supabase y\n"
+            "vuelve a lanzar este script:\n\n"
+            f"{SQL_COLUMNA_CONTRASENA}\n"
+        )
+
+    sobran = sorted(set(cuentas[0]) - columnas)
+    if not sobran:
+        return cuentas
+
+    # `staff_name` es el caso real: no existe en la tabla desplegada. No es
+    # grave, `organigrama` lo resuelve contra la semilla cuando la base no lo
+    # trae; pero mandarlo rompe la escritura entera.
+    print(f"  ! `{TABLA}` no tiene estas columnas, se omiten: {sobran}")
+    return [{k: v for k, v in c.items() if k in columnas} for c in cuentas]
+
+
 def aplicar(cuentas: List[Dict[str, Any]]) -> int:
     from backend.core.engine import construir_engine
 
     engine = construir_engine()
     print(f"  motor: {engine.nombre}")
+
+    cuentas = revisar_esquema(cuentas)
 
     # Un solo upsert con todas las filas: en PostgREST es la única forma de que
     # la escritura sea atómica (no hay BEGIN/COMMIT), y con SQLAlchemy da igual.

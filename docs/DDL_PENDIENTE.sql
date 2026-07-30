@@ -78,8 +78,38 @@ CREATE INDEX IF NOT EXISTS habits_log_usuario_idx
 -- cuentas del CODIGO.js de Apps Script y las escribe. Se corre en la máquina de
 -- quien tiene el repo; las contraseñas no pasan por el fuente ni se imprimen.
 --
--- Columnas que el login necesita. Si el nombre de la de contraseña difiere,
--- `organigrama.validar_credenciales` acepta password / pass / contrasena / clave.
+-- OJO — el CREATE TABLE de abajo NO es la tabla que está desplegada.
+--
+-- Se comprobó contra la base real el 2026-07-30 (vía el OpenAPI de PostgREST,
+-- que es la única forma de ver el esquema con la tabla vacía). Lo que hay es:
+--
+--   id          uuid   PRIMARY KEY      <- la PK es `id`, no `username`
+--   username    text
+--   role        text
+--   label       text
+--   dept        text
+--   seller      boolean
+--   person_id   uuid   FK -> people.id
+--   email       text
+--   created_at  timestamptz
+--
+-- Es decir: **no existe la columna `password`**, ni `staff_name`. Sin `password`
+-- no hay dónde guardar las credenciales y `/api/login` rechaza a todo el mundo,
+-- que es exactamente el síntoma que se estaba investigando. `staff_name` no hace
+-- falta: `organigrama` lo resuelve contra la semilla cuando la base no lo trae.
+--
+-- Para habilitar el login sobre la tabla que ya existe, correr esto en el SQL
+-- Editor de Supabase. Es aditivo: no toca ninguna columna ni fila existente.
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS password TEXT;
+
+-- `migrar_perfiles.py` hace upsert con on_conflict=username, y PostgREST exige
+-- un índice único sobre esa columna para resolverlo.
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_username_key
+    ON public.profiles (username);
+
+-- El CREATE TABLE original queda como referencia de instalación desde cero. Si
+-- se usa, `username` es único por ser PK y el índice de arriba sobra.
 
 CREATE TABLE IF NOT EXISTS public.profiles (
     username    TEXT PRIMARY KEY,
