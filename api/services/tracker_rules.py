@@ -103,6 +103,24 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
 }
 
 ARCHIVE_SEPARATOR = "TAREAS REALIZADAS"
+# Claves que NO viajan del trabajador a la hoja maestra.
+#
+# **ESTATUS y AVANCE sí viajan, a propósito.** El original los borra
+# (`delKeys` en `apiSaveTrackerBatch`) para que cerrar una fase no cierre la
+# cotización entera; aquí se tomó la decisión contraria y está fijada por dos
+# pruebas: `test_reverse_sync_sends_cierre_status` y
+# `test_la_venta_maestra_se_archiva_por_avance_del_trabajador`. Cuando el
+# trabajador reporta el 100%, la venta se marca cerrada y el auto-archivado se la
+# lleva a TAREAS REALIZADAS, que es el comportamiento que el dueño quiere ver en
+# las dos tablas.
+#
+# Si algún día hay que volver a la regla del original —fases parciales que no
+# cierran la venta—, el cambio es añadir aquí ESTATUS/STATUS/ESTADO/AVANCE y sus
+# variantes, y actualizar esas dos pruebas. No se toca a medias: dejar el reverse
+# sync sin ESTATUS pero con AVANCE archivaría igual, por la regla del 100 %.
+#
+# CUMPLIMIENTO y las fechas de término sí se filtran: son del seguimiento del
+# trabajador y no significan lo mismo en la fila maestra.
 REVERSE_SYNC_BLOCKED_KEYS = {
     "CUMPLIMIENTO", "FECHA_TERMINO", "FECHA TERMINO",
 }
@@ -653,10 +671,17 @@ def build_reverse_sync_payload(source_sheet: str, task: Dict[str, Any],
                                worker_row: Optional[Dict[str, Any]] = None,
                                master_row: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
-    Payload saneado para ANTONIA_VENTAS:
-      * Elimina ESTATUS/AVANCE/CUMPLIMIENTO (case-insensitive) para que una
-        fase parcial no cierre la venta global.
-      * No pisa el CONCEPTO maestro con el concepto marcado de la fase.
+    Payload que devuelve el avance del trabajador a su hoja maestra.
+
+      * **ESTATUS y AVANCE sí se propagan**: si el trabajador cierra al 100%, la
+        fila maestra queda cerrada y el auto-archivado se la lleva a TAREAS
+        REALIZADAS. Es una decisión de este proyecto, distinta del original, y la
+        fijan dos pruebas — ver `REVERSE_SYNC_BLOCKED_KEYS`. (Este docstring
+        afirmaba lo contrario y describía la regla del original, no la de aquí.)
+      * CUMPLIMIENTO y las fechas de término no viajan.
+      * No pisa el CONCEPTO maestro con el concepto marcado de la fase: el
+        trabajador ve "COTIZAR NAVE [Calculo y Diseño]" y la maestra conserva
+        "COTIZAR NAVE".
       * Cierra la fase en PROCESO_LOG y pinta MAP COT en verde.
     """
     folio = str(pick_task_value(task, ["FOLIO", "ID"]) or "").strip()

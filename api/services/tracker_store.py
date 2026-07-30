@@ -241,6 +241,23 @@ def _auditar(persistencia, guardado, username: str) -> None:
     )
 
 
+# Prefijo de folio -> hoja maestra a la que hay que devolver el avance.
+# `AV-` son las cotizaciones que nacen en la tabla de ventas de Toñita; `AP-`
+# las que nacen en el tracker personal de Antonia Pineda, que es otra hoja.
+HOJAS_MAESTRAS_POR_PREFIJO = {
+    "AV-": rules.SALES_MASTER_SHEET,
+    "AP-": rules.ANTONIA_PERSONAL_SHEET,
+}
+
+
+def _hoja_maestra_de_folio(folio: Any) -> Optional[str]:
+    texto = str(folio or "").upper().strip()
+    for prefijo, hoja in HOJAS_MAESTRAS_POR_PREFIJO.items():
+        if texto.startswith(prefijo):
+            return hoja
+    return None
+
+
 def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: str = "") -> Dict[str, Any]:
     """
     Equivalente de `apiSaveTrackerBatch`: ruteo protegido, papa caliente,
@@ -279,20 +296,35 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
     if not result.success:
         return {"success": False, "message": result.message}
 
-    # Reverse Sync: tabla (VENTAS) de un vendedor -> maestra de Toñita
-    if not is_antonia and "(VENTAS)" in target.upper():
-        for task in processed:
-            folio = rules.pick_task_value(task, ["FOLIO", "ID"])
-            if not folio:
-                continue
-            payload = rules.build_reverse_sync_payload(
-                target, task,
-                find_row_object(target, folio),
-                find_row_object(rules.SALES_MASTER_SHEET, folio),
-            )
-            if payload:
-                _persist_batch(rules.SALES_MASTER_SHEET, [payload], skip_notify=True,
-                               username=username, persistencia=persistencia)
+    # Reverse Sync: el trabajador cierra su parte y la maestra se entera.
+    #
+    # El disparo es por **prefijo de folio**, no por nombre de hoja. Antes la
+    # condición era `"(VENTAS)" in target`, lo que dejaba fuera el caso normal:
+    # una tarea `AV-` delegada por papa caliente cae en la hoja propia del
+    # trabajador (`MIGUEL GALLARDO`), que no contiene "(VENTAS)", así que al
+    # completarla no se sincronizaba nada y Toñita nunca veía la fase cerrada.
+    # Los folios `AP-` (tracker personal de Antonia Pineda) no se sincronizaban
+    # en absoluto.
+    #
+    # Es la regla del original (`apiSaveTrackerBatch`): AV- -> tabla maestra de
+    # ventas, AP- -> tracker de Antonia Pineda, desde cualquier hoja de origen.
+    for task in processed:
+        folio = str(rules.pick_task_value(task, ["FOLIO", "ID"]) or "").upper().strip()
+        maestra = _hoja_maestra_de_folio(folio)
+        if not maestra:
+            continue
+        # Sin auto-sincronización: si ya se está guardando en la maestra, el
+        # `_persist_batch` de arriba hizo el trabajo.
+        if rules.normalize_staff_name(target) == rules.normalize_staff_name(maestra):
+            continue
+        payload = rules.build_reverse_sync_payload(
+            target, task,
+            find_row_object(target, folio),
+            find_row_object(maestra, folio),
+        )
+        if payload:
+            _persist_batch(maestra, [payload], skip_notify=True,
+                           username=username, persistencia=persistencia)
 
     return {
         "success": True,
