@@ -6,7 +6,8 @@
 >
 > **Segunda pasada (misma fecha), en §0.bis:** revisión completa de los dos
 > repos excluyendo la Pre Work Order. Cierra seis divergencias que la primera
-> pasada no había visto o había dejado abiertas.
+> pasada no había visto o había dejado abiertas, y deja una sola diferencia en
+> pie por decisión del dueño (`defaultReqCotizacion`). **Sin puntos abiertos.**
 
 **Fecha:** 2026-07-30
 **Repos comparados:**
@@ -129,18 +130,27 @@ se puso el candado.
 **Pruebas:** `tests/test_paridad_migraciones_2026_07.py`, 30 casos. Suite
 completa: **737 de pytest** y **87/87** de la de Node, en verde.
 
-### La única decisión que queda abierta
+### La divergencia que se mantiene a propósito
 
-**`defaultReqCotizacion`** (delta 3 de §2.1). REAL precarga 8 actividades
-estándar de pre-diseño en el paso 2 del PPC; aquí es `[]` y el formulario abre en
-blanco. **No se cambió**, y no por olvido: `tests/test_pre_disenos.py::test_default_data_structure`
-exige que el bloque esté vacío *"como se requirió"*. Son dos requisitos
-opuestos —paridad con REAL contra una decisión de diseño ya tomada y
-versionada—, y no es una decisión que le toque tomar a quien migra.
+**`defaultReqCotizacion` se queda vacío.** Es la única diferencia de esta pasada
+que **no** se cerró, y es una decisión del dueño, confirmada el 2026-07-30 al
+plantearle el conflicto:
 
-Las 8 filas ya se escribieron y se probaron con la forma de fila del rediseño de
-este repo (la que produce `addProjectItem('reqCotizacion')`, con responsable,
-fechas, archivo y costo), así que aplicarlo es una línea más actualizar ese test.
+* REAL precarga 8 actividades estándar de pre-diseño en el paso 2 del PPC
+  (`REAL-HOLTMONT/index.html:6451`). Aquí es `[]` y el formulario abre en blanco;
+  las filas se agregan con el botón `+`.
+* `tests/test_pre_disenos.py::test_default_data_structure` exige que el bloque
+  esté vacío *"como se requirió"*, así que paridad y test se contradicen.
+
+Resolución: **gana el formulario en blanco**, junto con el rediseño del paso 2
+que ya vive aquí (cabecera negra, dropdown de responsables contra
+`config.directory`, fechas, archivo y costo por fila). No es deuda de migración
+ni un delta por cerrar: es cómo funciona este sistema. El delta 3 de §2.1 queda
+cerrado por decisión, no por implementación.
+
+Si algún día se revierte, las 8 filas se escribieron y se probaron con la forma
+de fila del rediseño —la que produce `addProjectItem('reqCotizacion')`—, así que
+son una línea más actualizar ese test.
 
 ---
 

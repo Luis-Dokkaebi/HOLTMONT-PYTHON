@@ -47,13 +47,29 @@ class TestPreDisenos(unittest.TestCase):
             self.assertRegex(self.content, placeholder, f"No se encontró el placeholder {placeholder}")
 
     def test_default_data_structure(self):
-        """Verifica que el modelo por defecto está vacío como se requirió"""
+        """
+        El paso 2 abre en blanco: `defaultReqCotizacion` tiene que estar vacío.
+
+        Esto es una **divergencia deliberada** con REAL-HOLTMONT, que precarga 8
+        actividades estándar de pre-diseño en esta misma sección
+        (`REAL-HOLTMONT/index.html:6451`). Decisión del dueño, reconfirmada el
+        2026-07-30 cuando se planteó el conflicto entre este test y la paridad:
+        gana el formulario en blanco, junto con el rediseño del paso 2 que vive
+        aquí (las filas se agregan con el botón `+`).
+
+        Se deja escrito para que la próxima revisión de paridad no lo lea como
+        una regresión y lo "arregle". Ver COMPARATIVA_REAL_VS_PYTHON.md §0.bis.
+        """
         # Busca el bloque de defaultReqCotizacion y verifica que esté vacío
         default_data_block_match = re.search(r'const defaultReqCotizacion = \[(.*?)\];', self.content, re.DOTALL)
         self.assertIsNotNone(default_data_block_match, "No se encontró el bloque defaultReqCotizacion")
 
         default_data = default_data_block_match.group(1).strip()
-        self.assertEqual(default_data, "", "El bloque defaultReqCotizacion no está vacío")
+        self.assertEqual(
+            default_data, "",
+            "El bloque defaultReqCotizacion no está vacío. Si es un intento de "
+            "igualar a REAL-HOLTMONT, es a propósito que no coincida: ver "
+            "COMPARATIVA_REAL_VS_PYTHON.md §0.bis.")
 
     def test_add_remove_buttons(self):
         """Verifica que el botón de añadir y remover fila están presentes con la sintaxis correcta"""
