@@ -73,6 +73,28 @@ CREATE INDEX IF NOT EXISTS habits_log_usuario_idx
 -- Las contraseñas siguen en texto plano por decisión explícita del dueño
 -- (2026-07): se migran cuando se haga la migración completa. NO se versionan
 -- aquí ni en ningún otro archivo del repo.
+--
+-- Para poblarla: `python scripts/migrar_perfiles.py --aplicar`, que lee las 41
+-- cuentas del CODIGO.js de Apps Script y las escribe. Se corre en la máquina de
+-- quien tiene el repo; las contraseñas no pasan por el fuente ni se imprimen.
+--
+-- Columnas que el login necesita. Si el nombre de la de contraseña difiere,
+-- `organigrama.validar_credenciales` acepta password / pass / contrasena / clave.
+
+CREATE TABLE IF NOT EXISTS public.profiles (
+    username    TEXT PRIMARY KEY,
+    password    TEXT,
+    role        TEXT NOT NULL DEFAULT 'STAFF_USER',
+    label       TEXT,
+    email       TEXT,
+    staff_name  TEXT,
+    dept        TEXT,
+    seller      BOOLEAN NOT NULL DEFAULT false
+);
+
+-- La tabla NO se expone por /api/data: el endpoint la rechaza con 403 y, además,
+-- filtra cualquier columna de credenciales de cualquier tabla. Mientras las
+-- contraseñas estén en texto plano, no aflojar ninguna de las dos barreras.
 
 
 -- ===========================================================================
