@@ -264,6 +264,23 @@ def columnas_de_credencial() -> tuple:
     return _COLUMNAS_CLAVE
 
 
+def coincide_contrasena(guardada: Any, entregada: Any) -> bool:
+    """
+    Compara dos contraseñas en tiempo constante, acentos incluidos.
+
+    `secrets.compare_digest` sobre `str` **sólo admite ASCII**: con una clave
+    como `diseño2025` lanza `TypeError`, y como esa excepción no la atrapaba
+    nadie, el login respondía 500 en vez de negar el acceso. Sobre `bytes` no
+    existe esa restricción, así que se codifica a UTF-8 antes de comparar.
+
+    La comparación sigue siendo exacta, sin normalizar Unicode ni recortar
+    espacios, igual que el `===` de `apiLogin` en Apps Script: la contraseña se
+    valida tal cual la escribió el usuario.
+    """
+    return secrets.compare_digest(
+        str(guardada).encode("utf-8"), str(entregada).encode("utf-8"))
+
+
 def validar_credenciales(username: Any, password: Any) -> Optional[Dict[str, Any]]:
     """
     Comprueba usuario y contraseña contra `profiles`. Devuelve el perfil o None.
@@ -296,7 +313,7 @@ def validar_credenciales(username: Any, password: Any) -> Optional[Dict[str, Any
             print(f"[organigrama] `profiles` no tiene columna de contraseña para {clave}.")
             return None
 
-        if not secrets.compare_digest(guardada, str(password)):
+        if not coincide_contrasena(guardada, password):
             return None
 
         semilla = PERFILES.get(clave, {})

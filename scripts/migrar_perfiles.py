@@ -23,6 +23,12 @@ Uso:
     # Si el CODIGO.js está en otra ruta:
     python scripts/migrar_perfiles.py --codigo /ruta/a/CODIGO.js --aplicar
 
+Lee por omisión el `CODIGO.js` de Apps Script (`../REAL-HOLTMONT/CODIGO.js`),
+que tiene las 41 cuentas. **No uses el `CODIGO.js` de este repo**: es una copia
+vieja con 12, y migrar con ella dejaría a 30 personas sin poder entrar. Si
+faltan cuentas respecto de la semilla del organigrama, el script se niega a
+escribir salvo que insistas con `--parcial`.
+
 Requiere en el entorno (o en `.env`): SUPABASE_URL y SUPABASE_KEY, o DATABASE_URL.
 
 Las contraseñas quedan en **texto plano**, por decisión del dueño (2026-07): se
@@ -109,12 +115,18 @@ def leer_user_db(ruta: Path) -> List[Dict[str, Any]]:
     return cuentas
 
 
-def comparar_con_el_organigrama(cuentas: List[Dict[str, Any]]) -> None:
+def comparar_con_el_organigrama(cuentas: List[Dict[str, Any]]) -> List[str]:
     """
     Avisa si `USER_DB` y la semilla del repo no coinciden.
 
-    No bloquea: la base manda. Pero una diferencia aquí suele significar que
-    `CODIGO.js` cambió y `api/services/organigrama.py` se quedó atrás.
+    Devuelve las cuentas que la semilla conoce y el `CODIGO.js` leído no trae:
+    son las personas que se quedarían **sin poder entrar** si se aplicara este
+    archivo. `main()` usa esa lista para negarse a hacer una migración parcial.
+
+    Una diferencia aquí suele significar una de dos cosas: que `CODIGO.js`
+    cambió y `api/services/organigrama.py` se quedó atrás, o —lo más probable—
+    que se está leyendo el `CODIGO.js` de este repo, que es una copia vieja de
+    12 cuentas, en vez del de Apps Script, que tiene las 41.
     """
     from api.services.organigrama import PERFILES
 
@@ -122,11 +134,11 @@ def comparar_con_el_organigrama(cuentas: List[Dict[str, Any]]) -> None:
     en_semilla = set(PERFILES)
 
     solo_codigo = sorted(en_codigo - en_semilla)
-    solo_semilla = sorted(en_semilla - en_codigo)
+    faltantes = sorted(en_semilla - en_codigo)
     if solo_codigo:
         print(f"  ! En CODIGO.js y no en la semilla del repo: {solo_codigo}")
-    if solo_semilla:
-        print(f"  ! En la semilla del repo y no en CODIGO.js: {solo_semilla}")
+    if faltantes:
+        print(f"  ! En la semilla del repo y no en CODIGO.js: {faltantes}")
 
     distintos = [
         c["username"] for c in cuentas
@@ -135,6 +147,8 @@ def comparar_con_el_organigrama(cuentas: List[Dict[str, Any]]) -> None:
     ]
     if distintos:
         print(f"  ! Rol distinto entre CODIGO.js y la semilla: {distintos}")
+
+    return faltantes
 
 
 def aplicar(cuentas: List[Dict[str, Any]]) -> int:
@@ -156,6 +170,9 @@ def main() -> int:
                         help="Ruta al CODIGO.js de Apps Script")
     parser.add_argument("--aplicar", action="store_true",
                         help="Escribe en la base. Sin esta bandera solo informa.")
+    parser.add_argument("--parcial", action="store_true",
+                        help="Permite aplicar aunque falten cuentas de la semilla. "
+                             "Sin esto, una migración incompleta se rechaza.")
     args = parser.parse_args()
 
     cargar_env()
@@ -174,7 +191,7 @@ def main() -> int:
         print(f"    {rol}: {n}")
     print(f"  vendedores (seller=true): {sum(1 for c in cuentas if c['seller'])}")
 
-    comparar_con_el_organigrama(cuentas)
+    faltantes = comparar_con_el_organigrama(cuentas)
 
     # Deliberadamente NO se imprime ninguna contraseña, ni truncada: este script
     # se corre en una terminal cuyo historial suele quedar guardado.
@@ -182,8 +199,23 @@ def main() -> int:
 
     if not args.aplicar:
         print(f"\nSimulación. Nada se escribió en `{TABLA}`.")
+        if faltantes:
+            print(f"OJO: así como está, {len(faltantes)} persona(s) no podrían entrar.")
         print("Vuelve a correrlo con --aplicar cuando quieras aplicarlo.")
         return 0
+
+    # Una migración a medias es peor que ninguna: `/api/login` sólo sabe decir
+    # "usuario o contraseña incorrectos", así que quien no quede en `profiles`
+    # se queda fuera sin ninguna pista de por qué. Se prefiere no escribir.
+    if faltantes and not args.parcial:
+        print(f"\nCancelado: faltan {len(faltantes)} cuenta(s) que la semilla sí conoce.")
+        print("Esas personas no podrían entrar si se aplicara este archivo.")
+        if args.codigo.resolve() != CODIGO_POR_DEFECTO.resolve():
+            print(f"\nCasi seguro es el archivo: estás leyendo {args.codigo}.")
+            print(f"El bueno es el de Apps Script: {CODIGO_POR_DEFECTO}")
+            print("(el CODIGO.js de este repo es una copia vieja, con 12 cuentas)")
+        print("\nSi de verdad quieres migrar sólo estas, repite con --parcial.")
+        return 1
 
     print(f"\nEscribiendo en `{TABLA}` (upsert por `{CLAVE_UPSERT}`)...")
     try:

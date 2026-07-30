@@ -65,6 +65,47 @@ def test_el_usuario_es_insensible_a_mayusculas_la_contrasena_no(monkeypatch):
     assert organigrama.validar_credenciales("LUIS_CARLOS", "ADMIN2025") is None
 
 
+@pytest.mark.parametrize("clave", [
+    "diseño2025", "contraseña", "Muñoz#2025", "áéíóú", "Ramírez_2025",
+])
+def test_una_contrasena_con_acentos_entra_en_vez_de_reventar(monkeypatch, clave):
+    """
+    `secrets.compare_digest` sobre `str` sólo admite ASCII: con una clave
+    acentuada lanzaba `TypeError`, nadie lo atrapaba y `/api/login` respondía
+    500. Ni entraba quien tenía la contraseña bien, ni se rechazaba a quien no.
+
+    El apellido más común de la plantilla lleva acento, así que esto deja de ser
+    hipotético en cuanto alguien cambie su contraseña.
+    """
+    _con_profiles(monkeypatch, [
+        {"username": "LUIS_CARLOS", "password": clave, "role": "ADMIN"}])
+
+    assert organigrama.validar_credenciales("LUIS_CARLOS", clave) is not None
+    assert organigrama.validar_credenciales("LUIS_CARLOS", clave + "x") is None
+    # Y la contraseña mal escrita se niega, no explota.
+    assert organigrama.validar_credenciales("LUIS_CARLOS", "otra") is None
+
+
+def test_la_comparacion_de_contrasenas_es_exacta():
+    """
+    Sin normalizar Unicode ni recortar espacios, igual que el `===` de
+    `apiLogin` en Apps Script: la clave vale tal cual se escribió.
+    """
+    assert organigrama.coincide_contrasena("admin2025", "admin2025") is True
+    assert organigrama.coincide_contrasena("admin2025", " admin2025") is False
+    assert organigrama.coincide_contrasena("admin2025", "ADMIN2025") is False
+    # NFC y NFD se ven idénticas en pantalla pero no son la misma cadena, y
+    # aquí tampoco se tratan como iguales. Se deja escrito porque es la
+    # diferencia que algún día puede explicar un "mi contraseña es esa y no
+    # entra" de quien la escribe desde un teclado que compone distinto.
+    import unicodedata
+
+    nfc = unicodedata.normalize("NFC", "ni\u00f1o")
+    nfd = unicodedata.normalize("NFD", "ni\u00f1o")
+    assert nfc != nfd, "si fueran iguales, lo de abajo no probaría nada"
+    assert organigrama.coincide_contrasena(nfc, nfd) is False
+
+
 def test_contrasena_incorrecta_no_entra(monkeypatch):
     _con_profiles(monkeypatch, [
         {"username": "LUIS_CARLOS", "password": "admin2025", "role": "ADMIN"}])
@@ -265,6 +306,37 @@ def test_el_script_de_migracion_lee_las_41_cuentas():
     campos = set(cuentas[0])
     assert campos == {"username", "password", "role", "label", "email",
                       "staff_name", "dept", "seller"}
+
+
+def test_el_codigo_js_de_este_repo_esta_incompleto_y_se_detecta():
+    """
+    El `CODIGO.js` versionado aquí es una copia vieja con 12 cuentas; el bueno
+    es el de Apps Script, con 41. Migrar con el equivocado dejaría a 30 personas
+    sin poder entrar, y `/api/login` sólo sabría decirles "contraseña
+    incorrecta". `comparar_con_el_organigrama` tiene que verlo.
+    """
+    from pathlib import Path
+
+    import scripts.migrar_perfiles as migrar
+
+    local = Path(__file__).parent.parent / "CODIGO.js"
+    if not local.exists():
+        pytest.skip("no hay CODIGO.js local")
+
+    faltantes = migrar.comparar_con_el_organigrama(migrar.leer_user_db(local))
+    assert faltantes, "una fuente incompleta tiene que reportar cuentas faltantes"
+
+
+def test_la_fuente_buena_no_deja_a_nadie_fuera():
+    from pathlib import Path
+
+    import scripts.migrar_perfiles as migrar
+
+    if not migrar.CODIGO_POR_DEFECTO.exists():
+        pytest.skip("REAL-HOLTMONT/CODIGO.js no está disponible")
+
+    cuentas = migrar.leer_user_db(Path(migrar.CODIGO_POR_DEFECTO))
+    assert migrar.comparar_con_el_organigrama(cuentas) == []
 
 
 def test_el_script_no_versiona_ninguna_contrasena():

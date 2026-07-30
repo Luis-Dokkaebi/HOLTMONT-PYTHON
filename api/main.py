@@ -5,7 +5,6 @@ from pydantic import BaseModel
 import os
 import json
 import re
-import secrets
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from fastapi import UploadFile, File, Form
@@ -462,8 +461,9 @@ def _login_desde_entorno(username_key: str, password: str) -> Optional[Dict[str,
             continue
         usuario, clave, rol = partes[0].upper(), partes[1], partes[2]
         etiqueta = partes[3] if len(partes) > 3 else usuario
-        # compare_digest evita filtrar la contraseña por tiempo de respuesta.
-        if usuario == username_key and secrets.compare_digest(clave, password):
+        # Comparación en tiempo constante, y tolerante a acentos: sobre `str`,
+        # `compare_digest` revienta con cualquier carácter no ASCII.
+        if usuario == username_key and organigrama.coincide_contrasena(clave, password):
             return {"success": True, "role": rol, "name": etiqueta, "username": username_key}
     return None
 
@@ -981,7 +981,9 @@ def _cron_autorizado(secreto: Optional[str]) -> bool:
     esperado = os.environ.get("CRON_SECRET", "").strip()
     if not esperado:
         return False
-    return secrets.compare_digest(str(secreto or ""), esperado)
+    # Mismo motivo que en el login: sobre `str`, `compare_digest` sólo admite
+    # ASCII, y un CRON_SECRET con un acento devolvía 500 en vez de rechazar.
+    return organigrama.coincide_contrasena(secreto or "", esperado)
 
 
 @app.post("/api/cron/dailyMetrics")
