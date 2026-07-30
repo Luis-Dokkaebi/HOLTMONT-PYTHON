@@ -5,7 +5,7 @@
 - `REAL-HOLTMONT` @ `fba96e1` (Apps Script + Sheets — sistema en producción)
 - `HOLTMONT-PYTHON` @ `d6d006a` (FastAPI + Supabase — migración)
 
-**Método:** inventario cruzado de las 52 funciones server-side `api*`/`get*`/`run*`/`upload*` de
+**Método:** inventario cruzado de las 51 funciones server-side `api*`/`get*`/`run*`/`upload*` de
 `CODIGO.js` contra los endpoints de `api/main.py` y los métodos del adaptador `api_service.js`;
 diff completo de `index.html`; comparación contra el contrato en `REAL-HOLTMONT/docs/API_CONTRACT.md`
 y `docs/ARQUITECTURA_Y_BASE_DE_DATOS.md`.
@@ -13,7 +13,7 @@ y `docs/ARQUITECTURA_Y_BASE_DE_DATOS.md`.
 > Esta comparativa reemplaza a `AUDITORIA_PARIDAD_SSD22.md` (2026-07-05), que quedó desactualizada:
 > buena parte de lo que ahí figuraba como ❌ (Papa Caliente, PROCESO_LOG, MAP COT, reverse sync,
 > Gatekeeper, prefijos de folio, SLA, auditoría, notificación a Outlook, keys hardcodeadas) ya está
-> implementado. También corrige dos conclusiones equivocadas de esa auditoría (ver §5).
+> implementado. También corrige dos conclusiones equivocadas de esa auditoría (ver §6).
 
 ---
 
@@ -22,7 +22,7 @@ y `docs/ARQUITECTURA_Y_BASE_DE_DATOS.md`.
 | Eje | Estado |
 |---|---|
 | **Apariencia (UI)** | **~99% a la par.** 24/24 vistas y 328/328 funciones del frontend presentes. Solo 4 deltas reales, 1 de ellas un bug. |
-| **Funcionalidad conectada** | **21 de 37 funciones vivas** funcionan de extremo a extremo. 16 siguen siendo stubs. |
+| **Funcionalidad conectada** | **21 de 39 funciones vivas** (~54%; 47% ponderado por uso). Núcleo ~85-90%, periferia ~15% — ver §5. |
 | **Modelo de datos** | Esquema Supabase **más avanzado que los endpoints**: `sites`, `projects`, `ppc_borradores`, `banco_datos`, `personal_agenda`, `habits_log` ya existen y están mapeadas, pero nadie las lee/escribe. |
 | **RBAC / Seguridad** | **El punto más débil.** Hay un agujero de permisos que hoy da configuración de ADMIN a todo el personal. |
 | **Automatizaciones** | Sin equivalente: no hay scheduler ni canal de correo. |
@@ -72,7 +72,7 @@ vuelve atrás. Es la única diferencia visual que un usuario notaría al cambiar
 
 ---
 
-## 3. Funcionalidad: mapa completo de las 52 funciones
+## 3. Funcionalidad: mapa completo de las 51 funciones
 
 ### 3.1 ✅ Funcionan de extremo a extremo (21)
 
@@ -83,7 +83,7 @@ vuelve atrás. Es la única diferencia visual que un usuario notaría al cambiar
 | `apiResyncDirectory` | `POST /api/legacy/resyncDirectory` | Agrega faltantes de `INITIAL_DIRECTORY`. |
 | `apiFetchStaffTrackerData` | `GET /api/data` | Separa activas/histórico por `TAREAS REALIZADAS`, devuelve `_rowIndex`. |
 | `apiSaveTrackerBatch` | `POST /api/legacy/saveTrackerBatch` | **Completo**: Gatekeeper por `_tempId`, match FOLIO→CONCEPTO+FECHA, prefijos (`generate_prefix`), Papa Caliente (`apply_hot_potato`), reverse sync (`build_reverse_sync_payload`), notificación. |
-| `apiUpdateTask` / `internalUpdateTask` | `POST /api/legacy/updateTask` | Persiste de verdad. |
+| `apiUpdateTask` | `POST /api/legacy/updateTask` | Persiste de verdad — pero solo en 3 de sus 4 puntos de uso (ver §4.0: `internalUpdateTask`). |
 | `apiUpdatePPCV3` | `POST /api/legacy/updatePPCV3` | Con la variante `PPCV4` para `ANTONIA_VENTAS`. |
 | `apiSavePPCData` | `POST /api/savePPC` | Escribe maestro + distribuye + respalda. |
 | `apiGetNextWorkOrderSeq` | `GET /api/nextSeq` | ⚠️ ver §4.3 (carrera). |
@@ -157,6 +157,37 @@ y los 12 `test_*` (su equivalente es `tests/` + `tests/gas/`).
 ---
 
 ## 4. Brechas por severidad
+
+### 4.0 🔴 CRÍTICO — El botón de guardar de cada fila del tracker lanza `TypeError` y traba la app
+
+`index.html:8417`, dentro de `saveRow` (`index.html:8345`), la función enlazada al **botón 💾 de
+cada fila del staff tracker** (`index.html:2666`):
+
+```js
+}).withFailureHandler(...).internalUpdateTask(staffTracker.value.name, ..., currentUsername.value);
+```
+
+`internalUpdateTask` **no existe en `api_service.js`** (`grep` → 0). Como `google.script.run` es una
+instancia de `GoogleScriptRunAdapter`, la llamada lanza
+`TypeError: ...internalUpdateTask is not a function` de forma **sincrónica**, así que
+`withFailureHandler` no la captura. Secuencia del fallo:
+
+1. `saveRow` pone `row._isSaving = true` e `isSubmitting.value = true` (líneas 8364-8365).
+2. `Swal.showLoading()` abre el spinner.
+3. La llamada revienta. Los dos flags solo se reponen **dentro** de los handlers, que nunca corren.
+4. El spinner queda girando y, como la guarda de entrada de `saveRow` es
+   `if (row._isSaving || isSubmitting.value) return`, **todo guardado posterior en la aplicación
+   queda bloqueado hasta recargar la página.**
+
+Es la escritura más usada del sistema y arrastra al resto. El original expone `internalUpdateTask` en
+el scope global de `CODIGO.js`, así que ahí sí funciona — su propio
+`docs/ARQUITECTURA_Y_BASE_DE_DATOS.md` dice que las `internal*` "no las llama el FE directamente",
+y esta es la excepción que la migración no vio.
+
+**Arreglo:** un método `internalUpdateTask` en el adaptador apuntando a
+`POST /api/legacy/updateTask` (mismos 3 argumentos que `apiUpdateTask`, que ya está conectado). Es
+un alias de ~3 líneas. `apiUpdateTask` sí funciona en sus otros 3 puntos de uso (9311, 10011, 10131),
+lo que explica por qué el fallo pasó desapercibido.
 
 ### 4.1 🔴 CRÍTICO — `STAFF_USER` recibe configuración de ADMIN
 
@@ -244,7 +275,63 @@ eliminaron, y el CORS ya no es permisivo (`allow_credentials=bool(_cors_origins)
 
 ---
 
-## 5. Dos correcciones a la auditoría del 5 de julio
+## 5. ¿Qué porcentaje de paridad funcional hay?
+
+**Denominador:** de las 51 funciones server-side de `CODIGO.js`, **39 son superficie viva** — las que
+`index.html` invoca de verdad. Las otras 12 son código muerto (§3.4), utilidades de la plataforma
+GAS o pruebas (§3.5), y no cuentan porque migrarlas no aporta nada.
+
+| Métrica | Cálculo | Resultado |
+|---|---|---|
+| **Por conteo de funciones** | 21 conectadas de 39 | **54%** |
+| **Ponderado por puntos de invocación en la UI** | 26 de 55 llamadas | **47%** |
+| **Solo lo fielmente equivalente** (descontando `getSystemConfig` y `runTrackerProductivityAgent`, conectadas pero degradadas) | 19 de 39 | **49%** |
+
+### 5.1 Pero el promedio engaña: la distribución está muy polarizada
+
+El número global (~50%) no describe bien el sistema, porque **el núcleo está casi terminado y la
+periferia casi sin empezar**:
+
+| Módulo | Funciones | Paridad | Comentario |
+|---|---|---|---|
+| Ventas / Papa Caliente / reverse sync | 3/3 | **~100%** | Lo más difícil del original, y está completo y con pruebas. |
+| Cotizaciones + agente Gemini | 6/6 | **~95%** | Solo `runTrackerProductivityAgent` va simplificado. |
+| Work Orders | 2/2 | **~85%** | Descuenta la carrera de folios y las 3 abreviaturas faltantes. |
+| Tracker — lectura | 1/1 | **100%** | |
+| Tracker — escritura | 2/3 | **~65%** | Conectadas las 2 grandes; roto el botón por fila (§4.0). |
+| Directorio | 2/4 | **50%** | Falta alta/baja de empleados. |
+| Autenticación / RBAC | 1.5/3 | **~50%** | `apiLogin` ✅; `apiLogout` no-op; `getSystemConfig` con el agujero de §4.1. |
+| PPC | 2/6 | **33%** | Faltan lectura del maestro y los 3 de borradores. |
+| Agenda / Hábitos | 1/3 | **33%** | Lectura sí, las 2 escrituras no. |
+| Banco de Información | 1/2 | **~25%** | La mitad nominal, pero sin storage no sirve de nada. |
+| Proyectos / Cascada | 0/5 | **0%** | Módulo entero sin empezar. |
+| Archivos / adjuntos | 0/1 | **0%** | No hay storage. Bloquea 3 módulos. |
+| Calendario combinado | 0/1 | **0%** | |
+| Automatizaciones + correo | 0/2 | **0%** | Sin scheduler ni canal de correo. |
+| KPI Dashboard / Productividad | — | **a la par** | Maqueta en los dos sistemas (§6). No es deuda de migración. |
+
+**Lectura honesta:** si un usuario solo usa trackers, ventas, PPC básico, Work Orders y métricas de
+cotizaciones — que es el uso diario del sistema — la paridad ronda el **85-90%**, con dos defectos
+que hay que tapar (§4.0 y §4.1). Si además usa proyectos, adjuntos, borradores, banco o agenda, la
+paridad cae a **~15%**.
+
+### 5.2 Y el 50% restante no es 50% del esfuerzo
+
+De las 18 funciones que faltan, **13 ya tienen su tabla creada y mapeada** en Supabase
+(§3.3). Son endpoints CRUD contra un esquema que existe. El trabajo de fondo que queda es corto y
+está acotado:
+
+1. Storage de archivos (habilita 3 módulos de golpe).
+2. La relación tarea↔proyecto de Proyectos/Cascada.
+3. Secuencia de Postgres para los folios.
+4. RBAC completo (`USER_DB` a la base + las ramas por usuario).
+5. Scheduler y canal de correo.
+
+Todo lo demás es cableado. Por eso el plan de §7 cabe en 5-6 semanas y no en un trimestre.
+
+---
+
+## 6. Dos correcciones a la auditoría del 5 de julio
 
 Ambas cambian el plan de trabajo, por eso conviene dejarlas escritas:
 
@@ -262,7 +349,7 @@ Ambas cambian el plan de trabajo, por eso conviene dejarlas escritas:
 
 ---
 
-## 6. Orden de ataque recomendado
+## 7. Orden de ataque recomendado
 
 **Fase 0 — Seguridad (1–2 días).** Cerrar el agujero: rama `STAFF_USER` en `/api/config`, y pasarle
 `username` además de `role`. Blindar `GET /api/data` (lista negra de tablas sensibles + exigir
