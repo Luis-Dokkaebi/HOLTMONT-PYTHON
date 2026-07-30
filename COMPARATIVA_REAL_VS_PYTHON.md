@@ -1,5 +1,9 @@
 # Comparativa HOLTMONT-PYTHON vs. REAL-HOLTMONT
 
+> **ESTADO AL 2026-07-30, TRAS LA MIGRACIÓN.** Este documento se escribió como
+> auditoría *antes* de cerrar las brechas. Lo de abajo describe el punto de
+> partida y se conserva como registro; **el estado actual está en §0.**
+
 **Fecha:** 2026-07-30
 **Repos comparados:**
 - `REAL-HOLTMONT` @ `fba96e1` (Apps Script + Sheets — sistema en producción)
@@ -14,6 +18,75 @@ y `docs/ARQUITECTURA_Y_BASE_DE_DATOS.md`.
 > buena parte de lo que ahí figuraba como ❌ (Papa Caliente, PROCESO_LOG, MAP COT, reverse sync,
 > Gatekeeper, prefijos de folio, SLA, auditoría, notificación a Outlook, keys hardcodeadas) ya está
 > implementado. También corrige dos conclusiones equivocadas de esa auditoría (ver §6).
+
+---
+
+## 0. Estado actual (después de la migración)
+
+De las **40 funciones que `index.html` invoca del backend original, las 40 están
+conectadas.** Cero stubs. `tests/test_paridad_appscript.py` lo verifica en cada
+corrida.
+
+| Eje | Antes | Ahora |
+|---|---|---|
+| Funciones conectadas | 21 de 40 (54%) | **40 de 40 (100%)** |
+| Stubs en el adaptador | 16 | **0** |
+| Pruebas | 464 | **617** (+153) |
+| Suite GAS | 85/85 | **87/87** (2 nuevas de contrato) |
+
+### Lo que se cerró, por módulo
+
+| Módulo | Qué se hizo |
+|---|---|
+| Autenticación / RBAC | Rama `STAFF_USER` (cerraba el agujero que daba config de ADMIN a todo el personal), 19 departamentos, `canSeeBancoJuntas`, ramas `JUANY_RODRIGUEZ` y `JESUS_CANTU`, `MY_SALES` para los 9 vendedores, espejo de TONITA, `apiLogout` con registro. |
+| Proyectos / Cascada | Los 5 métodos, sobre `sites` y `projects`. |
+| Borradores PPC | Los 3 métodos, sobre `ppc_borradores`, con semántica de reemplazo. |
+| Agenda / Hábitos | Escrituras sobre `personal_agenda` y `habits_log`. |
+| Banco de Información | `apiFetchInfoBankData` con la comparación bidireccional de cliente. |
+| Directorio | Alta y baja de empleados sobre `people`. |
+| Lecturas sueltas | `apiFetchPPCData`, `apiFetchCombinedCalendarData`. |
+| Archivos | Supabase Storage + archivado `[Año]/[Mes]/[Cliente]`. |
+| Agentes / correo | Productividad real con las 3 reglas, canal SMTP, cron diario. |
+
+### Cinco bugs corregidos que la auditoría no había visto
+
+Salieron al escribir el código, no al leerlo:
+
+1. **`internalUpdateTask` ausente del adaptador.** Es el botón de guardar de cada
+   fila del tracker. `TypeError` sincrónico que `withFailureHandler` no captura,
+   dejando `isSubmitting` en `true` para siempre: **bloqueaba todo guardado
+   posterior de la aplicación** hasta recargar.
+2. **`transcribirConGemini` ausente.** Mismo fallo, rompiendo las dos rutas de voz.
+3. **`getSystemConfig` perdía el `username`.** El adaptador lo declaraba con un
+   solo parámetro mientras el frontend pasa dos, así que las ramas de RBAC por
+   cuenta eran **inalcanzables por construcción**.
+4. **Dos `find_header_row` divergentes.** La de `sheets.py` reconocía los
+   encabezados de agenda y hábitos; la de `tracker_rules.py` no. Como
+   `rows_to_dicts` usa la segunda, `fetch_unified_agenda` devolvía agenda y
+   hábitos **siempre vacíos**, con 27 eventos en la base.
+5. **Destinatarios del reporte de productividad.** `USER_DB['ADMIN_CONTROL']` no
+   existe: es un rol, no una cuenta. El reporte nunca llegó a JAIME_OLIVO ni a
+   DIMAS_RAMOS. Es uno de los tres bugs 🐛 del original; se resuelve por rol.
+
+Y el bug documentado del original, el `ReferenceError` de `apiFetchProjectTasks`,
+se corrigió por diseño en vez de replicarse.
+
+### Lo que sigue pendiente y por qué
+
+| Pendiente | Estado |
+|---|---|
+| **Contraseñas en texto plano** | **Decisión explícita del dueño (2026-07):** se migran en la migración completa. No es un olvido. |
+| **`habits_log` no existe en la base** | El código está escrito y falla con un mensaje que dice qué crear. DDL en `docs/DDL_PENDIENTE.sql`. |
+| **`GET /api/data` sin autenticación** | Sigue abierto; `?sheet=USERS` expone la tabla de usuarios. Requiere sesión/JWT, que va con el punto 1. |
+| **Key de Gemini en `CODIGO.js:3347`** | Sigue versionada. Rotarla y purgarla. |
+| **Carrera en los folios** | Se lee el máximo y se suma, sin candado. La solución es una secuencia de Postgres. |
+| **Esquema no verificable** | Sin credenciales, los repositorios nuevos *resuelven* los nombres de columna entre candidatos en vez de declararlos. Fijar el mapa cuando alguien corra `scripts/verificar_base_tasks.py` con acceso. |
+| **`bucket` de Storage** | Debe ser público: el original publicaba con `ANYONE_WITH_LINK`. |
+| **Higiene** | `HOLTMONT-PYTHON-main/` (copia del repo dentro del repo, 4.6 MB) y 24 scripts de andamiaje siguen versionados. |
+
+**Veredicto:** todo lo que se usa en el de AppScript se puede usar aquí. Lo que
+falta no es funcionalidad: es endurecimiento (autenticación, atomicidad de
+folios) y dos cosas que requieren acceso a la base.
 
 ---
 
