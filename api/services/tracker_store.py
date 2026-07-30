@@ -241,6 +241,23 @@ def _auditar(persistencia, guardado, username: str) -> None:
     )
 
 
+# Prefijo de folio -> hoja maestra a la que hay que devolver el avance.
+# `AV-` son las cotizaciones que nacen en la tabla de ventas de Toñita; `AP-`
+# las que nacen en el tracker personal de Antonia Pineda, que es otra hoja.
+HOJAS_MAESTRAS_POR_PREFIJO = {
+    "AV-": rules.SALES_MASTER_SHEET,
+    "AP-": rules.ANTONIA_PERSONAL_SHEET,
+}
+
+
+def _hoja_maestra_de_folio(folio: Any) -> Optional[str]:
+    texto = str(folio or "").upper().strip()
+    for prefijo, hoja in HOJAS_MAESTRAS_POR_PREFIJO.items():
+        if texto.startswith(prefijo):
+            return hoja
+    return None
+
+
 def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: str = "") -> Dict[str, Any]:
     """
     Equivalente de `apiSaveTrackerBatch`: ruteo protegido, papa caliente,
@@ -279,20 +296,35 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
     if not result.success:
         return {"success": False, "message": result.message}
 
-    # Reverse Sync: tabla (VENTAS) de un vendedor -> maestra de Toñita
-    if not is_antonia and "(VENTAS)" in target.upper():
-        for task in processed:
-            folio = rules.pick_task_value(task, ["FOLIO", "ID"])
-            if not folio:
-                continue
-            payload = rules.build_reverse_sync_payload(
-                target, task,
-                find_row_object(target, folio),
-                find_row_object(rules.SALES_MASTER_SHEET, folio),
-            )
-            if payload:
-                _persist_batch(rules.SALES_MASTER_SHEET, [payload], skip_notify=True,
-                               username=username, persistencia=persistencia)
+    # Reverse Sync: el trabajador cierra su parte y la maestra se entera.
+    #
+    # El disparo es por **prefijo de folio**, no por nombre de hoja. Antes la
+    # condición era `"(VENTAS)" in target`, lo que dejaba fuera el caso normal:
+    # una tarea `AV-` delegada por papa caliente cae en la hoja propia del
+    # trabajador (`MIGUEL GALLARDO`), que no contiene "(VENTAS)", así que al
+    # completarla no se sincronizaba nada y Toñita nunca veía la fase cerrada.
+    # Los folios `AP-` (tracker personal de Antonia Pineda) no se sincronizaban
+    # en absoluto.
+    #
+    # Es la regla del original (`apiSaveTrackerBatch`): AV- -> tabla maestra de
+    # ventas, AP- -> tracker de Antonia Pineda, desde cualquier hoja de origen.
+    for task in processed:
+        folio = str(rules.pick_task_value(task, ["FOLIO", "ID"]) or "").upper().strip()
+        maestra = _hoja_maestra_de_folio(folio)
+        if not maestra:
+            continue
+        # Sin auto-sincronización: si ya se está guardando en la maestra, el
+        # `_persist_batch` de arriba hizo el trabajo.
+        if rules.normalize_staff_name(target) == rules.normalize_staff_name(maestra):
+            continue
+        payload = rules.build_reverse_sync_payload(
+            target, task,
+            find_row_object(target, folio),
+            find_row_object(maestra, folio),
+        )
+        if payload:
+            _persist_batch(maestra, [payload], skip_notify=True,
+                           username=username, persistencia=persistencia)
 
     return {
         "success": True,
@@ -594,3 +626,561 @@ def log_date_change(payload: Dict[str, Any], username: str = "") -> Dict[str, An
               f"{payload.get('nuevo') or '(vacío)'}")
     registrado = auditoria.registrar(username, auditoria.ACCION_CAMBIO_FECHA, detail)
     return {"success": True, "logged": registrado}
+
+
+# ----------------------------------------------------------------------
+# PROYECTOS / CASCADA
+# ----------------------------------------------------------------------
+# Las tareas de un proyecto no viven en una tabla aparte: son filas de
+# `ADMINISTRADOR` etiquetadas con `[PROY: NOMBRE]` en CONCEPTO o COMENTARIOS.
+# Se conserva esa convención porque es la que el frontend escribe y lee, y
+# porque `tasks` no tiene una columna con la que relacionarlas.
+#
+# Lo correcto a futuro es una clave foránea real (`tasks.project_id` ->
+# `projects.id_proyecto`), que además haría innecesario buscar por subcadena.
+# Requiere DDL, así que queda para cuando el esquema esté versionado; mientras,
+# esto funciona con el esquema que hay.
+
+PROJECT_TASKS_SHEET = "ADMINISTRADOR"
+
+
+def project_tag(project_name: Any) -> str:
+    return f"[PROY: {str(project_name or '').upper().strip()}]"
+
+
+def fetch_project_tasks(project_name: str) -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchProjectTasks`.
+
+    **Corrige un fallo del original, no lo replica.** `CODIGO.js:3907` cierra la
+    función con `if (sheetName.includes('ANTONIA_VENTAS'))`, y `sheetName` no
+    existe en ese ámbito: el parámetro se llama `projectName`. El
+    `ReferenceError` cae siempre en el `catch`, así que la función devolvía
+    `{success:false}` en el 100% de las llamadas y la vista PROJECT_TASKS_VIEW
+    nunca mostró nada.
+
+    Ese bloque era además copia de `internalFetchSheetData` y no tenía sentido
+    aquí: esta función lee `ADMINISTRADOR`, nunca `ANTONIA_VENTAS`, así que el
+    reordenamiento de `MAP COT` no aplicaba. Se omite en vez de arreglarlo.
+    """
+    etiqueta = project_tag(project_name)
+    if etiqueta == "[PROY: ]":
+        return {"success": False, "message": "Falta el nombre del proyecto."}
+
+    active, history, headers = read_rows(PROJECT_TASKS_SHEET)
+    if not headers:
+        return {"success": False,
+                "message": f"No se pudo leer {PROJECT_TASKS_SHEET} o no tiene encabezados."}
+
+    def etiquetada(row: Dict[str, Any]) -> bool:
+        # El original mira CONCEPTO y COMENTARIOS, con respaldo a cualquier
+        # encabezado que contenga "DESCRIPCI" cuando no hay CONCEPTO.
+        campos = [
+            rules.pick_task_value(row, ["CONCEPTO", "DESCRIPCION", "DESCRIPCIÓN"]),
+            rules.pick_task_value(row, ["COMENTARIOS"]),
+        ]
+        return any(etiqueta in str(v or "").upper() for v in campos)
+
+    tareas = [r for r in list(active) + list(history) if etiquetada(r)]
+    # `.reverse()` del original: lo más reciente primero.
+    tareas.reverse()
+    return {"success": True, "data": tareas, "headers": headers}
+
+
+def save_project_task(task: Dict[str, Any], project_name: str,
+                      username: str = "") -> Dict[str, Any]:
+    """
+    Equivalente de `apiSaveProjectTask`.
+
+    Añade la etiqueta del proyecto a COMENTARIOS si falta y guarda por la misma
+    ruta que el resto del tracker, con lo que hereda Gatekeeper, resolución de
+    folio y auditoría.
+    """
+    etiqueta = project_tag(project_name)
+    if etiqueta == "[PROY: ]":
+        return {"success": False, "message": "Falta el nombre del proyecto."}
+
+    fila = dict(task)
+    # La columna puede venir con otro nombre según la hoja; se respeta el que
+    # traiga la fila para no crear una columna duplicada al guardar.
+    clave = next((k for k in fila if str(k).upper().strip() == "COMENTARIOS"), "COMENTARIOS")
+    comentarios = str(fila.get(clave) or "")
+    if etiqueta not in comentarios.upper():
+        fila[clave] = f"{comentarios} {etiqueta}".strip()
+
+    return update_task(PROJECT_TASKS_SHEET, fila, username)
+
+
+# ----------------------------------------------------------------------
+# BANCO DE INFORMACIÓN, PPC MAESTRO Y CALENDARIO
+# ----------------------------------------------------------------------
+
+# Hoja maestra del PPC. Se importa de `sheets` para no repetir el literal, que
+# es el anti-patrón §23.5 (nombres de tabla como cadenas dispersas).
+from api.services.sheets import PPC_MASTER_SHEET  # noqa: E402
+
+MESES = {"ENERO": 1, "FEBRERO": 2, "MARZO": 3, "ABRIL": 4, "MAYO": 5, "JUNIO": 6,
+         "JULIO": 7, "AGOSTO": 8, "SEPTIEMBRE": 9, "OCTUBRE": 10, "NOVIEMBRE": 11,
+         "DICIEMBRE": 12}
+
+
+def _mes_numero(mes: Any) -> Optional[int]:
+    numero = MESES.get(str(mes).upper().strip())
+    if numero is not None:
+        return numero
+    try:
+        valor = int(mes)
+    except (TypeError, ValueError):
+        return None
+    return valor if 1 <= valor <= 12 else None
+
+
+def fetch_info_bank_data(year: Any, month: Any, company: Any = "",
+                         folder: Any = "") -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchInfoBankData`: cotizaciones de un cliente en un mes.
+
+    El original compara el cliente con inclusión **bidireccional**
+    (`rowClient.includes(target) || target.includes(rowClient)`) para tolerar que
+    en la hoja el nombre esté abreviado o con sufijos. Se conserva: exigir
+    igualdad dejaría fuera la mayoría de las filas reales.
+
+    `folder` lo manda el frontend y el original tampoco lo usa para filtrar;
+    se acepta y se ignora para no cambiar la firma.
+    """
+    mes = _mes_numero(month)
+    if mes is None:
+        return {"success": False, "message": f"Mes inválido: {month}"}
+    try:
+        anio = int(year)
+    except (TypeError, ValueError):
+        anio = datetime.now().year
+
+    objetivo = str(company or "").upper().strip()
+    active, history, headers = read_rows(rules.SALES_MASTER_SHEET)
+
+    filas = []
+    for row in list(active) + list(history):
+        cliente = str(rules.pick_task_value(row, ["CLIENTE"]) or "").upper().strip()
+        if not cliente:
+            continue
+        if objetivo and not (objetivo in cliente or cliente in objetivo):
+            continue
+        fecha = rules.parse_sheet_date(
+            rules.pick_task_value(row, ["FECHA INICIO", "F. INICIO", "FECHA", "ALTA", "FECHA ALTA"]))
+        if not fecha or fecha.month != mes or fecha.year != anio:
+            continue
+        filas.append(row)
+
+    return {"success": True, "data": filas, "headers": headers}
+
+
+def fetch_ppc_data() -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchPPCData`: las actividades del PPC maestro.
+
+    Dos detalles del original que se conservan porque el frontend depende de
+    ellos: se devuelven **las últimas 300** filas (con 1.180 en `plan_semanal`,
+    mandarlas todas hacía lenta la vista) y en orden inverso.
+    """
+    active, history, _headers = read_rows(PPC_MASTER_SHEET)
+    filas = list(active) + list(history)
+
+    salida = []
+    for row in filas:
+        concepto = rules.pick_task_value(row, ["CONCEPTO", "DESCRIPCION", "DESCRIPCIÓN"])
+        if not str(concepto or "").strip():
+            continue
+        salida.append({
+            "id": rules.pick_task_value(row, ["ID", "FOLIO"]) or "",
+            "especialidad": rules.pick_task_value(row, ["ESPECIALIDAD"]) or "",
+            "concepto": concepto,
+            "responsable": rules.pick_task_value(row, ["RESPONSABLE", "INVOLUCRADOS"]) or "",
+            "fechaAlta": rules.pick_task_value(row, ["FECHA", "FECHA ALTA", "ALTA"]) or "",
+            "horas": rules.pick_task_value(row, ["RELOJ", "HORAS"]) or "",
+            "cumplimiento": rules.pick_task_value(row, ["CUMPLIMIENTO"]) or "",
+            "archivoUrl": rules.pick_task_value(row, ["ARCHIVO", "CLIP"]) or "",
+            "comentarios": rules.pick_task_value(row, ["COMENTARIOS"]) or "",
+            "comentariosPrevios": rules.pick_task_value(
+                row, ["COMENTARIOS PREVIOS", "PREVIOS", "COMENTARIOS_PREVIOS"]) or "",
+        })
+
+    salida = salida[-300:]
+    salida.reverse()
+    return {"success": True, "data": salida}
+
+
+def fetch_combined_calendar(sheet_name: str) -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchCombinedCalendarData`.
+
+    Une el tracker de la persona, su hoja `(VENTAS)` si la tiene, y sus eventos
+    personales marcados como `CLIENTE = PERSONAL`. Deduplica por ID/FOLIO y, a
+    falta de ambos, por CONCEPTO+FECHA — la misma cadena de identidad que usa el
+    Gatekeeper al guardar.
+    """
+    base = rules.SALES_SUFFIX_RE.sub("", str(sheet_name or "")).strip()
+    if not base:
+        return {"success": False, "message": "Falta la hoja a consultar."}
+
+    # Toñita distribuye desde la tabla maestra: no se le suma una hoja (VENTAS).
+    if base.upper() == "ANTONIA_VENTAS":
+        objetivos = ["ANTONIA_VENTAS"]
+    else:
+        objetivos = [base, f"{base} (VENTAS)"]
+
+    filas: List[Dict[str, Any]] = []
+    for objetivo in objetivos:
+        active, _history, _headers = read_rows(objetivo)
+        filas.extend(active)
+
+    quien = rules.normalize_staff_name(base)
+    personales, _h, _hd = read_rows("AGENDA_PERSONAL")
+    for evento in personales:
+        dueno = rules.pick_task_value(evento, ["USUARIO_RAW", "USUARIO"])
+        if rules.normalize_staff_name(dueno) != quien:
+            continue
+        copia = dict(evento)
+        # El frontend pinta el calendario por CONCEPTO y distingue lo personal
+        # por CLIENTE: así lo hacía el original.
+        copia["CONCEPTO"] = rules.pick_task_value(evento, ["TITULO"]) or copia.get("CONCEPTO", "")
+        copia["CLIENTE"] = "PERSONAL"
+        filas.append(copia)
+
+    unicas: Dict[str, Dict[str, Any]] = {}
+    for fila in filas:
+        clave = str(rules.pick_task_value(fila, ["ID", "FOLIO"]) or "").strip()
+        if not clave:
+            concepto = str(rules.pick_task_value(fila, ["CONCEPTO"]) or "").strip()
+            fecha = str(rules.pick_task_value(fila, ["FECHA"]) or "").strip()
+            clave = f"{concepto}{fecha}" if concepto else ""
+        if clave:
+            unicas[clave] = fila
+
+    return {"success": True, "data": list(unicas.values())}
+
+
+def logout(username: str = "") -> Dict[str, Any]:
+    """
+    Equivalente de `apiLogout`: cierra sesión dejando la línea de auditoría.
+
+    No hay sesión que invalidar todavía (la autenticación con JWT es Fase 4 del
+    plan), pero el registro sí importa: `system_log` guarda 16.196 entradas
+    históricas de accesos y sin esto la mitad del par LOGIN/LOGOUT se perdía.
+    """
+    try:
+        from backend.services import auditoria
+
+        auditoria.registrar(str(username or "DESCONOCIDO").upper().strip(),
+                            "LOGOUT", "Sesión cerrada")
+    except Exception as exc:  # noqa: BLE001 - auditar no puede impedir el cierre
+        print(f"[logout] No se pudo auditar: {exc}")
+    return {"success": True}
+
+
+# ----------------------------------------------------------------------
+# BORRADORES, AGENDA Y DIRECTORIO
+# ----------------------------------------------------------------------
+# Delegan en `backend/repositories/agenda.py`, que es quien conoce las tablas.
+# Aquí solo se traduce a la envoltura `{success, ...}` que espera el frontend.
+
+
+def _repo(clase):
+    from backend.core.engine import construir_engine
+
+    return clase(construir_engine())
+
+
+def _envolver(accion, exito: Dict[str, Any]) -> Dict[str, Any]:
+    """Ejecuta y traduce cualquier fallo a un mensaje visible, nunca a un vacío."""
+    from backend.repositories.agenda import TablaAusente
+
+    try:
+        resultado = accion()
+    except TablaAusente as exc:
+        return {"success": False, "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"{type(exc).__name__}: {exc}"}
+    salida = dict(exito)
+    if resultado is not None:
+        salida["data"] = resultado
+    return salida
+
+
+def fetch_drafts() -> Dict[str, Any]:
+    """apiFetchDrafts."""
+    from backend.repositories.agenda import RepositorioBorradores
+
+    return _envolver(lambda: _repo(RepositorioBorradores).listar(), {"success": True})
+
+
+def sync_drafts(drafts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """apiSyncDrafts: reemplaza la cola completa."""
+    from backend.repositories.agenda import RepositorioBorradores
+
+    repo = _repo(RepositorioBorradores)
+    res = _envolver(lambda: repo.reemplazar(drafts or []), {"success": True})
+    if res.get("success"):
+        # `data` sería el conteo; el frontend solo mira `success`.
+        res["message"] = f"{res.pop('data', 0)} borrador(es) sincronizado(s)."
+    return res
+
+
+def clear_drafts() -> Dict[str, Any]:
+    """apiClearDrafts."""
+    from backend.repositories.agenda import RepositorioBorradores
+
+    repo = _repo(RepositorioBorradores)
+    return _envolver(lambda: repo.limpiar(), {"success": True})
+
+
+def save_personal_event(event: Dict[str, Any], username: str = "") -> Dict[str, Any]:
+    """apiSavePersonalEvent."""
+    from backend.repositories.agenda import RepositorioAgenda
+
+    repo = _repo(RepositorioAgenda)
+    return _envolver(lambda: repo.guardar_evento(event, username), {"success": True})
+
+
+def save_habit_log(habit: Dict[str, Any], username: str = "") -> Dict[str, Any]:
+    """apiSaveHabitLog. Falla con instrucciones si `habits_log` no existe."""
+    from backend.repositories.agenda import RepositorioAgenda
+
+    repo = _repo(RepositorioAgenda)
+    return _envolver(lambda: repo.guardar_habito(habit, username), {"success": True})
+
+
+def add_employee(name: Any, dept: Any, tipo: Any = "ESTANDAR") -> Dict[str, Any]:
+    """
+    apiAddEmployee: alta en el directorio (`people`).
+
+    El original valida duplicados por (nombre, departamento) y crea las hojas de
+    tracker según `type`. Aquí no hay hojas que crear: una persona nueva empieza
+    sin filas en `tasks` y su tracker aparece vacío en cuanto está en `people`.
+    """
+    from api.services.sheets import get_directory_from_db
+
+    limpio = str(name or "").upper().strip()
+    depto = str(dept or "").upper().strip()
+    if not limpio or not depto:
+        return {"success": False, "message": "Nombre y departamento son obligatorios."}
+
+    existentes = {(u["name"].upper().strip(), u["dept"].upper().strip())
+                  for u in get_directory_from_db()}
+    if (limpio, depto) in existentes:
+        return {"success": False, "message": f"{limpio} ya está en {depto}."}
+
+    fila = _manager().append_row("DB_DIRECTORY", [limpio, depto, str(tipo or "ESTANDAR").upper()])
+    if fila is None:
+        return {"success": False,
+                "message": "No se pudo escribir en el directorio. El alta NO se guardó."}
+    return {"success": True, "message": f"{limpio} agregado a {depto}."}
+
+
+def delete_employee(name: Any) -> Dict[str, Any]:
+    """
+    apiDeleteEmployee: baja del directorio.
+
+    Se borra por nombre, que es la clave lógica de `people` igual que en la hoja
+    `DB_DIRECTORY`. Las tareas de la persona **no** se tocan: son historia y
+    borrarlas sería pérdida de datos que el original tampoco hace.
+    """
+    from backend.core.engine import construir_engine
+
+    limpio = str(name or "").upper().strip()
+    if not limpio:
+        return {"success": False, "message": "Falta el nombre a dar de baja."}
+
+    try:
+        engine = construir_engine()
+        filas = engine.select("people", columnas=["nombre"]) or []
+        objetivo = next((f["nombre"] for f in filas
+                         if str(f.get("nombre") or "").upper().strip() == limpio), None)
+        if objetivo is None:
+            return {"success": False, "message": f"{limpio} no está en el directorio."}
+        engine.borrar("people", {"nombre": objetivo})
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"No se pudo dar de baja: {exc}"}
+
+    return {"success": True, "message": f"{limpio} dado de baja."}
+
+
+# ----------------------------------------------------------------------
+# AGENTE DE PRODUCTIVIDAD Y CORREO
+# ----------------------------------------------------------------------
+
+MESES_NOMBRE = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+                "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+
+def fetch_tracker_productivity_metrics(month: Optional[int] = None,
+                                       year: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchTrackerProductivityMetrics`.
+
+    Recorre el directorio y toma las tareas **cerradas** de cada persona en el
+    periodo. Las cerradas son las que el auto-archivado deja en el historial, que
+    es lo que el original leía por debajo del separador "TAREAS REALIZADAS".
+    """
+    from api.services.sheets import get_directory_from_db
+
+    mes = month or datetime.now().month
+    anio = year or datetime.now().year
+
+    departamentos: Dict[str, str] = {}
+    por_persona: Dict[str, List[Dict[str, Any]]] = {}
+
+    for entrada in get_directory_from_db():
+        persona = entrada.get("name")
+        if not persona or persona in por_persona:
+            continue
+        departamentos[persona] = entrada.get("dept") or ""
+        _active, history, _headers = read_rows(persona)
+        del_periodo = []
+        for row in history:
+            fecha = rules.parse_sheet_date(
+                rules.pick_task_value(row, ["FECHA", "FECHA ALTA", "ALTA"]))
+            if fecha and fecha.month == mes and fecha.year == anio:
+                del_periodo.append(row)
+        if del_periodo:
+            por_persona[persona] = del_periodo
+
+    metrics = rules.compute_productivity_metrics(
+        por_persona, departamento_de=departamentos.get, month=mes, year=anio)
+    return {"success": True, "metrics": metrics}
+
+
+def run_tracker_productivity_agent(month: Optional[int] = None,
+                                   year: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Equivalente de `runTrackerProductivityAgent`: métricas + 3 reglas + resumen
+    de IA + correo.
+
+    Los destinatarios se resuelven **por rol** (ADMIN, ADMIN_CONTROL, PPC_ADMIN).
+    El original los buscaba por nombre de cuenta y una de las tres llaves
+    —`USER_DB['ADMIN_CONTROL']`— no existe, porque es un rol: el reporte nunca
+    llegó a JAIME_OLIVO ni a DIMAS_RAMOS. Ver `api/services/correo.py`.
+    """
+    from api.services import correo
+
+    mes = month or datetime.now().month
+    anio = year or datetime.now().year
+    nombre_mes = MESES_NOMBRE[mes - 1]
+
+    resultado = fetch_tracker_productivity_metrics(mes, anio)
+    if not resultado.get("success"):
+        return {"success": False,
+                "message": f"No se pudieron obtener métricas: {resultado.get('message')}"}
+
+    metrics = resultado["metrics"]
+    alertas = rules.productivity_alerts(metrics)
+
+    resumen = "No se pudo generar reporte con IA."
+    respuesta = call_gemini(rules.build_productivity_prompt(metrics, nombre_mes))
+    if respuesta.get("success") and respuesta.get("text"):
+        resumen = respuesta["text"]
+
+    filas = "".join(
+        f'<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 10px;">{c["name"]}</td>'
+        f'<td style="text-align:center;padding:5px 10px;">{c["count"]}</td>'
+        f'<td style="text-align:center;padding:5px 10px;color:'
+        f'{"#28a745" if c["onTimePct"] >= 80 else "#dc3545"};">{c["onTimePct"]}%</td>'
+        f'<td style="text-align:center;padding:5px 10px;">{c["avgDays"]}</td></tr>'
+        for c in metrics["byCollabArr"][:8]
+    )
+    tabla = (
+        '<h2 style="font-size:16px;color:#444;margin-top:24px;">Por colaborador</h2>'
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+        '<tr style="background:#f1f3f5;"><th style="padding:6px 10px;text-align:left;">Nombre</th>'
+        '<th>Tareas</th><th>A tiempo</th><th>Días prom.</th></tr>'
+        f'{filas}</table>'
+    ) if filas else ""
+
+    envio = correo.enviar(
+        asunto=f"Reporte de Productividad — {nombre_mes} {anio}",
+        html=correo.cuerpo_reporte(
+            titulo=f"📊 Reporte de Productividad — {nombre_mes} {anio}",
+            subtitulo="Generado automáticamente por el Agente de Productividad",
+            resumen_ia=resumen,
+            kpis=[("Total Completadas", metrics["totalTasks"]),
+                  ("A Tiempo", f"{metrics['onTimePct']}%"),
+                  ("Atrasadas", metrics["lateTasks"]),
+                  ("Días Promedio", metrics["avgDurationDays"])],
+            alertas=alertas,
+            tabla_html=tabla,
+        ),
+        roles=["ADMIN", "ADMIN_CONTROL", "PPC_ADMIN"],
+    )
+
+    return {
+        "success": True,
+        "data": {
+            "metrics": metrics,
+            "alerts": alertas,
+            "geminiReport": resumen,
+            "emailSent": bool(envio.get("success")),
+            "emailMessage": envio.get("message", ""),
+        },
+    }
+
+
+def send_quote_metrics_email(month: Optional[int] = None,
+                             year: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Equivalente de `_sendAgentEmail`: el reporte de cotizaciones por correo.
+
+    Destinatarios por rol TONITA y ADMIN, que son las dos cuentas que el
+    original nombraba (`ANTONIA_VENTAS` y `LUIS_CARLOS`).
+    """
+    from api.services import correo
+
+    mes = month or datetime.now().month
+    anio = year or datetime.now().year
+    nombre_mes = MESES_NOMBRE[mes - 1]
+
+    reporte = run_quote_metrics_agent(mes, anio)
+    if not reporte.get("success"):
+        return reporte
+
+    datos = reporte.get("data") or {}
+    metrics = datos.get("metrics") or {}
+    envio = correo.enviar(
+        asunto=f"Reporte de Cotizaciones — {nombre_mes} {anio}",
+        html=correo.cuerpo_reporte(
+            titulo=f"📊 Reporte de Cotizaciones — {nombre_mes} {anio}",
+            subtitulo="Generado automáticamente por el Agente de Métricas",
+            resumen_ia=datos.get("geminiReport", ""),
+            kpis=[("Cotizaciones", metrics.get("total", 0)),
+                  ("Ganadas", metrics.get("ganadas", metrics.get("won", 0))),
+                  ("SLA en tiempo", metrics.get("slaOk", 0))],
+            alertas=datos.get("alerts") or [],
+            color="#1E3A5F",
+        ),
+        roles=["TONITA", "ADMIN"],
+    )
+    datos["emailSent"] = bool(envio.get("success"))
+    datos["emailMessage"] = envio.get("message", "")
+    return {"success": True, "data": datos}
+
+
+def auto_update_quote_metrics() -> Dict[str, Any]:
+    """
+    Equivalente de `autoUpdateQuoteMetrics`, el disparador diario de las 07:00.
+
+    En Apps Script era un trigger de tiempo instalado con
+    `setupDailyQuoteMetricsTrigger`. Aquí no hay proceso residente —en serverless
+    no existe—, así que lo dispara un cron externo contra
+    `POST /api/cron/dailyMetrics`. Ver `.github/workflows/cron-metricas.yml`.
+    """
+    cotizaciones = write_quote_metrics_to_sheet()
+    correo_cotizaciones = send_quote_metrics_email()
+    productividad = run_tracker_productivity_agent()
+
+    return {
+        "success": True,
+        "data": {
+            "kpiEscritos": bool(cotizaciones.get("success")),
+            "correoCotizaciones": bool((correo_cotizaciones.get("data") or {}).get("emailSent")),
+            "correoProductividad": bool((productividad.get("data") or {}).get("emailSent")),
+        },
+    }

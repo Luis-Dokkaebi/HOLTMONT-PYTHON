@@ -1,0 +1,49 @@
+ID: cron-metricas
+name: Métricas diarias (autoUpdateQuoteMetrics)
+
+# Sustituye al trigger de tiempo de Apps Script
+# (`setupDailyQuoteMetricsTrigger`, diario a las 07:00). En serverless no hay
+# proceso residente que sostenga un scheduler, así que el disparo viene de
+# fuera: este workflow llama al endpoint y el endpoint hace el trabajo.
+#
+# 07:00 en Monterrey (UTC-6) son las 13:00 UTC. GitHub evalúa el cron en UTC y
+# no ajusta por horario de verano; si la zona cambia, hay que corregir la hora
+# aquí.
+#
+# Requiere dos secretos del repositorio:
+#   HOLTMONT_API_URL  — p. ej. https://holtmont.vercel.app
+#   CRON_SECRET       — el mismo valor que la variable CRON_SECRET del backend
+
+on:
+  schedule:
+    - cron: "0 13 * * *"
+  # Para poder dispararlo a mano sin esperar al día siguiente.
+  workflow_dispatch:
+
+jobs:
+  disparar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ejecutar métricas diarias
+        env:
+          API_URL: ${{ secrets.HOLTMONT_API_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${API_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "Faltan los secretos HOLTMONT_API_URL o CRON_SECRET." >&2
+            exit 1
+          fi
+
+          # --fail-with-body para que un 401 o un 500 rompan el job Y se vea el
+          # motivo: un cron que falla en silencio es peor que no tenerlo.
+          curl --fail-with-body --silent --show-error \
+               --max-time 300 \
+               -X POST "${API_URL%/}/api/cron/dailyMetrics" \
+               -H "X-Cron-Secret: ${CRON_SECRET}" \
+               -H "Content-Type: application/json" \
+            | tee respuesta.json
+
+          echo
+          echo "Métricas diarias ejecutadas."

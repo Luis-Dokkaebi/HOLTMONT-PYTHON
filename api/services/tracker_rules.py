@@ -103,6 +103,24 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
 }
 
 ARCHIVE_SEPARATOR = "TAREAS REALIZADAS"
+# Claves que NO viajan del trabajador a la hoja maestra.
+#
+# **ESTATUS y AVANCE sí viajan, a propósito.** El original los borra
+# (`delKeys` en `apiSaveTrackerBatch`) para que cerrar una fase no cierre la
+# cotización entera; aquí se tomó la decisión contraria y está fijada por dos
+# pruebas: `test_reverse_sync_sends_cierre_status` y
+# `test_la_venta_maestra_se_archiva_por_avance_del_trabajador`. Cuando el
+# trabajador reporta el 100%, la venta se marca cerrada y el auto-archivado se la
+# lleva a TAREAS REALIZADAS, que es el comportamiento que el dueño quiere ver en
+# las dos tablas.
+#
+# Si algún día hay que volver a la regla del original —fases parciales que no
+# cierran la venta—, el cambio es añadir aquí ESTATUS/STATUS/ESTADO/AVANCE y sus
+# variantes, y actualizar esas dos pruebas. No se toca a medias: dejar el reverse
+# sync sin ESTATUS pero con AVANCE archivaría igual, por la regla del 100 %.
+#
+# CUMPLIMIENTO y las fechas de término sí se filtran: son del seguimiento del
+# trabajador y no significan lo mismo en la fila maestra.
 REVERSE_SYNC_BLOCKED_KEYS = {
     "CUMPLIMIENTO", "FECHA_TERMINO", "FECHA TERMINO",
 }
@@ -653,10 +671,17 @@ def build_reverse_sync_payload(source_sheet: str, task: Dict[str, Any],
                                worker_row: Optional[Dict[str, Any]] = None,
                                master_row: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
-    Payload saneado para ANTONIA_VENTAS:
-      * Elimina ESTATUS/AVANCE/CUMPLIMIENTO (case-insensitive) para que una
-        fase parcial no cierre la venta global.
-      * No pisa el CONCEPTO maestro con el concepto marcado de la fase.
+    Payload que devuelve el avance del trabajador a su hoja maestra.
+
+      * **ESTATUS y AVANCE sí se propagan**: si el trabajador cierra al 100%, la
+        fila maestra queda cerrada y el auto-archivado se la lleva a TAREAS
+        REALIZADAS. Es una decisión de este proyecto, distinta del original, y la
+        fijan dos pruebas — ver `REVERSE_SYNC_BLOCKED_KEYS`. (Este docstring
+        afirmaba lo contrario y describía la regla del original, no la de aquí.)
+      * CUMPLIMIENTO y las fechas de término no viajan.
+      * No pisa el CONCEPTO maestro con el concepto marcado de la fase: el
+        trabajador ve "COTIZAR NAVE [Calculo y Diseño]" y la maestra conserva
+        "COTIZAR NAVE".
       * Cierra la fase en PROCESO_LOG y pinta MAP COT en verde.
     """
     folio = str(pick_task_value(task, ["FOLIO", "ID"]) or "").strip()
@@ -881,6 +906,27 @@ def find_header_row(values: Sequence[Sequence[Any]]) -> int:
                 x in row_str for x in ("DESCRIPCI", "RESPONSABLE", "CONCEPTO")):
             return i
         if "CLIENTE" in row_str and any(x in row_str for x in ("VENDEDOR", "AREA", "CLASIFICACION")):
+            return i
+        # Agenda personal y hábitos. Sus encabezados no tienen FOLIO, CONCEPTO,
+        # RESPONSABLE ni CLIENTE, así que ninguna de las reglas anteriores los
+        # reconocía.
+        #
+        # Estas dos reglas **existían en `sheets.find_header_row`** y no aquí:
+        # había dos implementaciones del detector y solo una sabía leer la
+        # agenda (anti-patrón §23.4). La consecuencia era que `/api/data`, que
+        # usa la de `sheets`, sí la leía, mientras `rows_to_dicts` —y con él
+        # `fetch_unified_agenda`— devolvía (0, 0, 0) filas: la vista "Mi Agenda
+        # Personal" salía vacía con 27 eventos en la base, y los hábitos igual.
+        # El fallo era silencioso porque una hoja sin encabezados válidos y una
+        # hoja sin datos se ven iguales desde el frontend.
+        #
+        # Se copian aquí y `sheets.find_header_row` pasa a delegar, para que no
+        # puedan volver a divergir. La condición es algo más laxa que la
+        # original (no exige la columna de usuario): un export de agenda sin ella
+        # también debe poder leerse.
+        if "TITULO" in row_str and any(x in row_str for x in ("FECHA", "HORA_INICIO", "TIPO")):
+            return i
+        if "HABITO" in row_str:
             return i
     return -1
 
@@ -1267,3 +1313,189 @@ def build_quote_metrics_prompt(metrics: Dict[str, Any]) -> str:
         "Entrega el texto en un solo bloque, sin listas ni markdown, y cierra siempre con una "
         "recomendación operativa concreta y accionable para el equipo de ventas.",
     ])
+
+
+# ----------------------------------------------------------------------
+# MÉTRICAS DE PRODUCTIVIDAD DE TRACKERS
+# ----------------------------------------------------------------------
+# Port de `apiFetchTrackerProductivityMetrics`. La versión que había en
+# `api/main.py` era una cuenta de activas/cerradas por persona escrita en línea
+# en el endpoint; le faltaban el cumplimiento de fechas, las restricciones, los
+# riesgos, las prioridades y el desglose por departamento, que son las métricas
+# de las que dependen las tres reglas de alerta.
+
+PRIORIDADES = ("ALTA", "MEDIA", "BAJA")
+RIESGO_IRRELEVANTE = {"", "BAJO", "NINGUNO", "NO"}
+
+
+def _duracion_de_tarea(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Días entre el alta y la entrega, y si llegó tarde.
+
+    Tarde = se entregó después de la fecha comprometida. Sin fecha comprometida
+    no se puede juzgar, así que cuenta como a tiempo — igual que el original, que
+    solo marca `isLate` cuando hay con qué comparar.
+    """
+    alta = parse_sheet_date(pick_task_value(row, ["FECHA", "FECHA ALTA", "ALTA", "F. INICIO"]))
+    compromiso = parse_sheet_date(pick_task_value(
+        row, ["FECHA_RESPUESTA", "FECHA RESPUESTA", "FEC. EST. FIN",
+              "FECHA ESTIMADA DE FIN", "F. ENTREGA", "FECHA ENTREGA"]))
+    entrega = parse_sheet_date(pick_task_value(
+        row, ["FECHA_CIERRE", "FECHA CIERRE", "F. ENTREGA", "FECHA ENTREGA"])) or compromiso
+
+    dias = 0.0
+    if alta and entrega:
+        dias = max((entrega - alta).days, 0)
+
+    tarde = bool(compromiso and entrega and entrega.date() > compromiso.date())
+    return {"dias": dias, "tarde": tarde}
+
+
+def compute_productivity_metrics(por_persona: Dict[str, List[Dict[str, Any]]],
+                                 departamento_de: Optional[Callable[[str], str]] = None,
+                                 month: Optional[int] = None,
+                                 year: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Métricas de productividad del periodo.
+
+    `por_persona` es {nombre: [tareas cerradas del periodo]}. Se recibe ya
+    filtrado para que esta función sea pura y probable sin base de datos.
+    """
+    total = 0
+    a_tiempo = 0
+    tarde = 0
+    dias_totales = 0.0
+    con_duracion = 0
+    con_restricciones = 0
+    con_riesgos = 0
+    prioridades = {"ALTA": 0, "MEDIA": 0, "BAJA": 0, "SIN_PRIORIDAD": 0}
+    por_depto: Dict[str, Dict[str, int]] = {}
+    por_colab: Dict[str, Dict[str, Any]] = {}
+
+    for persona, tareas in (por_persona or {}).items():
+        depto = (departamento_de(persona) if departamento_de else "") or "SIN DEPARTAMENTO"
+        for row in tareas:
+            total += 1
+            duracion = _duracion_de_tarea(row)
+            if duracion["tarde"]:
+                tarde += 1
+            else:
+                a_tiempo += 1
+            if duracion["dias"] > 0:
+                dias_totales += duracion["dias"]
+                con_duracion += 1
+
+            if str(pick_task_value(row, ["RESTRICCIONES"]) or "").strip():
+                con_restricciones += 1
+
+            riesgo = str(pick_task_value(row, ["RIESGOS", "RIESGO"]) or "").strip().upper()
+            if riesgo not in RIESGO_IRRELEVANTE:
+                con_riesgos += 1
+
+            prio = str(pick_task_value(row, ["PRIORIDAD"]) or "").strip().upper()
+            prioridades[prio if prio in PRIORIDADES else "SIN_PRIORIDAD"] += 1
+
+            d = por_depto.setdefault(depto, {"count": 0, "late": 0, "onTime": 0})
+            d["count"] += 1
+            d["late" if duracion["tarde"] else "onTime"] += 1
+
+            c = por_colab.setdefault(persona, {
+                "name": persona, "dept": depto, "count": 0, "late": 0, "onTime": 0,
+                "_dias": 0.0, "_conDuracion": 0,
+            })
+            c["count"] += 1
+            c["late" if duracion["tarde"] else "onTime"] += 1
+            if duracion["dias"] > 0:
+                c["_dias"] += duracion["dias"]
+                c["_conDuracion"] += 1
+
+    def pct(parte: int, entero: int) -> int:
+        return round((parte / entero) * 100) if entero else 0
+
+    colaboradores = sorted(por_colab.values(), key=lambda c: c["count"], reverse=True)
+    for c in colaboradores:
+        c["avgDays"] = round(c.pop("_dias") / c["_conDuracion"], 1) if c["_conDuracion"] else 0
+        c.pop("_conDuracion")
+        c["onTimePct"] = pct(c["onTime"], c["count"])
+
+    return {
+        "totalTasks": total,
+        "onTimeTasks": a_tiempo,
+        "lateTasks": tarde,
+        "onTimePct": pct(a_tiempo, total),
+        "avgDurationDays": round(dias_totales / con_duracion, 1) if con_duracion else 0,
+        "tasksWithRestrictions": con_restricciones,
+        "restrictionsPct": pct(con_restricciones, total),
+        "tasksWithRisks": con_riesgos,
+        "risksPct": pct(con_riesgos, total),
+        "priorityStats": prioridades,
+        "byCollabArr": colaboradores,
+        "byDeptArr": sorted(
+            [{"dept": k, "count": v["count"]} for k, v in por_depto.items()],
+            key=lambda d: d["count"], reverse=True),
+        "month": month,
+        "year": year,
+    }
+
+
+def productivity_alerts(metrics: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Las tres reglas de alerta de `runTrackerProductivityAgent`, con sus umbrales
+    exactos: <80% a tiempo, >20% con restricciones, y el colaborador de mayor
+    volumen por debajo del 50% con al menos 5 tareas.
+    """
+    alertas: List[Dict[str, Any]] = []
+
+    if metrics.get("totalTasks", 0) > 0 and metrics.get("onTimePct", 0) < 80:
+        alertas.append({
+            "type": "ENTREGAS_ATRASADAS", "severity": "ALTA", "icon": "🔴",
+            "mensaje": f"Porcentaje de entregas a tiempo crítico: {metrics['onTimePct']}%",
+        })
+
+    if metrics.get("restrictionsPct", 0) > 20:
+        alertas.append({
+            "type": "ALTAS_RESTRICCIONES", "severity": "MEDIA", "icon": "🟡",
+            "mensaje": ("Alta proporción de tareas con restricciones: "
+                        f"{metrics['restrictionsPct']}%"),
+        })
+
+    top = (metrics.get("byCollabArr") or [None])[0]
+    if top and top.get("onTimePct", 0) < 50 and top.get("count", 0) >= 5:
+        alertas.append({
+            "type": "PRODUCTIVIDAD_COLAB", "severity": "ALTA", "icon": "🔴",
+            "mensaje": (f"Colaborador {top['name']} tiene {top['onTimePct']}% a tiempo "
+                        f"de {top['count']} tareas."),
+        })
+
+    return alertas
+
+
+def build_productivity_prompt(metrics: Dict[str, Any], month_name: str) -> str:
+    """Mismo prompt que el original, para que el reporte lea igual."""
+    import json as _json
+
+    resumen = _json.dumps({
+        "volumen_total": metrics.get("totalTasks"),
+        "a_tiempo_pct": metrics.get("onTimePct"),
+        "atrasadas": metrics.get("lateTasks"),
+        "promedio_dias_resolucion": metrics.get("avgDurationDays"),
+        "porcentaje_restricciones": metrics.get("restrictionsPct"),
+        "porcentaje_riesgos": metrics.get("risksPct"),
+        "prioridades": metrics.get("priorityStats"),
+        "top_colaboradores": [
+            {"nombre": c["name"], "volumen": c["count"],
+             "a_tiempo_pct": c["onTimePct"], "promedio_dias": c["avgDays"]}
+            for c in (metrics.get("byCollabArr") or [])[:3]
+        ],
+    }, indent=2, ensure_ascii=False)
+
+    return (
+        "Eres un Analista de Productividad y Operaciones Senior. Analiza las "
+        f"siguientes métricas del equipo correspondientes al mes de {month_name}. "
+        "Tu objetivo es redactar un reporte ejecutivo muy conciso (máximo 180 "
+        "palabras) en español. Debes destacar el porcentaje de tareas entregadas "
+        "a tiempo, identificar si hay un cuello de botella con las prioridades "
+        "altas o restricciones, y mencionar al colaborador o departamento más "
+        "productivo. Termina siempre con UNA recomendación operativa concreta "
+        f"para mejorar los tiempos de entrega.\n\nMétricas:\n{resumen}"
+    )

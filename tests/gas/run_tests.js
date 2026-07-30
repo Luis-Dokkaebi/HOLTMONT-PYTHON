@@ -563,10 +563,36 @@ section('7. Contrato index.html ↔ CODIGO.js');
 
 run('7.1', 'Todas las funciones invocadas por el frontend existen en el backend', () => {
   const definidas = new Set([...CODIGO_SRC.matchAll(/^function\s+([A-Za-z0-9_]+)\s*\(/gm)].map(m => m[1]));
-  const llamadas = new Set([...INDEX_HTML.matchAll(/\.\s*((?:api|run)[A-Za-z0-9_]*)\s*\(/g)].map(m => m[1]));
+  // `internal` y `upload` van en la lista a propósito: el frontend NO se limita
+  // a llamar `api*`. `saveRow()` invoca `internalUpdateTask` y los selectores de
+  // archivo invocan `uploadFileToDrive`. Mientras el patrón fue solo /api|run/,
+  // esas dos familias quedaron fuera de toda verificación de contrato.
+  const llamadas = new Set([...INDEX_HTML.matchAll(/\.\s*((?:api|run|internal|upload)[A-Za-z0-9_]*)\s*\(/g)].map(m => m[1]));
   const faltantes = [...llamadas].filter(c => !definidas.has(c)).sort();
   check('7.1', 'Funciones google.script.run sin implementación en CODIGO.js', '0 faltantes',
     faltantes.length ? `${faltantes.length}: ${faltantes.join(', ')}` : '0 faltantes', faltantes.length === 0);
+});
+
+run('7.1c', 'El adaptador implementa TODO lo que el frontend invoca (no solo lo api*)', () => {
+  const adapter = fs.readFileSync(path.resolve(__dirname, '..', '..', 'api_service.js'), 'utf8');
+
+  // La superficie RPC real se deduce cruzando dos fuentes en vez de adivinarla
+  // con un prefijo: un nombre cuenta si `index.html` lo invoca como método Y
+  // `CODIGO.js` lo define como función. Así entran `internalUpdateTask` y
+  // `uploadFileToDrive`, y quedan fuera los métodos del DOM (`getElementById`)
+  // que ningún prefijo sabría distinguir.
+  const definidas = new Set([...CODIGO_SRC.matchAll(/^function\s+([A-Za-z0-9_]+)\s*\(/gm)].map(m => m[1]));
+  const invocadas = [...new Set([...INDEX_HTML.matchAll(/\.\s*([A-Za-z0-9_]+)\s*\(/g)].map(m => m[1]))]
+    .filter(n => definidas.has(n));
+
+  const enAdaptador = new Set([...adapter.matchAll(/^\s{4}([A-Za-z0-9_]+)\s*\(/gm)].map(m => m[1]));
+  const ausentes = invocadas.filter(n => !enAdaptador.has(n)).sort();
+
+  check('7.1c', 'Métodos que el frontend llama y el adaptador no define', '0 ausentes',
+    ausentes.length ? `${ausentes.length}: ${ausentes.join(', ')}` : `0 ausentes (${invocadas.length} verificados)`,
+    ausentes.length === 0,
+    'Un método ausente lanza TypeError SINCRONICO: withFailureHandler no lo captura, ' +
+    'los flags _isSaving/isSubmitting quedan en true y se bloquea todo guardado posterior');
 });
 
 run('7.1b', 'Adaptador de migración (api_service.js): métodos críticos implementados', () => {
@@ -581,6 +607,53 @@ run('7.1b', 'Adaptador de migración (api_service.js): métodos críticos implem
   check('7.1b', 'Métodos de guardado del adaptador FastAPI que siguen siendo stubs', '0 stubs',
     stubs.length ? `${stubs.length}: ${stubs.join(', ')}` : '0 stubs', stubs.length === 0,
     'Un stub responde {success:true} sin persistir nada en Supabase/FastAPI');
+});
+
+run('7.1d', 'El adaptador no pierde argumentos que el frontend sí manda', () => {
+  const adapter = fs.readFileSync(path.resolve(__dirname, '..', '..', 'api_service.js'), 'utf8');
+
+  // Un método del adaptador declarado con menos parámetros de los que el
+  // frontend pasa descarta los sobrantes sin avisar. Paso por `getSystemConfig`:
+  // index.html llama `getSystemConfig(r, u)` y el adaptador declaraba
+  // `getSystemConfig(role)`, asi que el backend nunca recibio el usuario y las
+  // ramas de RBAC por cuenta eran inalcanzables.
+  const aridad = (src, nombre, patron) => {
+    const m = new RegExp(patron.replace('NOMBRE', nombre)).exec(src);
+    if (!m) return null;
+    const args = m[1].trim();
+    return args ? args.split(',').length : 0;
+  };
+
+  const problemas = [];
+  const metodos = [...adapter.matchAll(/^\s{4}([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*\{/gm)]
+    .filter(m => !m[1].startsWith('_') && !['constructor', 'withSuccessHandler', 'withFailureHandler'].includes(m[1]));
+
+  for (const m of metodos) {
+    const declarados = m[2].trim() ? m[2].split(',').length : 0;
+    // Máxima aridad con la que el frontend lo invoca.
+    const usos = [...INDEX_HTML.matchAll(new RegExp(`\\.\\s*${m[1]}\\s*\\(([^;]*?)\\)\\s*[;,)]`, 'g'))];
+    for (const uso of usos) {
+      const crudo = uso[1].trim();
+      if (!crudo) continue;
+      // Conteo tosco de argumentos de nivel superior: basta para detectar que se
+      // pasan 2 donde se declara 1.
+      let nivel = 0, n = 1;
+      for (const ch of crudo) {
+        if ('([{'.includes(ch)) nivel++;
+        else if (')]}'.includes(ch)) nivel--;
+        else if (ch === ',' && nivel === 0) n++;
+      }
+      if (n > declarados) {
+        problemas.push(`${m[1]}: declara ${declarados}, el frontend pasa ${n}`);
+        break;
+      }
+    }
+  }
+
+  check('7.1d', 'Métodos del adaptador que descartan argumentos del frontend', '0',
+    problemas.length ? `${problemas.length}: ${problemas.join(' | ')}` : '0',
+    problemas.length === 0,
+    'Un parámetro no declarado se pierde en silencio: el backend nunca recibe el dato');
 });
 
 run('7.2', 'apiSaveTrackerBatch devuelve res.data para fusionar en el frontend (AGENTS.md §2)', () => {

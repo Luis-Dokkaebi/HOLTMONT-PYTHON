@@ -2543,7 +2543,7 @@
                               </td>
                               <td><input :value="(row['F. INICIO'] || row['F_INICIO']) || row['FECHA'] || row['ALTA'] || row['FECHA INICIO'] || row['FECHA_INICIO']" class="excel-input text-center" readonly></td>
                               <td><input :value="(row['F_VISITA'] || row['F. VISITA'] || row['FECHA VISITA'])" class="excel-input text-center" readonly></td>
-                              <td><input :value="row['F. ENTREGA', 'F_ENTREGA'] || row['FECHA ENTREGA']" class="excel-input text-center" readonly></td>
+                              <td><input :value="(row['F. ENTREGA'] || row['F_ENTREGA']) || row['FECHA ENTREGA']" class="excel-input text-center" readonly></td>
                               <td class="p-1">
                                   <div class="hp-timeline-container">
                                       <div v-for="(step, sIdx) in getProcessTimeline(row)" :key="sIdx" class="hp-step" @click="step.isCurrent ? advanceProcess(row) : null">
@@ -5825,11 +5825,19 @@
 </div>
 
 <script>
+  // Límite de subida, compartido por los cuatro selectores de archivo (audio de
+  // transcripción, validación de diseño, celda del tracker y adjunto general).
+  // En Apps Script rebasarlo provocaba un error opaco de "Script Invocation";
+  // aquí el cuerpo viaja como data URL en el JSON, así que un archivo grande
+  // revienta igual pero más lejos. Se valida antes de leerlo.
+  const MAX_UPLOAD_BYTES = 35 * 1024 * 1024;
+
   window.onerror = function(msg, url, line, col, error) { if(String(msg).toLowerCase().includes("script error")) return; Swal.fire({ icon: 'error', title: 'Error de Renderizado', text: 'Ocurrió un error visual: ' + (error ? error.message : msg) }); };
 
 function enviarAudioAGemini(inputElement) {
     const file = inputElement.files[0];
     if (!file) return;
+    if(file.size > MAX_UPLOAD_BYTES) { Swal.fire('Error', 'El archivo de audio es demasiado grande (máximo 35MB).', 'error'); inputElement.value = ''; return; }
 
     // Alerta de carga
     Swal.fire({
@@ -6697,6 +6705,7 @@ async function toggleVoiceRecording(btnElement) {
       const handleDesignFileSelect = (e) => {
           const file = e.target.files[0];
           if(!file) return;
+          if(file.size > MAX_UPLOAD_BYTES) { Swal.fire('Error', 'El archivo es demasiado grande (máximo 35MB).', 'error'); e.target.value = null; return; }
           isUploadingFile.value = true;
           const r = new FileReader();
           r.onload = (ev) => {
@@ -8439,12 +8448,13 @@ const filteredStaffTrackerData = computed(() => {
       };
 
       const openCellUpload = (row, col) => { uploadingCell.value = {row, col}; cellFileInput.value.click(); };
-      const handleCellFile = (e) => { const file = e.target.files[0]; if(!file || !uploadingCell.value.row) return; Swal.showLoading(); const r = new FileReader(); r.onload = (ev) => { google.script.run.withSuccessHandler(res => { if(res.success){ const colName = String(uploadingCell.value.col).toUpperCase(); if (isMediaColumn(colName) || colName === 'REQUISITOR') { const currentVal = uploadingCell.value.row[uploadingCell.value.col] || ''; uploadingCell.value.row[uploadingCell.value.col] = currentVal ? currentVal + '\n' + res.fileUrl : res.fileUrl; } else { uploadingCell.value.row[uploadingCell.value.col] = res.fileUrl; } saveRow(uploadingCell.value.row); } else Swal.fire('Error', res.message, 'error'); e.target.value = null; }).uploadFileToDrive(ev.target.result, file.type, file.name); }; r.readAsDataURL(file); };
+      const handleCellFile = (e) => { const file = e.target.files[0]; if(!file || !uploadingCell.value.row) return; if(file.size > MAX_UPLOAD_BYTES) { Swal.fire('Error', 'El archivo es demasiado grande (máximo 35MB).', 'error'); e.target.value = null; return; } Swal.showLoading(); const r = new FileReader(); r.onload = (ev) => { google.script.run.withSuccessHandler(res => { if(res.success){ const colName = String(uploadingCell.value.col).toUpperCase(); if (isMediaColumn(colName) || colName === 'REQUISITOR') { const currentVal = uploadingCell.value.row[uploadingCell.value.col] || ''; uploadingCell.value.row[uploadingCell.value.col] = currentVal ? currentVal + '\n' + res.fileUrl : res.fileUrl; } else { uploadingCell.value.row[uploadingCell.value.col] = res.fileUrl; } saveRow(uploadingCell.value.row); } else Swal.fire('Error', res.message, 'error'); e.target.value = null; }).uploadFileToDrive(ev.target.result, file.type, file.name); }; r.readAsDataURL(file); };
       const addResponsable = (n) => { selectedResponsables.value.push(n); staffSearch.value=''; };
       const openFileDialog = () => fileInput.value.click();
       const handleFileSelect = (e) => {
           const file = e.target.files[0];
           if(!file) return;
+          if(file.size > MAX_UPLOAD_BYTES) { Swal.fire('Error', 'El archivo es demasiado grande (máximo 35MB).', 'error'); e.target.value = null; return; }
           isUploadingFile.value=true;
           const r = new FileReader();
           r.onload=(ev)=>google.script.run.withSuccessHandler(res=>{

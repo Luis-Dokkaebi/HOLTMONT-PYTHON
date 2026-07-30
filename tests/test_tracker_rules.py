@@ -331,7 +331,11 @@ def test_reverse_sync_sends_cierre_status():
 
     payload = build_reverse_sync_payload("ANGEL SALINAS (VENTAS)", task, worker_row, {"PROCESO_LOG": "[]"})
 
-    # El borrado es case-insensitive: ninguna variante de ESTATUS/AVANCE sobrevive.
+    # ESTATUS y AVANCE SÍ sobreviven: es lo que cierra la venta en la maestra
+    # cuando el trabajador reporta el 100%. El comentario anterior decía justo lo
+    # contrario ("ninguna variante sobrevive") mientras las aserciones exigían que
+    # estuvieran, y esa contradicción ya llevó a "corregir" el filtro y romper el
+    # flujo. Ver `REVERSE_SYNC_BLOCKED_KEYS`.
     claves = {k.upper() for k in payload}
     assert "ESTATUS" in claves
     assert "AVANCE" in claves

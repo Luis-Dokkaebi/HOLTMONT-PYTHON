@@ -12,75 +12,17 @@ CREDENTIALS_FILE = "credentials.json"
 SPREADSHEET_ID = None # Can be set via env var or config. If None, mock gspread will look for "Holtmont Workspace" by name or create a mock.
 
 # --- Constants ---
-INITIAL_DIRECTORY = [
-    { "name": "ANTONIA_VENTAS", "dept": "VENTAS", "type": "VENTAS" },
-    { "name": "JUDITH ECHAVARRIA", "dept": "VENTAS", "type": "ESTANDAR" },
-    { "name": "EDUARDO MANZANARES", "dept": "VENTAS", "type": "ESTANDAR" },
-    { "name": "RAMIRO RODRIGUEZ", "dept": "VENTAS", "type": "HIBRIDO" },
-    { "name": "SEBASTIAN PADILLA", "dept": "VENTAS", "type": "ESTANDAR" },
-    { "name": "CESAR GOMEZ", "dept": "VENTAS", "type": "ESTANDAR" },
-    { "name": "ALFONSO CORREA", "dept": "VENTAS", "type": "ESTANDAR" },
-    { "name": "TERESA GARZA", "dept": "VENTAS", "type": "HIBRIDO" },
-    { "name": "GUILLERMO DAMICO", "dept": "VENTAS", "type": "ESTANDAR" },
-    { "name": "ANGEL SALINAS", "dept": "VENTAS", "type": "HIBRIDO" },
-    { "name": "JUAN JOSE SANCHEZ", "dept": "VENTAS", "type": "ESTANDAR" },
-    { "name": "LUIS CARLOS", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "ANTONIO SALAZAR", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "ROCIO CASTRO", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "DANIA GONZALEZ", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "JUANY RODRIGUEZ", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "LAURA HUERTA", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "LILIANA MARTINEZ", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "DANIELA CASTRO", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "EDUARDO BENITEZ", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "ANTONIO CABRERA", "dept": "ADMINISTRACION", "type": "ESTANDAR" },
-    { "name": "ADMINISTRADOR", "dept": "ADMINISTRACION", "type": "HIBRIDO" },
-    { "name": "EDUARDO MANZANARES", "dept": "HVAC", "type": "ESTANDAR" },
-    { "name": "JUAN JOSE SANCHEZ", "dept": "HVAC", "type": "ESTANDAR" },
-    { "name": "SELENE BALDONADO", "dept": "HVAC", "type": "ESTANDAR" },
-    { "name": "ROLANDO MORENO", "dept": "HVAC", "type": "ESTANDAR" },
-    { "name": "MIGUEL GALLARDO", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
-    { "name": "SEBASTIAN PADILLA", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
-    { "name": "JEHU MARTINEZ", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
-    { "name": "MIGUEL GONZALEZ", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
-    { "name": "ALICIA RIVERA", "dept": "ELECTROMECANICA", "type": "ESTANDAR" },
-    { "name": "RICARDO MENDO", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
-    { "name": "CARLOS MENDEZ", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
-    { "name": "REYNALDO GARCIA", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
-    { "name": "INGE OLIVO", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
-    { "name": "EDUARDO TERAN", "dept": "CONSTRUCCION", "type": "HIBRIDO" },
-    { "name": "EDGAR HOLT", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
-    { "name": "ALEXIS TORRES", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
-    { "name": "TERESA GARZA", "dept": "CONSTRUCCION", "type": "HIBRIDO" },
-    { "name": "RAMIRO RODRIGUEZ", "dept": "CONSTRUCCION", "type": "HIBRIDO" },
-    { "name": "GUILLERMO DAMICO", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
-    { "name": "RUBEN PESQUEDA", "dept": "CONSTRUCCION", "type": "ESTANDAR" },
-    { "name": "JUDITH ECHAVARRIA", "dept": "COMPRAS", "type": "ESTANDAR" },
-    { "name": "GISELA DOMINGUEZ", "dept": "COMPRAS", "type": "ESTANDAR" },
-    { "name": "VANESSA DE LARA", "dept": "COMPRAS", "type": "ESTANDAR" },
-    { "name": "NELSON MALDONADO", "dept": "COMPRAS", "type": "ESTANDAR" },
-    { "name": "VICTOR ALMACEN", "dept": "COMPRAS", "type": "ESTANDAR" },
-    { "name": "DIMAS RAMOS", "dept": "EHS", "type": "ESTANDAR" },
-    { "name": "CITLALI GOMEZ", "dept": "EHS", "type": "ESTANDAR" },
-    { "name": "AIMEE RAMIREZ", "dept": "EHS", "type": "ESTANDAR" },
-    { "name": "EDGAR HOLT", "dept": "MAQUINARIA", "type": "ESTANDAR" },
-    { "name": "ALEXIS TORRES", "dept": "MAQUINARIA", "type": "ESTANDAR" },
-    { "name": "ANGEL SALINAS", "dept": "DISEÑO", "type": "HIBRIDO" },
-    { "name": "EDGAR HOLT", "dept": "DISEÑO", "type": "ESTANDAR" },
-    { "name": "EDGAR LOPEZ", "dept": "DISEÑO", "type": "HIBRIDO" }
-]
+# El organigrama (directorio semilla, 19 departamentos y perfiles) vive en
+# `organigrama.py`. Aquí solo se reexporta para no romper los importadores
+# existentes: tener dos copias fue justo el problema —este módulo mantenía un
+# directorio de 55 registros en 9 departamentos y el oficial son 38 en 17, con
+# 19 departamentos declarados.
+from api.services.organigrama import (  # noqa: F401  (reexportado a propósito)
+    ALL_DEPTS,
+    INITIAL_DIRECTORY,
+    PERFILES,
+)
 
-ALL_DEPTS = {
-    "CONSTRUCCION": { "label": "Construcción", "icon": "fa-hard-hat", "color": "#e83e8c" },
-    "COMPRAS": { "label": "Compras/Almacén", "icon": "fa-shopping-cart", "color": "#198754" },
-    "EHS": { "label": "Seguridad (EHS)", "icon": "fa-shield-alt", "color": "#dc3545" },
-    "DISEÑO": { "label": "Diseño & Ing.", "icon": "fa-drafting-compass", "color": "#0d6efd" },
-    "ELECTROMECANICA": { "label": "Electromecánica", "icon": "fa-bolt", "color": "#ffc107" },
-    "HVAC": { "label": "HVAC", "icon": "fa-fan", "color": "#fd7e14" },
-    "ADMINISTRACION": { "label": "Administración", "icon": "fa-briefcase", "color": "#6f42c1" },
-    "VENTAS": { "label": "Ventas", "icon": "fa-handshake", "color": "#0dcaf0" },
-    "MAQUINARIA": { "label": "Maquinaria", "icon": "fa-truck", "color": "#20c997" }
-}
 
 # --- Relational schema adapter ---
 # api/services/sheets.py used to treat every "hoja" (sheet) as its own Supabase
@@ -639,33 +581,19 @@ def get_directory_from_db():
     return directory
 
 def find_header_row(values):
-    limit = min(100, len(values))
-    for i in range(limit):
-        # Join columns with |, normalize spaces, uppercase
-        row_str = "|".join([str(c).upper().replace("\n", " ").strip() for c in values[i]])
+    """
+    Detector dinámico de encabezados. Delega en `tracker_rules.find_header_row`.
 
-        if "ID_SITIO" in row_str or "ID_PROYECTO" in row_str:
-            return i
+    Había dos implementaciones y **no eran equivalentes**: esta reconocía la
+    agenda personal y los hábitos, y la de `tracker_rules` no. Como
+    `rows_to_dicts` usa la de allá, `fetch_unified_agenda` devolvía la agenda
+    vacía mientras `/api/data`, que usa esta, la leía sin problema.
 
-        has_folio = "FOLIO" in row_str
-        has_concepto = "CONCEPTO" in row_str
-        has_date_status = any(x in row_str for x in ["ALTA", "AVANCE", "STATUS", "FECHA"])
+    Con la delegación la regla vive en un solo sitio y la divergencia no puede
+    repetirse (anti-patrón §23.4).
+    """
+    from api.services.tracker_rules import find_header_row as _find
 
-        if has_folio and has_concepto and has_date_status:
-            return i
-
-        if "ID" in row_str and "RESPONSABLE" in row_str:
-            return i
-
-        if (("FOLIO" in row_str or "ID" in row_str) and
-            ("DESCRIPCI" in row_str or "RESPONSABLE" in row_str or "CONCEPTO" in row_str)):
-            return i
-
-        if "CLIENTE" in row_str and ("VENDEDOR" in row_str or "AREA" in row_str or "CLASIFICACION" in row_str):
-            return i
-
-        # Extra checks from original code
-        if "ID" in row_str and "TITULO" in row_str and "USUARIO" in row_str: return i
-        if "ID" in row_str and "HABITO" in row_str and "USUARIO" in row_str: return i
+    return _find(values)
 
     return -1

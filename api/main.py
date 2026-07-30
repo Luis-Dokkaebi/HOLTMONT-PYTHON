@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Body, Query
+from fastapi import FastAPI, HTTPException, Body, Query, Header
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +22,7 @@ except ImportError:
 
 # Services
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
+from api.services import organigrama
 from api.services.work_order import process_and_save_work_order, get_next_sequence
 
 # MCP Server
@@ -109,13 +110,92 @@ class SavePPCRequest(BaseModel):
     activeUser: str
 
 @app.get("/api/config")
-def api_get_system_config(role: str = Query(..., description="User Role")):
+def api_get_system_config(
+    role: str = Query(..., description="Rol del usuario"),
+    username: str = Query("", description="Cuenta activa: habilita las ramas por usuario"),
+):
+    """
+    Port de `getSystemConfig(role, username)`.
+
+    `username` es opcional en la firma pero necesario en la práctica: sin él no
+    se pueden resolver las ramas que el original cablea por cuenta (JUANY,
+    JESUS_CANTU) ni el tracker propio de un STAFF_USER. Se deja con valor por
+    defecto para no romper a un cliente viejo que solo mande `role`; en ese caso
+    el comportamiento degrada a "sin rama por usuario", nunca a permisos de más.
+    """
     full_directory = get_directory_from_db()
+    cuenta = organigrama.clave_usuario(username)
 
     ppc_module_master = { "id": "PPC_MASTER", "label": "PPC Maestro", "icon": "fa-tasks", "color": "#fd7e14", "type": "ppc_native" }
+    # JESUS_CANTU ve el módulo PPC con otro nombre. Es una etiqueta, no un
+    # permiso, y por eso se resuelve aquí y no en la rama de rol.
+    if cuenta == "JESUS_CANTU":
+        ppc_module_master = { **ppc_module_master, "label": "INTERDICIPLINARIA" }
+
     ppc_module_weekly = { "id": "WEEKLY_PLAN", "label": "Planeación Semanal", "icon": "fa-calendar-alt", "color": "#6f42c1", "type": "weekly_plan_view" }
     kpi_module = { "id": "KPI_DASHBOARD", "label": "KPI Performance", "icon": "fa-chart-line", "color": "#d63384", "type": "kpi_dashboard_view" }
     wo_module = { "id": "WORK_ORDER_FORM", "label": "Pre Work Order", "icon": "fa-clipboard-list", "color": "#fd7e14", "type": "work_order_form" }
+    ppc_modules = [ ppc_module_master, ppc_module_weekly ]
+
+    if role == 'TONITA':
+        return {
+            "departments": { "VENTAS": ALL_DEPTS["VENTAS"] },
+            "allDepartments": ALL_DEPTS,
+            "staff": [ { "name": "ANTONIA_VENTAS", "dept": "VENTAS" } ],
+            "directory": full_directory,
+            "specialModules": [
+                # Su tracker personal es una hoja distinta de la tabla maestra
+                # de ventas: `ANTONIA PINEDA LOPEZ` vs `ANTONIA_VENTAS`. Faltaba
+                # y con él faltaba el acceso a sus propias tareas.
+                { "id": "MY_TRACKER", "label": "Tracker", "icon": "fa-table",
+                  "color": ALL_DEPTS.get("PRESUPUESTOS", {}).get("color", "#6f42c1"),
+                  "type": "mirror_staff", "target": "ANTONIA PINEDA LOPEZ" },
+                ppc_module_master,
+                ppc_module_weekly,
+            ],
+            "accessProjects": False,
+            "canSeeBancoJuntas": False,
+        }
+
+    # Rama por cuenta: JUANY_RODRIGUEZ es STAFF_USER pero con vista ampliada a
+    # tres departamentos. Va ANTES de la rama de rol, igual que en el original.
+    if cuenta == "JUANY_RODRIGUEZ":
+        claves = ["COMPRAS", "FACTURACION", "FINANZAS"]
+        return {
+            "departments": { k: ALL_DEPTS[k] for k in claves if k in ALL_DEPTS },
+            "allDepartments": ALL_DEPTS,
+            "staff": [ d for d in full_directory if d.get("dept") in claves ],
+            "directory": full_directory,
+            "specialModules": ppc_modules,
+            "accessProjects": False,
+            "canSeeBancoJuntas": False,
+        }
+
+    if role == 'STAFF_USER':
+        # Esta rama no existía. Sin ella, los 30+ usuarios de personal caían al
+        # `return` final —la configuración de ADMIN— y recibían los 19
+        # departamentos, el directorio completo y accessProjects=True.
+        perfil = organigrama.perfil(cuenta)
+        hoja = organigrama.nombre_de_hoja(cuenta)
+        color = ALL_DEPTS.get(perfil.get("dept", ""), {}).get("color", "#0d6efd")
+        modulos = [
+            { "id": "MY_TRACKER", "label": "Tracker", "icon": "fa-table", "color": color,
+              "type": "mirror_staff", "target": hoja },
+            { "id": "PPC_MASTER", "label": "Agregar Actividad", "icon": "fa-tasks",
+              "color": "#fd7e14", "type": "ppc_native" },
+        ]
+        if perfil.get("seller"):
+            modulos.append({ "id": "MY_SALES", "label": "Cotizaciones", "icon": "fa-hand-holding-usd",
+                             "color": "#0dcaf0", "type": "mirror_staff", "target": f"{hoja} (VENTAS)" })
+        return {
+            "departments": {},
+            "allDepartments": ALL_DEPTS,
+            "staff": [ { "name": hoja, "dept": perfil.get("dept", "") } ],
+            "directory": full_directory,
+            "specialModules": modulos,
+            "accessProjects": False,
+            "canSeeBancoJuntas": False,
+        }
 
     if role == 'WORKORDER_USER':
         return {
@@ -124,58 +204,47 @@ def api_get_system_config(role: str = Query(..., description="User Role")):
             "staff": [],
             "directory": full_directory,
             "specialModules": [ wo_module ],
-            "accessProjects": False
-        }
-
-    # Default Logic for other roles
-    ppc_modules = [ ppc_module_master, ppc_module_weekly ]
-    special_modules = []
-
-    if role == 'TONITA':
-        special_modules = [ ppc_module_master, ppc_module_weekly ]
-        return {
-            "departments": { "VENTAS": ALL_DEPTS["VENTAS"] },
-            "allDepartments": ALL_DEPTS,
-            "staff": [ { "name": "ANTONIA_VENTAS", "dept": "VENTAS" } ],
-            "directory": full_directory,
-            "specialModules": special_modules,
-            "accessProjects": False
+            "accessProjects": False,
+            "canSeeBancoJuntas": False,
         }
 
     if role == 'PPC_ADMIN':
-        special_modules = ppc_modules
         return {
             "departments": {},
             "allDepartments": ALL_DEPTS,
             "staff": [],
             "directory": full_directory,
-            "specialModules": special_modules,
-            "accessProjects": True
+            "specialModules": ppc_modules,
+            "accessProjects": True,
+            "canSeeBancoJuntas": True,
         }
 
     if role == 'ADMIN_CONTROL':
-        special_modules = [
-            { "id": "PPC_DINAMICO", "label": "Tracker", "icon": "fa-layer-group", "color": "#e83e8c", "type": "ppc_dynamic_view" },
-            *ppc_modules,
-            { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" },
-            { "id": "ADMIN_TRACKER", "label": "Control", "icon": "fa-clipboard-list", "color": "#6f42c1", "type": "mirror_staff", "target": "ADMINISTRADOR" }
-        ]
         return {
             "departments": ALL_DEPTS,
             "allDepartments": ALL_DEPTS,
             "staff": full_directory,
             "directory": full_directory,
-            "specialModules": special_modules,
-            "accessProjects": True
+            "specialModules": [
+                { "id": "PPC_DINAMICO", "label": "Tracker", "icon": "fa-layer-group", "color": "#e83e8c", "type": "ppc_dynamic_view" },
+                *ppc_modules,
+                { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" },
+                { "id": "ADMIN_TRACKER", "label": "Control", "icon": "fa-clipboard-list", "color": "#6f42c1", "type": "mirror_staff", "target": "ADMINISTRADOR" },
+            ],
+            "accessProjects": True,
+            "canSeeBancoJuntas": True,
         }
 
-    # Default ADMIN
-    default_modules = [ *ppc_modules, { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" } ]
+    # ADMIN y cualquier rol no reconocido. El original también cae aquí, pero
+    # ahora todos los roles conocidos tienen rama propia, así que este default
+    # solo lo alcanza ADMIN o un rol nuevo sin definir.
+    default_modules = [ *ppc_modules,
+        { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" } ]
     if role == 'ADMIN':
         default_modules.insert(0, wo_module)
         default_modules.append(kpi_module)
-        obsidian_module = { "id": "OBSIDIAN_GRAPH", "label": "Grafo de Conocimiento", "icon": "fa-project-diagram", "color": "#8b5cf6", "type": "obsidian_graph_view" }
-        default_modules.append(obsidian_module)
+        default_modules.append({ "id": "OBSIDIAN_GRAPH", "label": "Grafo de Conocimiento",
+                                 "icon": "fa-project-diagram", "color": "#8b5cf6", "type": "obsidian_graph_view" })
 
     return {
         "departments": ALL_DEPTS,
@@ -183,7 +252,8 @@ def api_get_system_config(role: str = Query(..., description="User Role")):
         "staff": full_directory,
         "directory": full_directory,
         "specialModules": default_modules,
-        "accessProjects": True
+        "accessProjects": True,
+        "canSeeBancoJuntas": True,
     }
 
 @app.get("/api/nextSeq")
@@ -529,50 +599,24 @@ def api_legacy_save_gemini_key(req: GeminiKeyRequest):
 
 @app.post("/api/legacy/trackerProductivity")
 def api_legacy_tracker_productivity(req: QuoteAgentRequest):
-    """runTrackerProductivityAgent: productividad por persona del directorio."""
-    month = req.month or datetime.now().month
-    year = req.year or datetime.now().year
-    resumen = []
-    total_activas = 0
-    total_cerradas = 0
+    """
+    runTrackerProductivityAgent: metricas reales, las 3 reglas de alerta,
+    resumen de IA y correo.
 
-    for person in {u["name"] for u in get_directory_from_db()}:
-        active, history, _ = tracker_store.read_rows(person)
-        if not active and not history:
-            continue
+    Antes esto era un conteo de activas/cerradas escrito en linea aqui, sin
+    cumplimiento de fechas, restricciones, riesgos ni prioridades — y por tanto
+    sin las tres reglas, que dependen de esas metricas. Ahora delega en
+    `tracker_store`, que usa `tracker_rules.compute_productivity_metrics`.
+    """
+    return tracker_store.run_tracker_productivity_agent(req.month, req.year)
 
-        def en_periodo(row):
-            from api.services import tracker_rules as _rules
-            fecha = _rules.parse_sheet_date(_rules.pick_task_value(row, ["FECHA", "FECHA ALTA", "ALTA"]))
-            return bool(fecha) and fecha.month == month and fecha.year == year
 
-        activas = [r for r in active if en_periodo(r)]
-        cerradas = [r for r in history if en_periodo(r)]
-        if not activas and not cerradas:
-            continue
-
-        total_activas += len(activas)
-        total_cerradas += len(cerradas)
-        total = len(activas) + len(cerradas)
-        resumen.append({
-            "nombre": person,
-            "activas": len(activas),
-            "cerradas": len(cerradas),
-            "cumplimiento": round((len(cerradas) / total) * 100, 1) if total else 0,
-        })
-
-    resumen.sort(key=lambda r: r["cerradas"], reverse=True)
-    return {
-        "success": True,
-        "data": {
-            "month": month,
-            "year": year,
-            "totalActivas": total_activas,
-            "totalCerradas": total_cerradas,
-            "personas": resumen,
-            "emailSent": False,
-        },
-    }
+@app.get("/api/legacy/trackerProductivityMetrics")
+def api_legacy_tracker_productivity_metrics(
+    month: Optional[int] = Query(None), year: Optional[int] = Query(None)
+):
+    """apiFetchTrackerProductivityMetrics: solo las metricas, sin correo."""
+    return tracker_store.fetch_tracker_productivity_metrics(month, year)
 
 
 @app.get("/api/legacy/infoBankCompanies")
@@ -606,6 +650,273 @@ def api_legacy_resync_directory():
         "message": (f"Directorio sincronizado: {len(missing)} registro(s) agregado(s)."
                     if missing else "El directorio ya estaba sincronizado."),
     }
+
+
+# ======================================================================
+# PROYECTOS / CASCADA
+# ======================================================================
+# Las tablas `sites` y `projects` existían desde la migración pero no tenían
+# endpoint: el frontend mostraba las vistas PROJECTS y PROJECT_TASKS_VIEW
+# alimentadas con listas vacías.
+
+
+class SiteRequest(BaseModel):
+    name: str
+    client: str = ""
+    type: Optional[str] = None
+    createdBy: Optional[str] = None
+
+
+class SubProjectRequest(BaseModel):
+    parentId: str
+    name: str
+    type: Optional[str] = None
+    createdBy: Optional[str] = None
+
+
+class ProjectTaskRequest(BaseModel):
+    task: Dict[str, Any]
+    projectName: str
+    username: Optional[str] = ""
+
+
+def _repo_proyectos():
+    from backend.core.engine import construir_engine
+    from backend.repositories.proyectos import RepositorioProyectos
+
+    return RepositorioProyectos(construir_engine())
+
+
+def _auditar_proyecto(username: Optional[str], accion: str, detalle: str) -> None:
+    """
+    `registrarLog` del original. No puede tumbar la operación que audita.
+    """
+    try:
+        from backend.services import auditoria
+
+        auditoria.registrar(username or "ANONIMO", accion, detalle)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[proyectos] No se pudo auditar: {exc}")
+
+
+@app.get("/api/legacy/cascadeTree")
+def api_legacy_cascade_tree():
+    """apiFetchCascadeTree: árbol sitios -> subproyectos."""
+    from backend.repositories.proyectos import ErrorDeLectura
+
+    try:
+        return {"success": True, "data": _repo_proyectos().arbol()}
+    except ErrorDeLectura as exc:
+        # Error visible en vez de un árbol vacío: una vista vacía es
+        # indistinguible de "no hay proyectos" y esconde el fallo.
+        return {"success": False, "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"Error leyendo proyectos: {exc}"}
+
+
+@app.post("/api/legacy/saveSite")
+def api_legacy_save_site(req: SiteRequest):
+    """apiSaveSite."""
+    try:
+        res = _repo_proyectos().crear_sitio(req.name, req.client, req.type, req.createdBy)
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"No se pudo crear el sitio: {exc}"}
+    if res.get("success"):
+        _auditar_proyecto(req.createdBy, "NUEVO SITIO", f"Sitio: {req.name} ({res['id']})")
+    return res
+
+
+@app.post("/api/legacy/saveSubProject")
+def api_legacy_save_subproject(req: SubProjectRequest):
+    """apiSaveSubProject."""
+    try:
+        res = _repo_proyectos().crear_subproyecto(req.parentId, req.name, req.type, req.createdBy)
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"No se pudo crear el subproyecto: {exc}"}
+    if res.get("success"):
+        _auditar_proyecto(req.createdBy, "NUEVO SUBPROYECTO",
+                          f"Subproyecto: {req.name} ({res['id']})")
+    return res
+
+
+@app.get("/api/legacy/projectTasks")
+def api_legacy_project_tasks(projectName: str = Query(..., description="Nombre del proyecto")):
+    """apiFetchProjectTasks. Corrige el ReferenceError del original (ver el servicio)."""
+    return tracker_store.fetch_project_tasks(projectName)
+
+
+@app.post("/api/legacy/saveProjectTask")
+def api_legacy_save_project_task(req: ProjectTaskRequest):
+    """apiSaveProjectTask."""
+    res = tracker_store.save_project_task(req.task, req.projectName, req.username or "")
+    if res.get("success"):
+        folio = req.task.get("ID") or req.task.get("FOLIO") or ""
+        _auditar_proyecto(req.username, "ACTUALIZAR PROYECTO",
+                          f"Proyecto: {req.projectName}, ID: {folio}")
+    return res
+
+
+# ======================================================================
+# BORRADORES, AGENDA, BANCO Y DIRECTORIO
+# ======================================================================
+
+
+class DraftsRequest(BaseModel):
+    drafts: List[Dict[str, Any]] = []
+
+
+class PersonalEventRequest(BaseModel):
+    payload: Dict[str, Any]
+    username: Optional[str] = ""
+
+
+class EmployeeRequest(BaseModel):
+    name: str
+    dept: str = ""
+    type: Optional[str] = "ESTANDAR"
+
+
+class LogoutRequest(BaseModel):
+    username: Optional[str] = ""
+
+
+@app.get("/api/legacy/drafts")
+def api_legacy_drafts():
+    """apiFetchDrafts."""
+    return tracker_store.fetch_drafts()
+
+
+@app.post("/api/legacy/syncDrafts")
+def api_legacy_sync_drafts(req: DraftsRequest):
+    """apiSyncDrafts: la cola se reemplaza entera, no se fusiona."""
+    return tracker_store.sync_drafts(req.drafts)
+
+
+@app.post("/api/legacy/clearDrafts")
+def api_legacy_clear_drafts():
+    """apiClearDrafts."""
+    return tracker_store.clear_drafts()
+
+
+@app.post("/api/legacy/personalEvent")
+def api_legacy_personal_event(req: PersonalEventRequest):
+    """apiSavePersonalEvent."""
+    return tracker_store.save_personal_event(req.payload, req.username or "")
+
+
+@app.post("/api/legacy/habitLog")
+def api_legacy_habit_log(req: PersonalEventRequest):
+    """apiSaveHabitLog. Avisa qué crear si `habits_log` no existe."""
+    return tracker_store.save_habit_log(req.payload, req.username or "")
+
+
+@app.get("/api/legacy/infoBankData")
+def api_legacy_info_bank_data(
+    year: str = Query(...),
+    month: str = Query(...),
+    company: str = Query("", description="Cliente"),
+    folder: str = Query("", description="Se acepta por compatibilidad; no filtra"),
+):
+    """apiFetchInfoBankData."""
+    return tracker_store.fetch_info_bank_data(year, month, company, folder)
+
+
+@app.get("/api/legacy/ppcData")
+def api_legacy_ppc_data():
+    """apiFetchPPCData: las últimas 300 actividades del PPC maestro."""
+    return tracker_store.fetch_ppc_data()
+
+
+@app.get("/api/legacy/combinedCalendar")
+def api_legacy_combined_calendar(sheet: str = Query(..., description="Hoja/persona")):
+    """apiFetchCombinedCalendarData."""
+    return tracker_store.fetch_combined_calendar(sheet)
+
+
+@app.post("/api/legacy/logout")
+def api_legacy_logout(req: LogoutRequest):
+    """apiLogout: registra el cierre en system_log."""
+    return tracker_store.logout(req.username or "")
+
+
+@app.post("/api/legacy/addEmployee")
+def api_legacy_add_employee(req: EmployeeRequest):
+    """apiAddEmployee."""
+    return tracker_store.add_employee(req.name, req.dept, req.type)
+
+
+@app.post("/api/legacy/deleteEmployee")
+def api_legacy_delete_employee(req: EmployeeRequest):
+    """apiDeleteEmployee."""
+    return tracker_store.delete_employee(req.name)
+
+
+# ======================================================================
+# ARCHIVOS (Supabase Storage) Y TAREAS PROGRAMADAS
+# ======================================================================
+
+
+class UploadRequest(BaseModel):
+    data: str
+    type: Optional[str] = None
+    name: Optional[str] = None
+    # Con cliente, el archivo cae en la estructura del banco: AÑO/MES/CLIENTE.
+    client: Optional[str] = None
+    date: Optional[str] = None
+
+
+class ArchiveRequest(BaseModel):
+    fileUrl: str
+    client: str
+    date: Optional[str] = None
+
+
+@app.post("/api/legacy/upload")
+def api_legacy_upload(req: UploadRequest):
+    """uploadFileToDrive, sobre Supabase Storage."""
+    from api.services import storage
+
+    return storage.subir(req.data, req.type, req.name, req.client, req.date)
+
+
+@app.post("/api/legacy/archiveQuote")
+def api_legacy_archive_quote(req: ArchiveRequest):
+    """
+    archiveFile + processQuoteRow: reubica el archivo en AÑO/MES/CLIENTE.
+
+    En Drive era mover el archivo entre carpetas; en Storage es un `move` de la
+    clave del objeto.
+    """
+    from api.services import storage
+
+    return storage.archivar_cotizacion(req.fileUrl, req.client, req.date)
+
+
+def _cron_autorizado(secreto: Optional[str]) -> bool:
+    """
+    El cron se dispara desde fuera, asi que el endpoint necesita un secreto.
+
+    Sin `CRON_SECRET` configurado se rechaza: un endpoint que lanza los tres
+    agentes y manda correos no puede quedar abierto por omision.
+    """
+    esperado = os.environ.get("CRON_SECRET", "").strip()
+    if not esperado:
+        return False
+    return secrets.compare_digest(str(secreto or ""), esperado)
+
+
+@app.post("/api/cron/dailyMetrics")
+def api_cron_daily_metrics(x_cron_secret: str = Header("", alias="X-Cron-Secret")):
+    """
+    autoUpdateQuoteMetrics: el disparador diario de las 07:00.
+
+    En Apps Script era un trigger de tiempo (`setupDailyQuoteMetricsTrigger`).
+    En serverless no hay proceso residente que lo sostenga, asi que lo invoca un
+    cron externo — ver `.github/workflows/cron-metricas.yml`.
+    """
+    if not _cron_autorizado(x_cron_secret):
+        raise HTTPException(status_code=401, detail="Secreto de cron invalido o no configurado.")
+    return tracker_store.auto_update_quote_metrics()
 
 
 # ======================================================================
