@@ -22,6 +22,7 @@ except ImportError:
 
 # Services
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
+from api.services import organigrama
 from api.services.work_order import process_and_save_work_order, get_next_sequence
 
 # MCP Server
@@ -109,13 +110,92 @@ class SavePPCRequest(BaseModel):
     activeUser: str
 
 @app.get("/api/config")
-def api_get_system_config(role: str = Query(..., description="User Role")):
+def api_get_system_config(
+    role: str = Query(..., description="Rol del usuario"),
+    username: str = Query("", description="Cuenta activa: habilita las ramas por usuario"),
+):
+    """
+    Port de `getSystemConfig(role, username)`.
+
+    `username` es opcional en la firma pero necesario en la práctica: sin él no
+    se pueden resolver las ramas que el original cablea por cuenta (JUANY,
+    JESUS_CANTU) ni el tracker propio de un STAFF_USER. Se deja con valor por
+    defecto para no romper a un cliente viejo que solo mande `role`; en ese caso
+    el comportamiento degrada a "sin rama por usuario", nunca a permisos de más.
+    """
     full_directory = get_directory_from_db()
+    cuenta = organigrama.clave_usuario(username)
 
     ppc_module_master = { "id": "PPC_MASTER", "label": "PPC Maestro", "icon": "fa-tasks", "color": "#fd7e14", "type": "ppc_native" }
+    # JESUS_CANTU ve el módulo PPC con otro nombre. Es una etiqueta, no un
+    # permiso, y por eso se resuelve aquí y no en la rama de rol.
+    if cuenta == "JESUS_CANTU":
+        ppc_module_master = { **ppc_module_master, "label": "INTERDICIPLINARIA" }
+
     ppc_module_weekly = { "id": "WEEKLY_PLAN", "label": "Planeación Semanal", "icon": "fa-calendar-alt", "color": "#6f42c1", "type": "weekly_plan_view" }
     kpi_module = { "id": "KPI_DASHBOARD", "label": "KPI Performance", "icon": "fa-chart-line", "color": "#d63384", "type": "kpi_dashboard_view" }
     wo_module = { "id": "WORK_ORDER_FORM", "label": "Pre Work Order", "icon": "fa-clipboard-list", "color": "#fd7e14", "type": "work_order_form" }
+    ppc_modules = [ ppc_module_master, ppc_module_weekly ]
+
+    if role == 'TONITA':
+        return {
+            "departments": { "VENTAS": ALL_DEPTS["VENTAS"] },
+            "allDepartments": ALL_DEPTS,
+            "staff": [ { "name": "ANTONIA_VENTAS", "dept": "VENTAS" } ],
+            "directory": full_directory,
+            "specialModules": [
+                # Su tracker personal es una hoja distinta de la tabla maestra
+                # de ventas: `ANTONIA PINEDA LOPEZ` vs `ANTONIA_VENTAS`. Faltaba
+                # y con él faltaba el acceso a sus propias tareas.
+                { "id": "MY_TRACKER", "label": "Tracker", "icon": "fa-table",
+                  "color": ALL_DEPTS.get("PRESUPUESTOS", {}).get("color", "#6f42c1"),
+                  "type": "mirror_staff", "target": "ANTONIA PINEDA LOPEZ" },
+                ppc_module_master,
+                ppc_module_weekly,
+            ],
+            "accessProjects": False,
+            "canSeeBancoJuntas": False,
+        }
+
+    # Rama por cuenta: JUANY_RODRIGUEZ es STAFF_USER pero con vista ampliada a
+    # tres departamentos. Va ANTES de la rama de rol, igual que en el original.
+    if cuenta == "JUANY_RODRIGUEZ":
+        claves = ["COMPRAS", "FACTURACION", "FINANZAS"]
+        return {
+            "departments": { k: ALL_DEPTS[k] for k in claves if k in ALL_DEPTS },
+            "allDepartments": ALL_DEPTS,
+            "staff": [ d for d in full_directory if d.get("dept") in claves ],
+            "directory": full_directory,
+            "specialModules": ppc_modules,
+            "accessProjects": False,
+            "canSeeBancoJuntas": False,
+        }
+
+    if role == 'STAFF_USER':
+        # Esta rama no existía. Sin ella, los 30+ usuarios de personal caían al
+        # `return` final —la configuración de ADMIN— y recibían los 19
+        # departamentos, el directorio completo y accessProjects=True.
+        perfil = organigrama.perfil(cuenta)
+        hoja = organigrama.nombre_de_hoja(cuenta)
+        color = ALL_DEPTS.get(perfil.get("dept", ""), {}).get("color", "#0d6efd")
+        modulos = [
+            { "id": "MY_TRACKER", "label": "Tracker", "icon": "fa-table", "color": color,
+              "type": "mirror_staff", "target": hoja },
+            { "id": "PPC_MASTER", "label": "Agregar Actividad", "icon": "fa-tasks",
+              "color": "#fd7e14", "type": "ppc_native" },
+        ]
+        if perfil.get("seller"):
+            modulos.append({ "id": "MY_SALES", "label": "Cotizaciones", "icon": "fa-hand-holding-usd",
+                             "color": "#0dcaf0", "type": "mirror_staff", "target": f"{hoja} (VENTAS)" })
+        return {
+            "departments": {},
+            "allDepartments": ALL_DEPTS,
+            "staff": [ { "name": hoja, "dept": perfil.get("dept", "") } ],
+            "directory": full_directory,
+            "specialModules": modulos,
+            "accessProjects": False,
+            "canSeeBancoJuntas": False,
+        }
 
     if role == 'WORKORDER_USER':
         return {
@@ -124,58 +204,47 @@ def api_get_system_config(role: str = Query(..., description="User Role")):
             "staff": [],
             "directory": full_directory,
             "specialModules": [ wo_module ],
-            "accessProjects": False
-        }
-
-    # Default Logic for other roles
-    ppc_modules = [ ppc_module_master, ppc_module_weekly ]
-    special_modules = []
-
-    if role == 'TONITA':
-        special_modules = [ ppc_module_master, ppc_module_weekly ]
-        return {
-            "departments": { "VENTAS": ALL_DEPTS["VENTAS"] },
-            "allDepartments": ALL_DEPTS,
-            "staff": [ { "name": "ANTONIA_VENTAS", "dept": "VENTAS" } ],
-            "directory": full_directory,
-            "specialModules": special_modules,
-            "accessProjects": False
+            "accessProjects": False,
+            "canSeeBancoJuntas": False,
         }
 
     if role == 'PPC_ADMIN':
-        special_modules = ppc_modules
         return {
             "departments": {},
             "allDepartments": ALL_DEPTS,
             "staff": [],
             "directory": full_directory,
-            "specialModules": special_modules,
-            "accessProjects": True
+            "specialModules": ppc_modules,
+            "accessProjects": True,
+            "canSeeBancoJuntas": True,
         }
 
     if role == 'ADMIN_CONTROL':
-        special_modules = [
-            { "id": "PPC_DINAMICO", "label": "Tracker", "icon": "fa-layer-group", "color": "#e83e8c", "type": "ppc_dynamic_view" },
-            *ppc_modules,
-            { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" },
-            { "id": "ADMIN_TRACKER", "label": "Control", "icon": "fa-clipboard-list", "color": "#6f42c1", "type": "mirror_staff", "target": "ADMINISTRADOR" }
-        ]
         return {
             "departments": ALL_DEPTS,
             "allDepartments": ALL_DEPTS,
             "staff": full_directory,
             "directory": full_directory,
-            "specialModules": special_modules,
-            "accessProjects": True
+            "specialModules": [
+                { "id": "PPC_DINAMICO", "label": "Tracker", "icon": "fa-layer-group", "color": "#e83e8c", "type": "ppc_dynamic_view" },
+                *ppc_modules,
+                { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" },
+                { "id": "ADMIN_TRACKER", "label": "Control", "icon": "fa-clipboard-list", "color": "#6f42c1", "type": "mirror_staff", "target": "ADMINISTRADOR" },
+            ],
+            "accessProjects": True,
+            "canSeeBancoJuntas": True,
         }
 
-    # Default ADMIN
-    default_modules = [ *ppc_modules, { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" } ]
+    # ADMIN y cualquier rol no reconocido. El original también cae aquí, pero
+    # ahora todos los roles conocidos tienen rama propia, así que este default
+    # solo lo alcanza ADMIN o un rol nuevo sin definir.
+    default_modules = [ *ppc_modules,
+        { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" } ]
     if role == 'ADMIN':
         default_modules.insert(0, wo_module)
         default_modules.append(kpi_module)
-        obsidian_module = { "id": "OBSIDIAN_GRAPH", "label": "Grafo de Conocimiento", "icon": "fa-project-diagram", "color": "#8b5cf6", "type": "obsidian_graph_view" }
-        default_modules.append(obsidian_module)
+        default_modules.append({ "id": "OBSIDIAN_GRAPH", "label": "Grafo de Conocimiento",
+                                 "icon": "fa-project-diagram", "color": "#8b5cf6", "type": "obsidian_graph_view" })
 
     return {
         "departments": ALL_DEPTS,
@@ -183,7 +252,8 @@ def api_get_system_config(role: str = Query(..., description="User Role")):
         "staff": full_directory,
         "directory": full_directory,
         "specialModules": default_modules,
-        "accessProjects": True
+        "accessProjects": True,
+        "canSeeBancoJuntas": True,
     }
 
 @app.get("/api/nextSeq")

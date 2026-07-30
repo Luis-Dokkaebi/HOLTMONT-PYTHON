@@ -2,7 +2,7 @@
 
 > Generado automáticamente por `node tests/gas/run_tests.js` contra `CODIGO.js` con mocks de Google Apps Script.
 
-**Total:** 86 · **Pasan:** 86 · **Fallan:** 0
+**Total:** 87 · **Pasan:** 87 · **Fallan:** 0
 
 
 ## 1. Semáforo / Formato condicional
@@ -111,6 +111,8 @@
 | | _Un método ausente lanza TypeError SINCRONICO: withFailureHandler no lo captura, los flags _isSaving/isSubmitting quedan en true y se bloquea todo guardado posterior_ | | | |
 | 7.1b | Métodos de guardado del adaptador FastAPI que siguen siendo stubs | 0 stubs | 0 stubs | ✅ PASA |
 | | _Un stub responde {success:true} sin persistir nada en Supabase/FastAPI_ | | | |
+| 7.1d | Métodos del adaptador que descartan argumentos del frontend | 0 | 0 | ✅ PASA |
+| | _Un parámetro no declarado se pierde en silencio: el backend nunca recibe el dato_ | | | |
 | 7.2 | La respuesta incluye res.data con la tarea actualizada | res.data presente | presente | ✅ PASA |
 
 ## 8. Supabase Sync (escritura doble)
@@ -129,7 +131,7 @@
 | | _Nunca guardar el string compuesto como si fuera una persona_ | | | |
 | 8.8 | Con la red caída la tarea se guarda igual | success=true y 1 fila en la hoja | success=true, filas=1 | ✅ PASA |
 | | _INVARIANTE: mejor perder una réplica que una tarea_ | | | |
-| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-07-30T01:28:33.818Z | ✅ PASA |
+| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-07-30T01:39:37.274Z | ✅ PASA |
 | 8.11 | Estatus canónico en la escritura | 0 fallos | 0 fallos | ✅ PASA |
 | | _Sin esto la columna vuelve a acumular variantes en cada captura_ | | | |
 | 8.12 | Un valor no reconocido pasa tal cual | se conserva | 'EN LICITACION'->"EN LICITACION", 'RAM'->"RAM" | ✅ PASA |

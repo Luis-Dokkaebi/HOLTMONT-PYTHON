@@ -139,8 +139,18 @@ class GoogleScriptRunAdapter {
         // No callback usually needed for logout in this app flow
     }
 
-    getSystemConfig(role) {
-        fetch(`${API_BASE_URL}/api/config?role=${encodeURIComponent(role)}`)
+    /**
+     * `username` no es opcional en la práctica.
+     *
+     * El frontend siempre lo manda —`loadConfig(r, u)` llama a
+     * `getSystemConfig(r, u)`—, pero este método lo declaraba con un solo
+     * parámetro y el segundo argumento se perdía en silencio. Sin él el backend
+     * no puede resolver el tracker propio de un STAFF_USER ni las ramas que el
+     * original cablea por cuenta (JUANY_RODRIGUEZ, JESUS_CANTU).
+     */
+    getSystemConfig(role, username) {
+        const params = new URLSearchParams({ role: role || '', username: username || '' });
+        fetch(`${API_BASE_URL}/api/config?${params}`)
             .then(res => res.json())
             .then(data => this._successHandler(data))
             .catch(err => this._failureHandler(err));

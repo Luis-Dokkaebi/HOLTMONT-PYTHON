@@ -609,6 +609,53 @@ run('7.1b', 'Adaptador de migración (api_service.js): métodos críticos implem
     'Un stub responde {success:true} sin persistir nada en Supabase/FastAPI');
 });
 
+run('7.1d', 'El adaptador no pierde argumentos que el frontend sí manda', () => {
+  const adapter = fs.readFileSync(path.resolve(__dirname, '..', '..', 'api_service.js'), 'utf8');
+
+  // Un método del adaptador declarado con menos parámetros de los que el
+  // frontend pasa descarta los sobrantes sin avisar. Paso por `getSystemConfig`:
+  // index.html llama `getSystemConfig(r, u)` y el adaptador declaraba
+  // `getSystemConfig(role)`, asi que el backend nunca recibio el usuario y las
+  // ramas de RBAC por cuenta eran inalcanzables.
+  const aridad = (src, nombre, patron) => {
+    const m = new RegExp(patron.replace('NOMBRE', nombre)).exec(src);
+    if (!m) return null;
+    const args = m[1].trim();
+    return args ? args.split(',').length : 0;
+  };
+
+  const problemas = [];
+  const metodos = [...adapter.matchAll(/^\s{4}([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*\{/gm)]
+    .filter(m => !m[1].startsWith('_') && !['constructor', 'withSuccessHandler', 'withFailureHandler'].includes(m[1]));
+
+  for (const m of metodos) {
+    const declarados = m[2].trim() ? m[2].split(',').length : 0;
+    // Máxima aridad con la que el frontend lo invoca.
+    const usos = [...INDEX_HTML.matchAll(new RegExp(`\\.\\s*${m[1]}\\s*\\(([^;]*?)\\)\\s*[;,)]`, 'g'))];
+    for (const uso of usos) {
+      const crudo = uso[1].trim();
+      if (!crudo) continue;
+      // Conteo tosco de argumentos de nivel superior: basta para detectar que se
+      // pasan 2 donde se declara 1.
+      let nivel = 0, n = 1;
+      for (const ch of crudo) {
+        if ('([{'.includes(ch)) nivel++;
+        else if (')]}'.includes(ch)) nivel--;
+        else if (ch === ',' && nivel === 0) n++;
+      }
+      if (n > declarados) {
+        problemas.push(`${m[1]}: declara ${declarados}, el frontend pasa ${n}`);
+        break;
+      }
+    }
+  }
+
+  check('7.1d', 'Métodos del adaptador que descartan argumentos del frontend', '0',
+    problemas.length ? `${problemas.length}: ${problemas.join(' | ')}` : '0',
+    problemas.length === 0,
+    'Un parámetro no declarado se pierde en silencio: el backend nunca recibe el dato');
+});
+
 run('7.2', 'apiSaveTrackerBatch devuelve res.data para fusionar en el frontend (AGENTS.md §2)', () => {
   const env = createEnv({ 'JAIME OLIVO': tracker([]), 'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']] });
   const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [{ CONCEPTO: 'X', FECHA: '08/07/26', _tempId: 't1' }], 'JAIME_OLIVO');
