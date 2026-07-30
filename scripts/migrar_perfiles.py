@@ -137,6 +137,121 @@ def comparar_con_el_organigrama(cuentas: List[Dict[str, Any]]) -> None:
         print(f"  ! Rol distinto entre CODIGO.js y la semilla: {distintos}")
 
 
+COLUMNAS_NECESARIAS = ("username", "password", "role", "label", "email",
+                       "staff_name", "dept", "seller")
+
+TIPOS_SUGERIDOS = {
+    "username": "TEXT PRIMARY KEY",
+    "password": "TEXT",
+    "role": "TEXT NOT NULL DEFAULT 'STAFF_USER'",
+    "label": "TEXT",
+    "email": "TEXT",
+    "staff_name": "TEXT",
+    "dept": "TEXT",
+    "seller": "BOOLEAN NOT NULL DEFAULT false",
+}
+
+
+def _falta_la_tabla(exc: Exception) -> bool:
+    """
+    ¿El error dice que la TABLA no existe?
+
+    Se comprueba antes que la columna y con marcas propias, porque el texto
+    "does not exist" aparece en los dos casos y confundirlos haría que el script
+    pidiera un ALTER TABLE sobre una tabla que hay que crear.
+    """
+    texto = str(exc).lower()
+    return ("pgrst205" in texto
+            or "could not find the table" in texto
+            or "no existe la tabla" in texto
+            or 'relation "' in texto and "does not exist" in texto)
+
+
+def _falta_la_columna(exc: Exception) -> bool:
+    """¿El error dice que la COLUMNA no existe? (42703 en Postgres.)"""
+    texto = str(exc).lower()
+    return "42703" in texto or "column" in texto and "does not exist" in texto
+
+
+def revisar_tabla() -> Dict[str, Any]:
+    """
+    Dice si `profiles` existe y qué columnas le faltan, **sin escribir nada**.
+
+    Con la tabla vacía no se pueden deducir las columnas de los datos, así que se
+    pregunta por cada una: PostgREST responde con error 42703 cuando la columna
+    no existe, y eso basta para distinguir "no está" de "está y viene vacía".
+
+    Existe para contestar la pregunta práctica de "¿tengo que entrar a Supabase a
+    crear algo?" con un dato en vez de con una suposición.
+    """
+    from backend.core.engine import construir_engine
+
+    engine = construir_engine()
+    resultado: Dict[str, Any] = {"motor": engine.nombre, "existe": False,
+                                 "faltantes": [], "filas": None}
+
+    try:
+        engine.select(TABLA, columnas=["username"], limite=1)
+        resultado["existe"] = True
+    except Exception as exc:  # noqa: BLE001
+        if _falta_la_tabla(exc):
+            return resultado  # existe=False: hay que crearla
+        if _falta_la_columna(exc):
+            # La tabla está, pero sin `username`: se sigue revisando el resto.
+            resultado["existe"] = True
+            resultado["faltantes"].append("username")
+        else:
+            resultado["error"] = str(exc)
+            return resultado
+
+    for columna in COLUMNAS_NECESARIAS:
+        if columna in resultado["faltantes"]:
+            continue
+        try:
+            engine.select(TABLA, columnas=[columna], limite=1)
+        except Exception as exc:  # noqa: BLE001
+            if _falta_la_columna(exc):
+                resultado["faltantes"].append(columna)
+            else:
+                resultado["error"] = str(exc)
+                return resultado
+
+    try:
+        resultado["filas"] = len(engine.select(TABLA, columnas=["username"]))
+    except Exception:  # noqa: BLE001
+        pass
+
+    return resultado
+
+
+def informar_tabla(revision: Dict[str, Any]) -> bool:
+    """Imprime el diagnóstico. Devuelve True si se puede escribir."""
+    if revision.get("error"):
+        print(f"\n  No se pudo revisar `{TABLA}`: {revision['error']}")
+        print("  Revisa SUPABASE_URL / SUPABASE_KEY (o DATABASE_URL).")
+        return False
+
+    if not revision["existe"]:
+        print(f"\n  La tabla `{TABLA}` NO existe.")
+        print("  Créala en Supabase con el bloque §3 de docs/DDL_PENDIENTE.sql.")
+        return False
+
+    print(f"\n  `{TABLA}` existe"
+          + (f", {revision['filas']} fila(s)" if revision["filas"] is not None else ""))
+
+    if revision["faltantes"]:
+        print(f"  Le faltan {len(revision['faltantes'])} columna(s). "
+              "Corre esto en el editor SQL de Supabase:\n")
+        for columna in revision["faltantes"]:
+            print(f"    ALTER TABLE public.{TABLA} "
+                  f"ADD COLUMN IF NOT EXISTS {columna} {TIPOS_SUGERIDOS[columna]};")
+        print()
+        return False
+
+    print("  Tiene las 8 columnas necesarias: no hace falta tocar Supabase.")
+    return True
+
+
 def aplicar(cuentas: List[Dict[str, Any]]) -> int:
     from backend.core.engine import construir_engine
 
@@ -180,10 +295,27 @@ def main() -> int:
     # se corre en una terminal cuyo historial suele quedar guardado.
     print(f"\n  usuarios: {', '.join(sorted(c['username'] for c in cuentas))}")
 
+    # Diagnóstico de la tabla antes de decidir nada. Necesita credenciales; si
+    # no las hay, se dice y se sigue —el resumen de arriba ya es útil por sí solo.
+    lista = None
+    try:
+        lista = informar_tabla(revisar_tabla())
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n  Sin conexión a la base ({type(exc).__name__}): "
+              "no se pudo revisar `profiles`.")
+        print("  Define SUPABASE_URL y SUPABASE_KEY (o DATABASE_URL) en .env.")
+
     if not args.aplicar:
         print(f"\nSimulación. Nada se escribió en `{TABLA}`.")
-        print("Vuelve a correrlo con --aplicar cuando quieras aplicarlo.")
+        if lista:
+            print("Todo listo: vuelve a correrlo con --aplicar.")
+        else:
+            print("Resuelve lo de arriba y vuelve a correrlo con --aplicar.")
         return 0
+
+    if lista is False:
+        print("\nNo se escribió nada: falta preparar la tabla (ver arriba).")
+        return 1
 
     print(f"\nEscribiendo en `{TABLA}` (upsert por `{CLAVE_UPSERT}`)...")
     try:

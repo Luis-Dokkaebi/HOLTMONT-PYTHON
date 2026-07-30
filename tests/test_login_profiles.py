@@ -279,3 +279,82 @@ def test_el_script_no_versiona_ninguna_contrasena():
     texto = fuente.read_text(encoding="utf-8")
     for sospechosa in ("admin2025", "tonita2025", "workorder2026", "ppc2025"):
         assert sospechosa not in texto
+
+
+# --- Diagnóstico de la tabla ------------------------------------------
+# Contesta "¿tengo que entrar a Supabase a crear algo?" con un dato en vez de
+# con una suposición. Hace falta porque `profiles` está vacía y, sin filas, las
+# columnas no se pueden deducir de los datos.
+
+class _EngineFalso:
+    nombre = "falso"
+
+    def __init__(self, columnas, filas=0, error=None):
+        self.columnas = set(columnas)
+        self.filas = filas
+        self.error = error
+
+    def select(self, tabla, columnas=None, limite=None, **kw):
+        if self.error:
+            raise RuntimeError(self.error)
+        for col in (columnas or []):
+            if col not in self.columnas:
+                raise RuntimeError(f'42703: column "{col}" does not exist')
+        return [{}] * self.filas
+
+
+def _con_engine(monkeypatch, engine):
+    import backend.core.engine as be
+    monkeypatch.setattr(be, "construir_engine", lambda settings=None: engine)
+
+
+def test_el_diagnostico_no_pide_tocar_supabase_si_ya_estan_las_columnas(monkeypatch, capsys):
+    import scripts.migrar_perfiles as migrar
+
+    _con_engine(monkeypatch, _EngineFalso(migrar.COLUMNAS_NECESARIAS, filas=3))
+    assert migrar.informar_tabla(migrar.revisar_tabla()) is True
+    assert "no hace falta tocar Supabase" in capsys.readouterr().out
+
+
+def test_el_diagnostico_lista_las_columnas_que_faltan(monkeypatch, capsys):
+    import scripts.migrar_perfiles as migrar
+
+    presentes = [c for c in migrar.COLUMNAS_NECESARIAS if c not in ("password", "seller")]
+    _con_engine(monkeypatch, _EngineFalso(presentes))
+
+    assert migrar.informar_tabla(migrar.revisar_tabla()) is False
+    salida = capsys.readouterr().out
+    # Da el ALTER TABLE listo para pegar, no solo el nombre de la columna.
+    assert "ADD COLUMN IF NOT EXISTS password TEXT" in salida
+    assert "ADD COLUMN IF NOT EXISTS seller BOOLEAN" in salida
+
+
+def test_una_tabla_inexistente_manda_al_ddl(monkeypatch, capsys):
+    import scripts.migrar_perfiles as migrar
+
+    _con_engine(monkeypatch, _EngineFalso([], error="PGRST205: no existe la tabla"))
+    assert migrar.informar_tabla(migrar.revisar_tabla()) is False
+    assert "DDL_PENDIENTE.sql" in capsys.readouterr().out
+
+
+def test_un_fallo_de_credenciales_no_se_confunde_con_columnas_faltantes(monkeypatch, capsys):
+    """
+    Un 401 no significa "falta una columna": significa que no hay acceso. Si se
+    confundieran, el script pediría alterar una tabla que está bien.
+    """
+    import scripts.migrar_perfiles as migrar
+
+    _con_engine(monkeypatch, _EngineFalso([], error="401 Unauthorized: bad key"))
+    revision = migrar.revisar_tabla()
+
+    assert revision.get("error")
+    assert revision["faltantes"] == []
+    assert migrar.informar_tabla(revision) is False
+    assert "SUPABASE_URL" in capsys.readouterr().out
+
+
+def test_los_tipos_sugeridos_cubren_las_ocho_columnas():
+    """Un ALTER TABLE incompleto dejaría al usuario a medias."""
+    import scripts.migrar_perfiles as migrar
+
+    assert set(migrar.TIPOS_SUGERIDOS) == set(migrar.COLUMNAS_NECESARIAS)
