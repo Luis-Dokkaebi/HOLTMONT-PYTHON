@@ -22,13 +22,21 @@
     :root { --sidebar-w: 260px; --sidebar-mini: 65px; --primary: #1c1c1c; --accent: #3699ff; --bg-body: #f3f6f9; }
     body { font-family: 'Roboto', sans-serif; background: var(--bg-body); margin: 0; overflow: hidden; font-size: 13px; }
 
+    /* Misma técnica que REAL-HOLTMONT (commit 74d60eb): el indicador se
+       estira a toda la celda para que cualquier clic abra el calendario.
+       Antes aquí se ocultaba con `opacity: 0`, que también borra el valor
+       visible del control en algunos navegadores; `color`/`background`
+       transparentes solo esconden el ícono nativo. */
     input[type="date"]::-webkit-calendar-picker-indicator {
         position: absolute;
         top: 0;
         left: 0;
+        right: 0;
+        bottom: 0;
         width: 100%;
         height: 100%;
-        opacity: 0;
+        color: transparent;
+        background: transparent;
         cursor: pointer;
     }
 

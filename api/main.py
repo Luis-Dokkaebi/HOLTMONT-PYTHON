@@ -961,7 +961,7 @@ def api_legacy_upload(req: UploadRequest):
 @app.post("/api/legacy/archiveQuote")
 def api_legacy_archive_quote(req: ArchiveRequest):
     """
-    archiveFile + processQuoteRow: reubica el archivo en AÑO/MES/CLIENTE.
+    archiveFile: reubica el archivo en AÑO/MES/CLIENTE.
 
     En Drive era mover el archivo entre carpetas; en Storage es un `move` de la
     clave del objeto.
@@ -996,6 +996,38 @@ def api_cron_daily_metrics(x_cron_secret: str = Header("", alias="X-Cron-Secret"
     if not _cron_autorizado(x_cron_secret):
         raise HTTPException(status_code=401, detail="Secreto de cron invalido o no configurado.")
     return tracker_store.auto_update_quote_metrics()
+
+
+@app.post("/api/cron/diasCounter")
+def api_cron_dias_counter(x_cron_secret: str = Header("", alias="X-Cron-Secret")):
+    """
+    incrementarContadorDias: el disparador diario de la 1 a.m.
+
+    `autoUpdateQuoteMetrics` ya lo corre como primer paso, asi que este endpoint
+    existe para poder dispararlo suelto: es lo que en Apps Script se hacia
+    ejecutando la funcion a mano desde el editor cuando el contador se quedaba
+    atras, sin lanzar tambien los agentes ni los correos.
+    """
+    if not _cron_autorizado(x_cron_secret):
+        raise HTTPException(status_code=401, detail="Secreto de cron invalido o no configurado.")
+    return tracker_store.incrementar_contador_dias()
+
+
+@app.post("/api/cron/archiveQuotes")
+def api_cron_archive_quotes(x_cron_secret: str = Header("", alias="X-Cron-Secret")):
+    """
+    batchArchiveExistingQuotes / runFullArchivingBatch: archivado por lote.
+
+    En el original lo dispara el menu del Spreadsheet (`runFullArchivingBatch`
+    abre un `ui.alert` con el resumen). Aqui no hay menu, asi que es un endpoint
+    y el resumen viaja en la respuesta. Va por el mismo secreto de cron porque
+    recorre la tabla maestra de ventas entera y mueve objetos del bucket.
+    """
+    if not _cron_autorizado(x_cron_secret):
+        raise HTTPException(status_code=401, detail="Secreto de cron invalido o no configurado.")
+    from api.services import storage
+
+    return storage.archivar_lote_cotizaciones()
 
 
 # ======================================================================

@@ -1,0 +1,49 @@
+name: Contador de días (incrementarContadorDias)
+
+# Sustituye al disparador de tiempo que `instalarDisparador` crea en Apps
+# Script: `incrementarContadorDias`, diario entre la 1 y las 2 de la mañana.
+#
+# Va en su propio workflow y no como un paso más de `cron-metricas.yml` porque
+# el original son **dos disparadores a horas distintas**: el contador a la 1 a.m.
+# y las métricas a las 07:00. Mantenerlos separados conserva esa separación; el
+# endpoint de métricas recalcula el contador antes de medir de todos modos, así
+# que si este workflow falla el reporte de las 07:00 no sale con datos viejos.
+#
+# 01:00 en Monterrey (UTC-6) son las 07:00 UTC. GitHub evalúa el cron en UTC y
+# no ajusta por horario de verano; si la zona cambia, hay que corregir la hora
+# aquí.
+#
+# Requiere los mismos dos secretos que `cron-metricas.yml`:
+#   HOLTMONT_API_URL  — p. ej. https://holtmont.vercel.app
+#   CRON_SECRET       — el mismo valor que la variable CRON_SECRET del backend
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  disparar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recalcular el contador de días
+        env:
+          API_URL: ${{ secrets.HOLTMONT_API_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${API_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "Faltan los secretos HOLTMONT_API_URL o CRON_SECRET." >&2
+            exit 1
+          fi
+
+          curl --fail-with-body --silent --show-error \
+               --max-time 300 \
+               -X POST "${API_URL%/}/api/cron/diasCounter" \
+               -H "X-Cron-Secret: ${CRON_SECRET}" \
+               -H "Content-Type: application/json" \
+            | tee respuesta.json
+
+          echo
+          echo "Contador de días actualizado."

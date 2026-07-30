@@ -45,7 +45,7 @@ def test_la_ruta_del_banco_es_anio_mes_cliente():
 
     ruta = storage.ruta_de_archivo("cotizacion.pdf", "ACME INDUSTRIAL",
                                    datetime(2026, 3, 4, 10, 0))
-    assert ruta.startswith("2026/MARZO/ACME INDUSTRIAL/")
+    assert ruta.startswith("2026/03 - MARZO/ACME INDUSTRIAL/")
     assert ruta.endswith(".pdf")
 
 
@@ -53,7 +53,7 @@ def test_sin_cliente_la_ruta_es_solo_anio_mes():
     from datetime import datetime
 
     ruta = storage.ruta_de_archivo("plano.dwg", None, datetime(2026, 7, 1))
-    assert ruta.startswith("2026/JULIO/")
+    assert ruta.startswith("2026/07 - JULIO/")
     assert "SIN_CLIENTE" not in ruta
 
 
@@ -98,8 +98,8 @@ def test_sin_supabase_no_se_inventa_una_url(monkeypatch):
 def test_la_ruta_se_extrae_de_la_url_publica(monkeypatch):
     monkeypatch.setenv(storage.BUCKET_ENV, "archivos")
     url = ("https://x.supabase.co/storage/v1/object/public/archivos/"
-           "2026/MARZO/ACME/plano-123.dwg?token=abc")
-    assert storage._ruta_desde_url(url) == "2026/MARZO/ACME/plano-123.dwg"
+           "2026/03 - MARZO/ACME/plano-123.dwg?token=abc")
+    assert storage._ruta_desde_url(url) == "2026/03 - MARZO/ACME/plano-123.dwg"
 
 
 def test_una_url_ajena_no_se_archiva(monkeypatch):

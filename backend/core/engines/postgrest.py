@@ -38,6 +38,7 @@ class PostgrestEngine:
     # una sola sentencia y por tanto atómico; varias tablas en un mismo flujo
     # no lo son. El repositorio de tareas está escrito para no necesitarlo.
     soporta_transacciones = False
+    soporta_candados = False
 
     def __init__(self, url: str, key: str, tiempo_espera: int = TIEMPO_ESPERA):
         self.base = url.rstrip("/") + "/rest/v1"
@@ -176,6 +177,23 @@ class PostgrestEngine:
         atomicidad más allá de la de cada sentencia. No se traga excepciones.
         """
         yield self
+
+    @contextmanager
+    def candado(self, clave: str) -> Iterator[None]:
+        """
+        Paso a través: **por HTTP no se puede tomar un candado de Postgres.**
+
+        `pg_advisory_xact_lock` vive atado a una transacción y PostgREST atiende
+        cada petición en la suya, así que un candado pedido en una llamada ya
+        está soltado cuando llega la siguiente. Se podría exponer una función
+        RPC, pero seguiría sin poder mantenerse tomada entre dos peticiones, que
+        es justo lo que hace falta.
+
+        Por eso no se finge: con este motor la asignación de consecutivos sigue
+        siendo una carrera. La ruta de producción es SQLAlchemy, que sí lo
+        cumple; `soporta_candados` permite avisarlo en vez de suponerlo.
+        """
+        yield
 
     # --- introspección --------------------------------------------------
 

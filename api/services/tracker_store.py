@@ -20,6 +20,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -151,7 +152,24 @@ def _matriz_de_trabajo(sheet_name: str) -> List[List[Any]]:
     return [list(ENCABEZADOS_VENTAS if rules.is_sales_sheet(sheet_name) else ENCABEZADOS_TAREA)]
 
 
-def _secuencia_desde_la_base(persistencia, sheet_name: str):
+def _clave_de_candado(prefijo: str, sheet_name: str) -> str:
+    """
+    Alcance del candado de folios, igual que el de `ultimo_consecutivo`.
+
+    Los prefijos globales (`AV-`, `PPC-`) se cuentan sobre toda la tabla, así que
+    dos hojas distintas compiten por el mismo consecutivo y tienen que
+    serializarse entre sí. Los de iniciales solo son únicos dentro de su hoja, y
+    meterlos en un candado global convertiría cada alta del sistema en una fila
+    de espera detrás de todas las demás.
+    """
+    from backend.services.identity import PREFIJOS_GLOBALES
+
+    if prefijo.upper() in PREFIJOS_GLOBALES:
+        return f"folio:{prefijo.upper()}"
+    return f"folio:{prefijo.upper()}:{sheet_name.upper().strip()}"
+
+
+def _secuencia_desde_la_base(persistencia, sheet_name: str, al_reservar=None):
     """
     Proveedor de consecutivos para `apply_batch_update`, anclado en la base.
 
@@ -162,13 +180,18 @@ def _secuencia_desde_la_base(persistencia, sheet_name: str):
     es como están los 4.626 existentes (`SP-0007`, `AV-3250`).
 
     La lectura es perezosa: solo se consulta la base si el lote trae de verdad
-    alguna fila sin folio.
+    alguna fila sin folio. `al_reservar` se llama una sola vez, justo antes de
+    esa lectura, y es lo que permite tomar el candado **solo** cuando hace falta
+    asignar folio: la mayoría de los guardados actualizan filas que ya lo tienen
+    y no deben esperar a nadie.
     """
     prefijo = rules.generate_prefix(sheet_name)
     estado = {"n": None}
 
     def siguiente(_clave: str) -> str:
         if estado["n"] is None:
+            if al_reservar is not None:
+                al_reservar(prefijo)
             estado["n"] = persistencia.ultimo_consecutivo(prefijo, sheet_name)
         estado["n"] += 1
         return str(estado["n"]).zfill(4)
@@ -204,20 +227,43 @@ def _persist_batch(sheet_name: str, tasks: List[Dict[str, Any]], skip_notify: bo
     """
     persistencia = persistencia or _persistencia()
     values = _matriz_de_trabajo(sheet_name)
-    result = rules.apply_batch_update(
-        values, tasks, sheet_name,
-        sequence_provider=_secuencia_desde_la_base(persistencia, sheet_name),
-        skip_notify=skip_notify,
-    )
-    if not result.success:
-        return result
 
-    guardado = persistencia.guardar(sheet_name, result.data)
+    # Candado de folios: el equivalente del `LockService` que el original toma en
+    # `generateNumericSequence`. Se abre con `ExitStack` y no con un `with` fijo
+    # porque tiene que cumplir dos condiciones a la vez:
+    #
+    #   1. No tomarse si el lote no necesita folio nuevo —el caso normal, y
+    #      serializar todos los guardados del sistema sería un precio absurdo.
+    #   2. Una vez tomado, seguir tomado hasta **después** de escribir. Leer el
+    #      consecutivo más alto y guardar la fila con ese folio son las dos
+    #      mitades de la misma operación: si el candado se soltara entre ellas,
+    #      dos peticiones simultáneas leerían 3250 y las dos escribirían 3251.
+    with ExitStack() as pila:
+        def tomar_candado(prefijo: str) -> None:
+            pila.enter_context(
+                persistencia.engine.candado(_clave_de_candado(prefijo, sheet_name))
+            )
+
+        result = rules.apply_batch_update(
+            values, tasks, sheet_name,
+            sequence_provider=_secuencia_desde_la_base(
+                persistencia, sheet_name, al_reservar=tomar_candado),
+            skip_notify=skip_notify,
+        )
+        if not result.success:
+            return result
+
+        guardado = persistencia.guardar(sheet_name, result.data)
+
     if not guardado.exito:
         # Un fallo de escritura NO puede salir como éxito: el frontend marcaría
         # `_isNew = false` y borraría el borrador local del usuario.
         return rules.BatchResult(result.values, [], False, 0, [], message=guardado.mensaje)
 
+    # La auditoría y el webhook van fuera del candado: no participan de la
+    # atomicidad del folio y mantenerlo tomado durante una llamada HTTP a
+    # Make.com pondría a esperar al siguiente guardado por algo que no lo
+    # necesita.
     _auditar(persistencia, guardado, username)
     for payload in result.notifications:
         send_to_outlook(payload)
@@ -1163,6 +1209,145 @@ def send_quote_metrics_email(month: Optional[int] = None,
     return {"success": True, "data": datos}
 
 
+# ----------------------------------------------------------------------
+# CONTADOR DE DÍAS (incrementarContadorDias)
+# ----------------------------------------------------------------------
+# El original tiene un disparador diario a la 1 a.m. (`instalarDisparador`) que
+# recalcula la columna DIAS de la hoja maestra de ventas y de las hojas
+# `NOMBRE (VENTAS)` y **la escribe**. Aquí solo existía `calculateDiasCounter`,
+# que es la versión de cliente: pinta el número en la tabla pero no lo guarda en
+# ningún lado. La consecuencia es que la columna `dias` de `quotes` queda con el
+# valor del día en que se capturó la fila, y cualquier consumidor que no sea la
+# SPA —una consulta SQL, el reporte de productividad, un tablero externo— lee un
+# contador congelado. Esto lo cierra.
+
+# Nombres de columna que el original acepta como "el contador": los dos primeros
+# por igualdad, los dos últimos por fragmento (`h.includes("DIAS FINALIZ")`).
+_COLUMNAS_DIAS = ["DIAS", "RELOJ"]
+_FRAGMENTOS_DIAS = ["DIAS FINALIZ", "DÍAS FINALIZ"]
+
+# Alias de la fecha de arranque, en el orden de preferencia de
+# `incrementarContadorDias`.
+_COLUMNAS_FECHA_DIAS = ["FECHA", "FECHA ALTA", "FECHA INICIO", "ALTA",
+                        "FECHA DE INICIO", "F. INICIO"]
+
+
+def hojas_del_contador_de_dias() -> List[str]:
+    """
+    Las hojas que recorre el contador, con el criterio del original.
+
+    `ANTONIA_VENTAS` siempre, más una `NOMBRE (VENTAS)` por cada persona del
+    directorio que venda; a los de `type == 'VENTAS'` se les añade también la
+    hoja sin sufijo, porque el original la contempla "por seguridad".
+    """
+    from api.services.sheets import get_directory_from_db
+
+    hojas = [rules.SALES_MASTER_SHEET]
+    try:
+        for persona in get_directory_from_db():
+            nombre = str(persona.get("name") or "").strip()
+            if not nombre or nombre.upper() == rules.SALES_MASTER_SHEET.upper():
+                continue
+            tipo = str(persona.get("type") or "").upper().strip()
+            if str(persona.get("dept") or "").upper().strip() != "VENTAS" \
+                    and tipo not in ("VENTAS", "HIBRIDO"):
+                continue
+            hojas.append(f"{nombre} (VENTAS)")
+            if tipo == "VENTAS":
+                hojas.append(nombre)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[contador_dias] No se pudo leer el directorio: {exc}")
+
+    # Sin duplicados y conservando el orden, como el `[...new Set(...)]` de allá.
+    return list(dict.fromkeys(hojas))
+
+
+def _dias_desde(fecha_bruta: Any, hoy: Optional[datetime] = None) -> Optional[int]:
+    """
+    Días transcurridos desde la fecha, nunca negativo.
+
+    El original usa `Math.floor` en el disparador (el cliente usa `Math.round`);
+    se respeta el del disparador, que es el que escribe el dato.
+    """
+    fecha = fecha_bruta if isinstance(fecha_bruta, datetime) else rules.parse_sheet_date(fecha_bruta)
+    if not fecha:
+        return None
+    referencia = (hoy or datetime.now()).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(0, (referencia.date() - fecha.date()).days)
+
+
+def incrementar_contador_dias(hoy: Optional[datetime] = None) -> Dict[str, Any]:
+    """
+    Port de `incrementarContadorDias`: recalcula y **persiste** la columna DIAS.
+
+    Se escriben filas parciales (`{FOLIO, DIAS}`): el upsert solo toca la columna
+    `dias`, así que un recálculo no puede pisar nada que alguien haya editado
+    mientras corría. Las filas cuyo valor ya es el correcto no se mandan.
+    """
+    try:
+        persistencia = _persistencia()
+    except Exception as exc:  # noqa: BLE001
+        # Misma convención que `write_quote_metrics_to_sheet`: sin motor de datos
+        # se responde el fallo, no se propaga. Este trabajo lo llama un cron, y
+        # un 500 con traza deja al workflow sin saber qué pasó; peor, si va como
+        # primer paso de `auto_update_quote_metrics` tumbaría también los KPIs y
+        # los dos correos, que no dependen de él.
+        mensaje = f"No se pudo recalcular el contador de días: {exc}"
+        print(f"[contador_dias] {mensaje}")
+        return {"success": False, "message": mensaje, "actualizados": 0, "hojas": []}
+
+    resumen = []
+    total = 0
+
+    for hoja in hojas_del_contador_de_dias():
+        activas, historico, encabezados = read_rows(hoja)
+        filas = list(activas) + list(historico)
+        if not filas:
+            continue
+
+        col_dias = rules.pick_header(encabezados, _COLUMNAS_DIAS, _FRAGMENTOS_DIAS)
+        col_fecha = rules.pick_header(encabezados, _COLUMNAS_FECHA_DIAS)
+        if not col_dias or not col_fecha:
+            # Igual que el original: si la hoja no tiene las dos columnas, se
+            # salta sin ruido. No todas las hojas de ventas llevan contador.
+            continue
+
+        cambios = []
+        for fila in filas:
+            folio = str(fila.get("FOLIO") or fila.get("ID") or "").strip()
+            if not folio:
+                continue
+            dias = _dias_desde(fila.get(col_fecha), hoy)
+            if dias is None:
+                continue
+            actual = str(fila.get(col_dias) or "").strip()
+            if actual == str(dias):
+                continue
+            cambios.append({"FOLIO": folio, "DIAS": dias})
+
+        if not cambios:
+            resumen.append({"hoja": hoja, "actualizados": 0})
+            continue
+
+        guardado = persistencia.guardar(hoja, cambios)
+        if guardado.mensaje:
+            resumen.append({"hoja": hoja, "actualizados": 0, "error": guardado.mensaje})
+            continue
+
+        total += len(cambios)
+        resumen.append({"hoja": hoja, "actualizados": len(cambios)})
+
+    mensaje = f"Contador de días: {total} filas actualizadas en {len(resumen)} hoja(s)."
+    try:
+        from backend.services import auditoria
+
+        auditoria.registrar("SYSTEM", "CONTADOR_DIAS", mensaje)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[contador_dias] sin auditoría: {exc}")
+
+    return {"success": True, "message": mensaje, "actualizados": total, "hojas": resumen}
+
+
 def auto_update_quote_metrics() -> Dict[str, Any]:
     """
     Equivalente de `autoUpdateQuoteMetrics`, el disparador diario de las 07:00.
@@ -1171,7 +1356,13 @@ def auto_update_quote_metrics() -> Dict[str, Any]:
     `setupDailyQuoteMetricsTrigger`. Aquí no hay proceso residente —en serverless
     no existe—, así que lo dispara un cron externo contra
     `POST /api/cron/dailyMetrics`. Ver `.github/workflows/cron-metricas.yml`.
+
+    El contador de días va **primero** y a propósito: el original lo corre a la
+    1 a.m. y las métricas a las 07:00, es decir, las métricas siempre leen un
+    contador ya recalculado. Al juntar los dos disparadores en un solo cron hay
+    que conservar ese orden o el reporte saldría con los días de ayer.
     """
+    dias = incrementar_contador_dias()
     cotizaciones = write_quote_metrics_to_sheet()
     correo_cotizaciones = send_quote_metrics_email()
     productividad = run_tracker_productivity_agent()
@@ -1179,6 +1370,7 @@ def auto_update_quote_metrics() -> Dict[str, Any]:
     return {
         "success": True,
         "data": {
+            "diasActualizados": dias.get("actualizados", 0),
             "kpiEscritos": bool(cotizaciones.get("success")),
             "correoCotizaciones": bool((correo_cotizaciones.get("data") or {}).get("emailSent")),
             "correoProductividad": bool((productividad.get("data") or {}).get("emailSent")),

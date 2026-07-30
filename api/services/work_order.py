@@ -242,6 +242,15 @@ def generate_work_order_folio(client_name, dept_name):
         "COMPRAS": "Compras",
         "VENTAS": "Ventas",
         "HVAC": "HVAC",
+        # Estas tres faltaban frente al ABBR_MAP de `generateWorkOrderFolio`
+        # (CODIGO.js:4193-4195). Sin ellas, "FINANZAS" caía al truncado de abajo
+        # y salía "Finan" en vez de "Finanzas", y "FACTURACION" salía "Factu" en
+        # vez de "Factura": el folio, que es el identificador de negocio más
+        # visible de la Work Order, tenía un formato distinto según el
+        # departamento.
+        "FINANZAS": "Finanzas",
+        "FACTURACION": "Factura",
+        "FACTURACIÓN": "Factura",
         "SEGURIDAD": "EHS",
         "EHS": "EHS"
     }

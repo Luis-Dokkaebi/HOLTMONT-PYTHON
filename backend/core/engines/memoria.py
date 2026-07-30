@@ -59,6 +59,8 @@ class MemoryEngine:
 
     nombre = "memoria"
     soporta_transacciones = True
+    # Un solo proceso y un solo hilo: no hay concurrencia contra la que proteger.
+    soporta_candados = False
 
     def __init__(self, datos: Optional[Dict[str, List[Dict[str, Any]]]] = None):
         self.datos: Dict[str, List[Dict[str, Any]]] = copy.deepcopy(datos or {})
@@ -186,3 +188,14 @@ class MemoryEngine:
             raise
         finally:
             self._respaldo = None
+
+    @contextmanager
+    def candado(self, clave: str) -> Iterator[None]:
+        """
+        Paso a través: este motor es un diccionario del proceso.
+
+        No hay dos peticiones que puedan pisarse, así que un candado no protege
+        de nada. Existe para que el código que lo usa sea el mismo con los tres
+        motores y las pruebas puedan recorrer esa ruta.
+        """
+        yield

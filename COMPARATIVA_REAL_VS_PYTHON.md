@@ -3,6 +3,10 @@
 > **ESTADO AL 2026-07-30, TRAS LA MIGRACIÓN.** Este documento se escribió como
 > auditoría *antes* de cerrar las brechas. Lo de abajo describe el punto de
 > partida y se conserva como registro; **el estado actual está en §0.**
+>
+> **Segunda pasada (misma fecha), en §0.bis:** revisión completa de los dos
+> repos excluyendo la Pre Work Order. Cierra seis divergencias que la primera
+> pasada no había visto o había dejado abiertas.
 
 **Fecha:** 2026-07-30
 **Repos comparados:**
@@ -77,9 +81,9 @@ se corrigió por diseño en vez de replicarse.
 |---|---|
 | **Contraseñas en texto plano** | **Decisión explícita del dueño (2026-07):** se migran en la migración completa. No es un olvido. |
 | **`habits_log` no existe en la base** | El código está escrito y falla con un mensaje que dice qué crear. DDL en `docs/DDL_PENDIENTE.sql`. |
-| **`GET /api/data` sin autenticación** | Sigue abierto; `?sheet=USERS` expone la tabla de usuarios. Requiere sesión/JWT, que va con el punto 1. |
+| ~~**`GET /api/data` sin autenticación**~~ | **Cerrado** (commit `0249dc5`): lista negra de tablas sensibles + filtro de columnas de credencial. La sesión/JWT sigue pendiente con el punto 1. |
 | **Key de Gemini en `CODIGO.js:3347`** | Sigue versionada. Rotarla y purgarla. |
-| **Carrera en los folios** | Se lee el máximo y se suma, sin candado. La solución es una secuencia de Postgres. |
+| ~~**Carrera en los folios**~~ | **Cerrado en la segunda pasada (§0.bis-6):** candado consultivo de Postgres en el motor SQLAlchemy. |
 | **Esquema no verificable** | Sin credenciales, los repositorios nuevos *resuelven* los nombres de columna entre candidatos en vez de declararlos. Fijar el mapa cuando alguien corra `scripts/verificar_base_tasks.py` con acceso. |
 | **`bucket` de Storage** | Debe ser público: el original publicaba con `ANYONE_WITH_LINK`. |
 | **Higiene** | `HOLTMONT-PYTHON-main/` (copia del repo dentro del repo, 4.6 MB) y 24 scripts de andamiaje siguen versionados. |
@@ -87,6 +91,56 @@ se corrigió por diseño en vez de replicarse.
 **Veredicto:** todo lo que se usa en el de AppScript se puede usar aquí. Lo que
 falta no es funcionalidad: es endurecimiento (autenticación, atomicidad de
 folios) y dos cosas que requieren acceso a la base.
+
+---
+
+## 0.bis Segunda pasada: seis divergencias más, cerradas
+
+Revisión completa de los dos repos **excluyendo la Pre Work Order** (módulo
+propio de este repo). Punto de partida: la superficie viva ya estaba al 100 % —
+las 40 funciones que `index.html` invoca están conectadas y los dos frontends
+llaman exactamente al mismo conjunto—, así que lo que quedaba no eran funciones
+ausentes sino **comportamiento divergente**. De los cuatro deltas de UI de §2.1,
+dos ya se habían cerrado antes de esta pasada (el índice con coma inválido y las
+cuatro guardas de 35 MB).
+
+| # | Divergencia | Qué pasaba | Arreglo |
+|---|---|---|---|
+| 1 | **`ABBR_MAP` del folio de WO, 24 de 27** | `FINANZAS` caía al truncado de 5 letras y generaba `…Finan…` en vez de `…Finanzas…`; `FACTURACION` daba `Factu` en vez de `Factura`. Formato distinto en el identificador más visible del módulo. Hallazgo abierto desde la auditoría de julio. | Las 3 entradas en `api/services/work_order.py`. |
+| 2 | **Nombre de la carpeta de mes del archivado** | `processQuoteRow` escribe `03 - MARZO`; aquí era `MARZO`. El árbol del banco no coincidía con el de Drive y, sin el número, el listado sale en orden alfabético (ABRIL antes de ENERO) en vez de cronológico. | `MESES` en `api/services/storage.py`. |
+| 3 | **🐛 Archivar renombraba el archivo** | El destino se calculaba con `ruta_de_archivo`, que pega una marca de tiempo nueva: cada archivado renombraba el objeto (`plano-1` → `plano-1-2` → `plano-1-2-3`) y la comparación con la ruta actual **no podía dar igual nunca**, así que el "ya estaba archivado" era código inalcanzable. `archiveFile` solo mueve y devuelve "Already there". | `carpeta_de_archivo()` separada de `ruta_de_archivo()`; el nombre se conserva. |
+| 4 | **`batchArchiveExistingQuotes` ausente** | El archivado existía solo para un archivo suelto. Las cotizaciones ya cargadas nunca se organizaban en `[Año]/[Mes]/[Cliente]`. | `archivar_fila_cotizacion` (port de `processQuoteRow`) + `archivar_lote_cotizaciones`, en `POST /api/cron/archiveQuotes`. |
+| 5 | **`incrementarContadorDias` ausente** | El original tiene un disparador diario a la 1 a.m. que **escribe** la columna DIAS de la maestra de ventas y de las hojas `NOMBRE (VENTAS)`. Aquí solo existía `calculateDiasCounter`, que es la versión de cliente: pinta el número y no lo guarda. La columna `dias` de `quotes` quedaba con el valor del día de captura, así que cualquier consumidor que no fuera la SPA —una consulta SQL, un tablero— leía un contador congelado. | `incrementar_contador_dias()` + `POST /api/cron/diasCounter` + `.github/workflows/cron-contador-dias.yml`. Escribe filas parciales (`{FOLIO, DIAS}`) para no pisar ediciones concurrentes, y no reescribe lo que ya está bien. |
+| 6 | **Carrera en los folios** (§4.4-1, abierta) | `LockService.getScriptLock()` de `generateNumericSequence` no tenía equivalente: dos peticiones simultáneas leen 3250 y las dos escriben 3251; el upsert por folio deja una sola de las dos tareas. | `candado()` en el contrato de `DataEngine`, con `pg_advisory_xact_lock` en el motor SQLAlchemy. Se toma **solo** si el lote necesita folio nuevo y se sostiene hasta después de escribir. |
+
+Y un bug que salió al probar el punto 4: **las URLs de Storage llevan espacios**
+(`2026/03 - MARZO/ACME INDUSTRIAL/…`), y el `split(/[\n\s,]+/)` del original
+—que en Drive es inofensivo porque sus URLs no tienen espacios— troceaba una URL
+en tres y archivaba una ruta truncada. `separar_urls()` parte por los
+separadores reales y, dentro de cada trozo, solo por el espacio que precede a
+otra URL.
+
+**Sobre la atomicidad del folio de Work Order:** el original **tampoco** usa
+candado ahí (`generateWorkOrderFolio` lee la Script Property y suma), así que en
+ese punto los dos sistemas están a la par. El `LockService` está solo en
+`generateNumericSequence`, que es el de los folios del tracker — y es ahí donde
+se puso el candado.
+
+**Pruebas:** `tests/test_paridad_migraciones_2026_07.py`, 30 casos. Suite
+completa: **737 de pytest** y **87/87** de la de Node, en verde.
+
+### La única decisión que queda abierta
+
+**`defaultReqCotizacion`** (delta 3 de §2.1). REAL precarga 8 actividades
+estándar de pre-diseño en el paso 2 del PPC; aquí es `[]` y el formulario abre en
+blanco. **No se cambió**, y no por olvido: `tests/test_pre_disenos.py::test_default_data_structure`
+exige que el bloque esté vacío *"como se requirió"*. Son dos requisitos
+opuestos —paridad con REAL contra una decisión de diseño ya tomada y
+versionada—, y no es una decisión que le toque tomar a quien migra.
+
+Las 8 filas ya se escribieron y se probaron con la forma de fila del rediseño de
+este repo (la que produce `addProjectItem('reqCotizacion')`, con responsable,
+fechas, archivo y costo), así que aplicarlo es una línea más actualizar ese test.
 
 ---
 

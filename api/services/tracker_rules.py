@@ -158,6 +158,40 @@ def pick_task_value(task: Dict[str, Any], keys: Sequence[str]) -> Any:
     return ""
 
 
+def pick_header(headers: Sequence[Any], keys: Sequence[str],
+                contiene: Sequence[str] = ()) -> Optional[str]:
+    """
+    El nombre **real** del encabezado que corresponde a alguno de `keys`.
+
+    Distinto de `pick_task_value`, que devuelve el valor: aquí hace falta la
+    clave tal como viene en la hoja para poder escribir en esa misma columna.
+
+    Dos pasadas, en el orden del original: primero coincidencia exacta
+    recorriendo `keys` por orden de preferencia (el `headers.indexOf(alias)` de
+    `incrementarContadorDias`), y solo si ninguna da, coincidencia por fragmento
+    con `contiene` (el `h.includes("DIAS FINALIZ")` del mismo bucle). El orden
+    importa: buscando por fragmento primero, un encabezado
+    "DIAS FINALIZ. COTIZ" ganaría a un "DIAS" exacto que está más a la
+    izquierda.
+    """
+    normalizados = [(normalize_header(h), h) for h in (headers or [])]
+    for clave in keys:
+        objetivo = normalize_header(clave)
+        if not objetivo:
+            continue
+        for norma, original in normalizados:
+            if norma == objetivo:
+                return original
+    for fragmento in contiene:
+        objetivo = normalize_header(fragmento)
+        if not objetivo:
+            continue
+        for norma, original in normalizados:
+            if objetivo in norma:
+                return original
+    return None
+
+
 def generate_prefix(name: Any) -> str:
     """
     Prefijo de folio del titular de la hoja.

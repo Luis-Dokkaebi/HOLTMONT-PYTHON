@@ -32,6 +32,9 @@ class DataEngine(Protocol):
 
     nombre: str
     soporta_transacciones: bool
+    # Si `candado()` bloquea de verdad. Falso en los motores que no pueden tomar
+    # un candado en la base; se expone para poder avisar en vez de suponer.
+    soporta_candados: bool
 
     def select(
         self,
@@ -73,6 +76,24 @@ class DataEngine(Protocol):
     @contextmanager
     def transaccion(self) -> Iterator["DataEngine"]:
         """Contexto transaccional. En PostgREST no hay tal cosa y se documenta."""
+        ...
+
+    @contextmanager
+    def candado(self, clave: str) -> Iterator[None]:
+        """
+        Exclusión mutua entre peticiones, con el alcance de `clave`.
+
+        Es el equivalente de `LockService.getScriptLock()`, que el original usa
+        en `generateNumericSequence` para que dos guardados simultáneos no
+        obtengan el mismo consecutivo de folio. Sin candado, "leer el máximo y
+        sumar uno" es una carrera: las dos peticiones leen 3250 y las dos
+        escriben 3251, y el upsert por folio deja una sola de las dos tareas.
+
+        Solo el motor SQLAlchemy puede cumplirlo de verdad (candado consultivo de
+        Postgres). Los demás lo implementan como paso-a-través y lo dicen: es
+        mejor que el llamador no pueda distinguirlo por la firma pero sí por
+        `soporta_candados`.
+        """
         ...
 
 

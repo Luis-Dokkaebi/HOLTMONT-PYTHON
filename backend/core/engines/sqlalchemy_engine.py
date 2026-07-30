@@ -24,6 +24,7 @@ class SqlAlchemyEngine:
 
     nombre = "sqlalchemy"
     soporta_transacciones = True
+    soporta_candados = True
 
     def __init__(self, database_url: str, tamano_pool: int = 5, max_desborde: int = 5):
         try:
@@ -198,3 +199,33 @@ class SqlAlchemyEngine:
                 raise
             finally:
                 self._conexion = None
+
+    @contextmanager
+    def candado(self, clave: str) -> Iterator[None]:
+        """
+        `pg_advisory_xact_lock`: el equivalente real de `LockService`.
+
+        Tres decisiones que conviene dejar escritas:
+
+        * **`xact` y no `pg_advisory_lock`.** El candado por transacción se
+          suelta solo al terminar la transacción, incluso si el proceso muere a
+          media petición. Un candado de sesión en serverless, donde la conexión
+          la presta un pooler y se reutiliza, se quedaría tomado para siempre.
+        * **Se abre una transacción alrededor.** Sin ella no hay a qué atar el
+          candado, y además es lo que hace atómico el par "leer el consecutivo
+          más alto / escribir la fila con ese folio": si estuvieran en
+          transacciones distintas, el candado no serviría de nada.
+        * **`hashtext`, no la cadena.** La función toma dos `int`, así que la
+          clave se convierte a entero en la base. Dos claves distintas podrían
+          colisionar en el mismo hash; eso solo provoca que se serialicen dos
+          guardados que podían ir en paralelo, nunca un folio repetido.
+        """
+        from sqlalchemy import text
+
+        with self.transaccion():
+            with self._ejecutor() as conexion:
+                conexion.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:clave))"),
+                    {"clave": str(clave)},
+                )
+            yield
