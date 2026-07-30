@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Body, Query
+from fastapi import FastAPI, HTTPException, Body, Query, Header
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -599,50 +599,24 @@ def api_legacy_save_gemini_key(req: GeminiKeyRequest):
 
 @app.post("/api/legacy/trackerProductivity")
 def api_legacy_tracker_productivity(req: QuoteAgentRequest):
-    """runTrackerProductivityAgent: productividad por persona del directorio."""
-    month = req.month or datetime.now().month
-    year = req.year or datetime.now().year
-    resumen = []
-    total_activas = 0
-    total_cerradas = 0
+    """
+    runTrackerProductivityAgent: metricas reales, las 3 reglas de alerta,
+    resumen de IA y correo.
 
-    for person in {u["name"] for u in get_directory_from_db()}:
-        active, history, _ = tracker_store.read_rows(person)
-        if not active and not history:
-            continue
+    Antes esto era un conteo de activas/cerradas escrito en linea aqui, sin
+    cumplimiento de fechas, restricciones, riesgos ni prioridades — y por tanto
+    sin las tres reglas, que dependen de esas metricas. Ahora delega en
+    `tracker_store`, que usa `tracker_rules.compute_productivity_metrics`.
+    """
+    return tracker_store.run_tracker_productivity_agent(req.month, req.year)
 
-        def en_periodo(row):
-            from api.services import tracker_rules as _rules
-            fecha = _rules.parse_sheet_date(_rules.pick_task_value(row, ["FECHA", "FECHA ALTA", "ALTA"]))
-            return bool(fecha) and fecha.month == month and fecha.year == year
 
-        activas = [r for r in active if en_periodo(r)]
-        cerradas = [r for r in history if en_periodo(r)]
-        if not activas and not cerradas:
-            continue
-
-        total_activas += len(activas)
-        total_cerradas += len(cerradas)
-        total = len(activas) + len(cerradas)
-        resumen.append({
-            "nombre": person,
-            "activas": len(activas),
-            "cerradas": len(cerradas),
-            "cumplimiento": round((len(cerradas) / total) * 100, 1) if total else 0,
-        })
-
-    resumen.sort(key=lambda r: r["cerradas"], reverse=True)
-    return {
-        "success": True,
-        "data": {
-            "month": month,
-            "year": year,
-            "totalActivas": total_activas,
-            "totalCerradas": total_cerradas,
-            "personas": resumen,
-            "emailSent": False,
-        },
-    }
+@app.get("/api/legacy/trackerProductivityMetrics")
+def api_legacy_tracker_productivity_metrics(
+    month: Optional[int] = Query(None), year: Optional[int] = Query(None)
+):
+    """apiFetchTrackerProductivityMetrics: solo las metricas, sin correo."""
+    return tracker_store.fetch_tracker_productivity_metrics(month, year)
 
 
 @app.get("/api/legacy/infoBankCompanies")
@@ -875,6 +849,74 @@ def api_legacy_add_employee(req: EmployeeRequest):
 def api_legacy_delete_employee(req: EmployeeRequest):
     """apiDeleteEmployee."""
     return tracker_store.delete_employee(req.name)
+
+
+# ======================================================================
+# ARCHIVOS (Supabase Storage) Y TAREAS PROGRAMADAS
+# ======================================================================
+
+
+class UploadRequest(BaseModel):
+    data: str
+    type: Optional[str] = None
+    name: Optional[str] = None
+    # Con cliente, el archivo cae en la estructura del banco: AÑO/MES/CLIENTE.
+    client: Optional[str] = None
+    date: Optional[str] = None
+
+
+class ArchiveRequest(BaseModel):
+    fileUrl: str
+    client: str
+    date: Optional[str] = None
+
+
+@app.post("/api/legacy/upload")
+def api_legacy_upload(req: UploadRequest):
+    """uploadFileToDrive, sobre Supabase Storage."""
+    from api.services import storage
+
+    return storage.subir(req.data, req.type, req.name, req.client, req.date)
+
+
+@app.post("/api/legacy/archiveQuote")
+def api_legacy_archive_quote(req: ArchiveRequest):
+    """
+    archiveFile + processQuoteRow: reubica el archivo en AÑO/MES/CLIENTE.
+
+    En Drive era mover el archivo entre carpetas; en Storage es un `move` de la
+    clave del objeto.
+    """
+    from api.services import storage
+
+    return storage.archivar_cotizacion(req.fileUrl, req.client, req.date)
+
+
+def _cron_autorizado(secreto: Optional[str]) -> bool:
+    """
+    El cron se dispara desde fuera, asi que el endpoint necesita un secreto.
+
+    Sin `CRON_SECRET` configurado se rechaza: un endpoint que lanza los tres
+    agentes y manda correos no puede quedar abierto por omision.
+    """
+    esperado = os.environ.get("CRON_SECRET", "").strip()
+    if not esperado:
+        return False
+    return secrets.compare_digest(str(secreto or ""), esperado)
+
+
+@app.post("/api/cron/dailyMetrics")
+def api_cron_daily_metrics(x_cron_secret: str = Header("", alias="X-Cron-Secret")):
+    """
+    autoUpdateQuoteMetrics: el disparador diario de las 07:00.
+
+    En Apps Script era un trigger de tiempo (`setupDailyQuoteMetricsTrigger`).
+    En serverless no hay proceso residente que lo sostenga, asi que lo invoca un
+    cron externo — ver `.github/workflows/cron-metricas.yml`.
+    """
+    if not _cron_autorizado(x_cron_secret):
+        raise HTTPException(status_code=401, detail="Secreto de cron invalido o no configurado.")
+    return tracker_store.auto_update_quote_metrics()
 
 
 # ======================================================================

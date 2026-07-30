@@ -125,6 +125,11 @@ DELEGACIONES_VALIDAS = (
     "get_directory_from_db",
     "_repo_",
     "Repositorio",
+    # Servicios de infraestructura: `storage` (Supabase Storage, port de
+    # DriveApp) y `correo` (SMTP, port de MailApp). Un endpoint que sube un
+    # archivo tampoco debe implementar la subida en línea.
+    "storage",
+    "correo",
 )
 
 

@@ -278,10 +278,34 @@ class GoogleScriptRunAdapter {
 
     // Escrituras: fallan de forma visible en vez de fingir éxito.
 
-    uploadFileToDrive(data, type, name) {
-        // Devolver una fileUrl falsa era lo más dañino del adaptador: la URL
-        // inventada se guardaba en la base como si el archivo existiera.
-        this._noPortado('uploadFileToDrive');
+    /**
+     * Subida de archivos, ahora contra Supabase Storage.
+     *
+     * Era el último stub del adaptador. Antes de la Fase 0 devolvía una
+     * `fileUrl` inventada que se guardaba en la base como si el archivo
+     * existiera; después pasó a fallar de forma visible. Ahora sube de verdad.
+     *
+     * El cuarto argumento (`client`) no lo manda el frontend todavía: cuando se
+     * pasa, el archivo cae en la estructura del banco de información
+     * (AÑO/MES/CLIENTE) en vez de en AÑO/MES.
+     */
+    uploadFileToDrive(data, type, name, client) {
+        this._post('/api/legacy/upload', {
+            data: data, type: type || null, name: name || null, client: client || null
+        });
+    }
+
+    /** archiveFile + processQuoteRow: reubica un archivo ya subido. */
+    apiArchiveQuoteFile(fileUrl, client, date) {
+        this._post('/api/legacy/archiveQuote', {
+            fileUrl: fileUrl, client: client, date: date || null
+        });
+    }
+
+    /** apiFetchTrackerProductivityMetrics: métricas sin disparar el correo. */
+    apiFetchTrackerProductivityMetrics(params) {
+        const p = params || {};
+        this._call(`/api/legacy/trackerProductivityMetrics?month=${p.month || ''}&year=${p.year || ''}`);
     }
 
     apiAddEmployee(employee) {

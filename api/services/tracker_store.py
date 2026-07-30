@@ -971,3 +971,184 @@ def delete_employee(name: Any) -> Dict[str, Any]:
         return {"success": False, "message": f"No se pudo dar de baja: {exc}"}
 
     return {"success": True, "message": f"{limpio} dado de baja."}
+
+
+# ----------------------------------------------------------------------
+# AGENTE DE PRODUCTIVIDAD Y CORREO
+# ----------------------------------------------------------------------
+
+MESES_NOMBRE = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+                "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+
+def fetch_tracker_productivity_metrics(month: Optional[int] = None,
+                                       year: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchTrackerProductivityMetrics`.
+
+    Recorre el directorio y toma las tareas **cerradas** de cada persona en el
+    periodo. Las cerradas son las que el auto-archivado deja en el historial, que
+    es lo que el original leía por debajo del separador "TAREAS REALIZADAS".
+    """
+    from api.services.sheets import get_directory_from_db
+
+    mes = month or datetime.now().month
+    anio = year or datetime.now().year
+
+    departamentos: Dict[str, str] = {}
+    por_persona: Dict[str, List[Dict[str, Any]]] = {}
+
+    for entrada in get_directory_from_db():
+        persona = entrada.get("name")
+        if not persona or persona in por_persona:
+            continue
+        departamentos[persona] = entrada.get("dept") or ""
+        _active, history, _headers = read_rows(persona)
+        del_periodo = []
+        for row in history:
+            fecha = rules.parse_sheet_date(
+                rules.pick_task_value(row, ["FECHA", "FECHA ALTA", "ALTA"]))
+            if fecha and fecha.month == mes and fecha.year == anio:
+                del_periodo.append(row)
+        if del_periodo:
+            por_persona[persona] = del_periodo
+
+    metrics = rules.compute_productivity_metrics(
+        por_persona, departamento_de=departamentos.get, month=mes, year=anio)
+    return {"success": True, "metrics": metrics}
+
+
+def run_tracker_productivity_agent(month: Optional[int] = None,
+                                   year: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Equivalente de `runTrackerProductivityAgent`: métricas + 3 reglas + resumen
+    de IA + correo.
+
+    Los destinatarios se resuelven **por rol** (ADMIN, ADMIN_CONTROL, PPC_ADMIN).
+    El original los buscaba por nombre de cuenta y una de las tres llaves
+    —`USER_DB['ADMIN_CONTROL']`— no existe, porque es un rol: el reporte nunca
+    llegó a JAIME_OLIVO ni a DIMAS_RAMOS. Ver `api/services/correo.py`.
+    """
+    from api.services import correo
+
+    mes = month or datetime.now().month
+    anio = year or datetime.now().year
+    nombre_mes = MESES_NOMBRE[mes - 1]
+
+    resultado = fetch_tracker_productivity_metrics(mes, anio)
+    if not resultado.get("success"):
+        return {"success": False,
+                "message": f"No se pudieron obtener métricas: {resultado.get('message')}"}
+
+    metrics = resultado["metrics"]
+    alertas = rules.productivity_alerts(metrics)
+
+    resumen = "No se pudo generar reporte con IA."
+    respuesta = call_gemini(rules.build_productivity_prompt(metrics, nombre_mes))
+    if respuesta.get("success") and respuesta.get("text"):
+        resumen = respuesta["text"]
+
+    filas = "".join(
+        f'<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 10px;">{c["name"]}</td>'
+        f'<td style="text-align:center;padding:5px 10px;">{c["count"]}</td>'
+        f'<td style="text-align:center;padding:5px 10px;color:'
+        f'{"#28a745" if c["onTimePct"] >= 80 else "#dc3545"};">{c["onTimePct"]}%</td>'
+        f'<td style="text-align:center;padding:5px 10px;">{c["avgDays"]}</td></tr>'
+        for c in metrics["byCollabArr"][:8]
+    )
+    tabla = (
+        '<h2 style="font-size:16px;color:#444;margin-top:24px;">Por colaborador</h2>'
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+        '<tr style="background:#f1f3f5;"><th style="padding:6px 10px;text-align:left;">Nombre</th>'
+        '<th>Tareas</th><th>A tiempo</th><th>Días prom.</th></tr>'
+        f'{filas}</table>'
+    ) if filas else ""
+
+    envio = correo.enviar(
+        asunto=f"Reporte de Productividad — {nombre_mes} {anio}",
+        html=correo.cuerpo_reporte(
+            titulo=f"📊 Reporte de Productividad — {nombre_mes} {anio}",
+            subtitulo="Generado automáticamente por el Agente de Productividad",
+            resumen_ia=resumen,
+            kpis=[("Total Completadas", metrics["totalTasks"]),
+                  ("A Tiempo", f"{metrics['onTimePct']}%"),
+                  ("Atrasadas", metrics["lateTasks"]),
+                  ("Días Promedio", metrics["avgDurationDays"])],
+            alertas=alertas,
+            tabla_html=tabla,
+        ),
+        roles=["ADMIN", "ADMIN_CONTROL", "PPC_ADMIN"],
+    )
+
+    return {
+        "success": True,
+        "data": {
+            "metrics": metrics,
+            "alerts": alertas,
+            "geminiReport": resumen,
+            "emailSent": bool(envio.get("success")),
+            "emailMessage": envio.get("message", ""),
+        },
+    }
+
+
+def send_quote_metrics_email(month: Optional[int] = None,
+                             year: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Equivalente de `_sendAgentEmail`: el reporte de cotizaciones por correo.
+
+    Destinatarios por rol TONITA y ADMIN, que son las dos cuentas que el
+    original nombraba (`ANTONIA_VENTAS` y `LUIS_CARLOS`).
+    """
+    from api.services import correo
+
+    mes = month or datetime.now().month
+    anio = year or datetime.now().year
+    nombre_mes = MESES_NOMBRE[mes - 1]
+
+    reporte = run_quote_metrics_agent(mes, anio)
+    if not reporte.get("success"):
+        return reporte
+
+    datos = reporte.get("data") or {}
+    metrics = datos.get("metrics") or {}
+    envio = correo.enviar(
+        asunto=f"Reporte de Cotizaciones — {nombre_mes} {anio}",
+        html=correo.cuerpo_reporte(
+            titulo=f"📊 Reporte de Cotizaciones — {nombre_mes} {anio}",
+            subtitulo="Generado automáticamente por el Agente de Métricas",
+            resumen_ia=datos.get("geminiReport", ""),
+            kpis=[("Cotizaciones", metrics.get("total", 0)),
+                  ("Ganadas", metrics.get("ganadas", metrics.get("won", 0))),
+                  ("SLA en tiempo", metrics.get("slaOk", 0))],
+            alertas=datos.get("alerts") or [],
+            color="#1E3A5F",
+        ),
+        roles=["TONITA", "ADMIN"],
+    )
+    datos["emailSent"] = bool(envio.get("success"))
+    datos["emailMessage"] = envio.get("message", "")
+    return {"success": True, "data": datos}
+
+
+def auto_update_quote_metrics() -> Dict[str, Any]:
+    """
+    Equivalente de `autoUpdateQuoteMetrics`, el disparador diario de las 07:00.
+
+    En Apps Script era un trigger de tiempo instalado con
+    `setupDailyQuoteMetricsTrigger`. Aquí no hay proceso residente —en serverless
+    no existe—, así que lo dispara un cron externo contra
+    `POST /api/cron/dailyMetrics`. Ver `.github/workflows/cron-metricas.yml`.
+    """
+    cotizaciones = write_quote_metrics_to_sheet()
+    correo_cotizaciones = send_quote_metrics_email()
+    productividad = run_tracker_productivity_agent()
+
+    return {
+        "success": True,
+        "data": {
+            "kpiEscritos": bool(cotizaciones.get("success")),
+            "correoCotizaciones": bool((correo_cotizaciones.get("data") or {}).get("emailSent")),
+            "correoProductividad": bool((productividad.get("data") or {}).get("emailSent")),
+        },
+    }
