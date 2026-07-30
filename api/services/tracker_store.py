@@ -594,3 +594,86 @@ def log_date_change(payload: Dict[str, Any], username: str = "") -> Dict[str, An
               f"{payload.get('nuevo') or '(vacío)'}")
     registrado = auditoria.registrar(username, auditoria.ACCION_CAMBIO_FECHA, detail)
     return {"success": True, "logged": registrado}
+
+
+# ----------------------------------------------------------------------
+# PROYECTOS / CASCADA
+# ----------------------------------------------------------------------
+# Las tareas de un proyecto no viven en una tabla aparte: son filas de
+# `ADMINISTRADOR` etiquetadas con `[PROY: NOMBRE]` en CONCEPTO o COMENTARIOS.
+# Se conserva esa convención porque es la que el frontend escribe y lee, y
+# porque `tasks` no tiene una columna con la que relacionarlas.
+#
+# Lo correcto a futuro es una clave foránea real (`tasks.project_id` ->
+# `projects.id_proyecto`), que además haría innecesario buscar por subcadena.
+# Requiere DDL, así que queda para cuando el esquema esté versionado; mientras,
+# esto funciona con el esquema que hay.
+
+PROJECT_TASKS_SHEET = "ADMINISTRADOR"
+
+
+def project_tag(project_name: Any) -> str:
+    return f"[PROY: {str(project_name or '').upper().strip()}]"
+
+
+def fetch_project_tasks(project_name: str) -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchProjectTasks`.
+
+    **Corrige un fallo del original, no lo replica.** `CODIGO.js:3907` cierra la
+    función con `if (sheetName.includes('ANTONIA_VENTAS'))`, y `sheetName` no
+    existe en ese ámbito: el parámetro se llama `projectName`. El
+    `ReferenceError` cae siempre en el `catch`, así que la función devolvía
+    `{success:false}` en el 100% de las llamadas y la vista PROJECT_TASKS_VIEW
+    nunca mostró nada.
+
+    Ese bloque era además copia de `internalFetchSheetData` y no tenía sentido
+    aquí: esta función lee `ADMINISTRADOR`, nunca `ANTONIA_VENTAS`, así que el
+    reordenamiento de `MAP COT` no aplicaba. Se omite en vez de arreglarlo.
+    """
+    etiqueta = project_tag(project_name)
+    if etiqueta == "[PROY: ]":
+        return {"success": False, "message": "Falta el nombre del proyecto."}
+
+    active, history, headers = read_rows(PROJECT_TASKS_SHEET)
+    if not headers:
+        return {"success": False,
+                "message": f"No se pudo leer {PROJECT_TASKS_SHEET} o no tiene encabezados."}
+
+    def etiquetada(row: Dict[str, Any]) -> bool:
+        # El original mira CONCEPTO y COMENTARIOS, con respaldo a cualquier
+        # encabezado que contenga "DESCRIPCI" cuando no hay CONCEPTO.
+        campos = [
+            rules.pick_task_value(row, ["CONCEPTO", "DESCRIPCION", "DESCRIPCIÓN"]),
+            rules.pick_task_value(row, ["COMENTARIOS"]),
+        ]
+        return any(etiqueta in str(v or "").upper() for v in campos)
+
+    tareas = [r for r in list(active) + list(history) if etiquetada(r)]
+    # `.reverse()` del original: lo más reciente primero.
+    tareas.reverse()
+    return {"success": True, "data": tareas, "headers": headers}
+
+
+def save_project_task(task: Dict[str, Any], project_name: str,
+                      username: str = "") -> Dict[str, Any]:
+    """
+    Equivalente de `apiSaveProjectTask`.
+
+    Añade la etiqueta del proyecto a COMENTARIOS si falta y guarda por la misma
+    ruta que el resto del tracker, con lo que hereda Gatekeeper, resolución de
+    folio y auditoría.
+    """
+    etiqueta = project_tag(project_name)
+    if etiqueta == "[PROY: ]":
+        return {"success": False, "message": "Falta el nombre del proyecto."}
+
+    fila = dict(task)
+    # La columna puede venir con otro nombre según la hoja; se respeta el que
+    # traiga la fila para no crear una columna duplicada al guardar.
+    clave = next((k for k in fila if str(k).upper().strip() == "COMENTARIOS"), "COMENTARIOS")
+    comentarios = str(fila.get(clave) or "")
+    if etiqueta not in comentarios.upper():
+        fila[clave] = f"{comentarios} {etiqueta}".strip()
+
+    return update_task(PROJECT_TASKS_SHEET, fila, username)

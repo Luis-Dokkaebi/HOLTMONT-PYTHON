@@ -109,16 +109,35 @@ def test_endpoint_existe_en_main(rutas, clave, equivalente):
     assert clave in rutas, f"Falta {clave[0]} {clave[1]} en api/main.py (equivalente de {equivalente})"
 
 
+# Destinos de delegación aceptables para un endpoint legacy. Lo que la prueba
+# vigila es que el endpoint **no reimplemente la lógica de negocio en línea**,
+# no cuál de las dos capas usa:
+#
+#   * `tracker_store` / `tracker_rules` — el motor de reglas portado de
+#     `CODIGO.js`, que es de donde salieron casi todos los endpoints;
+#   * `_repo_` / `RepositorioProyectos` — la capa relacional de `backend/`
+#     (Fase 1 del plan), que es la dirección a la que migra el proyecto. Los
+#     endpoints de Proyectos nacieron ahí porque `sites`/`projects` son tablas
+#     relacionales de verdad y no una hoja reconstruida.
+DELEGACIONES_VALIDAS = (
+    "tracker_store",
+    "tracker_rules",
+    "get_directory_from_db",
+    "_repo_",
+    "Repositorio",
+)
+
+
 def test_endpoints_delegan_al_motor_de_reglas(rutas):
-    """Los endpoints legacy no reimplementan la lógica: usan tracker_store/tracker_rules."""
+    """Los endpoints legacy no reimplementan la lógica: delegan en una capa de negocio."""
     sin_delegar = []
     for (metodo, ruta), funcion in rutas.items():
         if not ruta.startswith("/api/legacy/"):
             continue
         cuerpo = ast.dump(funcion)
-        if "tracker_store" not in cuerpo and "tracker_rules" not in cuerpo and "get_directory_from_db" not in cuerpo:
+        if not any(marca in cuerpo for marca in DELEGACIONES_VALIDAS):
             sin_delegar.append(f"{metodo} {ruta}")
-    assert not sin_delegar, f"Endpoints que no delegan al motor de reglas: {sin_delegar}"
+    assert not sin_delegar, f"Endpoints que no delegan a ninguna capa de negocio: {sin_delegar}"
 
 
 def test_endpoints_declarados_antes_del_static_mount():

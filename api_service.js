@@ -256,7 +256,7 @@ class GoogleScriptRunAdapter {
     }
 
     apiFetchCascadeTree() {
-        this._lecturaVacia('apiFetchCascadeTree');
+        this._call('/api/legacy/cascadeTree');
     }
 
     apiFetchDrafts() {
@@ -268,7 +268,7 @@ class GoogleScriptRunAdapter {
     }
 
     apiFetchProjectTasks(projectName) {
-        this._lecturaVacia('apiFetchProjectTasks', { headers: [] });
+        this._call(`/api/legacy/projectTasks?projectName=${encodeURIComponent(projectName || '')}`);
     }
 
     // Escrituras: fallan de forma visible en vez de fingir éxito.
@@ -288,15 +288,27 @@ class GoogleScriptRunAdapter {
     }
 
     apiSaveProjectTask(row, projectName, username) {
-        this._noPortado('apiSaveProjectTask');
+        this._post('/api/legacy/saveProjectTask', { task: row, projectName: projectName, username: username });
     }
 
     apiSaveSubProject(data) {
-        this._noPortado('apiSaveSubProject');
+        const d = data || {};
+        this._post('/api/legacy/saveSubProject', {
+            parentId: d.parentId || d.siteId || '',
+            name: d.name || '',
+            type: d.type || null,
+            createdBy: d.createdBy || null
+        });
     }
 
     apiSaveSite(data) {
-        this._noPortado('apiSaveSite');
+        const d = data || {};
+        this._post('/api/legacy/saveSite', {
+            name: d.name || '',
+            client: d.client || '',
+            type: d.type || null,
+            createdBy: d.createdBy || null
+        });
     }
 
     apiFetchWeeklyPlanData(username) {

@@ -679,6 +679,110 @@ def api_legacy_resync_directory():
 
 
 # ======================================================================
+# PROYECTOS / CASCADA
+# ======================================================================
+# Las tablas `sites` y `projects` existían desde la migración pero no tenían
+# endpoint: el frontend mostraba las vistas PROJECTS y PROJECT_TASKS_VIEW
+# alimentadas con listas vacías.
+
+
+class SiteRequest(BaseModel):
+    name: str
+    client: str = ""
+    type: Optional[str] = None
+    createdBy: Optional[str] = None
+
+
+class SubProjectRequest(BaseModel):
+    parentId: str
+    name: str
+    type: Optional[str] = None
+    createdBy: Optional[str] = None
+
+
+class ProjectTaskRequest(BaseModel):
+    task: Dict[str, Any]
+    projectName: str
+    username: Optional[str] = ""
+
+
+def _repo_proyectos():
+    from backend.core.engine import construir_engine
+    from backend.repositories.proyectos import RepositorioProyectos
+
+    return RepositorioProyectos(construir_engine())
+
+
+def _auditar_proyecto(username: Optional[str], accion: str, detalle: str) -> None:
+    """
+    `registrarLog` del original. No puede tumbar la operación que audita.
+    """
+    try:
+        from backend.services import auditoria
+
+        auditoria.registrar(username or "ANONIMO", accion, detalle)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[proyectos] No se pudo auditar: {exc}")
+
+
+@app.get("/api/legacy/cascadeTree")
+def api_legacy_cascade_tree():
+    """apiFetchCascadeTree: árbol sitios -> subproyectos."""
+    from backend.repositories.proyectos import ErrorDeLectura
+
+    try:
+        return {"success": True, "data": _repo_proyectos().arbol()}
+    except ErrorDeLectura as exc:
+        # Error visible en vez de un árbol vacío: una vista vacía es
+        # indistinguible de "no hay proyectos" y esconde el fallo.
+        return {"success": False, "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"Error leyendo proyectos: {exc}"}
+
+
+@app.post("/api/legacy/saveSite")
+def api_legacy_save_site(req: SiteRequest):
+    """apiSaveSite."""
+    try:
+        res = _repo_proyectos().crear_sitio(req.name, req.client, req.type, req.createdBy)
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"No se pudo crear el sitio: {exc}"}
+    if res.get("success"):
+        _auditar_proyecto(req.createdBy, "NUEVO SITIO", f"Sitio: {req.name} ({res['id']})")
+    return res
+
+
+@app.post("/api/legacy/saveSubProject")
+def api_legacy_save_subproject(req: SubProjectRequest):
+    """apiSaveSubProject."""
+    try:
+        res = _repo_proyectos().crear_subproyecto(req.parentId, req.name, req.type, req.createdBy)
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "message": f"No se pudo crear el subproyecto: {exc}"}
+    if res.get("success"):
+        _auditar_proyecto(req.createdBy, "NUEVO SUBPROYECTO",
+                          f"Subproyecto: {req.name} ({res['id']})")
+    return res
+
+
+@app.get("/api/legacy/projectTasks")
+def api_legacy_project_tasks(projectName: str = Query(..., description="Nombre del proyecto")):
+    """apiFetchProjectTasks. Corrige el ReferenceError del original (ver el servicio)."""
+    return tracker_store.fetch_project_tasks(projectName)
+
+
+@app.post("/api/legacy/saveProjectTask")
+def api_legacy_save_project_task(req: ProjectTaskRequest):
+    """apiSaveProjectTask."""
+    res = tracker_store.save_project_task(req.task, req.projectName, req.username or "")
+    if res.get("success"):
+        folio = req.task.get("ID") or req.task.get("FOLIO") or ""
+        _auditar_proyecto(req.username, "ACTUALIZAR PROYECTO",
+                          f"Proyecto: {req.projectName}, ID: {folio}")
+    return res
+
+
+# ======================================================================
 # CAPA RELACIONAL (Fase 1) — /api/v2
 # ======================================================================
 # Convive con los endpoints de arriba en vez de sustituirlos: el sistema está
