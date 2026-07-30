@@ -1,0 +1,34 @@
+# Dependencias de la función serverless de Vercel (`api/main.py`).
+#
+# El `requirements.txt` de la raíz es el del entorno de desarrollo: incluye
+# Streamlit, ffmpeg-python y el motor de pruebas. Vercel lo tomaría tal cual y
+# el bundle se pasa del límite de 250 MB de una serverless function, así que
+# aquí queda sólo lo que la API necesita en producción. `@vercel/python` da
+# prioridad al requirements.txt que está junto al entrypoint.
+
+# --- Imprescindibles: sin estos, `api/main.py` no llega a importarse ---
+fastapi>=0.115
+pydantic>=2.9
+python-multipart>=0.0.9
+gspread>=6.1              # api/services/sheets.py
+google-auth>=2.35         # api/services/sheets.py
+supabase>=2.10            # api/services/supabase_manager.py
+mcp>=1.2,<2               # api/mcp_server.py (la v2 movió mcp.server.fastmcp)
+
+# --- Capa relacional /api/v2 (import protegido; sin esto la ruta no existe) ---
+sqlalchemy>=2.0
+psycopg[binary]>=3.1
+
+# --- Agentes de IA (imports protegidos; sin esto los endpoints devuelven error) ---
+groq
+langchain-groq
+langchain-core
+langchain-community
+langchain-google-genai
+langgraph
+tavily-python
+pypdf
+
+# Fuera a propósito: `streamlit` (app aparte, no la sirve la API),
+# `ffmpeg-python` (necesita el binario ffmpeg, que no existe en el runtime) y
+# `uvicorn` (Vercel invoca la app ASGI directamente, no levanta un servidor).
