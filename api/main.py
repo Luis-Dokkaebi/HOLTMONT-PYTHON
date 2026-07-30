@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException, Body, Query, Header
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
 import json
@@ -26,7 +25,15 @@ from api.services import organigrama
 from api.services.work_order import process_and_save_work_order, get_next_sequence
 
 # MCP Server
-from api.mcp_server import mcp
+#
+# Import protegido: `mcp.server.fastmcp` desapareció en la versión 2 del SDK, y
+# con el import al desnudo un cambio de versión del paquete tumbaba toda la API
+# en el arranque en vez de dejar sin montar sólo `/mcp`.
+try:
+    from api.mcp_server import mcp
+except Exception as exc:  # pragma: no cover - depende del entorno
+    mcp = None
+    print(f"Servidor MCP no disponible: {exc}")
 
 # Load environment variables from .env file manually
 def load_env_file(filepath=".env"):
@@ -65,10 +72,11 @@ app.add_middleware(
 )
 
 # Mount MCP Server SSE App
-try:
-    app.mount("/mcp", mcp.sse_app)
-except Exception as e:
-    print(f"Error mounting MCP server: {e}")
+if mcp is not None:
+    try:
+        app.mount("/mcp", mcp.sse_app)
+    except Exception as e:
+        print(f"Error mounting MCP server: {e}")
 
 # --- Endpoints ---
 
@@ -933,7 +941,31 @@ except Exception as exc:  # pragma: no cover - depende del entorno
     print(f"Capa relacional /api/v2 no disponible: {exc}")
 
 
-app.mount("/", StaticFiles(directory=".", html=True), name="root")
+# Estáticos del front.
+#
+# Antes esto era `StaticFiles(directory=".")`: montaba el directorio de trabajo
+# entero, así que dependía de desde dónde se arrancara el proceso (en Vercel el
+# cwd no es la raíz del repo) y, peor, publicaba todo el árbol —`api/main.py`
+# incluido— como archivo descargable. Ahora la raíz se resuelve desde
+# `__file__` y sólo se sirven los archivos que el front pide de verdad.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_PUBLIC_FILES = {
+    "index.html": "text/html; charset=utf-8",
+    "api_service.js": "application/javascript",
+    "workorder_form.html": "text/html; charset=utf-8",
+}
+
+
+@app.get("/{filename}")
+async def serve_public_file(filename: str):
+    media_type = _PUBLIC_FILES.get(filename)
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = os.path.join(_REPO_ROOT, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type=media_type)
+
 
 if __name__ == "__main__":
     import uvicorn

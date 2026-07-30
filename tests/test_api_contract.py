@@ -145,12 +145,51 @@ def test_endpoints_delegan_al_motor_de_reglas(rutas):
     assert not sin_delegar, f"Endpoints que no delegan a ninguna capa de negocio: {sin_delegar}"
 
 
-def test_endpoints_declarados_antes_del_static_mount():
-    """StaticFiles montado en '/' debe ir al final o capturaría las rutas de API."""
+def test_endpoints_declarados_antes_del_catch_all():
+    """El handler comodín de estáticos debe ir al final o capturaría rutas de API."""
     contenido = leer(MAIN_PY)
-    mount = contenido.index('app.mount("/", StaticFiles')
+    catch_all = contenido.index('@app.get("/{filename}")')
     ultimo_endpoint = contenido.rindex('@app.post("/api/legacy/')
-    assert ultimo_endpoint < mount, "Hay endpoints declarados después del mount de StaticFiles"
+    assert ultimo_endpoint < catch_all, "Hay endpoints declarados después del comodín de estáticos"
+
+
+def test_estaticos_no_publican_el_codigo_fuente():
+    """
+    Regresión real: `StaticFiles(directory=".")` publicaba el árbol completo,
+    así que `/api/main.py` devolvía el código fuente como texto plano. El
+    comodín sirve sólo la lista blanca del front.
+    """
+    arbol = ast.parse(leer(MAIN_PY))
+
+    # Sobre el AST y no sobre el texto: así los comentarios que documentan la
+    # regresión no cuentan como reincidencia.
+    llamadas = [
+        n.func.id
+        for n in ast.walk(arbol)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    ]
+    assert "StaticFiles" not in llamadas, (
+        "Volvió el montaje de StaticFiles: revisa que no exponga el repositorio"
+    )
+
+    lista_blanca = next(
+        (
+            nodo.value
+            for nodo in arbol.body
+            if isinstance(nodo, ast.Assign)
+            and any(
+                isinstance(t, ast.Name) and t.id == "_PUBLIC_FILES" for t in nodo.targets
+            )
+        ),
+        None,
+    )
+    assert lista_blanca is not None, "Falta la lista blanca _PUBLIC_FILES"
+    servidos = [k.value for k in lista_blanca.keys]
+    for archivo in ("index.html", "api_service.js", "workorder_form.html"):
+        assert archivo in servidos, f"{archivo} dejó de servirse"
+    assert not [f for f in servidos if f.endswith(".py")], (
+        f"La lista blanca de estáticos incluye código Python: {servidos}"
+    )
 
 
 def metodos_del_adaptador():

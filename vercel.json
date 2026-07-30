@@ -1,8 +1,28 @@
 {
-  "rewrites": [
+  "version": 2,
+  "builds": [
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "api_service.js", "use": "@vercel/static" },
+    { "src": "workorder_form.html", "use": "@vercel/static" },
     {
-      "source": "/(.*)",
-      "destination": "api/main.py"
+      "src": "api/main.py",
+      "use": "@vercel/python",
+      "config": {
+        "includeFiles": [
+          "api/**",
+          "backend/**",
+          "index.html",
+          "api_service.js",
+          "workorder_form.html"
+        ]
+      }
     }
+  ],
+  "routes": [
+    { "src": "/", "dest": "/index.html" },
+    { "src": "/index.html", "dest": "/index.html" },
+    { "src": "/api_service.js", "dest": "/api_service.js" },
+    { "src": "/workorder_form.html", "dest": "/workorder_form.html" },
+    { "src": "/(.*)", "dest": "api/main.py" }
   ]
 }
