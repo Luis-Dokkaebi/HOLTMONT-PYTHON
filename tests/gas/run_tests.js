@@ -563,10 +563,36 @@ section('7. Contrato index.html ↔ CODIGO.js');
 
 run('7.1', 'Todas las funciones invocadas por el frontend existen en el backend', () => {
   const definidas = new Set([...CODIGO_SRC.matchAll(/^function\s+([A-Za-z0-9_]+)\s*\(/gm)].map(m => m[1]));
-  const llamadas = new Set([...INDEX_HTML.matchAll(/\.\s*((?:api|run)[A-Za-z0-9_]*)\s*\(/g)].map(m => m[1]));
+  // `internal` y `upload` van en la lista a propósito: el frontend NO se limita
+  // a llamar `api*`. `saveRow()` invoca `internalUpdateTask` y los selectores de
+  // archivo invocan `uploadFileToDrive`. Mientras el patrón fue solo /api|run/,
+  // esas dos familias quedaron fuera de toda verificación de contrato.
+  const llamadas = new Set([...INDEX_HTML.matchAll(/\.\s*((?:api|run|internal|upload)[A-Za-z0-9_]*)\s*\(/g)].map(m => m[1]));
   const faltantes = [...llamadas].filter(c => !definidas.has(c)).sort();
   check('7.1', 'Funciones google.script.run sin implementación en CODIGO.js', '0 faltantes',
     faltantes.length ? `${faltantes.length}: ${faltantes.join(', ')}` : '0 faltantes', faltantes.length === 0);
+});
+
+run('7.1c', 'El adaptador implementa TODO lo que el frontend invoca (no solo lo api*)', () => {
+  const adapter = fs.readFileSync(path.resolve(__dirname, '..', '..', 'api_service.js'), 'utf8');
+
+  // La superficie RPC real se deduce cruzando dos fuentes en vez de adivinarla
+  // con un prefijo: un nombre cuenta si `index.html` lo invoca como método Y
+  // `CODIGO.js` lo define como función. Así entran `internalUpdateTask` y
+  // `uploadFileToDrive`, y quedan fuera los métodos del DOM (`getElementById`)
+  // que ningún prefijo sabría distinguir.
+  const definidas = new Set([...CODIGO_SRC.matchAll(/^function\s+([A-Za-z0-9_]+)\s*\(/gm)].map(m => m[1]));
+  const invocadas = [...new Set([...INDEX_HTML.matchAll(/\.\s*([A-Za-z0-9_]+)\s*\(/g)].map(m => m[1]))]
+    .filter(n => definidas.has(n));
+
+  const enAdaptador = new Set([...adapter.matchAll(/^\s{4}([A-Za-z0-9_]+)\s*\(/gm)].map(m => m[1]));
+  const ausentes = invocadas.filter(n => !enAdaptador.has(n)).sort();
+
+  check('7.1c', 'Métodos que el frontend llama y el adaptador no define', '0 ausentes',
+    ausentes.length ? `${ausentes.length}: ${ausentes.join(', ')}` : `0 ausentes (${invocadas.length} verificados)`,
+    ausentes.length === 0,
+    'Un método ausente lanza TypeError SINCRONICO: withFailureHandler no lo captura, ' +
+    'los flags _isSaving/isSubmitting quedan en true y se bloquea todo guardado posterior');
 });
 
 run('7.1b', 'Adaptador de migración (api_service.js): métodos críticos implementados', () => {

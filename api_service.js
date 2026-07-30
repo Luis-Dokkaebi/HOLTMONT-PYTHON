@@ -150,8 +150,75 @@ class GoogleScriptRunAdapter {
         this._lecturaVacia('apiFetchPPCData');
     }
 
+    /**
+     * Transcripción de audio. Conserva el nombre de la función de Apps Script
+     * porque es el que invoca `index.html` en sus dos rutas de voz (el selector
+     * de archivo de audio y la grabadora de micrófono), pero por debajo usa el
+     * endpoint propio de Python: Groq-Whisper, no Gemini.
+     *
+     * Dos diferencias de contrato que hay que salvar aquí y no en el frontend:
+     *
+     *  - GAS recibía `(base64, mimeType)` como argumentos posicionales; el
+     *    endpoint espera `multipart/form-data` con un archivo. Se reconstruye
+     *    el binario desde el base64.
+     *  - GAS devolvía **el texto pelado**, y el handler del frontend lo
+     *    concatena directo en el textarea (`textoActual + textoTranscrito`).
+     *    El endpoint responde `{success, transcription, data}`, así que se
+     *    entrega solo `transcription`. Devolver el objeto escribiría
+     *    "[object Object]" en el campo CONCEPTO.
+     */
+    transcribirConGemini(base64Data, mimeType) {
+        try {
+            const binario = atob(base64Data);
+            const bytes = new Uint8Array(binario.length);
+            for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+
+            const tipo = mimeType || 'audio/webm';
+            // Solo es el respaldo: si el servidor tiene ffmpeg, normaliza el
+            // audio y renombra el archivo. Cuando no lo tiene, Whisper decide
+            // por la extensión, así que conviene que sea coherente.
+            const extension = (tipo.split('/')[1] || 'webm').split(';')[0];
+            const cuerpo = new FormData();
+            cuerpo.append('file', new Blob([bytes], { type: tipo }), `audio.${extension}`);
+
+            fetch(`${API_BASE_URL}/api/transcribe_and_analyze`, { method: 'POST', body: cuerpo })
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.success) {
+                        this._successHandler(data.transcription || '');
+                    } else {
+                        this._failureHandler(new Error((data && (data.message || data.detail)) || 'No se pudo transcribir el audio.'));
+                    }
+                })
+                .catch(err => this._failureHandler(err));
+        } catch (err) {
+            this._failureHandler(err);
+        }
+    }
+
     apiUpdateTask(sheet, data, user) {
         this._post('/api/legacy/updateTask', { sheetName: sheet, task: data, username: user });
+    }
+
+    /**
+     * Mismo endpoint que `apiUpdateTask`, con el nombre que usa `saveRow()`.
+     *
+     * `saveRow` (index.html) es el botón de guardar de cada fila del tracker y
+     * llama a `internalUpdateTask`, no a `apiUpdateTask`. En Apps Script eso
+     * funciona porque todas las funciones de `CODIGO.js` viven en el scope
+     * global; aquí el adaptador es una clase, y un método que no existe no es
+     * `undefined`: la llamada lanza `TypeError` de forma **sincrónica**, así que
+     * `withFailureHandler` no lo captura.
+     *
+     * El daño no era solo que no guardaba: `saveRow` pone `row._isSaving` e
+     * `isSubmitting` en `true` antes de llamar, y solo los repone dentro de los
+     * handlers. Al reventar antes, ambos quedaban en `true` para siempre — el
+     * spinner no cerraba y su propia guarda de entrada
+     * (`if (row._isSaving || isSubmitting.value) return`) bloqueaba **todo**
+     * guardado posterior de la aplicación hasta recargar la página.
+     */
+    internalUpdateTask(sheet, data, user) {
+        this.apiUpdateTask(sheet, data, user);
     }
 
     apiSavePPCData(payload, activeUser) {
