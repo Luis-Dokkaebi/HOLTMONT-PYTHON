@@ -21,6 +21,7 @@ la lee y solo cae a `INITIAL_DIRECTORY` si la base no responde.
 
 from __future__ import annotations
 
+import secrets
 from typing import Any, Dict, List, Optional
 
 # --- Departamentos del organigrama (19) -------------------------------
@@ -241,3 +242,70 @@ def vendedores() -> List[str]:
     (anti-patrón §23.2): quien necesite saber quién vende pregunta aquí.
     """
     return sorted(u for u, p in PERFILES.items() if p.get("seller"))
+
+
+# --- Credenciales -------------------------------------------------------
+# `profiles` es la tabla de cuentas. Guarda la contraseña en texto plano por
+# decisión explícita del dueño (2026-07): se migran a hash cuando se haga la
+# migración completa. Hasta entonces, dos reglas que sí se respetan aquí:
+#
+#   1. La contraseña **nunca** sale de este módulo. `perfil()` no la incluye en
+#      el diccionario que devuelve, así que no puede filtrarse por /api/config.
+#   2. La comparación usa `compare_digest`, que no filtra la longitud ni el
+#      prefijo correcto por tiempo de respuesta.
+
+# Nombres posibles de la columna de contraseña. Como el resto del esquema, no se
+# puede introspeccionar desde el entorno de desarrollo.
+_COLUMNAS_CLAVE = ("password", "pass", "contrasena", "contraseña", "clave")
+
+
+def columnas_de_credencial() -> tuple:
+    """Los nombres que este módulo considera contraseña. Los usa el filtro de /api/data."""
+    return _COLUMNAS_CLAVE
+
+
+def validar_credenciales(username: Any, password: Any) -> Optional[Dict[str, Any]]:
+    """
+    Comprueba usuario y contraseña contra `profiles`. Devuelve el perfil o None.
+
+    **Lee sin caché, a propósito.** `_filas_profiles()` guarda las filas por
+    proceso para que `/api/config` no consulte una vez por perfil; usar esa caché
+    aquí haría que un cambio de contraseña no tuviera efecto hasta reiniciar.
+    """
+    clave = clave_usuario(username)
+    if not clave or password is None:
+        return None
+
+    try:
+        from api.services.supabase_manager import sb_manager
+
+        filas = sb_manager.select("profiles") or []
+    except Exception as exc:  # noqa: BLE001
+        print(f"[organigrama] No se pudo leer `profiles` para autenticar: {exc}")
+        return None
+
+    for fila in filas:
+        if clave_usuario(fila.get("username")) != clave:
+            continue
+
+        guardada = next((str(fila[c]) for c in _COLUMNAS_CLAVE
+                         if c in fila and fila[c] is not None), None)
+        if guardada is None:
+            # La cuenta existe pero no tiene contraseña guardada. No se deja
+            # entrar con cualquier cosa: se rechaza y queda constancia.
+            print(f"[organigrama] `profiles` no tiene columna de contraseña para {clave}.")
+            return None
+
+        if not secrets.compare_digest(guardada, str(password)):
+            return None
+
+        semilla = PERFILES.get(clave, {})
+        return {
+            "role": fila.get("role") or semilla.get("role", "STAFF_USER"),
+            "label": fila.get("label") or semilla.get("label", clave),
+            "email": fila.get("email") or semilla.get("email", ""),
+            "staff_name": fila.get("staff_name") or semilla.get("staff_name", ""),
+            "dept": fila.get("dept") or semilla.get("dept", ""),
+            "seller": bool(fila.get("seller", semilla.get("seller", False))),
+        }
+    return None

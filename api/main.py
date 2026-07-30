@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import json
+import re
 import secrets
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -367,9 +368,23 @@ def api_save_ppc_data(req: SavePPCRequest):
 @app.post("/api/login")
 def api_login(creds: LoginRequest):
     username_key = creds.username.strip().upper()
-    values = gs_manager.get_sheet_values("USERS")
     user_found = None
 
+    # 1) `profiles` es la tabla de cuentas del esquema relacional. Va primero
+    #    porque es la única fuente que existe: la hoja `USERS` nunca se migró
+    #    (`sheets.py` lo dice explícito) y por eso, hasta ahora, nadie podía
+    #    entrar salvo con DEV_LOGIN_USERS.
+    perfil_valido = organigrama.validar_credenciales(username_key, creds.password)
+    if perfil_valido:
+        user_found = {
+            "success": True,
+            "role": perfil_valido["role"],
+            "name": perfil_valido["label"],
+            "username": username_key,
+        }
+
+    # 2) Hoja/tabla `USERS`: se conserva por si alguna instalación la tiene.
+    values = None if user_found else gs_manager.get_sheet_values("USERS")
     if values and len(values) > 1:
         headers = [h.upper().strip() for h in values[0]]
         try:
@@ -391,10 +406,17 @@ def api_login(creds: LoginRequest):
         except ValueError:
             pass
 
+    # 3) Login de desarrollo por entorno.
+    #
     # NOTA: aquí vivía un diccionario de usuarios con contraseñas reales y
     # funcionales escritas en el fuente. Se eliminó: unas credenciales
-    # versionadas en el repo son un riesgo, no un modo de prueba. Para
-    # desarrollo sin base, define DEV_LOGIN_USERS en el entorno.
+    # versionadas en el repo son un riesgo, no un modo de prueba.
+    #
+    # La condición incluye `is_mock`, que es True cuando no existe
+    # `credentials.json` —el archivo de servicio de *Google Sheets*—. Es una
+    # dependencia desafortunada: si alguien coloca ese archivo para exportar a
+    # Sheets, este respaldo se apaga. Ya no es crítico porque `profiles` cubre el
+    # caso real, pero conviene saberlo mientras siga aquí.
     if not user_found and gs_manager.is_mock:
         user_found = _login_desde_entorno(username_key, creds.password)
 
@@ -445,9 +467,58 @@ def _login_desde_entorno(username_key: str, password: str) -> Optional[Dict[str,
             return {"success": True, "role": rol, "name": etiqueta, "username": username_key}
     return None
 
+# --- Protección de /api/data -------------------------------------------
+# Nombres cuyo contenido no sale por el endpoint genérico de lectura. La
+# comparación normaliza mayúsculas, espacios y guiones para que `Profiles`,
+# `PROFILES` y `pro files` caigan igual.
+_TABLAS_SENSIBLES = {"PROFILES", "USERS", "USUARIOS", "AUTH", "CREDENCIALES", "CREDENTIALS"}
+
+
+def _clave_tabla(nombre: Any) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(nombre or "").upper())
+
+
+def _es_tabla_sensible(nombre: Any) -> bool:
+    clave = _clave_tabla(nombre)
+    return any(clave == _clave_tabla(t) for t in _TABLAS_SENSIBLES)
+
+
+def _sin_columnas_de_credencial(values):
+    """
+    Quita las columnas que parecen contraseña de una matriz de hoja.
+
+    Es la segunda barrera: aunque una tabla no esté en la lista de nombres, si
+    trae una columna de credenciales no se publica. Vale también para el caso en
+    que alguien añada mañana una columna `password` a una tabla existente.
+    """
+    if not values or not values[0]:
+        return values
+
+    prohibidas = {c.upper() for c in organigrama.columnas_de_credencial()}
+    indices = [i for i, h in enumerate(values[0])
+               if str(h or "").strip().upper() in prohibidas]
+    if not indices:
+        return values
+
+    descartar = set(indices)
+    return [[c for i, c in enumerate(fila) if i not in descartar] for fila in values]
+
+
 @app.get("/api/data")
 def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):
+    # Este endpoint acepta cualquier nombre de tabla y no exige sesión, así que
+    # era una lectura universal de la base: `?sheet=USERS` devolvía la tabla de
+    # usuarios completa. Al poblar `profiles` con las 41 cuentas, eso pasaría a
+    # entregar las contraseñas a cualquiera que supiera la URL.
+    #
+    # Se cierra por dos vías, porque la lista de nombres sola es burlable —la
+    # misma tabla puede alcanzarse por un alias o por otra capitalización— y el
+    # filtro de columnas sola dejaría pasar tablas sensibles por otros motivos:
+    if _es_tabla_sensible(sheet):
+        raise HTTPException(status_code=403, detail="Esa tabla no se expone por este endpoint.")
+
     values = gs_manager.get_sheet_values(sheet)
+    values = _sin_columnas_de_credencial(values)
 
     if not values:
         return {"success": True, "data": [], "history": [], "headers": [], "message": f"Falta hoja: {sheet}"}
