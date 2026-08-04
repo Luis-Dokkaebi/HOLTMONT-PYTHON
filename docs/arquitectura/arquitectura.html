@@ -1,0 +1,921 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa de arquitectura · Holtmont</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --canvas:#fbfcfd;
+  --ink:#16191d; --ink-2:#5a6472; --ink-3:#8b95a3;
+  --line:#dfe3e9; --line-2:#eceff3; --edge:#c2cad6;
+  --accent:#2f6df6; --accent-soft:#e8f0ff;
+  --hi:#c8412f; --hi-soft:#fdeeeb;
+  --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.06);
+  --t-ui:#3b82f6; --t-api:#0ea5a4; --t-agent:#8b5cf6; --t-rules:#e0761b;
+  --t-service:#2563eb; --t-repo:#0891b2; --t-engine:#64748b; --t-data:#16a34a;
+  --t-external:#94a3b8; --t-security:#dc2626; --t-build:#a16207; --t-test:#7c3aed;
+  --t-legacy:#a8a29e;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0d1117; --panel:#151b23; --canvas:#0f151c;
+    --ink:#e6edf3; --ink-2:#9aa7b6; --ink-3:#6e7c8c;
+    --line:#262e38; --line-2:#1d242d; --edge:#3b4653;
+    --accent:#6ea0ff; --accent-soft:#16233c;
+    --hi:#ff7b61; --hi-soft:#33201c;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+    --t-external:#64748b; --t-legacy:#78716c;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:var(--sans);font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+}
+button{font:inherit;color:inherit;cursor:pointer}
+
+/* ---------- estructura ---------- */
+.app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+header{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line);
+  z-index:5;
+}
+.brand{display:flex;flex-direction:column;min-width:0}
+.brand h1{margin:0;font-size:15px;font-weight:650;letter-spacing:-.01em;white-space:nowrap}
+.brand p{margin:0;font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spacer{flex:1}
+.tabs{display:flex;gap:2px;background:var(--line-2);padding:3px;border-radius:9px}
+.tabs button{
+  border:0;background:transparent;padding:5px 12px;border-radius:7px;
+  font-size:12.5px;font-weight:550;color:var(--ink-2);white-space:nowrap;
+}
+.tabs button[aria-pressed="true"]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
+.search{position:relative}
+.search input{
+  font:inherit;font-size:12.5px;padding:6px 10px 6px 28px;width:210px;
+  border:1px solid var(--line);border-radius:8px;background:var(--canvas);color:var(--ink);
+}
+.search input:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+.search svg{position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--ink-3)}
+.ghost{
+  border:1px solid var(--line);background:var(--panel);border-radius:8px;
+  padding:6px 11px;font-size:12.5px;font-weight:500;color:var(--ink-2);
+}
+.ghost:hover{border-color:var(--accent);color:var(--accent)}
+
+.main{flex:1;display:flex;min-height:0}
+.stage{flex:1;position:relative;min-width:0;background:var(--canvas)}
+svg#graph{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+svg#graph.dragging{cursor:grabbing}
+
+/* ---------- nodos ---------- */
+.node{cursor:pointer}
+.node rect.box{
+  fill:var(--panel);stroke:var(--line);stroke-width:1.25;rx:9;
+  transition:stroke .15s,opacity .15s;
+}
+.node .accent{rx:2}
+.node text{pointer-events:none;font-family:var(--sans)}
+.node .name{font-size:13px;font-weight:600;fill:var(--ink)}
+.node .kind{font-size:10px;font-weight:550;fill:var(--ink-3);letter-spacing:.04em;text-transform:uppercase}
+.node:hover rect.box{stroke:var(--accent)}
+.node.dim{opacity:.16}
+.node.active rect.box{stroke:var(--hi);stroke-width:2.25}
+.node.active .name{fill:var(--hi)}
+.node.match rect.box{stroke:var(--accent);stroke-width:2}
+.node .badge{font-size:9.5px;font-weight:700;fill:#fff}
+.edge{fill:none;stroke:var(--edge);stroke-width:1.4;transition:opacity .15s,stroke .15s}
+.edge.dim{opacity:.08}
+.edge.active{stroke:var(--hi);stroke-width:2.4}
+.edge.related{stroke:var(--accent);stroke-width:1.9}
+.edge.derived{stroke:var(--hi);stroke-width:1.8;stroke-dasharray:5 5;opacity:.75}
+.edgelabel{font-size:10px;fill:var(--ink-3);pointer-events:none;opacity:0}
+.edgelabel.show{opacity:1}
+.laneTitle{font-size:10.5px;font-weight:650;fill:var(--ink-3);letter-spacing:.08em;text-transform:uppercase}
+.laneLine{stroke:var(--line-2);stroke-width:1;stroke-dasharray:3 5}
+.bandTitle{font-size:13px;font-weight:700;fill:var(--ink-2)}
+.bandSub{font-size:11px;fill:var(--ink-3)}
+.stepnum{font-size:10px;font-weight:700;fill:#fff}
+
+/* ---------- controles flotantes ---------- */
+.controls{position:absolute;left:14px;bottom:14px;display:flex;gap:6px}
+.controls button{
+  width:30px;height:30px;border:1px solid var(--line);background:var(--panel);
+  border-radius:8px;font-size:15px;line-height:1;color:var(--ink-2);box-shadow:var(--shadow);
+  display:flex;align-items:center;justify-content:center;
+}
+.controls button:hover{color:var(--accent);border-color:var(--accent)}
+.legend{
+  position:absolute;right:14px;bottom:14px;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:9px 11px;box-shadow:var(--shadow);
+  max-width:min(520px,60%);
+}
+.legend > button{
+  border:0;background:transparent;padding:0;font-size:10px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:650;display:flex;align-items:center;gap:6px;
+}
+.legend > button:after{content:"▾";font-size:9px}
+.legend.closed > button:after{content:"▸"}
+.legend .items{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:7px}
+.legend.closed .items{display:none}
+.legend span{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-2)}
+.legend i{width:9px;height:9px;border-radius:3px;display:block}
+.hint{position:absolute;left:14px;top:12px;font-size:11.5px;color:var(--ink-3);pointer-events:none}
+
+/* ---------- tooltip ---------- */
+#tip{
+  position:fixed;z-index:50;max-width:340px;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);
+  padding:11px 13px;pointer-events:none;opacity:0;transition:opacity .12s;
+}
+#tip.on{opacity:1}
+#tip h4{margin:0 0 2px;font-size:13px;font-weight:650}
+#tip .meta{font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+#tip p{margin:0;font-size:12px;color:var(--ink-2);line-height:1.45}
+#tip .tech{margin-top:7px;font-size:11px;color:var(--ink-2);font-family:var(--mono)}
+#tip .files{margin-top:6px;font-size:10.5px;color:var(--ink-3);font-family:var(--mono);word-break:break-all}
+
+/* ---------- panel derecho ---------- */
+aside{
+  width:390px;flex:0 0 390px;background:var(--panel);border-left:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;
+}
+.ptabs{display:flex;border-bottom:1px solid var(--line);padding:0 8px;gap:2px}
+.ptabs button{
+  border:0;background:transparent;padding:11px 12px;font-size:12.5px;font-weight:550;
+  color:var(--ink-3);border-bottom:2px solid transparent;margin-bottom:-1px;
+}
+.ptabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.pbody{flex:1;overflow-y:auto;overscroll-behavior:contain}
+.pbody::-webkit-scrollbar{width:9px}
+.pbody::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px;border:3px solid var(--panel)}
+
+.group{padding:10px 16px 2px}
+.group h3{
+  margin:0;font-size:10.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
+}
+.flow{
+  display:block;width:calc(100% - 20px);margin:6px 10px;text-align:left;
+  border:1px solid var(--line);background:transparent;border-radius:10px;padding:9px 11px;
+  transition:border-color .12s,background .12s;
+}
+.flow:hover{border-color:var(--accent);background:var(--accent-soft)}
+.flow[aria-current="true"]{border-color:var(--hi);background:var(--hi-soft)}
+.flow .ft{display:flex;align-items:center;gap:7px}
+.flow .fname{font-size:13px;font-weight:600;flex:1}
+.flow .fsteps{font-size:10.5px;color:var(--ink-3);font-family:var(--mono);white-space:nowrap}
+.flow .fdesc{margin:4px 0 0;font-size:11.5px;color:var(--ink-2);line-height:1.45}
+.sysdot{width:7px;height:7px;border-radius:50%;flex:none}
+
+.detail{padding:14px 16px 26px}
+.detail h2{margin:0 0 3px;font-size:15px;font-weight:650;letter-spacing:-.01em}
+.detail .sub{font-size:11.5px;color:var(--ink-3);margin-bottom:10px}
+.detail .lead{font-size:12.5px;color:var(--ink-2);line-height:1.55;margin:0 0 14px}
+.steps{list-style:none;margin:0;padding:0}
+.steps li{position:relative;padding:0 0 14px 30px}
+.steps li:before{
+  content:attr(data-n);position:absolute;left:0;top:1px;width:19px;height:19px;border-radius:50%;
+  background:var(--hi);color:#fff;font-size:10.5px;font-weight:700;display:flex;
+  align-items:center;justify-content:center;
+}
+.steps li:after{
+  content:"";position:absolute;left:9px;top:22px;bottom:2px;width:1.5px;background:var(--line);
+}
+.steps li:last-child:after{display:none}
+.steps .sn{font-size:12.5px;font-weight:600;cursor:pointer;display:inline-block}
+.steps .sn:hover{color:var(--accent)}
+.steps .sa{font-size:12px;color:var(--ink-2);line-height:1.45;margin-top:1px}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 12px}
+.chip{
+  font-size:10.5px;font-family:var(--mono);border:1px solid var(--line);border-radius:99px;
+  padding:2px 8px;color:var(--ink-2);
+}
+.kv{font-size:12px;color:var(--ink-2);margin:0 0 8px}
+.kv b{color:var(--ink);font-weight:600}
+.filelist{margin:0;padding:0;list-style:none}
+.filelist li{font-family:var(--mono);font-size:11px;color:var(--ink-2);padding:2px 0;word-break:break-all}
+.rel{display:flex;flex-direction:column;gap:3px;margin-top:4px}
+.rel button{
+  border:0;background:transparent;text-align:left;padding:3px 0;font-size:12px;color:var(--ink-2);
+}
+.rel button:hover{color:var(--accent)}
+.rel .arrow{font-family:var(--mono);color:var(--ink-3);font-size:11px}
+.sect{margin:16px 0 6px;font-size:10.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.empty{padding:30px 20px;text-align:center;color:var(--ink-3);font-size:12.5px}
+.nodelist{padding:6px 10px 20px}
+.nrow{
+  display:flex;align-items:center;gap:9px;width:100%;border:0;background:transparent;
+  padding:7px 8px;border-radius:8px;text-align:left;
+}
+.nrow:hover{background:var(--accent-soft)}
+.nrow i{width:8px;height:8px;border-radius:2px;flex:none}
+.nrow .nl{font-size:12.5px;font-weight:550;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nrow .nk{font-size:10px;color:var(--ink-3);font-family:var(--mono)}
+
+@media (max-width: 1000px){
+  body{overflow:auto}
+  .app{height:auto;min-height:100vh}
+  .main{flex-direction:column}
+  .stage{height:62vh;min-height:420px}
+  aside{width:auto;flex:1 1 auto;border-left:0;border-top:1px solid var(--line)}
+  .legend{display:none}
+  header{gap:10px;padding:10px 12px}
+  .search input{width:150px}
+  .brand p{display:none}
+}
+@media (max-width: 620px){
+  .tabs button{padding:5px 8px;font-size:12px}
+  .search{order:9;width:100%}
+  .search input{width:100%}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <h1>Mapa de arquitectura · Holtmont</h1>
+      <p id="brandsub">Dos sistemas independientes · nodos, aristas y flujos extraídos del código</p>
+    </div>
+    <div class="spacer"></div>
+    <div class="tabs" id="systabs" role="group" aria-label="Sistema"></div>
+    <div class="search">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="q" type="search" placeholder="Buscar componente…" autocomplete="off">
+    </div>
+    <button class="ghost" id="reset">Restablecer</button>
+  </header>
+
+  <div class="main">
+    <div class="stage">
+      <svg id="graph" role="img" aria-label="Diagrama de arquitectura"></svg>
+      <div class="hint" id="hint">Rueda para acercar · arrastra para mover · pasa el cursor sobre un nodo</div>
+      <div class="controls">
+        <button id="zin" title="Acercar">+</button>
+        <button id="zout" title="Alejar">−</button>
+        <button id="zfit" title="Ajustar">⤢</button>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <aside>
+      <div class="ptabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="flows">Flujos</button>
+        <button role="tab" aria-selected="false" data-tab="detail">Detalle</button>
+        <button role="tab" aria-selected="false" data-tab="nodes">Componentes</button>
+      </div>
+      <div class="pbody" id="pflows"></div>
+      <div class="pbody" id="pdetail" hidden></div>
+      <div class="pbody" id="pnodes" hidden></div>
+    </aside>
+  </div>
+</div>
+
+<div id="tip" role="tooltip"></div>
+
+<script>
+const DATA = {"meta":{"titulo":"Mapa de arquitectura — repositorios Holtmont","generado":"2026-08-04","descripcion":"Modelo de arquitectura extraído por lectura directa del código de dos sistemas independientes: Holtmont Workspace (ERP web) y Oficina Eficiencia (visión por computadora on-premise). Pensado para consumo por agentes de IA: cada nodo apunta a archivos reales y cada flujo es una ruta conectada del grafo.","systems":[{"id":"holtmont","name":"Holtmont Workspace","repo":"HOLTMONT-PYTHON","tagline":"ERP operativo: tracker de tareas, cotizaciones, PPC y agentes de IA","stack":"Vue 3 (CDN) + FastAPI + Supabase/PostgREST + LangGraph, desplegado en Vercel","layers":["Clientes","Borde / Routing","API (FastAPI)","Agentes de IA","Dominio y reglas","Persistencia","Motores de datos","Servicios externos","Verificación"]},{"id":"mlclaude","name":"Oficina Eficiencia","repo":"MLCLAUDE","tagline":"Visión por computadora on-premise: asistencia, zonas y eficiencia","stack":"YOLOv8 + supervision/ByteTrack + face_recognition + SQLite cifrado, empaquetado con PyArmor/PyInstaller","layers":["UI de escritorio","Captura de video","Percepción (IA)","Dominio","Persistencia","Análisis y reportes","Seguridad y plataforma","Sistema y externos","Verificación"]}],"tipos_de_nodo":{"ui":"Interfaz de usuario","api":"Endpoint o aplicación HTTP","agent":"Agente de IA o modelo de inferencia","rules":"Motor de reglas / lógica de dominio","service":"Servicio de aplicación","repo":"Repositorio de datos","engine":"Motor o configuración de acceso a datos","data":"Almacén de datos","external":"Servicio externo","security":"Seguridad, licencia o aislamiento","build":"Empaquetado y distribución","test":"Verificación y especificación","legacy":"Código heredado / referencia"},"tipos_de_arista":{"http":"Llamada HTTP","call":"Invocación en proceso","data":"Lectura o escritura de datos","llm":"Inferencia de modelo","event":"Efecto secundario / evento","verify":"Verificación o especificación","build":"Paso de construcción","opcional":"Ruta heredada u opcional"},"nota_flujos":"Cada flujo trae `steps` (nodo + acción) y `transitions` (paso a paso ya resuelto contra el grafo). Una transición con `edge` apunta a una arista real del grafo; una con `tipo: derivada` es un salto del relato — un retorno de respuesta o un intermediario que el flujo no menciona — y no debe leerse como dependencia.","conteos":{"nodes":82,"edges":124,"flows":24}},"nodes":[{"id":"h_index","label":"index.html · Vue 3","type":"ui","system":"holtmont","layer":0,"desc":"Monolito de interfaz (~690 KB). Vue 3 cargado por CDN, sin build step: todo el CSS y el JS van en línea. Contiene 24 vistas (DASHBOARD, STAFF_TRACKER, PPC_FORM, PPC_DINAMICO, WEEKLY_PLAN, KPI_DASHBOARD, QUOTE_METRICS, PROJECTS, INFO_BANK, PERSONAL_AGENDA, DIRECTORY_VIEW, ECG_VIEW, WORKORDER_FORM…). Genera `_tempId` por fila nueva y bloquea envíos duplicados con la bandera reactiva `isSubmitting`.","tech":"Vue 3 (CDN), HTML/CSS/JS en línea","files":["index.html"],"tags":["monolito","sin-build"]},{"id":"h_workorder_html","label":"workorder_form.html","type":"ui","system":"holtmont","layer":0,"desc":"Formulario de Pre Work Order: materiales, herramienta, equipo, mano de obra, viáticos, transporte e ingeniería. Se sirve como estático y envía el lote completo al backend.","tech":"HTML + JS","files":["workorder_form.html"],"tags":[]},{"id":"h_streamlit","label":"streamlit_cotizador","type":"ui","system":"holtmont","layer":0,"desc":"Aplicación Streamlit paralela para cotizar por voz: graba audio, lo transcribe, permite editar los conceptos extraídos y exporta la cotización a PDF a partir de una plantilla.","tech":"Streamlit","files":["streamlit_app.py","streamlit_cotizador/app.py","streamlit_cotizador/work_order_view.py"],"tags":[]},{"id":"h_codigo","label":"CODIGO.js · Apps Script","type":"legacy","system":"holtmont","layer":0,"desc":"Backend original en Google Apps Script (210 KB, 37 funciones `apiX`). Ya no es la ruta de ejecución, pero sigue siendo la especificación viva: `tracker_rules.py` es su gemelo en Python y `tests/test_paridad_appscript.py` verifica la paridad regla por regla.","tech":"Google Apps Script","files":["CODIGO.js","appsscript.json"],"tags":["referencia","paridad"]},{"id":"h_apiservice","label":"api_service.js","type":"ui","system":"holtmont","layer":1,"desc":"Capa de compatibilidad del monolito: reemplaza las llamadas `google.script.run` del original por `fetch` contra FastAPI, conservando la forma de respuesta `{success, data, history, headers}` para no tocar index.html.","tech":"JavaScript (fetch)","files":["api_service.js"],"tags":["contrato"]},{"id":"h_vercel","label":"vercel.json","type":"external","system":"holtmont","layer":1,"desc":"Enrutamiento de Vercel: `index.html`, `api_service.js` y `workorder_form.html` se sirven como estáticos con @vercel/static; todo lo demás cae en `api/main.py` con @vercel/python. Corrige el fallo en que Vercel servía el código fuente de la API en vez de ejecutarla.","tech":"Vercel (builds + routes)","files":["vercel.json"],"tags":["despliegue"]},{"id":"h_fastapi","label":"api/main.py · FastAPI","type":"api","system":"holtmont","layer":2,"desc":"Punto de entrada único (1.044 líneas): carga el `.env`, configura CORS, sirve los estáticos y expone ~70 endpoints. Monta además el router relacional v2 cuando la configuración lo permite.","tech":"FastAPI + Pydantic","files":["api/main.py"],"tags":[]},{"id":"h_ep_auth","label":"/api/login · logout","type":"api","system":"holtmont","layer":2,"desc":"Autenticación en tres saltos: (1) tabla `profiles` de Supabase — la única fuente real; (2) hoja/tabla `USERS` heredada; (3) login de desarrollo por variables de entorno, sólo si gspread está en modo mock. Cada intento, exitoso o no, se audita.","tech":"FastAPI","files":["api/main.py:368","api/services/organigrama.py:267"],"tags":["seguridad"]},{"id":"h_ep_data","label":"/api/data · /api/config","type":"api","system":"holtmont","layer":2,"desc":"Lectura genérica de una hoja como matriz de valores y configuración del sistema (directorio, departamentos, permisos). `/api/data` bloquea las tablas sensibles y elimina las columnas de credencial antes de responder.","tech":"FastAPI","files":["api/main.py:507","api/main.py:121"],"tags":["seguridad"]},{"id":"h_ep_legacy","label":"/api/legacy/* (≈35)","type":"api","system":"holtmont","layer":2,"desc":"Puerto uno a uno de las funciones `apiX` de Apps Script: saveTrackerBatch, updateTask, updatePPCV3, weeklyPlan, salesHistory, quoteMetrics, unifiedAgenda, cascadeTree, projectTasks, drafts, infoBank, upload, archiveQuote, addEmployee…","tech":"FastAPI","files":["api/main.py:613-970"],"tags":[]},{"id":"h_ep_ai","label":"/api/…agency · transcribe","type":"api","system":"holtmont","layer":2,"desc":"Endpoints de IA: `/api/run_paperclip_agency` (agencia de cotización), `/api/transcribe_and_analyze` (audio → conceptos) y `/api/generate-engineering-questions` (cuestionario de ingeniería).","tech":"FastAPI (multipart)","files":["api/main.py:103","api/main.py:320","api/main.py:345"],"tags":[]},{"id":"h_ep_v2","label":"/api/v2/tasks","type":"api","system":"holtmont","layer":2,"desc":"Router relacional nuevo. No sustituye a nada todavía: convive con `/api/legacy/*` e imita su contrato para que el día del corte `api_service.js` reapunte sin tocar el monolito. Resuelve un repositorio por petición vía dependencia de FastAPI.","tech":"FastAPI APIRouter","files":["backend/routers/tasks.py"],"tags":["migración"]},{"id":"h_ep_cron","label":"/api/cron/dailyMetrics","type":"api","system":"holtmont","layer":2,"desc":"Trabajo programado: recalcula métricas de cotizaciones y dispara el correo de productividad. Protegido con la cabecera `X-Cron-Secret`.","tech":"FastAPI + Vercel Cron","files":["api/main.py:987"],"tags":[]},{"id":"h_mcp","label":"mcp_server.py · FastMCP","type":"api","system":"holtmont","layer":3,"desc":"Servidor MCP «PascalEditorMCP»: expone `generar_habitacion_pascal` (geometría de una habitación) y `ejecutar_agencia_pascal` como herramientas para agentes externos.","tech":"MCP (FastMCP)","files":["api/mcp_server.py"],"tags":["agentes"]},{"id":"h_paperclip","label":"paperclip_agents.py","type":"agent","system":"holtmont","layer":3,"desc":"Agencia de cotización en LangGraph, 6 nodos: levantamiento → architect → calculo → precios → evaluador → (integrador | reintento). El nodo `architect` produce la escena 3D de Pascal Editor (muros, puertas, ventanas, escaleras, techos, mobiliario).","tech":"LangGraph + Groq / Gemini + Pydantic","files":["api/paperclip_agents.py","api/pascal_template.json"],"tags":["llm","grafo"]},{"id":"h_ai_utils","label":"ai_utils.py","type":"agent","system":"holtmont","layer":3,"desc":"Transcripción con Whisper en Groq (previo re-encode con ffmpeg) y extracción estructurada a `ExtractionSchema`: personal, material, actividades y herramienta.","tech":"Groq Whisper + LangChain + ffmpeg","files":["api/ai_utils.py"],"tags":["llm","audio"]},{"id":"h_eng_agent","label":"engineering_agent.py","type":"agent","system":"holtmont","layer":3,"desc":"Grafo entrevistador/evaluador con búsqueda: `interviewer_node` genera preguntas, `evaluator_node` decide si son suficientes y `route_after_evaluation` enruta a `research_node` (Tavily), de vuelta al entrevistador, o a END.","tech":"LangGraph + Groq + Tavily","files":["api/engineering_agent.py"],"tags":["llm","grafo","ciclo"]},{"id":"h_tracker_store","label":"tracker_store.py","type":"service","system":"holtmont","layer":4,"desc":"Orquestador del tracker (1.186 líneas): aplica las reglas sobre datos reales y los persiste. Resuelve secuencias de folio desde la base, arma el lote, audita el guardado y dispara la notificación. Sus imports de datos son perezosos a propósito para poder probar las reglas sin credenciales.","tech":"Python","files":["api/services/tracker_store.py"],"tags":["núcleo"]},{"id":"h_tracker_rules","label":"tracker_rules.py","type":"rules","system":"holtmont","layer":4,"desc":"Motor de reglas puro (1.501 líneas), gemelo de CODIGO.js: «Ley de Antonia» (ruteo protegido de hojas (VENTAS)), prefijos de folio por titular, gatekeeper anti-duplicación por `_tempId`, recuperación por CONCEPTO+FECHA+RESPONSABLE, auto-archivado, Papa Caliente (PROCESO_LOG / MAP COT), Reverse Sync y payload ISO 8601 para Make.com. No depende de FastAPI ni de Supabase.","tech":"Python puro (list[list])","files":["api/services/tracker_rules.py"],"tags":["núcleo","paridad"]},{"id":"h_sheets","label":"sheets.py · GSheetsManager","type":"service","system":"holtmont","layer":4,"desc":"Reconstruye la matriz de una hoja a partir de las tablas relacionales (búsqueda dinámica de la fila de encabezados incluida) y mantiene el modo mock cuando no hay `credentials.json`. Reexporta el organigrama para no romper importadores previos.","tech":"gspread + Supabase","files":["api/services/sheets.py"],"tags":[]},{"id":"h_organigrama","label":"organigrama.py","type":"service","system":"holtmont","layer":4,"desc":"Organigrama oficial: 19 departamentos, perfiles y correos. Sin contraseñas en el fuente — la credencial vive en `profiles` y la valida `/api/login`. Sirve de semilla para reparar la tabla `people` desde `resyncDirectory`.","tech":"Python","files":["api/services/organigrama.py"],"tags":["seguridad"]},{"id":"h_work_order","label":"work_order.py","type":"service","system":"holtmont","layer":4,"desc":"Pre Work Order: genera el folio por cliente y departamento, reparte los bloques del formulario a sus tablas hijas (`wo_materiales`, `wo_herramienta`, `wo_equipo`…), escribe la nota de Obsidian y distribuye tareas a los responsables. Tres bloques (viáticos, transporte, ingeniería) no tienen tabla: se avisa en la respuesta en vez de inventarla.","tech":"Python","files":["api/services/work_order.py","sequences.json"],"tags":[]},{"id":"h_storage","label":"storage.py","type":"service","system":"holtmont","layer":4,"desc":"Archivos en Supabase Storage. Traduce la jerarquía de carpetas de Drive a prefijos de ruta: `2026/MARZO/ACME INDUSTRIAL/cotizacion.pdf`. Sustituye a `uploadFileToDrive` y al archivado por carpetas del original.","tech":"Supabase Storage","files":["api/services/storage.py"],"tags":[]},{"id":"h_correo","label":"correo.py","type":"service","system":"holtmont","layer":4,"desc":"Envío SMTP de los reportes de los agentes. Resuelve destinatarios **por rol** contra los perfiles, corrigiendo el fallo del original donde `USER_DB['ADMIN_CONTROL']` nunca existía y el reporte no llegaba a nadie. Si no hay credenciales no envía y lo dice.","tech":"smtplib","files":["api/services/correo.py"],"tags":[]},{"id":"h_identity","label":"identity.py","type":"service","system":"holtmont","layer":4,"desc":"Resolución de identidad: normaliza el usuario activo, su hoja y su rol para que las capas de datos no tengan que adivinar quién escribe.","tech":"Python","files":["backend/services/identity.py"],"tags":[]},{"id":"h_auditoria","label":"auditoria.py","type":"service","system":"holtmont","layer":4,"desc":"Bitácora en `system_log`, el puerto de `registrarLog()` de Apps Script (16.196 entradas históricas). Auditar nunca puede impedir la operación: los fallos se registran y se sigue.","tech":"Python","files":["backend/services/auditoria.py"],"tags":[]},{"id":"h_persistencia","label":"persistencia.py","type":"service","system":"holtmont","layer":5,"desc":"Traduce filas con forma de hoja a la tabla relacional que les toca: `quotes` si la hoja es de ventas, `tasks` en cualquier otro caso, y cada fila cae en la partición `source_sheet` de su dueño. Devuelve un `ResultadoGuardado` con tabla, hoja y filas escritas.","tech":"Python","files":["backend/services/persistencia.py"],"tags":["núcleo"]},{"id":"h_repo_tasks","label":"TaskRepository","type":"repo","system":"holtmont","layer":5,"desc":"Repositorio de tareas: separa activas de historial, completa columnas obligatorias y agrupa por columnas para que un lote quepa siempre en una sola sentencia (requisito de PostgREST, que no expone BEGIN/COMMIT).","tech":"Python","files":["backend/repositories/tasks.py","backend/schemas/task.py"],"tags":[]},{"id":"h_repo_quotes","label":"QuoteRepository","type":"repo","system":"holtmont","layer":5,"desc":"Repositorio de cotizaciones: clasificación de estatus, detección de cotizaciones cerradas y métricas mensuales.","tech":"Python","files":["backend/repositories/quotes.py","backend/schemas/quote.py"],"tags":[]},{"id":"h_repo_agenda","label":"RepositorioAgenda / Borradores","type":"repo","system":"holtmont","layer":5,"desc":"Agenda unificada, eventos personales, hábitos y borradores del monolito.","tech":"Python","files":["backend/repositories/agenda.py"],"tags":[]},{"id":"h_repo_proyectos","label":"RepositorioProyectos","type":"repo","system":"holtmont","layer":5,"desc":"Árbol en cascada de proyectos: sitio → subproyecto → tareas, con auditoría de cada alta.","tech":"Python","files":["backend/repositories/proyectos.py"],"tags":[]},{"id":"h_engine","label":"core/engine.py · DataEngine","type":"engine","system":"holtmont","layer":6,"desc":"Protocolo de acceso a datos con tres implementaciones intercambiables y la bandera `soporta_transacciones`. Existen dos motores reales porque el entorno de desarrollo no tiene salida TCP fuera del 443: en Vercel sí hay TCP y ahí SQLAlchemy es lo correcto.","tech":"typing.Protocol","files":["backend/core/engine.py"],"tags":["núcleo"]},{"id":"h_eng_sqla","label":"sqlalchemy_engine.py","type":"engine","system":"holtmont","layer":6,"desc":"Motor con pool de conexiones sobre `DATABASE_URL`. **Es el único camino con transacciones reales.** Se usa en producción (Vercel).","tech":"SQLAlchemy","files":["backend/core/engines/sqlalchemy_engine.py"],"tags":[]},{"id":"h_eng_postgrest","label":"postgrest.py","type":"engine","system":"holtmont","layer":6,"desc":"Motor HTTPS contra PostgREST/Supabase. Sólo garantiza atomicidad por sentencia, así que los repositorios están escritos para que un lote quepa en un único POST.","tech":"PostgREST (HTTPS)","files":["backend/core/engines/postgrest.py"],"tags":[]},{"id":"h_eng_mem","label":"memoria.py","type":"engine","system":"holtmont","layer":6,"desc":"Motor en memoria. `tests/conftest.py` fuerza `BACKEND_ENGINE=memoria` y desconecta las credenciales durante toda la sesión de pytest: ninguna prueba puede tocar producción.","tech":"Python (dict)","files":["backend/core/engines/memoria.py"],"tags":["pruebas"]},{"id":"h_config","label":"core/config.py · Settings","type":"engine","system":"holtmont","layer":6,"desc":"Instantánea inmutable del entorno, releída en cada llamada porque en serverless cada invocación es un proceso nuevo. Ni un solo valor por defecto que sea una credencial; `BACKEND_TASKS_WRITE_ENABLED=0` es el interruptor de emergencia de la escritura.","tech":"dataclass(frozen=True)","files":["backend/core/config.py",".env.example"],"tags":["seguridad"]},{"id":"x_supabase","label":"Supabase · PostgreSQL","type":"data","system":"holtmont","layer":7,"desc":"Base de datos de la aplicación: `tasks`, `quotes`, `people`, `profiles`, `system_log`, `wo_*`, proyectos y agenda. Cada usuario escribe en su partición `source_sheet`.","tech":"PostgreSQL / PostgREST","files":[],"tags":["fuente-de-verdad"]},{"id":"x_storage","label":"Supabase Storage","type":"data","system":"holtmont","layer":7,"desc":"Bucket de adjuntos: cotizaciones, evidencias del tracker y banco de información, organizados por prefijo año/mes/cliente.","tech":"Supabase Storage","files":[],"tags":[]},{"id":"x_gsheets","label":"Google Sheets","type":"external","system":"holtmont","layer":7,"desc":"Origen histórico de los datos. Hoy sólo queda como salida opcional de exportación; la fuente de verdad es Supabase.","tech":"Google Sheets API (gspread)","files":[],"tags":["heredado"]},{"id":"x_make","label":"Make.com → Outlook","type":"external","system":"holtmont","layer":7,"desc":"Webhook de notificación (`MAKE_WEBHOOK_URL`). Las fechas deben viajar en ISO 8601 con milisegundos y Z; el payload indica si la tarea nace de ANTONIA_VENTAS o del tracker general, porque de eso depende a quién se avisa.","tech":"Webhook HTTPS","files":[],"tags":["integración"]},{"id":"x_groq","label":"Groq","type":"external","system":"holtmont","layer":7,"desc":"Inferencia LLM y transcripción Whisper para las tres rutas de IA.","tech":"Groq API","files":[],"tags":[]},{"id":"x_gemini","label":"Google Gemini","type":"external","system":"holtmont","layer":7,"desc":"Modelo alterno para la agencia y para el agente de métricas de cotizaciones.","tech":"Gemini API","files":[],"tags":[]},{"id":"x_tavily","label":"Tavily Search","type":"external","system":"holtmont","layer":7,"desc":"Búsqueda web del `research_node` cuando el evaluador detecta que falta información técnica.","tech":"Tavily API","files":[],"tags":[]},{"id":"x_smtp","label":"SMTP corporativo","type":"external","system":"holtmont","layer":7,"desc":"Salida de correo de los reportes automáticos hacia las cuentas @holtmont.com.","tech":"SMTP","files":[],"tags":[]},{"id":"h_tests","label":"tests/ · pytest (25 archivos)","type":"test","system":"holtmont","layer":8,"desc":"Paridad con Apps Script, contrato index.html → api_service.js → api/main.py, RBAC, integración Supabase, login contra `profiles`, reglas del tracker, organigrama, work order y flujo de asignación. `conftest.py` aísla la sesión de la base real.","tech":"pytest","files":["tests/","pytest.ini","run_tests.sh"],"tags":[]},{"id":"h_docs","label":"SSD / SDD / AGENTS.md","type":"test","system":"holtmont","layer":8,"desc":"Especificación viva: SSD_MAESTRO_CLONACION.md (389 KB), SDD_HOLTMONT_PLATFORM_COMPREHENSIVE.md (347 KB), auditoría de paridad, comparativa real-vs-Python y las reglas de trabajo para agentes en AGENTS.md.","tech":"Markdown","files":["AGENTS.md","SSD_MAESTRO_CLONACION.md","AUDITORIA_PARIDAD_SSD22.md"],"tags":[]},{"id":"m_main_ui","label":"main_ui.py · AppMain","type":"ui","system":"mlclaude","layer":0,"desc":"Ventana principal en CustomTkinter con `ViewManager`: registra las vistas, gestiona la barra lateral, el selector de cámara (escaneo en hilo aparte) y el ciclo de vida del worker de video.","tech":"CustomTkinter","files":["src/main_ui.py"],"tags":[]},{"id":"m_bootloader","label":"Bootloader (Tenant)","type":"ui","system":"mlclaude","layer":0,"desc":"Primera pantalla: elige o crea el Tenant B2B. **Nada puede resolver rutas antes de esto** — `ConfigManager` lanza excepción si no hay tenant activo. El modo headless lo suple con `OE_TENANT_ID`.","tech":"CustomTkinter","files":["src/main_ui.py:348"],"tags":["multi-tenant"]},{"id":"m_license_win","label":"LicenseWindow","type":"ui","system":"mlclaude","layer":0,"desc":"Pantalla de activación: muestra el Machine ID y acepta el archivo de licencia firmado.","tech":"CustomTkinter","files":["src/main_ui.py:274"],"tags":[]},{"id":"m_gui_app","label":"gui_app.py · SystemGUI","type":"ui","system":"mlclaude","layer":0,"desc":"Interfaz completa en Tkinter (1.094 líneas): registro de rostros con ráfaga y cuenta regresiva, semáforo de estado, reportes de asistencia y eficiencia, exportación a CSV/PDF, visor de snapshots, calibración de fondo, vista de administrador y política de privacidad.","tech":"Tkinter + Pillow","files":["src/gui_app.py"],"tags":[]},{"id":"m_views","label":"gui/views.py · dashboard.py","type":"ui","system":"mlclaude","layer":0,"desc":"Vistas y rejilla del panel: tarjetas de estado por empleado y disposición del dashboard.","tech":"CustomTkinter","files":["src/gui/views.py","src/gui/dashboard.py"],"tags":[]},{"id":"m_zone_editor","label":"zone_editor.py","type":"ui","system":"mlclaude","layer":0,"desc":"Editor gráfico de zonas: dibuja polígonos sobre un frame capturado y los guarda en `zonas_config.json` del tenant.","tech":"OpenCV","files":["src/zones/zone_editor.py"],"tags":[]},{"id":"m_main","label":"main.py (headless)","type":"service","system":"mlclaude","layer":1,"desc":"Ejecución sin interfaz. Selecciona el tenant desde `OE_TENANT_ID`, prueba varias fuentes de video en orden y corre el mismo pipeline que la GUI.","tech":"OpenCV","files":["src/main.py"],"tags":[]},{"id":"m_camera_worker","label":"camera_worker.py","type":"service","system":"mlclaude","layer":1,"desc":"Hilo demonio por cámara con cola de frames y límite de FPS. Construye el pipeline de forma tolerante a fallos: si faltan dependencias nativas o no hay tenant montado, sigue mostrando video pero sin persistir.","tech":"threading + queue + OpenCV","files":["src/tracking/camera_worker.py"],"tags":["concurrencia"]},{"id":"m_camera_enum","label":"camera_enumerator.py","type":"service","system":"mlclaude","layer":1,"desc":"Enumeración de cámaras disponibles y sondeo de índices, para el selector de la UI.","tech":"OpenCV","files":["src/acquisition/camera_enumerator.py"],"tags":[]},{"id":"m_video_stream","label":"video_stream.py","type":"service","system":"mlclaude","layer":1,"desc":"Envoltura fina de la fuente de video: índice USB local o URL RTSP remota.","tech":"OpenCV","files":["src/acquisition/video_stream.py"],"tags":[]},{"id":"m_person_detector","label":"person_detector.py · YOLOv8","type":"agent","system":"mlclaude","layer":2,"desc":"Detección de personas (y celulares) con YOLOv8n, umbral de confianza 0.4. El peso se verifica por hash antes de cargarse.","tech":"Ultralytics YOLOv8","files":["src/detection/person_detector.py","yolov8n.pt"],"tags":[]},{"id":"m_people_detector","label":"people_detector.py","type":"agent","system":"mlclaude","layer":2,"desc":"Variante autónoma de detección con prueba de punto-en-polígono propia, usada para validación rápida de zonas.","tech":"OpenCV + YOLO","files":["src/detection/people_detector.py"],"tags":[]},{"id":"m_tracker","label":"person_tracker.py · ByteTrack","type":"agent","system":"mlclaude","layer":2,"desc":"Asignación de identidades persistentes entre frames (`tracker_id`), sobre supervision/ByteTrack.","tech":"supervision (ByteTrack)","files":["src/tracking/person_tracker.py"],"tags":[]},{"id":"m_face_rec","label":"face_recognizer.py","type":"agent","system":"mlclaude","layer":2,"desc":"Reconocimiento facial con dlib/face_recognition. Los encodings se guardan **firmados**: se verifica la firma al cargar y se recarga en caliente cuando cambia el directorio de rostros. Soporta registro por ráfaga y borrado por persona.","tech":"face_recognition (dlib) + HMAC","files":["src/recognition/face_recognizer.py","utils/register_face.py"],"tags":["biometría","integridad"]},{"id":"m_pipeline","label":"tracking_pipeline.py","type":"rules","system":"mlclaude","layer":3,"desc":"Corazón del sistema y única ruta de persistencia. Por frame: tracking → centroide → zona → estado → escritura. Con cadencias deliberadas: las posiciones se escriben cada 15 frames (a 15 fps × N cámaras, insertar por frame satura SQLite), el reconocimiento facial corre cada 10 frames (Skip-Frame Biométrica) y el snapshot de ENTRADA a zona es por evento, sin throttle.","tech":"Python","files":["src/tracking/tracking_pipeline.py"],"tags":["núcleo","rendimiento"]},{"id":"m_zone_checker","label":"zone_checker.py","type":"rules","system":"mlclaude","layer":3,"desc":"Resuelve en qué zona cae un punto a partir de los polígonos del tenant.","tech":"shapely","files":["src/zones/zone_checker.py"],"tags":[]},{"id":"m_state_manager","label":"state_manager.py","type":"rules","system":"mlclaude","layer":3,"desc":"Máquina de estados por empleado: trabajando, inactivo, en el celular, en comida. Usa historial de movimiento (umbral 5 px), intersección de cajas con celulares detectados y un tiempo de espera de comida de 1.800 s.","tech":"Python","files":["src/analysis/state_manager.py"],"tags":["núcleo"]},{"id":"m_db","label":"database_manager.py","type":"repo","system":"mlclaude","layer":4,"desc":"SQLite por tenant: `tracking`, `snapshots`, `states`, `attendance`, `employees`. Incluye reportes de asistencia y eficiencia por rango de fechas, consultas parametrizadas (hay una prueba dedicada a inyección SQL), anonimización y borrado de empleado.","tech":"SQLite3 + pandas","files":["src/storage/database_manager.py"],"tags":[]},{"id":"m_db_crypto","label":"db_crypto.py · EncryptedDBVault","type":"security","system":"mlclaude","layer":4,"desc":"Cifra la base en reposo con una llave derivada del Machine ID: se descifra al abrir y se vuelve a cifrar al cerrar. `is_sqlite_file` distingue una base en claro de una cifrada para poder migrar instalaciones previas.","tech":"cryptography (AES)","files":["src/security/db_crypto.py","migrate_data.py"],"tags":["cifrado"]},{"id":"m_eff_calc","label":"efficiency_calculator.py","type":"service","system":"mlclaude","layer":5,"desc":"Calcula permanencia por persona y zona a partir de las tablas `tracking` y `snapshots`, con pandas.","tech":"pandas + numpy","files":["src/analysis/efficiency_calculator.py"],"tags":[]},{"id":"m_report_gen","label":"report_generator.py","type":"service","system":"mlclaude","layer":5,"desc":"Tablas y gráficos de barras de duración por empleado y zona.","tech":"matplotlib + seaborn","files":["src/analysis/report_generator.py"],"tags":[]},{"id":"m_report_out","label":"Exportación XLSX / PDF","type":"service","system":"mlclaude","layer":5,"desc":"Genera `Reporte_Asistencia.xlsx` y `Reporte_Eficiencia_Final.xlsx`, y exporta a CSV/PDF desde la GUI. La escritura corre fuera del hilo de la interfaz (`tests/test_async_excel.py`).","tech":"openpyxl + reportlab","files":["src/analysis/report_main.py","src/analysis/generar_reporte.py"],"tags":[]},{"id":"m_drm","label":"drm.py · DRMValidator","type":"security","system":"mlclaude","layer":6,"desc":"Licenciamiento offline B2B: huella de hardware (placa + CPU + disco vía WMI) con SHA-256 y sal ofuscada, verificación de firma RSA-2048 contra la clave pública embebida, cotejo del Machine ID, fecha de expiración y extracción del tier (máximo de cámaras).","tech":"RSA-2048 + WMI + SHA-256","files":["src/security/drm.py","scripts/generar_llaves_maestras.py"],"tags":["licencia"]},{"id":"m_crash_logger","label":"crash_logger.py","type":"security","system":"mlclaude","layer":6,"desc":"Excepthook global que cifra el volcado de fallos con una llave derivada del Machine ID: el soporte puede descifrarlo, el cliente no filtra datos sin querer.","tech":"cryptography","files":["src/security/crash_logger.py"],"tags":[]},{"id":"m_model_verifier","label":"model_verifier.py","type":"security","system":"mlclaude","layer":6,"desc":"Verifica el hash del peso YOLO antes de cargarlo y lanza `ModelIntegrityError` si no coincide: impide sustituir el modelo por uno manipulado.","tech":"hashlib","files":["src/models/model_verifier.py"],"tags":["integridad"]},{"id":"m_path_utils","label":"path_utils.py · ConfigManager","type":"security","system":"mlclaude","layer":6,"desc":"Singleton del tenant activo. Valida el id (1-64 caracteres alfanuméricos) y aísla cada cliente en `%APPDATA%/OficinaEficiencia/Tenants/<id>/` con subcarpetas db, faces, zonas, snapshots y export. La licencia vive en la raíz, fuera de los tenants.","tech":"Python","files":["config/path_utils.py"],"tags":["multi-tenant"]},{"id":"m_config","label":"config/config.py","type":"security","system":"mlclaude","layer":6,"desc":"Configuración por *getters*, no por constantes: las rutas no pueden evaluarse al importar porque el tenant aún no está elegido. Aquí viven FRAME_SKIP, el umbral de confianza y la versión.","tech":"Python","files":["config/config.py","VERSION"],"tags":[]},{"id":"m_build","label":"Ofuscación y empaquetado","type":"build","system":"mlclaude","layer":6,"desc":"Cadena de distribución: PyArmor ofusca `drm.py` y los módulos sensibles, PyInstaller construye el ejecutable con `gui_app.spec` e Inno Setup arma el instalador (`setup_oficina.iss`).","tech":"PyArmor + PyInstaller + Inno Setup","files":["obfuscate.py","gui_app.spec","setup_oficina.iss","compilar_exe.bat"],"tags":[]},{"id":"m_keygen","label":"keygen_b2b.py","type":"build","system":"mlclaude","layer":6,"desc":"Herramienta del proveedor: firma licencias con la llave privada RSA para un Machine ID, una fecha de expiración y un tier. La privada nunca se distribuye.","tech":"cryptography (RSA)","files":["scripts/keygen_b2b.py","generate_license.py"],"tags":[]},{"id":"x_camera","label":"Cámaras (USB / RTSP)","type":"external","system":"mlclaude","layer":7,"desc":"Fuentes de video: índice local o URL RTSP autenticada.","tech":"V4L2 / RTSP","files":[],"tags":[]},{"id":"x_yolo","label":"yolov8n.pt","type":"data","system":"mlclaude","layer":7,"desc":"Peso del modelo de detección (6,5 MB), verificado por hash en cada arranque.","tech":"Ultralytics","files":[],"tags":[]},{"id":"x_appdata","label":"%APPDATA%/OficinaEficiencia","type":"data","system":"mlclaude","layer":7,"desc":"Almacenamiento del cliente: `license.key` en la raíz y un árbol aislado por tenant con base, rostros, zonas, snapshots y exportaciones.","tech":"Sistema de archivos","files":[],"tags":["multi-tenant"]},{"id":"x_sqlite","label":"local_tracking.db","type":"data","system":"mlclaude","layer":7,"desc":"Base SQLite del tenant, cifrada en reposo.","tech":"SQLite","files":[],"tags":[]},{"id":"x_office","label":"Excel / PDF de salida","type":"external","system":"mlclaude","layer":7,"desc":"Entregables para el cliente: reportes de asistencia y eficiencia.","tech":"XLSX / PDF","files":[],"tags":[]},{"id":"m_tests","label":"tests/ · pytest (27 archivos)","type":"test","system":"mlclaude","layer":8,"desc":"Cobertura por riesgo: DRM RSA y su respaldo, cifrado y migración de la base, fugas del worker de cámara, inyección SQL en reportes, verificación del modelo, enrutamiento de tenants, pipeline de tracking, máquina de estados, Excel asíncrono y auditoría del sprint 5.","tech":"pytest","files":["tests/"],"tags":[]},{"id":"m_spec","label":"SPEC/ · auditoría de seguridad","type":"test","system":"mlclaude","layer":8,"desc":"Especificación por fases (revisión → especificación → planeación → tareas → implementación → revisión → keygen → build) y el reporte de auditoría de seguridad en `docs/`.","tech":"Markdown / PDF","files":["SPEC/","docs/security_audit_report.md"],"tags":[]}],"edges":[{"id":"e_h_index__h_apiservice","source":"h_index","target":"h_apiservice","label":"invoca","kind":"call"},{"id":"e_h_workorder_html__h_apiservice","source":"h_workorder_html","target":"h_apiservice","label":"invoca","kind":"call"},{"id":"e_h_apiservice__h_vercel","source":"h_apiservice","target":"h_vercel","label":"HTTPS","kind":"http"},{"id":"e_h_vercel__h_fastapi","source":"h_vercel","target":"h_fastapi","label":"rutea","kind":"http"},{"id":"e_h_codigo__h_tracker_rules","source":"h_codigo","target":"h_tracker_rules","label":"especifica","kind":"verify"},{"id":"e_h_fastapi__h_ep_auth","source":"h_fastapi","target":"h_ep_auth","label":"","kind":"call"},{"id":"e_h_fastapi__h_ep_data","source":"h_fastapi","target":"h_ep_data","label":"","kind":"call"},{"id":"e_h_fastapi__h_ep_legacy","source":"h_fastapi","target":"h_ep_legacy","label":"","kind":"call"},{"id":"e_h_fastapi__h_ep_ai","source":"h_fastapi","target":"h_ep_ai","label":"","kind":"call"},{"id":"e_h_fastapi__h_ep_v2","source":"h_fastapi","target":"h_ep_v2","label":"monta router","kind":"call"},{"id":"e_h_fastapi__h_ep_cron","source":"h_fastapi","target":"h_ep_cron","label":"","kind":"call"},{"id":"e_h_streamlit__h_ai_utils","source":"h_streamlit","target":"h_ai_utils","label":"audio","kind":"call"},{"id":"e_h_streamlit__h_work_order","source":"h_streamlit","target":"h_work_order","label":"work order","kind":"call"},{"id":"e_h_ep_auth__h_organigrama","source":"h_ep_auth","target":"h_organigrama","label":"valida credenciales","kind":"call"},{"id":"e_h_ep_auth__h_sheets","source":"h_ep_auth","target":"h_sheets","label":"hoja USERS (heredado)","kind":"opcional"},{"id":"e_h_ep_auth__h_auditoria","source":"h_ep_auth","target":"h_auditoria","label":"registra acceso","kind":"event"},{"id":"e_h_ep_data__h_sheets","source":"h_ep_data","target":"h_sheets","label":"matriz de la hoja","kind":"call"},{"id":"e_h_ep_data__h_organigrama","source":"h_ep_data","target":"h_organigrama","label":"directorio","kind":"call"},{"id":"e_h_ep_legacy__h_tracker_store","source":"h_ep_legacy","target":"h_tracker_store","label":"delega","kind":"call"},{"id":"e_h_ep_legacy__h_work_order","source":"h_ep_legacy","target":"h_work_order","label":"pre work order","kind":"call"},{"id":"e_h_ep_legacy__h_storage","source":"h_ep_legacy","target":"h_storage","label":"adjuntos","kind":"call"},{"id":"e_h_ep_legacy__h_repo_agenda","source":"h_ep_legacy","target":"h_repo_agenda","label":"agenda / borradores","kind":"call"},{"id":"e_h_ep_legacy__h_repo_proyectos","source":"h_ep_legacy","target":"h_repo_proyectos","label":"cascada de proyectos","kind":"call"},{"id":"e_h_ep_legacy__h_organigrama","source":"h_ep_legacy","target":"h_organigrama","label":"resync directorio","kind":"call"},{"id":"e_h_ep_ai__h_paperclip","source":"h_ep_ai","target":"h_paperclip","label":"agencia","kind":"llm"},{"id":"e_h_ep_ai__h_ai_utils","source":"h_ep_ai","target":"h_ai_utils","label":"transcribe","kind":"llm"},{"id":"e_h_ep_ai__h_eng_agent","source":"h_ep_ai","target":"h_eng_agent","label":"cuestionario","kind":"llm"},{"id":"e_h_ep_v2__h_repo_tasks","source":"h_ep_v2","target":"h_repo_tasks","label":"repositorio por petición","kind":"call"},{"id":"e_h_ep_cron__h_tracker_store","source":"h_ep_cron","target":"h_tracker_store","label":"métricas del día","kind":"call"},{"id":"e_h_mcp__h_paperclip","source":"h_mcp","target":"h_paperclip","label":"herramienta MCP","kind":"llm"},{"id":"e_h_paperclip__x_groq","source":"h_paperclip","target":"x_groq","label":"LLM","kind":"llm"},{"id":"e_h_paperclip__x_gemini","source":"h_paperclip","target":"x_gemini","label":"LLM alterno","kind":"llm"},{"id":"e_h_ai_utils__x_groq","source":"h_ai_utils","target":"x_groq","label":"Whisper + LLM","kind":"llm"},{"id":"e_h_eng_agent__x_groq","source":"h_eng_agent","target":"x_groq","label":"LLM","kind":"llm"},{"id":"e_h_eng_agent__x_tavily","source":"h_eng_agent","target":"x_tavily","label":"búsqueda","kind":"llm"},{"id":"e_h_tracker_store__h_tracker_rules","source":"h_tracker_store","target":"h_tracker_rules","label":"aplica reglas","kind":"call"},{"id":"e_h_tracker_store__h_sheets","source":"h_tracker_store","target":"h_sheets","label":"lee la matriz","kind":"call"},{"id":"e_h_tracker_store__h_persistencia","source":"h_tracker_store","target":"h_persistencia","label":"escribe el lote","kind":"call"},{"id":"e_h_tracker_store__h_auditoria","source":"h_tracker_store","target":"h_auditoria","label":"audita el guardado","kind":"event"},{"id":"e_h_tracker_store__x_make","source":"h_tracker_store","target":"x_make","label":"notificación ISO 8601","kind":"event"},{"id":"e_h_tracker_store__h_correo","source":"h_tracker_store","target":"h_correo","label":"reporte de agentes","kind":"event"},{"id":"e_h_tracker_store__x_gemini","source":"h_tracker_store","target":"x_gemini","label":"agente de KPIs","kind":"llm"},{"id":"e_h_tracker_rules__h_organigrama","source":"h_tracker_rules","target":"h_organigrama","label":"perfiles y correos","kind":"call"},{"id":"e_h_work_order__h_persistencia","source":"h_work_order","target":"h_persistencia","label":"tablas hijas","kind":"call"},{"id":"e_h_work_order__h_tracker_store","source":"h_work_order","target":"h_tracker_store","label":"distribuye tareas","kind":"call"},{"id":"e_h_sheets__h_engine","source":"h_sheets","target":"h_engine","label":"consulta tablas","kind":"data"},{"id":"e_h_sheets__x_gsheets","source":"h_sheets","target":"x_gsheets","label":"exportación opcional","kind":"opcional"},{"id":"e_h_organigrama__h_engine","source":"h_organigrama","target":"h_engine","label":"people / profiles","kind":"data"},{"id":"e_h_storage__x_storage","source":"h_storage","target":"x_storage","label":"sube el objeto","kind":"data"},{"id":"e_h_correo__x_smtp","source":"h_correo","target":"x_smtp","label":"envía","kind":"event"},{"id":"e_h_auditoria__h_engine","source":"h_auditoria","target":"h_engine","label":"system_log","kind":"data"},{"id":"e_h_identity__h_organigrama","source":"h_identity","target":"h_organigrama","label":"resuelve la hoja","kind":"call"},{"id":"e_h_persistencia__h_repo_tasks","source":"h_persistencia","target":"h_repo_tasks","label":"tasks","kind":"call"},{"id":"e_h_persistencia__h_repo_quotes","source":"h_persistencia","target":"h_repo_quotes","label":"quotes (VENTAS)","kind":"call"},{"id":"e_h_persistencia__h_identity","source":"h_persistencia","target":"h_identity","label":"dueño de la fila","kind":"call"},{"id":"e_h_repo_tasks__h_engine","source":"h_repo_tasks","target":"h_engine","label":"select / upsert","kind":"data"},{"id":"e_h_repo_quotes__h_engine","source":"h_repo_quotes","target":"h_engine","label":"select / upsert","kind":"data"},{"id":"e_h_repo_agenda__h_engine","source":"h_repo_agenda","target":"h_engine","label":"select / upsert","kind":"data"},{"id":"e_h_repo_proyectos__h_engine","source":"h_repo_proyectos","target":"h_engine","label":"select / upsert","kind":"data"},{"id":"e_h_engine__h_config","source":"h_engine","target":"h_config","label":"lee el entorno","kind":"call"},{"id":"e_h_engine__h_eng_sqla","source":"h_engine","target":"h_eng_sqla","label":"si hay DATABASE_URL","kind":"call"},{"id":"e_h_engine__h_eng_postgrest","source":"h_engine","target":"h_eng_postgrest","label":"si hay SUPABASE_URL","kind":"call"},{"id":"e_h_engine__h_eng_mem","source":"h_engine","target":"h_eng_mem","label":"en pruebas","kind":"call"},{"id":"e_h_eng_sqla__x_supabase","source":"h_eng_sqla","target":"x_supabase","label":"TCP 5432 (transacciones)","kind":"data"},{"id":"e_h_eng_postgrest__x_supabase","source":"h_eng_postgrest","target":"x_supabase","label":"HTTPS 443","kind":"data"},{"id":"e_h_tests__h_eng_mem","source":"h_tests","target":"h_eng_mem","label":"fuerza motor en memoria","kind":"verify"},{"id":"e_h_tests__h_tracker_rules","source":"h_tests","target":"h_tracker_rules","label":"paridad con CODIGO.js","kind":"verify"},{"id":"e_h_tests__h_apiservice","source":"h_tests","target":"h_apiservice","label":"contrato de la API","kind":"verify"},{"id":"e_h_docs__h_tests","source":"h_docs","target":"h_tests","label":"criterios de aceptación","kind":"verify"},{"id":"e_m_main_ui__m_bootloader","source":"m_main_ui","target":"m_bootloader","label":"abre al arrancar","kind":"call"},{"id":"e_m_bootloader__m_path_utils","source":"m_bootloader","target":"m_path_utils","label":"fija el tenant activo","kind":"call"},{"id":"e_m_main_ui__m_license_win","source":"m_main_ui","target":"m_license_win","label":"si no hay licencia","kind":"call"},{"id":"e_m_license_win__m_drm","source":"m_license_win","target":"m_drm","label":"valida el archivo","kind":"call"},{"id":"e_m_drm__x_appdata","source":"m_drm","target":"x_appdata","label":"lee license.key","kind":"data"},{"id":"e_m_keygen__x_appdata","source":"m_keygen","target":"x_appdata","label":"licencia firmada","kind":"build"},{"id":"e_m_main_ui__m_camera_worker","source":"m_main_ui","target":"m_camera_worker","label":"arranca el hilo","kind":"call"},{"id":"e_m_main_ui__m_camera_enum","source":"m_main_ui","target":"m_camera_enum","label":"escanea cámaras","kind":"call"},{"id":"e_m_main_ui__m_views","source":"m_main_ui","target":"m_views","label":"registra vistas","kind":"call"},{"id":"e_m_main_ui__m_zone_editor","source":"m_main_ui","target":"m_zone_editor","label":"editar zonas","kind":"call"},{"id":"e_m_gui_app__m_camera_worker","source":"m_gui_app","target":"m_camera_worker","label":"video en vivo","kind":"call"},{"id":"e_m_gui_app__m_face_rec","source":"m_gui_app","target":"m_face_rec","label":"registro por ráfaga","kind":"call"},{"id":"e_m_gui_app__m_db","source":"m_gui_app","target":"m_db","label":"reportes y borrado","kind":"call"},{"id":"e_m_gui_app__m_report_out","source":"m_gui_app","target":"m_report_out","label":"exporta CSV / PDF","kind":"call"},{"id":"e_m_gui_app__m_crash_logger","source":"m_gui_app","target":"m_crash_logger","label":"excepthook global","kind":"event"},{"id":"e_m_main__m_path_utils","source":"m_main","target":"m_path_utils","label":"OE_TENANT_ID","kind":"call"},{"id":"e_m_main__m_pipeline","source":"m_main","target":"m_pipeline","label":"bucle headless","kind":"call"},{"id":"e_m_main__m_video_stream","source":"m_main","target":"m_video_stream","label":"abre la fuente","kind":"call"},{"id":"e_m_camera_enum__x_camera","source":"m_camera_enum","target":"x_camera","label":"sondea índices","kind":"data"},{"id":"e_m_video_stream__x_camera","source":"m_video_stream","target":"x_camera","label":"captura","kind":"data"},{"id":"e_m_camera_worker__x_camera","source":"m_camera_worker","target":"x_camera","label":"captura","kind":"data"},{"id":"e_m_camera_worker__m_person_detector","source":"m_camera_worker","target":"m_person_detector","label":"cada frame","kind":"call"},{"id":"e_m_camera_worker__m_pipeline","source":"m_camera_worker","target":"m_pipeline","label":"delega la lógica","kind":"call"},{"id":"e_m_camera_worker__m_face_rec","source":"m_camera_worker","target":"m_face_rec","label":"identidad","kind":"call"},{"id":"e_m_person_detector__x_yolo","source":"m_person_detector","target":"x_yolo","label":"carga el peso","kind":"data"},{"id":"e_m_person_detector__m_model_verifier","source":"m_person_detector","target":"m_model_verifier","label":"verifica el hash","kind":"verify"},{"id":"e_m_person_detector__m_pipeline","source":"m_person_detector","target":"m_pipeline","label":"detecciones del frame","kind":"data"},{"id":"e_m_model_verifier__x_yolo","source":"m_model_verifier","target":"x_yolo","label":"hash del peso","kind":"verify"},{"id":"e_m_people_detector__x_yolo","source":"m_people_detector","target":"x_yolo","label":"carga el peso","kind":"data"},{"id":"e_m_pipeline__m_tracker","source":"m_pipeline","target":"m_tracker","label":"asigna track_id","kind":"call"},{"id":"e_m_pipeline__m_zone_checker","source":"m_pipeline","target":"m_zone_checker","label":"zona del centroide","kind":"call"},{"id":"e_m_pipeline__m_state_manager","source":"m_pipeline","target":"m_state_manager","label":"estado por empleado","kind":"call"},{"id":"e_m_pipeline__m_face_rec","source":"m_pipeline","target":"m_face_rec","label":"cada 10 frames","kind":"call"},{"id":"e_m_pipeline__m_db","source":"m_pipeline","target":"m_db","label":"cada 15 frames + eventos","kind":"data"},{"id":"e_m_zone_checker__x_appdata","source":"m_zone_checker","target":"x_appdata","label":"zonas_config.json","kind":"data"},{"id":"e_m_zone_editor__x_appdata","source":"m_zone_editor","target":"x_appdata","label":"guarda polígonos","kind":"data"},{"id":"e_m_face_rec__x_appdata","source":"m_face_rec","target":"x_appdata","label":"encodings firmados","kind":"data"},{"id":"e_m_state_manager__m_db","source":"m_state_manager","target":"m_db","label":"estados y asistencia","kind":"data"},{"id":"e_m_db__m_db_crypto","source":"m_db","target":"m_db_crypto","label":"abre y cierra cifrado","kind":"call"},{"id":"e_m_db_crypto__x_sqlite","source":"m_db_crypto","target":"x_sqlite","label":"AES en reposo","kind":"data"},{"id":"e_m_db__x_sqlite","source":"m_db","target":"x_sqlite","label":"SQL parametrizado","kind":"data"},{"id":"e_m_path_utils__x_appdata","source":"m_path_utils","target":"x_appdata","label":"árbol del tenant","kind":"data"},{"id":"e_m_config__m_path_utils","source":"m_config","target":"m_path_utils","label":"rutas por getter","kind":"call"},{"id":"e_m_eff_calc__x_sqlite","source":"m_eff_calc","target":"x_sqlite","label":"tracking + snapshots","kind":"data"},{"id":"e_m_eff_calc__m_report_gen","source":"m_eff_calc","target":"m_report_gen","label":"DataFrame","kind":"data"},{"id":"e_m_report_gen__m_report_out","source":"m_report_gen","target":"m_report_out","label":"tablas y gráficos","kind":"data"},{"id":"e_m_report_out__x_office","source":"m_report_out","target":"x_office","label":"XLSX / PDF","kind":"data"},{"id":"e_m_db__m_eff_calc","source":"m_db","target":"m_eff_calc","label":"consulta por rango","kind":"data"},{"id":"e_m_crash_logger__x_appdata","source":"m_crash_logger","target":"x_appdata","label":"volcado cifrado","kind":"data"},{"id":"e_m_build__m_drm","source":"m_build","target":"m_drm","label":"ofusca con PyArmor","kind":"build"},{"id":"e_m_build__x_appdata","source":"m_build","target":"x_appdata","label":"instalador","kind":"build"},{"id":"e_m_tests__m_pipeline","source":"m_tests","target":"m_pipeline","label":"pipeline y estados","kind":"verify"},{"id":"e_m_tests__m_drm","source":"m_tests","target":"m_drm","label":"DRM y respaldo","kind":"verify"},{"id":"e_m_tests__m_db_crypto","source":"m_tests","target":"m_db_crypto","label":"cifrado y migración","kind":"verify"},{"id":"e_m_spec__m_tests","source":"m_spec","target":"m_tests","label":"criterios por sprint","kind":"verify"}],"flows":[{"id":"f_login","name":"Inicio de sesión","system":"holtmont","category":"Autenticación","desc":"Tres fuentes en cascada, siempre auditadas. `profiles` es la única real; la hoja USERS y el login por entorno son respaldos heredados.","steps":[{"node":"h_index","action":"El usuario envía usuario y contraseña desde el monolito"},{"node":"h_apiservice","action":"`login()` hace POST /api/login"},{"node":"h_vercel","action":"La ruta catch-all entrega la petición a la función Python"},{"node":"h_fastapi","action":"FastAPI deserializa `LoginRequest`"},{"node":"h_ep_auth","action":"Normaliza el usuario a MAYÚSCULAS y arranca la cascada"},{"node":"h_organigrama","action":"`validar_credenciales` consulta la tabla `profiles`"},{"node":"h_engine","action":"El motor activo ejecuta el SELECT"},{"node":"x_supabase","action":"Devuelve el perfil: rol, etiqueta, hoja y correo"},{"node":"h_auditoria","action":"Escribe el intento — exitoso o denegado — en `system_log`"}],"transitions":[{"from":"h_index","to":"h_apiservice","edge":"e_h_index__h_apiservice","tipo":"arista"},{"from":"h_apiservice","to":"h_vercel","edge":"e_h_apiservice__h_vercel","tipo":"arista"},{"from":"h_vercel","to":"h_fastapi","edge":"e_h_vercel__h_fastapi","tipo":"arista"},{"from":"h_fastapi","to":"h_ep_auth","edge":"e_h_fastapi__h_ep_auth","tipo":"arista"},{"from":"h_ep_auth","to":"h_organigrama","edge":"e_h_ep_auth__h_organigrama","tipo":"arista"},{"from":"h_organigrama","to":"h_engine","edge":"e_h_organigrama__h_engine","tipo":"arista"},{"from":"h_engine","to":"x_supabase","edge":null,"tipo":"derivada"},{"from":"x_supabase","to":"h_auditoria","edge":null,"tipo":"derivada"}]},{"id":"f_data","name":"Lectura de una hoja","system":"holtmont","category":"Datos","desc":"`/api/data` reconstruye la matriz que el monolito espera a partir de las tablas relacionales, filtrando antes las tablas sensibles y las columnas de credencial.","steps":[{"node":"h_index","action":"Una vista pide sus datos (STAFF_TRACKER, PPC, INFO_BANK…)"},{"node":"h_apiservice","action":"GET /api/data?sheet=<hoja>"},{"node":"h_fastapi","action":"Enruta al manejador"},{"node":"h_ep_data","action":"Rechaza tablas sensibles y recorta columnas de credencial"},{"node":"h_sheets","action":"`GSheetsManager` arma la matriz y localiza la fila de encabezados"},{"node":"h_engine","action":"SELECT sobre la tabla que corresponde"},{"node":"x_supabase","action":"Filas tipadas de vuelta"}],"transitions":[{"from":"h_index","to":"h_apiservice","edge":"e_h_index__h_apiservice","tipo":"arista"},{"from":"h_apiservice","to":"h_fastapi","edge":null,"tipo":"derivada"},{"from":"h_fastapi","to":"h_ep_data","edge":"e_h_fastapi__h_ep_data","tipo":"arista"},{"from":"h_ep_data","to":"h_sheets","edge":"e_h_ep_data__h_sheets","tipo":"arista"},{"from":"h_sheets","to":"h_engine","edge":"e_h_sheets__h_engine","tipo":"arista"},{"from":"h_engine","to":"x_supabase","edge":null,"tipo":"derivada"}]},{"id":"f_tracker_save","name":"Guardado del tracker (ruta crítica)","system":"holtmont","category":"Tracker","desc":"El camino más delicado del sistema: gatekeeper anti-duplicación, prefijo de folio por titular, recuperación de la fila por CONCEPTO+FECHA cuando el FOLIO no aparece, y escritura en la partición `source_sheet` del dueño.","steps":[{"node":"h_index","action":"El usuario guarda filas; cada nueva lleva `_tempId` e `isSubmitting` bloquea el doble envío"},{"node":"h_apiservice","action":"POST /api/legacy/saveTrackerBatch con el lote"},{"node":"h_fastapi","action":"Valida `TrackerBatchRequest`"},{"node":"h_ep_legacy","action":"Delega en el orquestador del tracker"},{"node":"h_tracker_store","action":"Resuelve la secuencia de folio desde la base y arma el lote"},{"node":"h_tracker_rules","action":"Gatekeeper por `_tempId`, prefijo por titular, ruteo protegido de (VENTAS), auto-archivado"},{"node":"h_persistencia","action":"Elige tabla — `quotes` si es de ventas, `tasks` si no — y partición `source_sheet`"},{"node":"h_repo_tasks","action":"Agrupa por columnas para que el lote quepa en una sola sentencia"},{"node":"h_engine","action":"UPSERT con `en_conflicto`"},{"node":"x_supabase","action":"Filas escritas y devueltas completas"},{"node":"h_auditoria","action":"Registra qué se guardó y quién lo guardó"}],"transitions":[{"from":"h_index","to":"h_apiservice","edge":"e_h_index__h_apiservice","tipo":"arista"},{"from":"h_apiservice","to":"h_fastapi","edge":null,"tipo":"derivada"},{"from":"h_fastapi","to":"h_ep_legacy","edge":"e_h_fastapi__h_ep_legacy","tipo":"arista"},{"from":"h_ep_legacy","to":"h_tracker_store","edge":"e_h_ep_legacy__h_tracker_store","tipo":"arista"},{"from":"h_tracker_store","to":"h_tracker_rules","edge":"e_h_tracker_store__h_tracker_rules","tipo":"arista"},{"from":"h_tracker_rules","to":"h_persistencia","edge":null,"tipo":"derivada"},{"from":"h_persistencia","to":"h_repo_tasks","edge":"e_h_persistencia__h_repo_tasks","tipo":"arista"},{"from":"h_repo_tasks","to":"h_engine","edge":"e_h_repo_tasks__h_engine","tipo":"arista"},{"from":"h_engine","to":"x_supabase","edge":null,"tipo":"derivada"},{"from":"x_supabase","to":"h_auditoria","edge":null,"tipo":"derivada"}]},{"id":"f_hot_potato","name":"Papa Caliente y Reverse Sync","system":"holtmont","category":"Tracker","desc":"La regla de negocio más singular. Toda tarea nacida en ANTONIA_VENTAS (folio «AV-») exige sincronización de vuelta; para cualquier otro usuario está prohibido escribir en hojas «(VENTAS)» y el sufijo se elimina globalmente.","steps":[{"node":"h_index","action":"Un miembro del equipo actualiza una tarea delegada"},{"node":"h_ep_legacy","action":"POST /api/legacy/updateTask"},{"node":"h_tracker_store","action":"Localiza la fila maestra por folio"},{"node":"h_tracker_rules","action":"`apply_hot_potato` actualiza PROCESO_LOG y reconstruye MAP COT"},{"node":"h_organigrama","action":"Resuelve el correo real del siguiente responsable"},{"node":"h_persistencia","action":"Escribe en la partición del nuevo responsable"},{"node":"h_repo_quotes","action":"Si el origen es de ventas, actualiza también `quotes`"},{"node":"x_supabase","action":"Ambas particiones quedan consistentes"}],"transitions":[{"from":"h_index","to":"h_ep_legacy","edge":null,"tipo":"derivada"},{"from":"h_ep_legacy","to":"h_tracker_store","edge":"e_h_ep_legacy__h_tracker_store","tipo":"arista"},{"from":"h_tracker_store","to":"h_tracker_rules","edge":"e_h_tracker_store__h_tracker_rules","tipo":"arista"},{"from":"h_tracker_rules","to":"h_organigrama","edge":"e_h_tracker_rules__h_organigrama","tipo":"arista"},{"from":"h_organigrama","to":"h_persistencia","edge":null,"tipo":"derivada"},{"from":"h_persistencia","to":"h_repo_quotes","edge":"e_h_persistencia__h_repo_quotes","tipo":"arista"},{"from":"h_repo_quotes","to":"x_supabase","edge":null,"tipo":"derivada"}]},{"id":"f_notify","name":"Notificación a Outlook","system":"holtmont","category":"Integraciones","desc":"El payload debe conservar ISO 8601 con milisegundos y Z, e indicar si la tarea nace de ANTONIA_VENTAS o del tracker general: de eso depende a quién avisa Make.com.","steps":[{"node":"h_tracker_store","action":"Tras persistir, evalúa si la hoja debe notificar"},{"node":"h_tracker_rules","action":"`build_notification_payload` con fechas `to_iso_z`"},{"node":"h_organigrama","action":"Traduce el nombre del responsable a su correo @holtmont.com"},{"node":"x_make","action":"POST al webhook; el escenario de Make redacta y envía por Outlook"}],"transitions":[{"from":"h_tracker_store","to":"h_tracker_rules","edge":"e_h_tracker_store__h_tracker_rules","tipo":"arista"},{"from":"h_tracker_rules","to":"h_organigrama","edge":"e_h_tracker_rules__h_organigrama","tipo":"arista"},{"from":"h_organigrama","to":"x_make","edge":null,"tipo":"derivada"}]},{"id":"f_paperclip","name":"Agencia de cotización (Paperclip)","system":"holtmont","category":"IA","desc":"Grafo LangGraph de seis nodos con reintento condicional. El nodo `architect` no sólo cotiza: genera la escena 3D de Pascal Editor con muros, vanos, escaleras y mobiliario.","steps":[{"node":"h_index","action":"El usuario describe el proyecto en lenguaje natural"},{"node":"h_apiservice","action":"POST /api/run_paperclip_agency"},{"node":"h_ep_ai","action":"Valida `PaperclipRequest` y toma la clave de API"},{"node":"h_paperclip","action":"levantamiento → architect → calculo → precios → evaluador; si el crítico rechaza, vuelve a precios; si aprueba, integrador → END"},{"node":"x_groq","action":"Inferencia estructurada con Pydantic (dos intentos por nodo)"},{"node":"h_index","action":"Recibe conceptos, precios y la escena de Pascal Editor"}],"transitions":[{"from":"h_index","to":"h_apiservice","edge":"e_h_index__h_apiservice","tipo":"arista"},{"from":"h_apiservice","to":"h_ep_ai","edge":null,"tipo":"derivada"},{"from":"h_ep_ai","to":"h_paperclip","edge":"e_h_ep_ai__h_paperclip","tipo":"arista"},{"from":"h_paperclip","to":"x_groq","edge":"e_h_paperclip__x_groq","tipo":"arista"},{"from":"x_groq","to":"h_index","edge":null,"tipo":"derivada"}]},{"id":"f_audio","name":"Cotización por voz","system":"holtmont","category":"IA","desc":"Del audio del levantamiento a conceptos editables: ffmpeg re-codifica, Whisper transcribe y el LLM extrae personal, material, actividades y herramienta.","steps":[{"node":"h_streamlit","action":"Se graba el audio del levantamiento en obra"},{"node":"h_ai_utils","action":"`transcribir_audio` re-codifica con ffmpeg y llama a Whisper"},{"node":"x_groq","action":"Transcripción y luego extracción a `ExtractionSchema`"},{"node":"h_streamlit","action":"El usuario corrige los conceptos y exporta el PDF de la cotización"}],"transitions":[{"from":"h_streamlit","to":"h_ai_utils","edge":"e_h_streamlit__h_ai_utils","tipo":"arista"},{"from":"h_ai_utils","to":"x_groq","edge":"e_h_ai_utils__x_groq","tipo":"arista"},{"from":"x_groq","to":"h_streamlit","edge":null,"tipo":"derivada"}]},{"id":"f_engineering","name":"Cuestionario de ingeniería","system":"holtmont","category":"IA","desc":"Grafo con ciclo: el evaluador decide si las preguntas bastan; si falta fundamento técnico, manda a investigar y vuelve al entrevistador.","steps":[{"node":"h_index","action":"Se sube el audio o el documento del proyecto"},{"node":"h_ep_ai","action":"POST /api/generate-engineering-questions"},{"node":"h_eng_agent","action":"interviewer → evaluator → {research | interviewer | END}"},{"node":"x_tavily","action":"Búsqueda web cuando el evaluador detecta huecos"},{"node":"x_groq","action":"Redacta el cuestionario final"}],"transitions":[{"from":"h_index","to":"h_ep_ai","edge":null,"tipo":"derivada"},{"from":"h_ep_ai","to":"h_eng_agent","edge":"e_h_ep_ai__h_eng_agent","tipo":"arista"},{"from":"h_eng_agent","to":"x_tavily","edge":"e_h_eng_agent__x_tavily","tipo":"arista"},{"from":"x_tavily","to":"x_groq","edge":null,"tipo":"derivada"}]},{"id":"f_workorder","name":"Pre Work Order","system":"holtmont","category":"Operación","desc":"Un formulario, muchas tablas. Tres bloques (viáticos, transporte, ingeniería) no tienen esquema: el endpoint lo avisa en vez de inventarlo, y el detalle queda en la nota de Obsidian.","steps":[{"node":"h_workorder_html","action":"Se captura el formulario completo"},{"node":"h_apiservice","action":"POST del lote de partidas"},{"node":"h_ep_legacy","action":"Entrega a `process_and_save_work_order`"},{"node":"h_work_order","action":"Genera el folio por cliente y departamento y reparte los bloques"},{"node":"h_persistencia","action":"Escribe `wo_materiales`, `wo_herramienta`, `wo_equipo`…"},{"node":"h_tracker_store","action":"Distribuye la tarea a cada responsable"},{"node":"x_supabase","action":"Work order registrada con sus hijos y sus tareas"}],"transitions":[{"from":"h_workorder_html","to":"h_apiservice","edge":"e_h_workorder_html__h_apiservice","tipo":"arista"},{"from":"h_apiservice","to":"h_ep_legacy","edge":null,"tipo":"derivada"},{"from":"h_ep_legacy","to":"h_work_order","edge":"e_h_ep_legacy__h_work_order","tipo":"arista"},{"from":"h_work_order","to":"h_persistencia","edge":"e_h_work_order__h_persistencia","tipo":"arista"},{"from":"h_persistencia","to":"h_tracker_store","edge":"e_h_tracker_store__h_persistencia","tipo":"arista"},{"from":"h_tracker_store","to":"x_supabase","edge":null,"tipo":"derivada"}]},{"id":"f_v2","name":"Ruta relacional v2","system":"holtmont","category":"Migración","desc":"El destino de la migración, ya en pie y conviviendo con lo heredado: imita el contrato actual para que el corte sea un cambio de URL en `api_service.js`.","steps":[{"node":"h_apiservice","action":"GET /api/v2/tasks?sheet=<hoja> (aún no cableado)"},{"node":"h_ep_v2","action":"Resuelve un `TaskRepository` por petición; 503 si no hay motor"},{"node":"h_repo_tasks","action":"Separa activas de historial y completa columnas obligatorias"},{"node":"h_engine","action":"SELECT tipado"},{"node":"x_supabase","action":"Responde `{success, data, history, headers}`"}],"transitions":[{"from":"h_apiservice","to":"h_ep_v2","edge":null,"tipo":"derivada"},{"from":"h_ep_v2","to":"h_repo_tasks","edge":"e_h_ep_v2__h_repo_tasks","tipo":"arista"},{"from":"h_repo_tasks","to":"h_engine","edge":"e_h_repo_tasks__h_engine","tipo":"arista"},{"from":"h_engine","to":"x_supabase","edge":null,"tipo":"derivada"}]},{"id":"f_cron","name":"Métricas diarias por cron","system":"holtmont","category":"Operación","desc":"Trabajo programado protegido por `X-Cron-Secret`: recalcula KPIs de cotizaciones y envía el reporte a quien tenga el rol, no a una cuenta inventada.","steps":[{"node":"h_ep_cron","action":"Vercel Cron dispara con la cabecera secreta"},{"node":"h_tracker_store","action":"Recalcula métricas del mes en curso"},{"node":"x_gemini","action":"Redacta el resumen ejecutivo del reporte"},{"node":"h_correo","action":"Resuelve destinatarios por rol y arma el HTML"},{"node":"x_smtp","action":"Entrega el correo a las cuentas corporativas"}],"transitions":[{"from":"h_ep_cron","to":"h_tracker_store","edge":"e_h_ep_cron__h_tracker_store","tipo":"arista"},{"from":"h_tracker_store","to":"x_gemini","edge":"e_h_tracker_store__x_gemini","tipo":"arista"},{"from":"x_gemini","to":"h_correo","edge":null,"tipo":"derivada"},{"from":"h_correo","to":"x_smtp","edge":"e_h_correo__x_smtp","tipo":"arista"}]},{"id":"f_upload","name":"Adjuntos y archivado","system":"holtmont","category":"Datos","desc":"La jerarquía de carpetas de Drive se volvió prefijos de ruta en Storage: mismo resultado para el usuario, sin crear nada antes de subir.","steps":[{"node":"h_index","action":"Se adjunta un archivo al tracker, al PPC o al banco de información"},{"node":"h_ep_legacy","action":"POST /api/legacy/upload con la data URL"},{"node":"h_storage","action":"Decodifica, sanea el nombre y arma `2026/MARZO/CLIENTE/archivo.pdf`"},{"node":"x_storage","action":"Objeto almacenado; la URL vuelve a la fila"}],"transitions":[{"from":"h_index","to":"h_ep_legacy","edge":null,"tipo":"derivada"},{"from":"h_ep_legacy","to":"h_storage","edge":"e_h_ep_legacy__h_storage","tipo":"arista"},{"from":"h_storage","to":"x_storage","edge":"e_h_storage__x_storage","tipo":"arista"}]},{"id":"f_directory","name":"Resincronización del directorio","system":"holtmont","category":"Operación","desc":"El organigrama en el fuente existe para poder reparar `people` cuando le falten registros; la fuente viva sigue siendo la tabla.","steps":[{"node":"h_index","action":"Un administrador pide resincronizar"},{"node":"h_ep_legacy","action":"POST /api/legacy/resyncDirectory"},{"node":"h_organigrama","action":"Compara `people` contra el organigrama semilla"},{"node":"h_engine","action":"UPSERT de los registros faltantes"},{"node":"x_supabase","action":"Directorio completo, 19 departamentos"}],"transitions":[{"from":"h_index","to":"h_ep_legacy","edge":null,"tipo":"derivada"},{"from":"h_ep_legacy","to":"h_organigrama","edge":"e_h_ep_legacy__h_organigrama","tipo":"arista"},{"from":"h_organigrama","to":"h_engine","edge":"e_h_organigrama__h_engine","tipo":"arista"},{"from":"h_engine","to":"x_supabase","edge":null,"tipo":"derivada"}]},{"id":"f_parity","name":"Verificación de paridad","system":"holtmont","category":"Verificación","desc":"CODIGO.js no se ejecuta, pero manda. Las pruebas comparan el motor Python contra el original regla por regla y ninguna toca la base de producción.","steps":[{"node":"h_codigo","action":"Regla original en Apps Script"},{"node":"h_tracker_rules","action":"Gemelo en Python, sobre matrices de valores"},{"node":"h_tests","action":"`test_paridad_appscript.py` y `test_tracker_rules.py`"},{"node":"h_eng_mem","action":"`conftest.py` fuerza el motor en memoria y desconecta credenciales"}],"transitions":[{"from":"h_codigo","to":"h_tracker_rules","edge":"e_h_codigo__h_tracker_rules","tipo":"arista"},{"from":"h_tracker_rules","to":"h_tests","edge":"e_h_tests__h_tracker_rules","tipo":"arista"},{"from":"h_tests","to":"h_eng_mem","edge":"e_h_tests__h_eng_mem","tipo":"arista"}]},{"id":"f_boot","name":"Arranque: licencia y tenant","system":"mlclaude","category":"Arranque","desc":"Nada funciona antes de estos dos pasos. Sin licencia válida no hay aplicación; sin tenant activo `ConfigManager` lanza excepción y ninguna ruta puede resolverse.","steps":[{"node":"m_main_ui","action":"Arranca la aplicación de escritorio"},{"node":"m_license_win","action":"Muestra el Machine ID y pide el archivo de licencia"},{"node":"m_drm","action":"Huella de hardware (placa + CPU + disco) y verificación RSA-2048"},{"node":"x_appdata","action":"Lee `license.key` de la raíz, fuera de los tenants"},{"node":"m_bootloader","action":"Se elige o se crea el Tenant B2B"},{"node":"m_path_utils","action":"Fija el tenant activo y monta `Tenants/<id>/`"}],"transitions":[{"from":"m_main_ui","to":"m_license_win","edge":"e_m_main_ui__m_license_win","tipo":"arista"},{"from":"m_license_win","to":"m_drm","edge":"e_m_license_win__m_drm","tipo":"arista"},{"from":"m_drm","to":"x_appdata","edge":"e_m_drm__x_appdata","tipo":"arista"},{"from":"x_appdata","to":"m_bootloader","edge":null,"tipo":"derivada"},{"from":"m_bootloader","to":"m_path_utils","edge":"e_m_bootloader__m_path_utils","tipo":"arista"}]},{"id":"f_vision","name":"Pipeline de video en vivo","system":"mlclaude","category":"Visión","desc":"La ruta caliente, con cadencias deliberadas: posiciones cada 15 frames, rostro cada 10, snapshot de entrada a zona siempre. Insertar por frame satura SQLite con varias cámaras.","steps":[{"node":"m_main_ui","action":"El usuario elige cámara y arranca"},{"node":"m_camera_worker","action":"Hilo demonio con cola de frames y límite de FPS"},{"node":"x_camera","action":"Frame BGR desde USB o RTSP"},{"node":"m_person_detector","action":"YOLOv8n detecta personas y celulares (confianza 0.4)"},{"node":"m_pipeline","action":"Orquesta el frame y decide qué se escribe en este ciclo"},{"node":"m_tracker","action":"ByteTrack asigna `track_id` persistente"},{"node":"m_zone_checker","action":"Resuelve la zona del centroide contra los polígonos del tenant"},{"node":"m_state_manager","action":"Determina el estado: trabajando, inactivo, en el celular, en comida"},{"node":"m_db","action":"INSERT en `tracking`, `states` y `attendance`"},{"node":"x_sqlite","action":"Base del tenant, cifrada en reposo"}],"transitions":[{"from":"m_main_ui","to":"m_camera_worker","edge":"e_m_main_ui__m_camera_worker","tipo":"arista"},{"from":"m_camera_worker","to":"x_camera","edge":"e_m_camera_worker__x_camera","tipo":"arista"},{"from":"x_camera","to":"m_person_detector","edge":null,"tipo":"derivada"},{"from":"m_person_detector","to":"m_pipeline","edge":"e_m_person_detector__m_pipeline","tipo":"arista"},{"from":"m_pipeline","to":"m_tracker","edge":"e_m_pipeline__m_tracker","tipo":"arista"},{"from":"m_tracker","to":"m_zone_checker","edge":null,"tipo":"derivada"},{"from":"m_zone_checker","to":"m_state_manager","edge":null,"tipo":"derivada"},{"from":"m_state_manager","to":"m_db","edge":"e_m_state_manager__m_db","tipo":"arista"},{"from":"m_db","to":"x_sqlite","edge":"e_m_db__x_sqlite","tipo":"arista"}]},{"id":"f_face","name":"Identificación y registro de rostros","system":"mlclaude","category":"Visión","desc":"El reconocimiento es caro (100-200 ms en CPU), así que corre cada 10 frames. Los encodings se guardan firmados y se verifican al cargar.","steps":[{"node":"m_gui_app","action":"Registro por ráfaga con cuenta regresiva"},{"node":"m_face_rec","action":"Calcula encodings, los firma y los guarda"},{"node":"x_appdata","action":"`faces/` del tenant activo"},{"node":"m_pipeline","action":"Cada 10 frames pide identidad para el track vigente"},{"node":"m_face_rec","action":"Verifica la firma, recarga en caliente si cambió el directorio y compara"},{"node":"m_db","action":"Asocia el nombre al `track_id` y actualiza asistencia"}],"transitions":[{"from":"m_gui_app","to":"m_face_rec","edge":"e_m_gui_app__m_face_rec","tipo":"arista"},{"from":"m_face_rec","to":"x_appdata","edge":"e_m_face_rec__x_appdata","tipo":"arista"},{"from":"x_appdata","to":"m_pipeline","edge":null,"tipo":"derivada"},{"from":"m_pipeline","to":"m_face_rec","edge":"e_m_pipeline__m_face_rec","tipo":"arista"},{"from":"m_face_rec","to":"m_db","edge":null,"tipo":"derivada"}]},{"id":"f_snapshot","name":"Evidencia por entrada a zona","system":"mlclaude","category":"Visión","desc":"Único evento sin throttle: entrar a una zona siempre deja imagen, porque es la evidencia que sostiene el reporte.","steps":[{"node":"m_pipeline","action":"Detecta la transición fuera→dentro de una zona"},{"node":"m_zone_checker","action":"Confirma el polígono y su nombre"},{"node":"x_appdata","action":"Guarda el recorte en `snapshots/` del tenant"},{"node":"m_db","action":"INSERT en `snapshots` con track, zona, empleado y ruta"},{"node":"m_gui_app","action":"El visor permite abrirlos desde el reporte de eficiencia"}],"transitions":[{"from":"m_pipeline","to":"m_zone_checker","edge":"e_m_pipeline__m_zone_checker","tipo":"arista"},{"from":"m_zone_checker","to":"x_appdata","edge":"e_m_zone_checker__x_appdata","tipo":"arista"},{"from":"x_appdata","to":"m_db","edge":null,"tipo":"derivada"},{"from":"m_db","to":"m_gui_app","edge":"e_m_gui_app__m_db","tipo":"arista"}]},{"id":"f_reports","name":"Reporte de eficiencia y asistencia","system":"mlclaude","category":"Reportes","desc":"De la base al entregable del cliente. La escritura del Excel corre fuera del hilo de la interfaz y las consultas van parametrizadas — hay una prueba dedicada a inyección SQL.","steps":[{"node":"m_gui_app","action":"Se elige el rango de fechas y, opcionalmente, un empleado"},{"node":"m_db","action":"`get_efficiency_report` / `get_attendance_report` con SQL parametrizado"},{"node":"x_sqlite","action":"Lee `tracking`, `states` y `snapshots`"},{"node":"m_eff_calc","action":"pandas calcula permanencia por persona y zona"},{"node":"m_report_gen","action":"Tablas y gráficos con matplotlib/seaborn"},{"node":"m_report_out","action":"Exporta XLSX/PDF en un hilo aparte"},{"node":"x_office","action":"`Reporte_Eficiencia_Final.xlsx` listo para entregar"}],"transitions":[{"from":"m_gui_app","to":"m_db","edge":"e_m_gui_app__m_db","tipo":"arista"},{"from":"m_db","to":"x_sqlite","edge":"e_m_db__x_sqlite","tipo":"arista"},{"from":"x_sqlite","to":"m_eff_calc","edge":"e_m_eff_calc__x_sqlite","tipo":"arista"},{"from":"m_eff_calc","to":"m_report_gen","edge":"e_m_eff_calc__m_report_gen","tipo":"arista"},{"from":"m_report_gen","to":"m_report_out","edge":"e_m_report_gen__m_report_out","tipo":"arista"},{"from":"m_report_out","to":"x_office","edge":"e_m_report_out__x_office","tipo":"arista"}]},{"id":"f_privacy","name":"Protección de datos en reposo","system":"mlclaude","category":"Seguridad","desc":"Todo lo sensible que queda en la máquina del cliente está cifrado con llave derivada del Machine ID: la base, los volcados de fallo y la firma de los encodings.","steps":[{"node":"m_db_crypto","action":"Deriva la llave del Machine ID y descifra al abrir"},{"node":"x_sqlite","action":"La base sólo existe en claro mientras la aplicación corre"},{"node":"m_db","action":"Opera normalmente durante la sesión"},{"node":"m_db_crypto","action":"Vuelve a cifrar al cerrar"},{"node":"m_crash_logger","action":"El excepthook global cifra cualquier volcado de fallo"},{"node":"x_appdata","action":"Sólo el proveedor puede descifrarlo para dar soporte"}],"transitions":[{"from":"m_db_crypto","to":"x_sqlite","edge":"e_m_db_crypto__x_sqlite","tipo":"arista"},{"from":"x_sqlite","to":"m_db","edge":"e_m_db__x_sqlite","tipo":"arista"},{"from":"m_db","to":"m_db_crypto","edge":"e_m_db__m_db_crypto","tipo":"arista"},{"from":"m_db_crypto","to":"m_crash_logger","edge":null,"tipo":"derivada"},{"from":"m_crash_logger","to":"x_appdata","edge":"e_m_crash_logger__x_appdata","tipo":"arista"}]},{"id":"f_tenant","name":"Aislamiento multi-tenant","system":"mlclaude","category":"Arquitectura","desc":"La razón de que la configuración sea por *getters* y no por constantes: las rutas no pueden existir antes de saber de qué cliente son.","steps":[{"node":"m_bootloader","action":"Selección del Tenant al arrancar (o `OE_TENANT_ID` en headless)"},{"node":"m_path_utils","action":"Valida el id y lo fija en el singleton"},{"node":"m_config","action":"`get_db_path`, `get_faces_dir`, `get_zonas_file`… se evalúan al llamarlas"},{"node":"x_appdata","action":"`Tenants/<id>/{db,faces,zonas,snapshots,export}`"},{"node":"m_db","action":"Cada cliente abre su propia base, sin cruces posibles"}],"transitions":[{"from":"m_bootloader","to":"m_path_utils","edge":"e_m_bootloader__m_path_utils","tipo":"arista"},{"from":"m_path_utils","to":"m_config","edge":"e_m_config__m_path_utils","tipo":"arista"},{"from":"m_config","to":"x_appdata","edge":null,"tipo":"derivada"},{"from":"x_appdata","to":"m_db","edge":null,"tipo":"derivada"}]},{"id":"f_integrity","name":"Integridad del modelo","system":"mlclaude","category":"Seguridad","desc":"Un peso de modelo sustituido cambiaría silenciosamente lo que el sistema ve. Se verifica por hash antes de cargarlo.","steps":[{"node":"m_person_detector","action":"Va a cargar el detector"},{"node":"m_model_verifier","action":"Calcula el hash de `yolov8n.pt` y lo compara con el esperado"},{"node":"x_yolo","action":"Sólo se carga si coincide; si no, `ModelIntegrityError`"},{"node":"m_pipeline","action":"El pipeline arranca con un modelo verificado"}],"transitions":[{"from":"m_person_detector","to":"m_model_verifier","edge":"e_m_person_detector__m_model_verifier","tipo":"arista"},{"from":"m_model_verifier","to":"x_yolo","edge":"e_m_model_verifier__x_yolo","tipo":"arista"},{"from":"x_yolo","to":"m_pipeline","edge":null,"tipo":"derivada"}]},{"id":"f_build","name":"Distribución y licenciamiento","system":"mlclaude","category":"Entrega","desc":"La cadena que convierte el repositorio en un instalador con DRM: la llave privada nunca sale del proveedor.","steps":[{"node":"m_keygen","action":"Se firma la licencia para un Machine ID, expiración y tier"},{"node":"m_build","action":"PyArmor ofusca `drm.py`; PyInstaller construye con `gui_app.spec`"},{"node":"m_drm","action":"El binario valida la firma contra la clave pública embebida"},{"node":"x_appdata","action":"Inno Setup instala y deja `license.key` en su sitio"}],"transitions":[{"from":"m_keygen","to":"m_build","edge":null,"tipo":"derivada"},{"from":"m_build","to":"m_drm","edge":"e_m_build__m_drm","tipo":"arista"},{"from":"m_drm","to":"x_appdata","edge":"e_m_drm__x_appdata","tipo":"arista"}]},{"id":"f_headless","name":"Ejecución sin interfaz","system":"mlclaude","category":"Arranque","desc":"El modo servidor no pasa por el Bootloader, así que debe elegir tenant por variable de entorno antes de resolver una sola ruta.","steps":[{"node":"m_main","action":"Arranca con `OE_TENANT_ID` (o «Default»)"},{"node":"m_path_utils","action":"Fija el tenant antes de tocar rutas"},{"node":"m_video_stream","action":"Prueba las fuentes de video en orden"},{"node":"x_camera","action":"Primera fuente que responde"},{"node":"m_pipeline","action":"Mismo pipeline que la GUI, sin dibujar"},{"node":"m_db","action":"Persiste igual que en modo escritorio"}],"transitions":[{"from":"m_main","to":"m_path_utils","edge":"e_m_main__m_path_utils","tipo":"arista"},{"from":"m_path_utils","to":"m_video_stream","edge":null,"tipo":"derivada"},{"from":"m_video_stream","to":"x_camera","edge":"e_m_video_stream__x_camera","tipo":"arista"},{"from":"x_camera","to":"m_pipeline","edge":null,"tipo":"derivada"},{"from":"m_pipeline","to":"m_db","edge":"e_m_pipeline__m_db","tipo":"arista"}]}]};
+
+/* ================= modelo ================= */
+const NODES = DATA.nodes, EDGES = DATA.edges, FLOWS = DATA.flows;
+const SYS = DATA.meta.systems;
+const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
+const edgeKey = (a,b) => `e_${a}__${b}`;
+const edgeById = Object.fromEntries(EDGES.map(e => [e.id, e]));
+const TYPE_LABEL = DATA.meta.tipos_de_nodo;
+const SYS_COLOR = {holtmont:'#2f6df6', mlclaude:'#0e9f6e'};
+
+const outAdj = {}, inAdj = {};
+EDGES.forEach(e => {
+  (outAdj[e.source] ||= []).push(e);
+  (inAdj[e.target] ||= []).push(e);
+});
+const flowsOfNode = {};
+FLOWS.forEach(f => f.steps.forEach(s => {
+  (flowsOfNode[s.node] ||= new Set()).add(f.id);
+}));
+
+/* ================= estado ================= */
+const state = {
+  system: 'holtmont',      // holtmont | mlclaude | all
+  flow: null,
+  node: null,
+  query: '',
+  tab: 'flows',
+  view: {x:0, y:0, w:1000, h:700}
+};
+
+/* ================= geometría ================= */
+const NW = 192, NH = 58, VGAP = 20, COLGAP = 68, BANDGAP = 150;
+const TARGET_AR = 1.85, MAXGAP = 78;
+const COLW = NW + COLGAP;
+let layout = {};   // id -> {x,y}
+let lanes = [];    // {system, layer, name, x, top, bottom}
+let bands = [];    // {system, y, h}
+let bounds = {x:0,y:0,w:1000,h:700};
+
+function activeSystems(){
+  return state.system === 'all' ? SYS.map(s => s.id) : [state.system];
+}
+
+function computeLayout(){
+  layout = {}; lanes = []; bands = [];
+  const systems = activeSystems();
+  let bandY = 0;
+  let maxRight = 0;
+
+  systems.forEach(sid => {
+    const sysNodes = NODES.filter(n => n.system === sid);
+    const layers = [...new Set(sysNodes.map(n => n.layer))].sort((a,b) => a-b);
+    const cols = layers.map(L => sysNodes.filter(n => n.layer === L));
+    const tallest = Math.max(...cols.map(c => c.length));
+    // Reparto vertical: una rejilla de 9 columnas es muy ancha para una pantalla.
+    // Se estira el alto hasta acercarse a la relación de aspecto del lienzo, con
+    // tope, para que el ajuste inicial llene el espacio en vez de dejar franjas.
+    const width = layers.length * COLW - COLGAP;
+    const wanted = (width / TARGET_AR - tallest * NH) / Math.max(1, tallest - 1);
+    const gap = Math.max(VGAP, Math.min(MAXGAP, wanted));
+    const bandH = tallest * NH + (tallest - 1) * gap;
+
+    layers.forEach((L, ci) => {
+      const col = cols[ci];
+      const x = ci * COLW;
+      const colH = col.length * NH + (col.length - 1) * gap;
+      const y0 = bandY + (bandH - colH) / 2;
+      col.forEach((n, ri) => { layout[n.id] = {x, y: y0 + ri * (NH + gap)}; });
+      const meta = SYS.find(s => s.id === sid);
+      lanes.push({
+        system: sid, layer: L, name: (meta.layers[L] || `Capa ${L}`),
+        x, top: bandY - 34, bottom: bandY + bandH + 12
+      });
+      maxRight = Math.max(maxRight, x + NW);
+    });
+
+    bands.push({system: sid, y: bandY - 66, h: bandH + 90});
+    bandY += bandH + BANDGAP;
+  });
+
+  bounds = {x: -60, y: -110, w: maxRight + 120, h: bandY - BANDGAP + 300};
+}
+
+/* ================= dibujo ================= */
+const svg = document.getElementById('graph');
+const SVGNS = 'http://www.w3.org/2000/svg';
+const mk = (t, a = {}) => {
+  const el = document.createElementNS(SVGNS, t);
+  for (const k in a) el.setAttribute(k, a[k]);
+  return el;
+};
+
+function edgePath(e){
+  const a = layout[e.source], b = layout[e.target];
+  if (!a || !b) return null;
+  const ay = a.y + NH/2, by = b.y + NH/2;
+  // mismo nodo de columna: arco lateral
+  if (Math.abs(a.x - b.x) < 1){
+    const x = a.x + NW, mid = (ay + by)/2, bow = 46 + Math.abs(by-ay)*0.12;
+    return `M ${x} ${ay} C ${x+bow} ${ay}, ${x+bow} ${by}, ${x} ${by}`;
+  }
+  if (b.x > a.x){                       // hacia adelante
+    const x1 = a.x + NW, x2 = b.x;
+    const dx = Math.max(46, (x2 - x1) * 0.48);
+    return `M ${x1} ${ay} C ${x1+dx} ${ay}, ${x2-dx} ${by}, ${x2} ${by}`;
+  }
+  // hacia atrás: sale por la izquierda y vuelve por abajo
+  const x1 = a.x, x2 = b.x + NW;
+  const dip = 34 + Math.min(70, Math.abs(ay - by) * .2);
+  return `M ${x1} ${ay} C ${x1-dip-40} ${ay+dip}, ${x2+dip+40} ${by+dip}, ${x2} ${by}`;
+}
+
+function edgeMid(e){
+  const a = layout[e.source], b = layout[e.target];
+  if (!a || !b) return {x:0, y:0};
+  return {x: (a.x + NW + b.x)/2, y: (a.y + b.y)/2 + NH/2 - 6};
+}
+
+function typeColor(t){
+  return getComputedStyle(document.documentElement).getPropertyValue('--t-'+t).trim() || '#888';
+}
+
+let gEdges, gNodes, gLanes, gExtra;
+
+function render(){
+  computeLayout();
+  svg.innerHTML = '';
+
+  const defs = mk('defs');
+  [['ar','var(--edge)'],['ar-hi','var(--hi)'],['ar-ac','var(--accent)']].forEach(([id,c]) => {
+    const m = mk('marker', {id, viewBox:'0 0 10 10', refX:'9', refY:'5',
+      markerWidth:'6', markerHeight:'6', orient:'auto-start-reverse'});
+    m.appendChild(mk('path', {d:'M 0 0 L 10 5 L 0 10 z', fill:c}));
+    defs.appendChild(m);
+  });
+  svg.appendChild(defs);
+
+  gLanes = mk('g'); gEdges = mk('g'); gExtra = mk('g'); gNodes = mk('g');
+  svg.append(gLanes, gEdges, gExtra, gNodes);
+
+  // bandas y carriles
+  bands.forEach(b => {
+    const meta = SYS.find(s => s.id === b.system);
+    const t = mk('text', {x: -40, y: b.y + 16, class:'bandTitle'});
+    t.textContent = meta.name + '  ·  ' + meta.repo;
+    const s = mk('text', {x: -40, y: b.y + 34, class:'bandSub'});
+    s.textContent = meta.tagline;
+    if (state.system === 'all') gLanes.append(t, s);
+  });
+  lanes.forEach(l => {
+    const t = mk('text', {x: l.x, y: l.top + 18, class:'laneTitle'});
+    t.textContent = l.name;
+    gLanes.appendChild(t);
+    gLanes.appendChild(mk('line', {x1:l.x - 24, y1:l.top + 28, x2:l.x - 24, y2:l.bottom, class:'laneLine'}));
+  });
+
+  // aristas
+  const visible = new Set(Object.keys(layout));
+  EDGES.forEach(e => {
+    if (!visible.has(e.source) || !visible.has(e.target)) return;
+    const d = edgePath(e);
+    if (!d) return;
+    const p = mk('path', {d, class:'edge', 'marker-end':'url(#ar)', 'data-id':e.id});
+    gEdges.appendChild(p);
+    if (e.label){
+      const m = edgeMid(e);
+      const tx = mk('text', {x:m.x, y:m.y, class:'edgelabel', 'text-anchor':'middle', 'data-id':e.id});
+      tx.textContent = e.label;
+      gEdges.appendChild(tx);
+    }
+  });
+
+  // nodos
+  NODES.forEach(n => {
+    const pos = layout[n.id];
+    if (!pos) return;
+    const g = mk('g', {class:'node', 'data-id':n.id, transform:`translate(${pos.x},${pos.y})`,
+      tabindex:'0', role:'button', 'aria-label':n.label});
+    g.appendChild(mk('rect', {class:'box', width:NW, height:NH, x:0, y:0, rx:9}));
+    g.appendChild(mk('rect', {class:'accent', width:4, height:NH-18, x:0, y:9, rx:2, fill:typeColor(n.type)}));
+    const name = mk('text', {class:'name', x:16, y:24});
+    name.textContent = n.label.length > 24 ? n.label.slice(0,23) + '…' : n.label;
+    const kind = mk('text', {class:'kind', x:16, y:42});
+    kind.textContent = (TYPE_LABEL[n.type] || n.type);
+    g.append(name, kind);
+
+    const badge = mk('g', {class:'stepbadge'});
+    badge.appendChild(mk('circle', {cx:NW-18, cy:18, r:10, fill:'var(--hi)'}));
+    const bt = mk('text', {class:'stepnum', x:NW-18, y:21.5, 'text-anchor':'middle'});
+    badge.appendChild(bt);
+    badge.style.display = 'none';
+    g.appendChild(badge);
+
+    gNodes.appendChild(g);
+  });
+
+  fit();
+  applyHighlight();
+}
+
+/* ================= viewport ================= */
+function setView(v){
+  state.view = v;
+  svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+}
+function fit(){
+  const r = svg.getBoundingClientRect();
+  const ar = r.width / Math.max(1, r.height);
+  let w = bounds.w, h = bounds.h;
+  if (w / h > ar) h = w / ar; else w = h * ar;
+  setView({x: bounds.x - (w - bounds.w)/2, y: bounds.y - (h - bounds.h)/2, w, h});
+}
+function fitTo(ids, pad = 90){
+  const ps = ids.map(i => layout[i]).filter(Boolean);
+  if (!ps.length) return fit();
+  const x0 = Math.min(...ps.map(p => p.x)) - pad;
+  const y0 = Math.min(...ps.map(p => p.y)) - pad;
+  const x1 = Math.max(...ps.map(p => p.x)) + NW + pad;
+  const y1 = Math.max(...ps.map(p => p.y)) + NH + pad;
+  const r = svg.getBoundingClientRect(), ar = r.width / Math.max(1, r.height);
+  let w = x1 - x0, h = y1 - y0;
+  if (w / h > ar) h = w / ar; else w = h * ar;
+  setView({x: (x0 + x1)/2 - w/2, y: (y0 + y1)/2 - h/2, w, h});
+}
+function zoom(f, cx, cy){
+  const v = state.view;
+  const px = cx ?? v.x + v.w/2, py = cy ?? v.y + v.h/2;
+  const nw = Math.min(bounds.w * 4, Math.max(300, v.w * f));
+  const nh = nw * (v.h / v.w);
+  setView({x: px - (px - v.x) * (nw/v.w), y: py - (py - v.y) * (nh/v.h), w: nw, h: nh});
+}
+function svgPoint(ev){
+  const r = svg.getBoundingClientRect(), v = state.view;
+  return {x: v.x + (ev.clientX - r.left) / r.width * v.w,
+          y: v.y + (ev.clientY - r.top) / r.height * v.h};
+}
+svg.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const p = svgPoint(ev);
+  zoom(ev.deltaY > 0 ? 1.14 : 1/1.14, p.x, p.y);
+}, {passive:false});
+
+let drag = null;
+svg.addEventListener('pointerdown', ev => {
+  if (ev.target.closest('.node')) return;
+  drag = {x:ev.clientX, y:ev.clientY, v:{...state.view}};
+  svg.classList.add('dragging'); svg.setPointerCapture(ev.pointerId);
+});
+svg.addEventListener('pointermove', ev => {
+  if (!drag) return;
+  const r = svg.getBoundingClientRect();
+  setView({...drag.v,
+    x: drag.v.x - (ev.clientX - drag.x) / r.width * drag.v.w,
+    y: drag.v.y - (ev.clientY - drag.y) / r.height * drag.v.h});
+});
+['pointerup','pointercancel','pointerleave'].forEach(t =>
+  svg.addEventListener(t, () => { drag = null; svg.classList.remove('dragging'); }));
+
+document.getElementById('zin').onclick  = () => zoom(1/1.25);
+document.getElementById('zout').onclick = () => zoom(1.25);
+document.getElementById('zfit').onclick = fit;
+addEventListener('resize', () => { if (!drag) fit(); });
+
+/* ================= resaltado ================= */
+function flowPath(f){
+  const nodes = new Set(), edges = new Set(), order = new Map();
+  f.steps.forEach((s, i) => { nodes.add(s.node); if (!order.has(s.node)) order.set(s.node, i+1); });
+  const derived = [];
+  (f.transitions || []).forEach(t => {
+    if (t.edge) edges.add(t.edge);
+    else derived.push(t);            // salto del relato: conector punteado temporal
+  });
+  return {nodes, edges, order, derived};
+}
+
+function applyHighlight(){
+  const nodeEls = gNodes.querySelectorAll('.node');
+  const edgeEls = gEdges.querySelectorAll('.edge');
+  const labels  = gEdges.querySelectorAll('.edgelabel');
+  nodeEls.forEach(el => { el.classList.remove('dim','active','match');
+    el.querySelector('.stepbadge').style.display = 'none'; });
+  edgeEls.forEach(el => el.classList.remove('dim','active','related'));
+  labels.forEach(el => el.classList.remove('show'));
+
+  const q = state.query.trim().toLowerCase();
+  if (q){
+    nodeEls.forEach(el => {
+      const n = byId[el.dataset.id];
+      const hay = (n.label + ' ' + n.desc + ' ' + n.tech + ' ' + n.files.join(' ') + ' ' + n.tags.join(' ')).toLowerCase();
+      if (hay.includes(q)) el.classList.add('match'); else el.classList.add('dim');
+    });
+  }
+
+  gExtra.innerHTML = '';
+  if (state.flow){
+    const f = FLOWS.find(x => x.id === state.flow);
+    const {nodes, edges, order, derived} = flowPath(f);
+    derived.forEach(t => {
+      const d = edgePath({source: t.from, target: t.to});
+      if (d) gExtra.appendChild(mk('path', {d, class:'edge derived', 'marker-end':'url(#ar-hi)'}));
+    });
+    nodeEls.forEach(el => {
+      if (nodes.has(el.dataset.id)){
+        el.classList.remove('dim'); el.classList.add('active');
+        const b = el.querySelector('.stepbadge');
+        b.style.display = ''; b.querySelector('text').textContent = order.get(el.dataset.id);
+      } else el.classList.add('dim');
+    });
+    edgeEls.forEach(el => {
+      if (edges.has(el.dataset.id)) el.classList.add('active'); else el.classList.add('dim');
+    });
+    labels.forEach(el => { if (edges.has(el.dataset.id)) el.classList.add('show'); });
+  } else if (state.node){
+    const inc = new Set([state.node]);
+    const ed = new Set();
+    (outAdj[state.node] || []).forEach(e => { inc.add(e.target); ed.add(e.id); });
+    (inAdj[state.node]  || []).forEach(e => { inc.add(e.source); ed.add(e.id); });
+    nodeEls.forEach(el => {
+      if (el.dataset.id === state.node) el.classList.add('active');
+      else if (inc.has(el.dataset.id)) el.classList.remove('dim');
+      else el.classList.add('dim');
+    });
+    edgeEls.forEach(el => { if (ed.has(el.dataset.id)) el.classList.add('related'); else el.classList.add('dim'); });
+    labels.forEach(el => { if (ed.has(el.dataset.id)) el.classList.add('show'); });
+  }
+}
+
+function focusNode(id){
+  const p = layout[id], v = state.view;
+  if (!p) return;
+  const cx = p.x + NW/2, cy = p.y + NH/2;
+  const dentro = cx > v.x + v.w*0.08 && cx < v.x + v.w*0.92 &&
+                 cy > v.y + v.h*0.08 && cy < v.y + v.h*0.92;
+  if (!dentro) setView({...v, x: cx - v.w/2, y: cy - v.h/2});
+}
+
+/* ================= tooltip ================= */
+const tip = document.getElementById('tip');
+function showTip(n, ev){
+  tip.innerHTML = `
+    <h4></h4>
+    <div class="meta"></div>
+    <p></p>
+    ${n.tech ? '<div class="tech"></div>' : ''}
+    ${n.files.length ? '<div class="files"></div>' : ''}`;
+  tip.querySelector('h4').textContent = n.label;
+  const sys = SYS.find(s => s.id === n.system);
+  tip.querySelector('.meta').textContent = `${TYPE_LABEL[n.type] || n.type} · ${sys.repo} · ${sys.layers[n.layer]}`;
+  tip.querySelector('p').textContent = n.desc;
+  if (n.tech) tip.querySelector('.tech').textContent = n.tech;
+  if (n.files.length) tip.querySelector('.files').textContent = n.files.join('  ·  ');
+  tip.classList.add('on');
+  moveTip(ev);
+}
+function moveTip(ev){
+  const pad = 14, r = tip.getBoundingClientRect();
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  if (x + r.width  > innerWidth  - 8) x = ev.clientX - r.width  - pad;
+  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
+  tip.style.left = Math.max(8, x) + 'px';
+  tip.style.top  = Math.max(8, y) + 'px';
+}
+function hideTip(){ tip.classList.remove('on'); }
+
+svg.addEventListener('pointerover', ev => {
+  const g = ev.target.closest('.node');
+  if (g) showTip(byId[g.dataset.id], ev);
+});
+svg.addEventListener('pointermove', ev => { if (tip.classList.contains('on')) moveTip(ev); });
+svg.addEventListener('pointerout', ev => { if (ev.target.closest('.node')) hideTip(); });
+svg.addEventListener('click', ev => {
+  const g = ev.target.closest('.node');
+  if (!g) return;
+  selectNode(g.dataset.id);
+});
+svg.addEventListener('keydown', ev => {
+  const g = ev.target.closest('.node');
+  if (g && (ev.key === 'Enter' || ev.key === ' ')){ ev.preventDefault(); selectNode(g.dataset.id); }
+});
+
+/* ================= panel ================= */
+const pflows = document.getElementById('pflows');
+const pdetail = document.getElementById('pdetail');
+const pnodes = document.getElementById('pnodes');
+
+function setTab(t){
+  state.tab = t;
+  document.querySelectorAll('.ptabs button').forEach(b =>
+    b.setAttribute('aria-selected', String(b.dataset.tab === t)));
+  pflows.hidden  = t !== 'flows';
+  pdetail.hidden = t !== 'detail';
+  pnodes.hidden  = t !== 'nodes';
+}
+document.querySelectorAll('.ptabs button').forEach(b =>
+  b.onclick = () => setTab(b.dataset.tab));
+
+function renderFlows(){
+  const sys = activeSystems();
+  const list = FLOWS.filter(f => sys.includes(f.system));
+  const cats = [];
+  list.forEach(f => { if (!cats.some(c => c.k === f.system + '|' + f.category))
+    cats.push({k: f.system + '|' + f.category, system: f.system, category: f.category}); });
+
+  pflows.innerHTML = '';
+  cats.forEach(c => {
+    const g = document.createElement('div');
+    g.className = 'group';
+    const h = document.createElement('h3');
+    h.textContent = state.system === 'all'
+      ? `${SYS.find(s => s.id === c.system).repo} · ${c.category}` : c.category;
+    g.appendChild(h);
+    pflows.appendChild(g);
+
+    list.filter(f => f.system === c.system && f.category === c.category).forEach(f => {
+      const b = document.createElement('button');
+      b.className = 'flow';
+      b.setAttribute('aria-current', String(state.flow === f.id));
+      b.innerHTML = `<span class="ft">
+          <i class="sysdot" style="background:${SYS_COLOR[f.system]}"></i>
+          <span class="fname"></span><span class="fsteps">${f.steps.length} pasos</span>
+        </span><p class="fdesc"></p>`;
+      b.querySelector('.fname').textContent = f.name;
+      b.querySelector('.fdesc').textContent = f.desc;
+      b.onclick = () => selectFlow(f.id);
+      pflows.appendChild(b);
+    });
+  });
+}
+
+function renderNodeList(){
+  const sys = activeSystems();
+  const q = state.query.trim().toLowerCase();
+  const list = NODES.filter(n => sys.includes(n.system)).filter(n => !q ||
+    (n.label + ' ' + n.desc + ' ' + n.tech + ' ' + n.files.join(' ')).toLowerCase().includes(q));
+  pnodes.innerHTML = '<div class="nodelist"></div>';
+  const box = pnodes.firstChild;
+  if (!list.length){ pnodes.innerHTML = '<div class="empty">Ningún componente coincide.</div>'; return; }
+  let lastLayer = null, lastSys = null;
+  list.sort((a,b) => a.system.localeCompare(b.system) || a.layer - b.layer)
+      .forEach(n => {
+    if (n.layer !== lastLayer || n.system !== lastSys){
+      const h = document.createElement('div');
+      h.className = 'group';
+      h.innerHTML = '<h3></h3>';
+      h.querySelector('h3').textContent =
+        (state.system === 'all' ? SYS.find(s => s.id === n.system).repo + ' · ' : '') +
+        SYS.find(s => s.id === n.system).layers[n.layer];
+      box.appendChild(h);
+      lastLayer = n.layer; lastSys = n.system;
+    }
+    const b = document.createElement('button');
+    b.className = 'nrow';
+    b.innerHTML = `<i style="background:${typeColor(n.type)}"></i><span class="nl"></span><span class="nk"></span>`;
+    b.querySelector('.nl').textContent = n.label;
+    b.querySelector('.nk').textContent = (flowsOfNode[n.id] ? flowsOfNode[n.id].size + ' fl.' : '');
+    b.onclick = () => selectNode(n.id);
+    box.appendChild(b);
+  });
+}
+
+function renderDetail(){
+  pdetail.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'detail';
+
+  if (state.flow){
+    const f = FLOWS.find(x => x.id === state.flow);
+    const sys = SYS.find(s => s.id === f.system);
+    wrap.innerHTML = `<h2></h2><div class="sub"></div><p class="lead"></p>
+      <div class="sect">Ruta resaltada · ${f.steps.length} pasos</div>
+      <p class="kv" id="pathnote"></p><ol class="steps"></ol>`;
+    wrap.querySelector('h2').textContent = f.name;
+    wrap.querySelector('.sub').textContent = `${sys.repo} · ${f.category}`;
+    wrap.querySelector('.lead').textContent = f.desc;
+    const der = (f.transitions || []).filter(t => !t.edge).length;
+    wrap.querySelector('#pathnote').textContent = der
+      ? `${(f.transitions||[]).length - der} tramos siguen una relación del grafo; ${der} son saltos del relato (retornos o intermediarios) y van punteados.`
+      : 'Todos los tramos siguen relaciones declaradas del grafo.';
+    const ol = wrap.querySelector('.steps');
+    f.steps.forEach((s, i) => {
+      const n = byId[s.node];
+      const li = document.createElement('li');
+      li.dataset.n = i + 1;
+      li.innerHTML = `<span class="sn"></span><div class="sa"></div>`;
+      li.querySelector('.sn').textContent = n.label;
+      li.querySelector('.sa').textContent = s.action;
+      li.querySelector('.sn').onclick = () => selectNode(s.node);
+      li.onmouseenter = () => focusNode(s.node);
+      ol.appendChild(li);
+    });
+  } else if (state.node){
+    const n = byId[state.node];
+    const sys = SYS.find(s => s.id === n.system);
+    wrap.innerHTML = `<h2></h2><div class="sub"></div>
+      <div class="chips"></div><p class="lead"></p>`;
+    wrap.querySelector('h2').textContent = n.label;
+    wrap.querySelector('.sub').textContent =
+      `${sys.repo} · ${sys.layers[n.layer]} · ${TYPE_LABEL[n.type] || n.type}`;
+    const chips = wrap.querySelector('.chips');
+    (n.tags || []).forEach(t => { const c = document.createElement('span'); c.className='chip'; c.textContent=t; chips.appendChild(c); });
+    wrap.querySelector('.lead').textContent = n.desc;
+
+    if (n.tech){
+      const s = document.createElement('div'); s.className='sect'; s.textContent='Tecnología';
+      const p = document.createElement('p'); p.className='kv'; p.textContent = n.tech;
+      wrap.append(s, p);
+    }
+    if (n.files.length){
+      const s = document.createElement('div'); s.className='sect'; s.textContent='Archivos';
+      const ul = document.createElement('ul'); ul.className='filelist';
+      n.files.forEach(f => { const li=document.createElement('li'); li.textContent=f; ul.appendChild(li); });
+      wrap.append(s, ul);
+    }
+    const outs = outAdj[n.id] || [], ins = inAdj[n.id] || [];
+    if (outs.length){
+      const s = document.createElement('div'); s.className='sect'; s.textContent=`Depende de (${outs.length})`;
+      const d = document.createElement('div'); d.className='rel';
+      outs.forEach(e => {
+        const b = document.createElement('button');
+        b.innerHTML = `<span class="arrow">→ </span><span></span>`;
+        b.querySelector('span:last-child').textContent =
+          byId[e.target].label + (e.label ? `  · ${e.label}` : '');
+        b.onclick = () => selectNode(e.target);
+        d.appendChild(b);
+      });
+      wrap.append(s, d);
+    }
+    if (ins.length){
+      const s = document.createElement('div'); s.className='sect'; s.textContent=`Usado por (${ins.length})`;
+      const d = document.createElement('div'); d.className='rel';
+      ins.forEach(e => {
+        const b = document.createElement('button');
+        b.innerHTML = `<span class="arrow">← </span><span></span>`;
+        b.querySelector('span:last-child').textContent =
+          byId[e.source].label + (e.label ? `  · ${e.label}` : '');
+        b.onclick = () => selectNode(e.source);
+        d.appendChild(b);
+      });
+      wrap.append(s, d);
+    }
+    const fl = [...(flowsOfNode[n.id] || [])];
+    if (fl.length){
+      const s = document.createElement('div'); s.className='sect'; s.textContent=`Participa en ${fl.length} flujo(s)`;
+      const d = document.createElement('div'); d.className='rel';
+      fl.forEach(id => {
+        const f = FLOWS.find(x => x.id === id);
+        const b = document.createElement('button');
+        b.innerHTML = `<span class="arrow">▸ </span><span></span>`;
+        b.querySelector('span:last-child').textContent = f.name;
+        b.onclick = () => selectFlow(id);
+        d.appendChild(b);
+      });
+      wrap.append(s, d);
+    }
+  } else {
+    wrap.innerHTML = `<div class="empty">Elige un flujo o un componente para ver su detalle.</div>`;
+  }
+  pdetail.appendChild(wrap);
+}
+
+/* ================= selección ================= */
+function selectFlow(id){
+  const f = FLOWS.find(x => x.id === id);
+  if (state.system !== 'all' && f.system !== state.system){ setSystem(f.system, true); }
+  state.flow = (state.flow === id) ? null : id;
+  state.node = null;
+  renderFlows(); renderDetail(); applyHighlight();
+  if (state.flow){ fitTo(f.steps.map(s => s.node)); setTab('detail'); }
+  else fit();
+}
+function selectNode(id){
+  const n = byId[id];
+  if (state.system !== 'all' && n.system !== state.system){ setSystem(n.system, true); }
+  state.node = id; state.flow = null;
+  renderFlows(); renderDetail(); applyHighlight();
+  const vecinos = [id,
+    ...(outAdj[id] || []).map(e => e.target),
+    ...(inAdj[id]  || []).map(e => e.source)];
+  fitTo(vecinos, 70);
+  setTab('detail');
+}
+function setSystem(s, silent){
+  state.system = s;
+  document.querySelectorAll('#systabs button').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.sys === s)));
+  render();
+  if (!silent){ state.flow = null; state.node = null; renderDetail(); }
+  renderFlows(); renderNodeList();
+}
+
+/* ================= chrome ================= */
+const systabs = document.getElementById('systabs');
+[...SYS.map(s => ({id:s.id, label:s.repo})), {id:'all', label:'Ambos'}].forEach(t => {
+  const b = document.createElement('button');
+  b.dataset.sys = t.id; b.textContent = t.label;
+  b.setAttribute('aria-pressed', String(state.system === t.id));
+  b.onclick = () => setSystem(t.id);
+  systabs.appendChild(b);
+});
+
+const legend = document.getElementById('legend');
+legend.innerHTML = '<button type="button">Tipos de componente</button><div class="items"></div>';
+const legendItems = legend.querySelector('.items');
+Object.entries(TYPE_LABEL).forEach(([k, v]) => {
+  const s = document.createElement('span');
+  s.innerHTML = `<i style="background:${typeColor(k)}"></i>`;
+  s.append(v);
+  legendItems.appendChild(s);
+});
+legend.querySelector('button').onclick = () => legend.classList.toggle('closed');
+
+document.getElementById('q').addEventListener('input', ev => {
+  state.query = ev.target.value;
+  applyHighlight(); renderNodeList();
+  if (state.query && state.tab !== 'nodes') setTab('nodes');
+});
+document.getElementById('reset').onclick = () => {
+  state.flow = null; state.node = null; state.query = '';
+  document.getElementById('q').value = '';
+  renderFlows(); renderNodeList(); renderDetail(); applyHighlight(); fit(); setTab('flows');
+};
+addEventListener('keydown', ev => {
+  if (ev.key === 'Escape'){ document.getElementById('reset').click(); }
+  if (ev.key === '/' && document.activeElement.id !== 'q'){ ev.preventDefault(); document.getElementById('q').focus(); }
+});
+
+document.getElementById('brandsub').textContent =
+  `${DATA.meta.conteos.nodes} componentes · ${DATA.meta.conteos.edges} relaciones · ${DATA.meta.conteos.flows} flujos`;
+
+render();
+renderFlows();
+renderNodeList();
+renderDetail();
+setTimeout(() => document.getElementById('hint').style.opacity = '0', 6000);
+document.getElementById('hint').style.transition = 'opacity .6s';
+</script>
+</body>
+</html>
