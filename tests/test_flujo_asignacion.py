@@ -286,35 +286,51 @@ def test_no_hay_auto_sincronizacion_cuando_ya_se_guarda_en_la_maestra(monkeypatc
     assert escrituras.count(rules.SALES_MASTER_SHEET) == 1
 
 
-def test_el_avance_del_trabajador_llega_a_la_tabla_maestra():
+def test_una_actividad_asignada_si_lleva_su_avance_a_la_otra_tabla():
     """
-    Es el "se sincroniza en ambas tablas": ESTATUS y AVANCE **sí** viajan, así
-    que el 100% del trabajador cierra también la fila maestra.
+    "Se sincroniza en ambas tablas" para una actividad **normal** (sin fase):
+    ESTATUS y AVANCE viajan, así que el 100 % de quien la recibió la cierra
+    también en la tabla de quien la asignó.
 
-    Decisión propia de este proyecto: el original los borra para que una fase no
-    cierre la cotización entera. Aquí se quiere lo contrario, y lo fijan
-    `test_reverse_sync_sends_cierre_status` y
-    `test_la_venta_maestra_se_archiva_por_avance_del_trabajador` en
-    `tests/test_tracker_rules.py`.
+    La papa caliente es el otro caso y va aparte
+    (`tests/test_asignacion_bilateral.py`): ahí el 100 % de una microtarea no
+    cierra la cotización.
     """
     payload = rules.build_reverse_sync_payload(
         "MIGUEL GALLARDO",
         {"FOLIO": "AV-3250", "AVANCE": "100", "ESTATUS": "HECHO", "CUMPLIMIENTO": "SI"},
-        {"CONCEPTO": "[CD] Cotizar nave", "AVANCE": "100"},
+        {"CONCEPTO": "Cotizar nave", "AVANCE": "100"},
         {"PROCESO_LOG": "[]"})
 
     assert payload is not None
     assert payload["AVANCE"] == "100"
     assert payload["ESTATUS"] == "HECHO"
     # CUMPLIMIENTO es del seguimiento del trabajador y no significa lo mismo en
-    # la fila maestra: ese sí se filtra.
+    # la fila maestra: ese sí se filtra siempre.
     assert "CUMPLIMIENTO" not in payload
-    # Y viaja el avance del proceso, que es lo que pinta el timeline.
-    assert "PROCESO_LOG" in payload and "MAP COT" in payload
 
 
-def test_el_100_del_trabajador_archiva_tambien_la_fila_maestra():
-    """El cierre completo: la maestra pasa a TAREAS REALIZADAS con el dato."""
+def test_el_100_de_una_actividad_asignada_archiva_tambien_la_fila_maestra():
+    """El cierre completo de una actividad sin fase: pasa a TAREAS REALIZADAS."""
+    maestra = _matriz(_fila(folio="AV-3250", concepto="Cotizar nave",
+                            avance="40", estatus="EN PROCESO"))
+    payload = rules.build_reverse_sync_payload(
+        "MIGUEL GALLARDO",
+        {"FOLIO": "AV-3250", "AVANCE": "100", "ESTATUS": "HECHO"},
+        {"CONCEPTO": "Cotizar nave", "AVANCE": "100"},
+        {"PROCESO_LOG": "[]"})
+
+    res = rules.apply_batch_update(maestra, [payload], rules.SALES_MASTER_SHEET,
+                                   skip_notify=True)
+
+    assert res.moved is True
+    _activas, historial, _ = rules.rows_to_dicts(res.values)
+    fila = next(r for r in historial if r.get("FOLIO") == "AV-3250")
+    assert fila["AVANCE"] == "100"
+
+
+def test_pero_el_100_de_una_microtarea_deja_la_venta_abierta():
+    """La contraparte: con marca de fase, la venta no se archiva."""
     maestra = _matriz(_fila(folio="AV-3250", concepto="Cotizar nave",
                             avance="40", estatus="EN PROCESO"))
     payload = rules.build_reverse_sync_payload(
@@ -326,10 +342,8 @@ def test_el_100_del_trabajador_archiva_tambien_la_fila_maestra():
     res = rules.apply_batch_update(maestra, [payload], rules.SALES_MASTER_SHEET,
                                    skip_notify=True)
 
-    assert res.moved is True
-    _activas, historial, _ = rules.rows_to_dicts(res.values)
-    fila = next(r for r in historial if r.get("FOLIO") == "AV-3250")
-    assert fila["AVANCE"] == "100"
+    activas, _historial, _ = rules.rows_to_dicts(res.values)
+    assert any(r.get("FOLIO") == "AV-3250" for r in activas)
 
 
 def test_el_reverse_sync_marca_la_fase_como_terminada():

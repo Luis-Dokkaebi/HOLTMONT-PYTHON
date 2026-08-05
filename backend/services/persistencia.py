@@ -105,7 +105,8 @@ class PersistenciaTracker:
 
     # --- escritura ------------------------------------------------------
 
-    def guardar(self, sheet_name: str, filas: Sequence[Dict[str, Any]]) -> ResultadoGuardado:
+    def guardar(self, sheet_name: str, filas: Sequence[Dict[str, Any]],
+                como_copia: bool = False) -> ResultadoGuardado:
         """
         Persiste un lote de filas de hoja.
 
@@ -114,6 +115,10 @@ class PersistenciaTracker:
         convertir el fallo en un `{success: false, message}` que el frontend ya
         sabe pintar. Lo que **no** se hace nunca es devolver éxito sin haber
         escrito: esa es la mentira que la Fase 0 se dedicó a erradicar.
+
+        `como_copia` marca que estas filas son copias de actividades asignadas o
+        delegadas: necesitan fila propia en la hoja de quien las recibe aunque
+        el folio sea de secuencia global. Ver `TaskRepository.resolver_clave`.
         """
         if not filas:
             return ResultadoGuardado("", sheet_name, [])
@@ -139,7 +144,7 @@ class PersistenciaTracker:
                     for m in modelos
                     if "assignee_raw" in m.columnas()
                 }
-                guardadas = self.tareas.guardar_lote(hoja, modelos)
+                guardadas = self.tareas.guardar_lote(hoja, modelos, como_copia=como_copia)
         except BackendError as exc:
             return ResultadoGuardado(tabla, hoja, [], mensaje=str(exc))
         except Exception as exc:  # validación de Pydantic, sobre todo

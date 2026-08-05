@@ -166,6 +166,57 @@ class TaskRepository:
             self._personas = mapa
         return self._personas
 
+    # --- identidad de fila -----------------------------------------------
+
+    def resolver_clave(self, folio: Any, sheet_name: str,
+                       como_copia: bool = False) -> Optional[str]:
+        """
+        `dedupe_key` de una fila, distinguiendo el original de la copia asignada.
+
+        `compute_dedupe_key` devuelve el folio a secas cuando lleva prefijo de
+        secuencia global (`AV-`, `PPC-`, `TG-`…). Eso es correcto para la fila
+        que nació con ese folio, pero hace **imposible** la copia asignada: dos
+        filas en dos hojas distintas comparten clave, el upsert las colapsa y
+        `_completar_obligatorias` devuelve el `source_sheet` del primero que
+        escribió. Es la razón por la que la delegación de papa caliente se
+        guardaba sin error y no aparecía en la tabla del trabajador.
+
+        `como_copia` **tiene que venir de quien llama**, porque la intención no
+        se puede deducir de la fila. Son dos operaciones distintas que llegan
+        con los mismos datos:
+
+        * Editar `PPC-500` desde la vista del PPC maestro. No es una copia: hay
+          que actualizar la fila que ya existe en la hoja de su responsable, no
+          estrenar otra. Lo fija `test_una_tarea_existente_no_cambia_de_dueno`.
+        * Asignar o delegar `PPC-500` a alguien. Sí es una copia: tiene que
+          existir una fila en la tabla de quien la recibe, con su propio avance.
+
+        Aun pedida como copia, si ya hay una fila con la clave global **en esta
+        misma hoja** se conserva esa clave: las 4.626 filas de la migración no
+        cambian de identidad, porque hacerlo duplicaría cada tarea que hoy
+        funciona.
+
+        Para los folios con iniciales de persona las dos claves ya coinciden,
+        así que esto no cambia nada donde nada estaba roto.
+        """
+        from api.services.asignacion import clave_de_copia
+
+        global_ = compute_dedupe_key(folio, sheet_name)
+        if not global_ or "::" in global_ or not como_copia:
+            return global_
+
+        try:
+            existentes = self.engine.select(
+                TABLA, columnas=["dedupe_key", "source_sheet"],
+                donde={CLAVE_UPSERT: global_})
+        except Exception:  # noqa: BLE001 - sin base, manda la clave histórica
+            return global_
+
+        for fila in existentes:
+            if _clave_hoja(fila.get("source_sheet")) == _clave_hoja(sheet_name):
+                return global_
+        return clave_de_copia(folio, sheet_name)
+
     def resolver_assignee_id(self, assignee_raw: Any) -> Optional[str]:
         """
         `assignee_id` a partir del texto de RESPONSABLE/INVOLUCRADOS.
@@ -180,19 +231,23 @@ class TaskRepository:
 
     # --- escritura -------------------------------------------------------
 
-    def preparar_fila(self, tarea: TaskWrite, sheet_name: str) -> Optional[Dict[str, Any]]:
+    def preparar_fila(self, tarea: TaskWrite, sheet_name: str,
+                      como_copia: bool = False) -> Optional[Dict[str, Any]]:
         """
         `TaskWrite` -> fila lista para el upsert.
 
         Solo se incluyen las columnas que la petición trajo: en un upsert con
         merge, una columna ausente conserva lo que ya había en la base en vez de
         borrarlo.
+
+        `como_copia` marca que esta fila es la copia de una actividad asignada
+        o delegada, no la original. Ver `resolver_clave`.
         """
         columnas = tarea.columnas()
         for prohibida in SOLO_LECTURA:
             columnas.pop(prohibida, None)
 
-        clave = compute_dedupe_key(columnas.get("folio"), sheet_name)
+        clave = self.resolver_clave(columnas.get("folio"), sheet_name, como_copia)
         if not clave:
             return None
 
@@ -230,7 +285,8 @@ class TaskRepository:
 
         return fila
 
-    def guardar_lote(self, sheet_name: str, tareas: Sequence[TaskWrite]) -> List[TaskRead]:
+    def guardar_lote(self, sheet_name: str, tareas: Sequence[TaskWrite],
+                     como_copia: bool = False) -> List[TaskRead]:
         """
         Guarda un lote en una transacción.
 
@@ -239,6 +295,10 @@ class TaskRepository:
         todos los objetos de un mismo arreglo tengan las mismas claves, y
         rellenar las que faltan con nulo borraría en la base columnas que el
         cliente no mandó.
+
+        `como_copia` marca el lote como copias de actividades asignadas o
+        delegadas, para que tengan fila propia en la hoja de quien las recibe.
+        Ver `resolver_clave`.
         """
         if not self.settings.escritura_habilitada:
             raise EscrituraDeshabilitada(
@@ -249,7 +309,7 @@ class TaskRepository:
         if not tareas:
             return []
 
-        filas = [f for f in (self.preparar_fila(t, sheet_name) for t in tareas) if f]
+        filas = [f for f in (self.preparar_fila(t, sheet_name, como_copia) for t in tareas) if f]
         if not filas:
             return []
 
