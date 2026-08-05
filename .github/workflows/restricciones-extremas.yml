@@ -1,0 +1,128 @@
+# ---------------------------------------------------------------------------
+# PUERTA 3 — la unica que un agente no puede saltarse.
+#
+# Corre en el servidor de GitHub, no en la maquina del agente. Para que sirva
+# de verdad hacen falta dos cosas MAS, que se configuran en GitHub y no en el
+# repositorio (ver RESTRICCIONES_EXTREMAS.md seccion 10):
+#
+#   1. Rama `main` protegida, sin push directo.
+#   2. El job `restricciones` marcado como *required status check*.
+#
+# Sin esas dos, esto es un semaforo que nadie esta obligado a mirar.
+# ---------------------------------------------------------------------------
+name: Restricciones Extremas
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Un push nuevo cancela la corrida anterior del mismo PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  restricciones:
+    name: Restricciones R1-R9
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # R7: jamas contra la base real. tests/conftest.py ya lo fuerza, esto es
+      # el cinturon ademas de los tirantes.
+      BACKEND_ENGINE: memoria
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # gitleaks necesita el historial completo
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+          # Versiones fijas: un linter sin pinear cambia sus reglas por debajo
+          # y convierte la puerta en algo que se mueve solo. La primera corrida
+          # reporto 987 hallazgos contra los 51 de la version local por esto.
+          pip install ruff==0.15.8 radon==6.0.1 xenon==0.9.3 pytest-cov
+
+      - name: Instalar Chromium
+        # Sin esto las pruebas de UI se SALTAN (tests/conftest.py) en lugar de
+        # correr. En CI tienen que correr de verdad.
+        run: playwright install --with-deps chromium
+
+      # ------------------------------------------------------------------
+      # R5 · Metricas — primero lo barato: si falla, falla en 20 segundos.
+      # ------------------------------------------------------------------
+      - name: R5 · Lint critico (sintaxis y nombres indefinidos)
+        # Subconjunto que HOY esta en verde, asi que bloquea de verdad.
+        # Los 51 hallazgos del set completo son deuda inventariada (seccion 4)
+        # y se reportan abajo sin romper el build todavia.
+        run: ruff check --select E9,F63,F7,F82 api backend streamlit_cotizador tests
+
+      - name: R5 · Complejidad (trinquete con xenon)
+        # OJO: `radon cc` SIEMPRE sale con codigo 0 -- reporta pero no rompe
+        # nada. Para bloquear de verdad hace falta xenon.
+        #
+        # Umbrales de HOY (medidos, seccion 4): promedio A (4.56) y el peor
+        # bloque en rango F (apply_batch_update, 53). El gate congela ese
+        # estado: el promedio no puede pasar de A y nada puede empeorar a F+.
+        # Cuando se refactorice apply_batch_update, este umbral BAJA a E, luego
+        # a D. Solo se mueve hacia abajo (mejor), nunca hacia arriba.
+        run: xenon --max-average A --max-absolute F api backend streamlit_cotizador
+
+      # ------------------------------------------------------------------
+      # R7 · Seguridad
+      # ------------------------------------------------------------------
+      - name: R7 · Secretos
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------------
+      # R1 + R3 · Pruebas y cobertura — el corazon de la puerta
+      # ------------------------------------------------------------------
+      - name: R1+R3 · Pytest con cobertura (piso del trinquete 60%)
+        # OJO con el numero: 63% es la cobertura de LINEAS; este comando usa
+        # --cov-branch, que ademas exige ramas y da 60.64%. El piso tiene que
+        # medirse con el comando EXACTO que corre la puerta, no con uno
+        # parecido. (Primera version de este workflow: rojo por eso.)
+        run: |
+          python -m pytest -v \
+            --cov=api --cov=backend --cov=streamlit_cotizador \
+            --cov-branch --cov-report=term-missing \
+            --cov-fail-under=60
+
+      # ------------------------------------------------------------------
+      # R1 + R9 · Backend GAS y contratos entre capas
+      # ------------------------------------------------------------------
+      - name: R1+R9 · Suite GAS (Node)
+        run: node tests/gas/run_tests.js
+
+      - name: R9 · Contratos index.html -> api_service.js -> api/main.py
+        run: python -m pytest tests/test_api_contract.py tests/test_paridad_appscript.py -v
+
+      # ------------------------------------------------------------------
+      # Informes que NO bloquean todavia: son la deuda de la seccion 4.
+      # Cuando lleguen a cero, se suben al bloque de arriba (trinquete).
+      # ------------------------------------------------------------------
+      - name: "Deuda · ruff completo (informativo, meta 0)"
+        if: always()
+        # --statistics en vez del reporte completo: la primera corrida escupio
+        # ~900 lineas de detalle que sepultaron el error real de pytest en el
+        # log. R10: si no puedes leer por que fallo, la puerta no sirve.
+        run: ruff check --statistics api backend streamlit_cotizador tests || true
+
+      - name: "Deuda · complejidad D+ (informativo, meta menos de 10)"
+        if: always()
+        run: radon cc api backend streamlit_cotizador -n D -s || true

@@ -24,3 +24,13 @@ Notas/Prework_Orders/
 # que ejecuta la migracion, no en el repositorio.
 scripts/respaldos/
 .venv/
+
+# Artefactos de las restricciones extremas (RESTRICCIONES_EXTREMAS.md).
+# Reportes de cobertura y de mutacion: se regeneran en cada corrida, no se versionan.
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.mutmut-cache
+.ruff_cache/
+.mypy_cache/
