@@ -2,6 +2,36 @@
 
 Este documento define el contexto técnico, las reglas de negocio y las "skills" que los agentes de IA (y desarrolladores) deben utilizar al interactuar con el código base del sistema Holtmont. Al trabajar en este repositorio, debes adherirte estrictamente a estas pautas para evitar romper funcionalidades críticas.
 
+---
+
+## ⚠️ REGLA 0 — OBLIGATORIA PARA TODO AGENTE (leer antes que nada)
+
+> **Todo agente de IA (Claude, Codex, Cursor, Jules, Copilot, Gemini, cualquiera) y todo
+> desarrollador humano DEBE cumplir [`RESTRICCIONES_EXTREMAS.md`](RESTRICCIONES_EXTREMAS.md).**
+> Es vinculante y aplica aunque nadie te lo recuerde en el prompt.
+
+**Antes de reportar cualquier trabajo como terminado, DEBES ejecutar y pegar la salida real:**
+
+```bash
+./run_tests.sh                                      # 706 pruebas Python + 87 pruebas GAS
+ruff check api backend streamlit_cotizador tests
+```
+
+**Las cinco obligaciones no negociables:**
+
+1. **Ejecutar las pruebas siempre**, en toda tarea que toque código. "Es un cambio de una línea" no es excepción.
+2. **Escribir la prueba que falta**: comportamiento nuevo → prueba unitaria; bug corregido → prueba que fallaba antes; regla de negocio → escenario Gherkin.
+3. **No tocar las puertas**: prohibido bajar umbrales o añadir `skip`, `noqa`, `pragma: no cover`, `--no-verify` o `continue-on-error` para que algo pase (*Directiva Cero*).
+4. **Reportar con honestidad**: si una prueba falla, dilo con la salida literal. Nunca afirmes que las pruebas pasan sin haberlas corrido.
+5. **Responder las 5 preguntas de calidad** (§8) en todo PR, en español y con respuestas concretas.
+
+**Por qué:** el dueño de este repositorio no lee línea por línea el código que generas — es una
+decisión deliberada para aprovechar tu productividad. Eso te convierte en la última revisión antes
+de que ese código corra contra datos reales de la empresa. Si no corres las pruebas, no ahorras
+tiempo: gastas la confianza de alguien más.
+
+---
+
 ## 1. Dominio del Stack Tecnológico (GAS + Vue.js Monolítico)
 
 - **Backend (Google Apps Script - GAS):**
@@ -53,6 +83,11 @@ Este documento define el contexto técnico, las reglas de negocio y las "skills"
 
 ## 6. Testing Local y Verificaciones
 
+> **Obligatorio, no opcional.** Los umbrales, la línea base medida y las 10 restricciones completas
+> (unitarias, Gherkin, cobertura, mutación, métricas, seguridad, determinismo, contratos, rollback)
+> están en [`RESTRICCIONES_EXTREMAS.md`](RESTRICCIONES_EXTREMAS.md). Ningún trabajo se reporta como
+> terminado sin haber corrido `./run_tests.sh` y pegado su salida real.
+
 - **Mocking Local:**
   - Las funciones en `CODIGO.js` deben probarse creando stubs para los servicios de GAS (ej. `SpreadsheetApp`, `CacheService`, `PropertiesService`).
 - **Scripts de Verificación:**
@@ -87,6 +122,8 @@ Este documento define el contexto técnico, las reglas de negocio y las "skills"
     4. ¿Escala si el equipo crece?
     5. ¿Tu equipo lo mantiene sin ti?
   - Estas preguntas aseguran que los cambios introducidos sean seguros, mantenibles y sigan las mejores prácticas de ingeniería de software.
+  - **Una respuesta vacía o genérica invalida el PR.** Son el control de calidad, no un trámite. Ver ejemplos de respuestas aceptables y no aceptables en [`RESTRICCIONES_EXTREMAS.md`](RESTRICCIONES_EXTREMAS.md) §R6.1.
+- **Checklist completo de PR:** la plantilla con las 10 restricciones y la declaración de Directiva Cero está en [`RESTRICCIONES_EXTREMAS.md`](RESTRICCIONES_EXTREMAS.md) §8.
 
 ---
 ---
