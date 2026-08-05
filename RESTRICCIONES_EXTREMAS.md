@@ -528,6 +528,53 @@ arregla; nunca se convierte en una exclusión permanente.
 
 ---
 
+## 4.bis · Cómo se hace cumplir esto solo
+
+Un documento no obliga a nadie. La regla que gobierna todo el diseño es:
+
+> **La puerta tiene que vivir donde el agente no tiene permiso de escritura.**
+> Todo lo que está dentro del repositorio, el agente lo puede editar — incluido
+> este archivo. Por eso la defensa es en capas, y solo la última es infranqueable.
+
+| Capa | Dónde vive | ¿Puede el agente burlarla? |
+| --- | --- | --- |
+| 1 · Hooks de Claude Code | `.claude/settings.json` + `.claude/hooks/` | **No durante la sesión.** Los ejecuta el harness, no el modelo |
+| 2 · CI (GitHub Actions) | `.github/workflows/` | No puede falsear el resultado, pero **sí puede editar el workflow** |
+| 3 · Rama protegida + *required checks* | **Configuración de GitHub, fuera del repo** | **No.** No tiene permiso sobre los ajustes del repositorio |
+| 4 · `CODEOWNERS` | `.github/CODEOWNERS` | Cierra el hueco de la capa 2: tocar una puerta exige tu aprobación |
+
+### Capa 1 — los hooks (lo que pasa dentro de la sesión)
+
+Esta es la diferencia entre "el agente debería correr las pruebas" y "el agente
+no puede terminar sin correrlas".
+
+- **`.claude/hooks/proteger_puertas.sh`** (`PreToolUse`) — deniega toda edición a
+  `pytest.ini`, `.github/workflows/**`, `tests/conftest.py`, `run_tests.sh`,
+  `.claude/**` y a este documento. No es una advertencia: la herramienta de
+  edición devuelve *denegado* con el texto de la Directiva Cero.
+- **`.claude/hooks/verificar_pruebas.sh`** (`Stop`) — cuando el agente intenta dar
+  por terminado su trabajo, corre `pytest` y la suite GAS. Si algo falla,
+  **bloquea el cierre** y le devuelve la salida literal. No es que no deba
+  reportar "listo" sobre código roto: es que no puede.
+
+Solo se dispara si hubo cambios en `*.py`, `*.js` o `*.html`, para no penalizar
+sesiones de solo lectura. Costo real medido: **~13 segundos**.
+
+### Capa 3 — la única infranqueable (la tienes que activar tú)
+
+Vive en la configuración de GitHub, que no es un archivo del repositorio y a la
+que ningún agente tiene acceso:
+
+1. **Settings → Branches → Add branch ruleset** sobre `main`
+2. Activar **Require a pull request before merging** (prohíbe el push directo)
+3. Activar **Require status checks to pass** y seleccionar **`Restricciones R1-R9`**
+
+Hecho eso, ningún cambio —tuyo, mío o de cualquier agente— entra a `main` sin
+que 793 pruebas estén en verde. Y si un agente borra o renombra el workflow para
+evitarlo, el check requerido nunca reporta y el merge **queda bloqueado igual**.
+
+---
+
 ## 5. Las cuatro puertas
 
 El código del agente atraviesa cuatro filtros. Cada uno más caro y más lento que el anterior, así
@@ -625,10 +672,28 @@ playwright install chromium      # necesario para las pruebas de UI
 
 ---
 
-## 7. CI — lista para pegar
+## 7. CI — ya instalada
 
-Guardar como `.github/workflows/restricciones-extremas.yml`. Es **la puerta 3**: la única que el
-agente no puede saltarse.
+Vive en **`.github/workflows/restricciones-extremas.yml`**. Es **la puerta 3**.
+
+> ⚠️ **Trampa que costó un bug en la primera versión de este documento:**
+> **`radon cc` SIEMPRE sale con código 0.** Reporta la complejidad en pantalla pero
+> nunca rompe el build — un paso de CI que lo use como gate es puro adorno. Para
+> bloquear de verdad hace falta **`xenon`**, que sí devuelve 1. Es exactamente el
+> tipo de puerta decorativa que este documento existe para evitar, y se coló en el
+> primer intento: verifica siempre el código de salida de tus gates, no su salida
+> en pantalla.
+
+Umbrales activos hoy (§4): `xenon --max-average A --max-absolute F`. El promedio no puede
+degradarse de A, y nada puede empeorar más allá del peor bloque actual. Cuando se refactorice
+`apply_batch_update` (F, 53), el umbral absoluto **baja** a E, luego a D. Solo se mueve hacia
+mejor.
+
+El lint bloqueante es el subconjunto crítico (`E9,F63,F7,F82` — sintaxis y nombres indefinidos),
+que hoy está **en verde**, así que rompe el build de verdad. Los 51 hallazgos del set completo son
+deuda inventariada y se reportan sin bloquear, hasta que lleguen a cero y suban al bloque duro.
+
+Copia de referencia para portarlo a otro proyecto:
 
 ```yaml
 name: Restricciones Extremas
@@ -825,17 +890,23 @@ contradictoria o simplemente por no haberlo cargado en su contexto. Lo que **sí
 agente es un comando que devuelve código de salida distinto de cero y un merge que GitHub bloquea.
 
 El valor de este archivo es ser **la especificación** de esas puertas: qué se mide, con qué umbral,
-por qué, y qué hacer cuando una se cierra. Pero la restricción real vive en tres lugares:
+por qué, y qué hacer cuando una se cierra. La restricción real vive en cuatro lugares (§4.bis):
 
-1. `.github/workflows/restricciones-extremas.yml` — la puerta que ejecuta (§7)
-2. La configuración de rama protegida con *required status checks* — lo que impide el merge
-3. `CODEOWNERS` sobre los archivos de las puertas — lo que impide que se abran solas
+| | Mecanismo | Estado |
+| --- | --- | --- |
+| 1 | `.claude/hooks/` — bloquean dentro de la sesión del agente | ✅ instalado |
+| 2 | `.github/workflows/restricciones-extremas.yml` — la puerta que ejecuta | ✅ instalado |
+| 3 | **Rama protegida con *required status checks*** — lo que impide el merge | ⬜ **falta: solo el dueño puede activarlo** |
+| 4 | `.github/CODEOWNERS` — impide que las puertas se abran solas | ✅ instalado (requiere activar la casilla en GitHub) |
 
-Mientras esos tres no existan, este documento describe un campo minado sin minas.
+**Mientras el punto 3 no esté activado, todo lo demás es un semáforo que nadie está obligado a
+mirar.** Es la única capa que vive fuera del repositorio, y por eso la única que ningún agente
+puede tocar — pero también la única que ninguna herramienta puede instalar por ti. Los pasos
+exactos están en §4.bis.
 
-**El orden correcto de adopción es:** conectar la puerta 3 primero (§7), aunque arranque solo con
-R1 y R3 y con los umbrales flojos de §4. Una puerta modesta que bloquea de verdad vale
-infinitamente más que diez restricciones perfectas que nadie ejecuta.
+**El orden correcto de adopción es:** activar el punto 3 antes que cualquier otra mejora. Una
+puerta modesta que bloquea de verdad vale infinitamente más que diez restricciones perfectas que
+nadie ejecuta.
 
 ---
 

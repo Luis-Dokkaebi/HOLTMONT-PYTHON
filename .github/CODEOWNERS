@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# Dueños de las PUERTAS — Directiva Cero (RESTRICCIONES_EXTREMAS.md §2)
+#
+# Estos archivos definen qué se mide y con qué umbral. Un agente que los
+# modifica no está entregando trabajo: está abriendo la cerradura por dentro.
+#
+# Para que esta lista tenga efecto hay que activar en GitHub:
+#   Settings -> Branches -> main -> Require review from Code Owners
+#
+# Nota para repositorio de un solo desarrollador: GitHub no permite aprobar
+# tu propio PR, así que "Require review from Code Owners" bloquearía todos tus
+# merges. Si trabajas solo, deja esa casilla APAGADA y confía en los required
+# status checks (que sí funcionan en solitario); este archivo queda listo para
+# el día que entre alguien más al equipo.
+# ---------------------------------------------------------------------------
+
+# Puerta 3: el workflow que ejecuta todo.
+/.github/workflows/                 @Luis-Dokkaebi
+/.github/CODEOWNERS                 @Luis-Dokkaebi
+
+# Configuración de la suite y de los umbrales.
+/pytest.ini                         @Luis-Dokkaebi
+/pyproject.toml                     @Luis-Dokkaebi
+/run_tests.sh                       @Luis-Dokkaebi
+
+# R7: la protección que impide que una prueba escriba en producción.
+/tests/conftest.py                  @Luis-Dokkaebi
+
+# Puerta 1-2: los hooks que corren en la máquina del agente.
+/.claude/                           @Luis-Dokkaebi
+
+# El contrato mismo y las reglas que cargan los agentes.
+/RESTRICCIONES_EXTREMAS.md          @Luis-Dokkaebi
+/AGENTS.md                          @Luis-Dokkaebi
+/CLAUDE.md                          @Luis-Dokkaebi

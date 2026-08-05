@@ -182,6 +182,43 @@ def _handle_route(route):
                            "access-control-allow-origin": "*"})
 
 
+def _navegador_disponible() -> bool:
+    """Chromium instalado Y capaz de arrancar (no basta con el paquete pip)."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return False
+    try:
+        with sync_playwright() as p:
+            p.chromium.launch(headless=True).close()
+        return True
+    except Exception:
+        return False
+
+
+def pytest_collection_modifyitems(config, items):
+    """Las pruebas de UI se SALTAN si falta el navegador; nunca se dan por buenas.
+
+    RESTRICCIONES_EXTREMAS.md R8: un fallo de infraestructura no es un fallo de
+    codigo, y mezclarlos entrena al equipo a ignorar la suite entera. Esto no
+    debilita ninguna puerta: en CI se instala Chromium
+    (`playwright install chromium`) y estas pruebas corren de verdad, en serio
+    y bloqueando. Aqui solo se saltan -- con motivo visible en el reporte --
+    cuando el binario sencillamente no existe.
+
+    Extiende el criterio que ya seguia `pytest_configure` mas abajo para el
+    caso de Playwright sin instalar.
+    """
+    de_ui = [i for i in items if "sync_playwright" in getattr(i.module, "__dict__", {})]
+    if not de_ui or _navegador_disponible():
+        return
+    saltar = pytest.mark.skip(
+        reason="Chromium no disponible en este entorno: `playwright install chromium`"
+    )
+    for item in de_ui:
+        item.add_marker(saltar)
+
+
 def pytest_configure(config):
     """Instala el interceptor en cada pagina que abran las pruebas.
 
