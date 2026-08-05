@@ -367,14 +367,34 @@ def test_una_tarea_normal_si_sincroniza_avance_y_estatus():
 # ======================================================================
 
 class _EngineDeCopias:
-    """Motor mínimo: dice en qué hojas vive cada folio, que es el vínculo real."""
+    """
+    Motor mínimo: dice en qué hojas vive cada folio, que es el vínculo real.
+
+    Cada copia se declara como nombre de hoja a secas o como diccionario con lo
+    que la prueba necesite (`assignee_raw`, `concepto`, `created_at`). Las dos
+    formas conviven para que las pruebas que solo miran hojas no tengan que
+    escribir un diccionario completo.
+    """
 
     def __init__(self, por_folio):
         self.por_folio = por_folio
+        self.borrados = []
+
+    @staticmethod
+    def _fila(entrada, orden):
+        if isinstance(entrada, dict):
+            fila = dict(entrada)
+            fila.setdefault("created_at", f"2026-01-{orden + 1:02d}T00:00:00Z")
+            return fila
+        return {"source_sheet": entrada,
+                "created_at": f"2026-01-{orden + 1:02d}T00:00:00Z"}
 
     def select(self, tabla, columnas=None, donde=None, **kwargs):
         folio = (donde or {}).get("folio")
-        return [{"source_sheet": h} for h in self.por_folio.get(folio, [])]
+        return [self._fila(e, i) for i, e in enumerate(self.por_folio.get(folio, []))]
+
+    def borrar(self, tabla, donde):
+        self.borrados.append({"tabla": tabla, "donde": dict(donde)})
 
 
 class _PersistenciaFalsa:
@@ -384,7 +404,12 @@ class _PersistenciaFalsa:
 
 @pytest.fixture()
 def copias_en_la_base():
-    """Folio -> hojas donde ya existe una copia. Lo llena cada prueba."""
+    """
+    Folio -> copias ya existentes. Lo llena cada prueba.
+
+    La primera de la lista es la más antigua, es decir, la hoja **originadora**:
+    es el orden que usa `_hoja_originadora` para saber quién puede reasignar.
+    """
     return {}
 
 
@@ -665,3 +690,179 @@ def test_cerrar_una_microtarea_no_toca_la_de_los_demas_delegados(escrituras, cop
         "MIGUEL_GALLARDO")
 
     assert "ROLANDO MORENO" not in [e["hoja"] for e in escrituras]
+
+
+# ======================================================================
+# 9. Reasignar: solo el originador, y la copia anterior se retira
+# ======================================================================
+#
+# Las dos reglas que eligió el dueño para el caso de la reasignación:
+#   * "Se retira de la tabla de Geraldine."
+#   * "No: solo el originador reasigna."
+#
+# La hoja originadora es la más antigua de las que comparten folio. No hace
+# falta columna nueva: `created_at` ya distingue el original de sus copias,
+# porque la copia se escribe después.
+
+def _copia(hoja, responsable="", concepto="Revisar planos"):
+    return {"source_sheet": hoja, "assignee_raw": responsable, "concepto": concepto}
+
+
+def test_reasignar_retira_la_copia_del_responsable_anterior(escrituras, copias_en_la_base):
+    """Antonio cambia de Geraldine a Miguel: Geraldine deja de verla activa."""
+    from api.services import tracker_store
+
+    copias_en_la_base["AS-0001"] = [
+        _copia("ANTONIO SALAZAR", "GERALDINE"),
+        _copia("GERALDINE", "GERALDINE"),
+    ]
+
+    tracker_store.save_tracker_batch(
+        "ANTONIO SALAZAR",
+        [{"FOLIO": "AS-0001", "CONCEPTO": "Revisar planos", "RESPONSABLE": "MIGUEL GALLARDO"}],
+        "ANTONIO_SALAZAR")
+
+    hojas = [e["hoja"] for e in escrituras]
+    assert "MIGUEL GALLARDO" in hojas, "el nuevo responsable la recibe"
+    assert "GERALDINE" not in hojas, "a la anterior ya no se le escribe nada"
+
+
+def test_la_copia_retirada_se_borra_por_su_clave_de_copia(monkeypatch, copias_en_la_base):
+    """El borrado apunta a la fila de Geraldine, nunca a la de Antonio."""
+    from api.services import tracker_store
+
+    persistencia = _PersistenciaFalsa(copias_en_la_base)
+    copias_en_la_base["AS-0001"] = [
+        _copia("ANTONIO SALAZAR", "GERALDINE"),
+        _copia("GERALDINE", "GERALDINE"),
+    ]
+    monkeypatch.setattr(tracker_store, "_persist_batch",
+                        lambda *a, **k: rules.BatchResult(_matriz(), [dict(t) for t in a[1]], False, 0, []))
+    monkeypatch.setattr(tracker_store, "_persistencia", lambda: persistencia)
+    monkeypatch.setattr(tracker_store, "find_row_object", lambda hoja, folio: {})
+
+    tracker_store.save_tracker_batch(
+        "ANTONIO SALAZAR",
+        [{"FOLIO": "AS-0001", "CONCEPTO": "Revisar planos", "RESPONSABLE": "MIGUEL GALLARDO"}],
+        "ANTONIO_SALAZAR")
+
+    claves = [b["donde"].get("dedupe_key") for b in persistencia.engine.borrados]
+    assert "GERALDINE::AS-0001" in claves
+    assert "ANTONIO SALAZAR::AS-0001" not in claves, "la fila original nunca se borra"
+
+
+def test_no_se_retiran_las_microtareas_de_papa_caliente(monkeypatch, copias_en_la_base):
+    """
+    Las fases delegadas comparten folio con la cotización. Cambiar el
+    responsable de la fila maestra no puede borrar el trabajo repartido.
+    """
+    from api.services import tracker_store
+
+    persistencia = _PersistenciaFalsa(copias_en_la_base)
+    copias_en_la_base["AV-3250"] = [
+        _copia(rules.SALES_MASTER_SHEET, "GERALDINE", "Cotizar nave"),
+        _copia("MIGUEL GALLARDO", "MIGUEL GALLARDO", "Cotizar nave [Calculo y Diseño]"),
+    ]
+    monkeypatch.setattr(tracker_store, "_persist_batch",
+                        lambda *a, **k: rules.BatchResult(_matriz(), [dict(t) for t in a[1]], False, 0, []))
+    monkeypatch.setattr(tracker_store, "_persistencia", lambda: persistencia)
+    monkeypatch.setattr(tracker_store, "find_row_object", lambda hoja, folio: {})
+    monkeypatch.setattr(rules, "apply_hot_potato", lambda *a, **k: None)
+
+    tracker_store.save_tracker_batch(
+        rules.SALES_MASTER_SHEET,
+        [{"FOLIO": "AV-3250", "CONCEPTO": "Cotizar nave", "RESPONSABLE": "ROLANDO MORENO"}],
+        "ANTONIA_VENTAS")
+
+    claves = [b["donde"].get("dedupe_key") for b in persistencia.engine.borrados]
+    assert "MIGUEL GALLARDO::AV-3250" not in claves
+
+
+def test_geraldine_no_puede_reasignar_la_actividad(escrituras, copias_en_la_base):
+    """
+    Regla elegida: solo quien creó la actividad cambia el responsable.
+    Geraldine puede avanzarla o cerrarla, no pasársela a otro.
+    """
+    from api.services import tracker_store
+
+    copias_en_la_base["AS-0001"] = [
+        _copia("ANTONIO SALAZAR", "GERALDINE"),
+        _copia("GERALDINE", "GERALDINE"),
+    ]
+
+    res = tracker_store.save_tracker_batch(
+        "GERALDINE",
+        [{"FOLIO": "AS-0001", "CONCEPTO": "Revisar planos", "RESPONSABLE": "MIGUEL GALLARDO"}],
+        "GERALDINE")
+
+    assert res["success"] is False
+    assert "ANTONIO SALAZAR" in res["message"], "dice a quién pedírselo"
+    assert escrituras == [], "no se guarda nada del lote"
+
+
+def test_geraldine_si_puede_avanzar_y_cerrar_su_actividad(escrituras, copias_en_la_base):
+    """El otro lado: sin cambiar el responsable, trabaja con normalidad."""
+    from api.services import tracker_store
+
+    copias_en_la_base["AS-0001"] = [
+        _copia("ANTONIO SALAZAR", "GERALDINE"),
+        _copia("GERALDINE", "GERALDINE"),
+    ]
+
+    res = tracker_store.save_tracker_batch(
+        "GERALDINE",
+        [{"FOLIO": "AS-0001", "CONCEPTO": "Revisar planos",
+          "RESPONSABLE": "GERALDINE", "AVANCE": "100"}],
+        "GERALDINE")
+
+    assert res["success"] is True
+    assert "GERALDINE" in [e["hoja"] for e in escrituras]
+
+
+def test_el_originador_si_puede_reasignar(escrituras, copias_en_la_base):
+    from api.services import tracker_store
+
+    copias_en_la_base["AS-0001"] = [
+        _copia("ANTONIO SALAZAR", "GERALDINE"),
+        _copia("GERALDINE", "GERALDINE"),
+    ]
+
+    res = tracker_store.save_tracker_batch(
+        "ANTONIO SALAZAR",
+        [{"FOLIO": "AS-0001", "CONCEPTO": "Revisar planos", "RESPONSABLE": "MIGUEL GALLARDO"}],
+        "ANTONIO_SALAZAR")
+
+    assert res["success"] is True
+
+
+def test_una_actividad_nueva_no_esta_bloqueada(escrituras):
+    """Sin copias previas no hay originador que proteger: se está creando."""
+    from api.services import tracker_store
+
+    res = tracker_store.save_tracker_batch(
+        "GERALDINE",
+        [{"FOLIO": "GE-0001", "CONCEPTO": "Nueva", "RESPONSABLE": "MIGUEL GALLARDO"}],
+        "GERALDINE")
+
+    assert res["success"] is True
+
+
+def test_guardar_sin_tocar_el_responsable_no_dispara_el_bloqueo(escrituras, copias_en_la_base):
+    """
+    "Guardar todo" reenvía la tabla entera con su RESPONSABLE intacto. Si el
+    bloqueo mirara solo la presencia de la columna, Geraldine no podría guardar
+    nunca.
+    """
+    from api.services import tracker_store
+
+    copias_en_la_base["AS-0001"] = [
+        _copia("ANTONIO SALAZAR", "GERALDINE"),
+        _copia("GERALDINE", "GERALDINE"),
+    ]
+
+    res = tracker_store.save_tracker_batch(
+        "GERALDINE",
+        [{"FOLIO": "AS-0001", "CONCEPTO": "Revisar planos", "RESPONSABLE": "GERALDINE"}],
+        "GERALDINE")
+
+    assert res["success"] is True

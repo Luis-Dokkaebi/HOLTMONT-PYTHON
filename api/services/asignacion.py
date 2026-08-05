@@ -81,6 +81,11 @@ _CAMPOS_QUE_DISPARAN = ("AVANCE", "ESTATUS", "CUMPLIMIENTO")
 # tomara la copia por un duplicado de aquella alta y la descartara en silencio.
 PREFIJO_METADATO = "_"
 
+# Encabezados por los que puede llegar la columna de responsable.
+_ENCABEZADOS_RESPONSABLE = frozenset({
+    "RESPONSABLE", "RESPONSABLES", "INVOLUCRADOS", "VENDEDOR", "ENCARGADO", "ASIGNADO",
+})
+
 
 def clave_de_copia(folio: Any, hoja: Any) -> Optional[str]:
     """
@@ -166,6 +171,27 @@ def destinos_espejo(hoja_origen: Any, task: Dict[str, Any]) -> List[str]:
             continue
         destinos.append(hoja)
     return destinos
+
+
+def cambia_el_responsable(task: Dict[str, Any], responsable_actual: Any) -> bool:
+    """
+    ¿Esta captura está reasignando la actividad, o solo trabajándola?
+
+    Compara conjuntos de nombres normalizados, no cadenas: "GERALDINE (VENTAS)"
+    y "geraldine" son la misma persona, y "MIGUEL, ANA" y "ANA, MIGUEL" son la
+    misma asignación escrita en otro orden.
+
+    Si la captura no trae RESPONSABLE no hay reasignación: guardar sin tocar esa
+    columna es lo más común que existe. Lo mismo aplica a "Guardar todo", que
+    reenvía la tabla entera con el responsable intacto; si esto mirara solo la
+    presencia de la columna, quien recibió una actividad no podría guardar nunca.
+    """
+    if not any(normalize_header(k) in _ENCABEZADOS_RESPONSABLE for k in (task or {})):
+        return False
+    nuevos = {normalize_staff_name(n) for n in responsables_de(task)}
+    actuales = {normalize_staff_name(n)
+                for n in responsables_de({"RESPONSABLE": responsable_actual})}
+    return bool(nuevos) and nuevos != actuales
 
 
 def construir_espejo(hoja_origen: Any, task: Dict[str, Any], destino: Any,

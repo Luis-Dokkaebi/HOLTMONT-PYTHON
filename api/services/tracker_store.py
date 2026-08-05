@@ -21,10 +21,11 @@ import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from api.services import asignacion
 from api.services import tracker_rules as rules
+from backend.services import auditoria
 
 MAKE_WEBHOOK_ENV = "MAKE_WEBHOOK_URL"
 GEMINI_KEY_ENV = "GEMINI_API_KEY"
@@ -289,9 +290,9 @@ def _espejar_asignaciones(origen: str, tareas: List[Dict[str, Any]], username: s
                        persistencia=persistencia, como_copia=True)
 
 
-def _hojas_con_folio(persistencia, folio: str, excepto: Iterable[str] = ()) -> List[str]:
+def _copias_de(persistencia, folio: Any) -> List[Dict[str, Any]]:
     """
-    Otras tablas donde vive una copia de esta actividad.
+    Filas de `tasks` que comparten folio: las copias de una misma actividad.
 
     El vínculo entre copias es el **folio**, que ya está en la base y no exige
     columna nueva ni metadato que el frontend tenga que recordar. Nunca lanza:
@@ -300,23 +301,125 @@ def _hojas_con_folio(persistencia, folio: str, excepto: Iterable[str] = ()) -> L
     """
     if not persistencia or not folio:
         return []
-    fuera = {rules.normalize_staff_name(h) for h in excepto}
     try:
-        filas = persistencia.engine.select(
-            "tasks", columnas=["source_sheet"], donde={"folio": folio})
+        return list(persistencia.engine.select(
+            "tasks",
+            columnas=["source_sheet", "assignee_raw", "concepto", "created_at"],
+            donde={"folio": str(folio).strip()}))
     except Exception as exc:  # noqa: BLE001
         print(f"[tracker_store] No se pudieron buscar las copias de {folio!r}: {exc}")
         return []
 
+
+def _hoja_originadora(copias: Sequence[Dict[str, Any]]) -> Optional[str]:
+    """
+    Hoja donde nació la actividad: la fila más antigua de las que comparten folio.
+
+    No hace falta columna nueva para saberlo. La copia se escribe **después** del
+    original —el espejo corre al final del guardado—, así que `created_at` ya
+    distingue una cosa de la otra. Las filas sin fecha se van al final, porque
+    ordenar `None` junto a texto reventaría la comparación.
+    """
+    con_hoja = [c for c in copias if c.get("source_sheet")]
+    if not con_hoja:
+        return None
+    return min(con_hoja, key=lambda c: str(c.get("created_at") or "9999"))["source_sheet"]
+
+
+def _hojas_con_folio(persistencia, folio: str, excepto: Iterable[str] = ()) -> List[str]:
+    """Hojas con una copia de este folio, salvo las indicadas. Sin repetir."""
+    fuera = {rules.normalize_staff_name(h) for h in excepto}
     hojas: List[str] = []
-    for fila in filas:
+    for fila in _copias_de(persistencia, folio):
         hoja = fila.get("source_sheet")
         if not hoja or rules.normalize_staff_name(hoja) in fuera:
             continue
-        if hoja not in hojas:
-            hojas.append(hoja)
+        hojas.append(hoja)
         fuera.add(rules.normalize_staff_name(hoja))
     return hojas
+
+
+def _motivo_de_bloqueo_por_reasignacion(persistencia, origen: str,
+                                        tareas: List[Dict[str, Any]]) -> str:
+    """
+    Comprueba la regla "solo el originador reasigna" (decisión del dueño).
+
+    Quien recibe una actividad puede avanzarla y cerrarla, pero no pasársela a
+    un tercero: para eso se la devuelve a quien se la dio. Una actividad que
+    todavía no existe en la base no tiene originador que proteger — se está
+    creando, y crear no es reasignar.
+
+    Devuelve el motivo, o cadena vacía si no hay bloqueo. Se comprueba **antes**
+    de escribir nada: guardar la mitad del lote y rechazar la otra dejaría las
+    dos tablas contándose historias distintas.
+    """
+    for tarea in tareas:
+        folio = rules.pick_task_value(tarea, ["FOLIO", "ID"])
+        copias = _copias_de(persistencia, folio)
+        originadora = _hoja_originadora(copias)
+        if not originadora or rules.normalize_staff_name(originadora) == rules.normalize_staff_name(origen):
+            continue
+
+        propia = next(
+            (c for c in copias
+             if rules.normalize_staff_name(c.get("source_sheet")) == rules.normalize_staff_name(origen)),
+            {},
+        )
+        if asignacion.cambia_el_responsable(tarea, propia.get("assignee_raw")):
+            return (f"Solo {originadora} puede reasignar la actividad {folio}: "
+                    f"es quien la creó. Puedes avanzarla o cerrarla, y si hay que "
+                    f"pasarla a alguien más, pídeselo a {originadora}.")
+    return ""
+
+
+def _retirar_copias_huerfanas(origen: str, tareas: List[Dict[str, Any]], username: str,
+                              persistencia) -> None:
+    """
+    Quita la copia de quien dejó de ser responsable.
+
+    Decisión del dueño: al reasignar, la actividad "se retira de la tabla de
+    Geraldine" y aparece en la del nuevo responsable, con rastro en `system_log`.
+
+    Dos filas nunca se tocan, y las dos por la misma razón —comparten folio pero
+    no son copias de esta asignación—:
+
+    * la de la hoja que está guardando, que es el original;
+    * las microtareas de papa caliente, que llevan marca de fase en el CONCEPTO.
+      Cambiar el responsable de una cotización no puede borrar el trabajo ya
+      repartido entre sus fases.
+    """
+    if not persistencia:
+        return
+
+    eventos = []
+    for tarea in tareas:
+        if asignacion.es_delegacion_de_fase(tarea):
+            continue
+        folio = rules.pick_task_value(tarea, ["FOLIO", "ID"])
+        if not folio:
+            continue
+        vigentes = {rules.normalize_staff_name(d)
+                    for d in asignacion.destinos_espejo(origen, tarea)}
+        vigentes.add(rules.normalize_staff_name(origen))
+
+        for copia in _copias_de(persistencia, folio):
+            hoja = copia.get("source_sheet")
+            if not hoja or rules.normalize_staff_name(hoja) in vigentes:
+                continue
+            if asignacion.es_delegacion_de_fase({"CONCEPTO": copia.get("concepto")}):
+                continue
+            clave = asignacion.clave_de_copia(folio, hoja)
+            try:
+                persistencia.engine.borrar("tasks", {"dedupe_key": clave})
+            except Exception as exc:  # noqa: BLE001 - la tarea ya se guardó
+                print(f"[tracker_store] No se pudo retirar la copia {clave!r}: {exc}")
+                continue
+            eventos.append(auditoria.evento(
+                username, auditoria.ACCION_ACTUALIZAR,
+                f"Retirada copia de {folio} en {hoja} por reasignacion desde {origen}"))
+
+    if eventos:
+        auditoria.registrar_lote(eventos, engine=persistencia.engine)
 
 
 def _sincronizar_copias(origen: str, tareas: List[Dict[str, Any]], username: str,
@@ -369,6 +472,11 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
     # `source_sheet` y el directorio de `people`.
     persistencia = _persistencia()
 
+    # Solo el originador reasigna. Se comprueba antes de escribir nada.
+    bloqueo = _motivo_de_bloqueo_por_reasignacion(persistencia, target, tasks)
+    if bloqueo:
+        return {"success": False, "message": bloqueo}
+
     processed: List[Dict[str, Any]] = []
     for raw_task in tasks:
         task = dict(raw_task)
@@ -402,6 +510,7 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
         return {"success": False, "message": result.message}
 
     _espejar_asignaciones(target, result.data, username, persistencia)
+    _retirar_copias_huerfanas(target, result.data, username, persistencia)
     _sincronizar_copias(target, result.data, username, persistencia)
 
     # Reverse Sync: el trabajador cierra su parte y la maestra se entera.
