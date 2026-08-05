@@ -6,3 +6,7 @@
 # asi que requirements.txt tambien hace falta.
 pytest>=8.0
 playwright>=1.40
+# Escenarios Gherkin de tests/features/ (R2). El limite superior es deliberado:
+# el salto de major cambia el analizador de .feature y con el las palabras clave
+# en espanol, que es justo lo que estos escenarios necesitan estable.
+pytest-bdd>=8.1,<9
