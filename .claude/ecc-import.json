@@ -1,0 +1,443 @@
+{
+  "origen": {
+    "repositorio": "https://github.com/affaan-m/ECC",
+    "commit": "68e926bf77dd8ac15ea67b1aa551cba5b8b17e53",
+    "licencia": "MIT (c) 2026 Affaan Mustafa"
+  },
+  "archivos": {
+    ".claude/agents/a11y-architect.md": {
+      "origen": "agents/a11y-architect.md",
+      "sha256": "f42432e4a9670181e627076cfcd66804774db6e1d6cc15873a6370e9668e7bcb",
+      "adaptado": false
+    },
+    ".claude/agents/agent-evaluator.md": {
+      "origen": "agents/agent-evaluator.md",
+      "sha256": "d40e62afd202ec4fdaee020d0f99703dfe54c4dc005a379eefbc11b0758c23d3",
+      "adaptado": false
+    },
+    ".claude/agents/architect.md": {
+      "origen": "agents/architect.md",
+      "sha256": "36e782e21364dd83d4a295ca3bb7d715882e85c865d851ec0f648f33006f9b98",
+      "adaptado": false
+    },
+    ".claude/agents/build-error-resolver.md": {
+      "origen": "agents/build-error-resolver.md",
+      "sha256": "57e8d92be91812bafae1240cf628f39e5910e6e3c69a78edb51db764192e7afc",
+      "adaptado": false
+    },
+    ".claude/agents/chief-of-staff.md": {
+      "origen": "agents/chief-of-staff.md",
+      "sha256": "914cc720fe71bad7c15d94f2677fa0a97756e39492a66eeade40688c5ce3e23a",
+      "adaptado": false
+    },
+    ".claude/agents/code-architect.md": {
+      "origen": "agents/code-architect.md",
+      "sha256": "bb981dc0e80fea545f22c4613f1b1e4af4f8ee03b17333264804d36864b2e9d4",
+      "adaptado": false
+    },
+    ".claude/agents/code-explorer.md": {
+      "origen": "agents/code-explorer.md",
+      "sha256": "4ee5dfcdbdf625c41ba4a57bb4e45d56badaecc745bc36c94231c0f0136d087c",
+      "adaptado": false
+    },
+    ".claude/agents/code-reviewer.md": {
+      "origen": "agents/code-reviewer.md",
+      "sha256": "07447dbe8733fb9e24b1016d52b62468748b27547b5cff7af3021f3436624ee5",
+      "adaptado": false
+    },
+    ".claude/agents/code-simplifier.md": {
+      "origen": "agents/code-simplifier.md",
+      "sha256": "85cd2d596c03aabeb8c7b5d130401dd67edcf59468402e7e378e4994c7602f9e",
+      "adaptado": false
+    },
+    ".claude/agents/comment-analyzer.md": {
+      "origen": "agents/comment-analyzer.md",
+      "sha256": "94228a2a372364a0dd5bcb8679958589fc7f87903840824c39ea8bbb233fc3c4",
+      "adaptado": false
+    },
+    ".claude/agents/conversation-analyzer.md": {
+      "origen": "agents/conversation-analyzer.md",
+      "sha256": "d330926b677516616089db269a7f2f4f39de98fd0f58c140a8af8537608d979f",
+      "adaptado": false
+    },
+    ".claude/agents/cpp-build-resolver.md": {
+      "origen": "agents/cpp-build-resolver.md",
+      "sha256": "45cc3bf6e7a9617f679676bc4c890b40299c47001c0e91a0a4bdda0808064b41",
+      "adaptado": false
+    },
+    ".claude/agents/cpp-reviewer.md": {
+      "origen": "agents/cpp-reviewer.md",
+      "sha256": "f7a3a9498e0347088c08bebd108a873c944743657c96d349f53c1d879a81090b",
+      "adaptado": false
+    },
+    ".claude/agents/csharp-reviewer.md": {
+      "origen": "agents/csharp-reviewer.md",
+      "sha256": "7976699e94de814598b0f0d73b3b517bd1fcb4cc97240c2a7085edf929af9d4d",
+      "adaptado": false
+    },
+    ".claude/agents/dart-build-resolver.md": {
+      "origen": "agents/dart-build-resolver.md",
+      "sha256": "0b1c593a5c3db0339073630ccda5f1dda802a0850a4917fd71e500c35d923481",
+      "adaptado": false
+    },
+    ".claude/agents/database-reviewer.md": {
+      "origen": "agents/database-reviewer.md",
+      "sha256": "c69200806b9b0ace2cc864aa81ba4be6e401bb7f0aa27b856d8a203dbbf871bd",
+      "adaptado": false
+    },
+    ".claude/agents/django-build-resolver.md": {
+      "origen": "agents/django-build-resolver.md",
+      "sha256": "5a0e6ceb28b93393cc31406fd5401f20613d6c3d311feecf22464c7d66d0345c",
+      "adaptado": false
+    },
+    ".claude/agents/django-reviewer.md": {
+      "origen": "agents/django-reviewer.md",
+      "sha256": "0a9e5f90aca578c663e0aa97de50aa6acdd2c289065723da4f714ecdde89b916",
+      "adaptado": false
+    },
+    ".claude/agents/doc-updater.md": {
+      "origen": "agents/doc-updater.md",
+      "sha256": "c2799a9bf64ea18ebffdf70286b1fff21fac3dbb672476106d3a847ddc17a69d",
+      "adaptado": false
+    },
+    ".claude/agents/docs-lookup.md": {
+      "origen": "agents/docs-lookup.md",
+      "sha256": "e27b1c2c214beb697bb17c3c80fd8a2bb6aace1fc91d8b06d41816e8f1349ac2",
+      "adaptado": false
+    },
+    ".claude/agents/e2e-runner.md": {
+      "origen": "agents/e2e-runner.md",
+      "sha256": "47b406309f1b9772651e1bf138d81f4da483434b8caf2f1f515754ba2cf6831d",
+      "adaptado": false
+    },
+    ".claude/agents/fastapi-reviewer.md": {
+      "origen": "agents/fastapi-reviewer.md",
+      "sha256": "c18482b5e937da30bbb5e86a24f08117218405bcb043ad4629059f8c9dbd4202",
+      "adaptado": false
+    },
+    ".claude/agents/flutter-reviewer.md": {
+      "origen": "agents/flutter-reviewer.md",
+      "sha256": "6a412e729bf5fd8a865870f7d63d949a0a9b8f027900bb2a3eac06e3e1e434d9",
+      "adaptado": false
+    },
+    ".claude/agents/fsharp-reviewer.md": {
+      "origen": "agents/fsharp-reviewer.md",
+      "sha256": "23959730d35eb17ebc1648224cd0d860c784450f3fcef531d33f9917ca9cfa53",
+      "adaptado": false
+    },
+    ".claude/agents/gan-evaluator.md": {
+      "origen": "agents/gan-evaluator.md",
+      "sha256": "b3c31adfc243fb7c22b45ebf3e127c97097014dd7eeb0692e5b47b63f320f2ff",
+      "adaptado": false
+    },
+    ".claude/agents/gan-generator.md": {
+      "origen": "agents/gan-generator.md",
+      "sha256": "61852503fa2784c237d4f59952bfec9ca4193e2f7f54cac8858af83b3ce49faa",
+      "adaptado": false
+    },
+    ".claude/agents/gan-planner.md": {
+      "origen": "agents/gan-planner.md",
+      "sha256": "36ee63529badbc45e5c090646c21373ae0a06df62ef60b766f7fb52cfbd1d4c8",
+      "adaptado": false
+    },
+    ".claude/agents/go-build-resolver.md": {
+      "origen": "agents/go-build-resolver.md",
+      "sha256": "6b8ee2a78f17295a0b7045386d16636ff63c20f8f949dc3fe85485e15601a14e",
+      "adaptado": false
+    },
+    ".claude/agents/go-reviewer.md": {
+      "origen": "agents/go-reviewer.md",
+      "sha256": "a2472d08781fe2d368be30a7d8b261dc650cb24115a4dbea1801bc575b45c656",
+      "adaptado": false
+    },
+    ".claude/agents/harmonyos-app-resolver.md": {
+      "origen": "agents/harmonyos-app-resolver.md",
+      "sha256": "e4785da21edbc7a44e982a85e82757164b2e154ed975c06cf46d04d1ea54c95c",
+      "adaptado": false
+    },
+    ".claude/agents/harness-optimizer.md": {
+      "origen": "agents/harness-optimizer.md",
+      "sha256": "42de1efdc4d80b8a6eb7bb464925bbde037b9b0d4be3b9f4fc0fc61d0daf18ec",
+      "adaptado": false
+    },
+    ".claude/agents/healthcare-reviewer.md": {
+      "origen": "agents/healthcare-reviewer.md",
+      "sha256": "627c860b6b8b2c31635d13c563e7933fd4fcc4b4c57a499067695e0d284d74ea",
+      "adaptado": false
+    },
+    ".claude/agents/homelab-architect.md": {
+      "origen": "agents/homelab-architect.md",
+      "sha256": "c86ede14c930449474114da772993bb18154c7c80b6ea9ec1363c4a880b60365",
+      "adaptado": false
+    },
+    ".claude/agents/java-build-resolver.md": {
+      "origen": "agents/java-build-resolver.md",
+      "sha256": "22bb998dd3d944fb4eb7c2b8fc96afac451f359c8df4d5ae0ede12b519148537",
+      "adaptado": false
+    },
+    ".claude/agents/java-reviewer.md": {
+      "origen": "agents/java-reviewer.md",
+      "sha256": "4392ff4ee374b4c99e64bf263a6a3291c159bd24cb9ee019ea1b53aabf68ee80",
+      "adaptado": false
+    },
+    ".claude/agents/kotlin-build-resolver.md": {
+      "origen": "agents/kotlin-build-resolver.md",
+      "sha256": "b54cb14bdee4fe8bf0b46ef28545556891ee02107f11fb9315328faf2eb120f3",
+      "adaptado": false
+    },
+    ".claude/agents/kotlin-reviewer.md": {
+      "origen": "agents/kotlin-reviewer.md",
+      "sha256": "1463ca123bcf73d4658c44d3974672ea2778da4fbb972d19b55367dca7e9d3ab",
+      "adaptado": false
+    },
+    ".claude/agents/loop-operator.md": {
+      "origen": "agents/loop-operator.md",
+      "sha256": "588dee02a012229a301d19f078ca3dfa32706a4a4cf37faef3b6d4ab5a516720",
+      "adaptado": false
+    },
+    ".claude/agents/marketing-agent.md": {
+      "origen": "agents/marketing-agent.md",
+      "sha256": "298b719db1ec9430420f2e957a2486b45647a03d7db0666b22d765185538aa4d",
+      "adaptado": false
+    },
+    ".claude/agents/mle-reviewer.md": {
+      "origen": "agents/mle-reviewer.md",
+      "sha256": "690c63f40e03b4c4c0089b142dcfbe0f2efc761662d4597fa6819b1c30044662",
+      "adaptado": false
+    },
+    ".claude/agents/network-architect.md": {
+      "origen": "agents/network-architect.md",
+      "sha256": "210afb3a2d9ae191df45740dc6fc0b645d86c5714c63f5518a0f3f7fdbf7458e",
+      "adaptado": false
+    },
+    ".claude/agents/network-config-reviewer.md": {
+      "origen": "agents/network-config-reviewer.md",
+      "sha256": "2b0288f0fd3071e525cc198f008e31503f7478094997b82fd22ddba14a9f6f85",
+      "adaptado": false
+    },
+    ".claude/agents/network-troubleshooter.md": {
+      "origen": "agents/network-troubleshooter.md",
+      "sha256": "7dd95c2e5516a4b89534734aa193525e145f990b90af82f14e6864c4643f7f7c",
+      "adaptado": false
+    },
+    ".claude/agents/opensource-forker.md": {
+      "origen": "agents/opensource-forker.md",
+      "sha256": "d44774ddf16af776e22096c6cfc572fe1f04e0d100aa1a88fd2eed3814e43b5d",
+      "adaptado": false
+    },
+    ".claude/agents/opensource-packager.md": {
+      "origen": "agents/opensource-packager.md",
+      "sha256": "9e17f1220adbc5b0f14e34763b29309012f21be1315dcf40144be91ef5075dcd",
+      "adaptado": false
+    },
+    ".claude/agents/opensource-sanitizer.md": {
+      "origen": "agents/opensource-sanitizer.md",
+      "sha256": "7d03ca32886f9194530a816131ca57ad705614815500a9a8a1e5b77f3117c453",
+      "adaptado": false
+    },
+    ".claude/agents/performance-optimizer.md": {
+      "origen": "agents/performance-optimizer.md",
+      "sha256": "a877b0ae8809394455112e0224fb38633ed8455d2dcc800960217df4d7a26ed7",
+      "adaptado": false
+    },
+    ".claude/agents/php-reviewer.md": {
+      "origen": "agents/php-reviewer.md",
+      "sha256": "83b85b76f1b7a5bf4ac792360ed2f5b9a5ddda7677ca0254e9dfef831ae8daff",
+      "adaptado": false
+    },
+    ".claude/agents/planner.md": {
+      "origen": "agents/planner.md",
+      "sha256": "2c53525c1ad9c20b8cd20823e6cac8964797dc753001813e438a078bb0b62f14",
+      "adaptado": false
+    },
+    ".claude/agents/pr-test-analyzer.md": {
+      "origen": "agents/pr-test-analyzer.md",
+      "sha256": "1d9932d39cfb29f700f89ba437024f4947f329997187e392ff77608afb66d846",
+      "adaptado": false
+    },
+    ".claude/agents/python-reviewer.md": {
+      "origen": "agents/python-reviewer.md",
+      "sha256": "ffe00e20bdb10cee9c66ff97e3af672aab2c6a3b0f8a9af11ca6615154ee444e",
+      "adaptado": false
+    },
+    ".claude/agents/pytorch-build-resolver.md": {
+      "origen": "agents/pytorch-build-resolver.md",
+      "sha256": "e87f6ca53f5a41d24a2185702cbaceae7ecd3b7c8790a3cf0728bce4688d22e5",
+      "adaptado": false
+    },
+    ".claude/agents/react-build-resolver.md": {
+      "origen": "agents/react-build-resolver.md",
+      "sha256": "44dd166bc2f6133839b5c11230eb0ad22811d575dfb6b405720e48e56593e6a7",
+      "adaptado": false
+    },
+    ".claude/agents/react-reviewer.md": {
+      "origen": "agents/react-reviewer.md",
+      "sha256": "3a0d97405a3e41ce7cb2eef9f07194d7374b45ae3cfcad75af0414212f400898",
+      "adaptado": false
+    },
+    ".claude/agents/refactor-cleaner.md": {
+      "origen": "agents/refactor-cleaner.md",
+      "sha256": "91925f7f34da099fecb5f94e19f791ab2f53d926052d8126b78a722781993a52",
+      "adaptado": false
+    },
+    ".claude/agents/rust-build-resolver.md": {
+      "origen": "agents/rust-build-resolver.md",
+      "sha256": "82a4f68ba5a999598d46178456303aac815c72d89a2d14caeb1e21d6e132f716",
+      "adaptado": false
+    },
+    ".claude/agents/rust-reviewer.md": {
+      "origen": "agents/rust-reviewer.md",
+      "sha256": "24a57af191b359551fd6fd3d35f39b0d3b52e0f10ceb56f2ab7aecf31e342d69",
+      "adaptado": false
+    },
+    ".claude/agents/security-reviewer.md": {
+      "origen": "agents/security-reviewer.md",
+      "sha256": "46d310c1ddc42a727cab58e5e4342a8c261b55541161dc6ffe3d6c3259fd019e",
+      "adaptado": false
+    },
+    ".claude/agents/seo-specialist.md": {
+      "origen": "agents/seo-specialist.md",
+      "sha256": "ad02d50b2aa70725f319dbaf9a10b7b729c88fa0766e44ee07854bf8ebabfc46",
+      "adaptado": false
+    },
+    ".claude/agents/silent-failure-hunter.md": {
+      "origen": "agents/silent-failure-hunter.md",
+      "sha256": "4d67604088738bbb7576e7a319a9d315e384e088dab5c26db8c83227fe2cbd7d",
+      "adaptado": false
+    },
+    ".claude/agents/spec-miner.md": {
+      "origen": "agents/spec-miner.md",
+      "sha256": "f774e6e1cb69193a40f8b039bf2b1a5c987e8059e2377d6c5180f9190345d991",
+      "adaptado": false
+    },
+    ".claude/agents/swift-build-resolver.md": {
+      "origen": "agents/swift-build-resolver.md",
+      "sha256": "3dc61451e2d480be69729dfa52b9fa4152d611c8c95bfc14bd9007ad446a68c8",
+      "adaptado": false
+    },
+    ".claude/agents/swift-reviewer.md": {
+      "origen": "agents/swift-reviewer.md",
+      "sha256": "2041a65745f48b2998b62f01b7c5f2efd9f700db86f2cb7469c1c1e49ddda2ac",
+      "adaptado": false
+    },
+    ".claude/agents/tdd-guide.md": {
+      "origen": "agents/tdd-guide.md",
+      "sha256": "b1dc01a56d66aa8136f4edbe84e733e515070bbaf44f44887deefff82393b14b",
+      "adaptado": false
+    },
+    ".claude/agents/type-design-analyzer.md": {
+      "origen": "agents/type-design-analyzer.md",
+      "sha256": "05502796f18407ff65ac69d238ff0547ff209efbc8e1396a660ca107917f20e8",
+      "adaptado": false
+    },
+    ".claude/agents/typescript-reviewer.md": {
+      "origen": "agents/typescript-reviewer.md",
+      "sha256": "fcb0a9fa95cb3d5f7eb36b8c5a19dcb5f032727340e52f7fd1447873f83fcaab",
+      "adaptado": false
+    },
+    ".claude/agents/vue-reviewer.md": {
+      "origen": "agents/vue-reviewer.md",
+      "sha256": "cfe852f684a9b2300ae2677e07d42d5e8d689f69183a5b287735c5080d8129dd",
+      "adaptado": false
+    },
+    ".claude/commands/code-review.md": {
+      "origen": "commands/code-review.md",
+      "sha256": "20f4b8fcf132d6563ae0afb3d6d695ac8d4d85f3d36b15da83de30b041cce107",
+      "adaptado": false
+    },
+    ".claude/commands/python-review.md": {
+      "origen": "commands/python-review.md",
+      "sha256": "7982b50c59cad83941400a436c1d1001d73fe9bdba6cb84a3ac7c6d43f394c99",
+      "adaptado": false
+    },
+    ".claude/commands/quality-gate.md": {
+      "origen": "commands/quality-gate.md",
+      "sha256": "e5b4ff0509c45de5d0fd54c3ba9f3c232a97594742cf4946806f5c66a3b0b4f8",
+      "adaptado": false
+    },
+    ".claude/commands/refactor-clean.md": {
+      "origen": "commands/refactor-clean.md",
+      "sha256": "be911e404a89e79cc878e20ba28b0feeacc2350db8710624622d88a453bf13db",
+      "adaptado": false
+    },
+    ".claude/commands/security-scan.md": {
+      "origen": "commands/security-scan.md",
+      "sha256": "631bc55c1ea22e9d750eba1a4fbfd511eaeb6d611b6191b06450768a5bacee95",
+      "adaptado": false
+    },
+    ".claude/commands/test-coverage.md": {
+      "origen": "commands/test-coverage.md",
+      "sha256": "f492c2dac27b98118cf965ae3071e044d7292ae9299e661bb01e2e6109d20711",
+      "adaptado": false
+    },
+    ".claude/rules/ecc-python-estilo.md": {
+      "origen": "rules/python/coding-style.md",
+      "sha256": "7bdcb1525ed059eea57981cec616e51382507e7017c63a052c591e6012bfff01",
+      "adaptado": true
+    },
+    ".claude/rules/ecc-python-patrones.md": {
+      "origen": "rules/python/patterns.md",
+      "sha256": "82db49e69d63aff4afa1c12db930e253caaa69d405630ac02ee6791f222bdf9f",
+      "adaptado": true
+    },
+    ".claude/rules/ecc-python-seguridad.md": {
+      "origen": "rules/python/security.md",
+      "sha256": "8b1bd8774f0199bc2f50a51dac00843faf4068cfa404a7b40f43256611e9bc3e",
+      "adaptado": true
+    },
+    ".claude/rules/ecc-python-pruebas.md": {
+      "origen": "rules/python/testing.md",
+      "sha256": "73ed92d02cc309060e30ae55f7363767ff4e45d8cebf198d5d300d31c318774c",
+      "adaptado": true
+    },
+    ".claude/rules/ecc-fastapi.md": {
+      "origen": "rules/python/fastapi.md",
+      "sha256": "d2a1db1275b6a0a20f1d59a04b19ac11450e430ac8f494e13a70e9cb38dab664",
+      "adaptado": true
+    },
+    ".claude/rules/ecc-seguridad-comun.md": {
+      "origen": "rules/common/security.md",
+      "sha256": "58f0acc56331b8d554dd036b8a1d5b2305a908e3960ff1e2d7e55223d5918bc3",
+      "adaptado": false
+    },
+    ".claude/rules/ecc-patrones-comunes.md": {
+      "origen": "rules/common/patterns.md",
+      "sha256": "8a32c0552c8b309e961ef3f68a56ae84b0b1d411c17f23675ec26b685dea5e9a",
+      "adaptado": false
+    },
+    ".claude/rules/ecc-revision-codigo.md": {
+      "origen": "rules/common/code-review.md",
+      "sha256": "bf1cca09a22f242176af3e94c715fb00719df1a4f93af7bb93220bb52b851002",
+      "adaptado": true
+    },
+    ".claude/skills/tdd-workflow/SKILL.md": {
+      "origen": "skills/tdd-workflow/SKILL.md",
+      "sha256": "9f6bdf7f468a08e285e05b78a304420d90edfe4d79258bda8ee854d56bbedcc2",
+      "adaptado": false
+    },
+    ".claude/skills/security-review/SKILL.md": {
+      "origen": "skills/security-review/SKILL.md",
+      "sha256": "4fa53039763be74020c422e73e79f9e0f485259676dbabb606be3def3c6ebb9b",
+      "adaptado": false
+    },
+    ".claude/skills/architecture-decision-records/SKILL.md": {
+      "origen": "skills/architecture-decision-records/SKILL.md",
+      "sha256": "525e51b4ed98222cd49ea7d2e42b51a010ecab391b25022a86164258c14b8bb0",
+      "adaptado": false
+    },
+    ".claude/skills/hexagonal-architecture/SKILL.md": {
+      "origen": "skills/hexagonal-architecture/SKILL.md",
+      "sha256": "53a76ce2255051df5c538b5a690517b7987d1a1c0d3ef57f30d2ddc35258e7f8",
+      "adaptado": false
+    },
+    ".claude/skills/security-scan/SKILL.md": {
+      "origen": "skills/security-scan/SKILL.md",
+      "sha256": "36c34d020eef3c386a82a409f8e3e47edbed441eaf83ae6055d6a029828511e8",
+      "adaptado": false
+    }
+  },
+  "no_importado": {
+    "rules/common/testing.md": "Fija 80% de cobertura; contradice el piso medido (RESTRICCIONES_EXTREMAS.md §4)",
+    "contexts/dev.md": "'Write code first' contradice R1; 'working over perfect' invita a lo que prohibe la Directiva Cero"
+  }
+}
