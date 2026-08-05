@@ -103,27 +103,45 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
 }
 
 ARCHIVE_SEPARATOR = "TAREAS REALIZADAS"
+
 # Claves que NO viajan del trabajador a la hoja maestra.
 #
-# **ESTATUS y AVANCE sí viajan, a propósito.** El original los borra
-# (`delKeys` en `apiSaveTrackerBatch`) para que cerrar una fase no cierre la
-# cotización entera; aquí se tomó la decisión contraria y está fijada por dos
-# pruebas: `test_reverse_sync_sends_cierre_status` y
-# `test_la_venta_maestra_se_archiva_por_avance_del_trabajador`. Cuando el
-# trabajador reporta el 100%, la venta se marca cerrada y el auto-archivado se la
-# lleva a TAREAS REALIZADAS, que es el comportamiento que el dueño quiere ver en
-# las dos tablas.
-#
-# Si algún día hay que volver a la regla del original —fases parciales que no
-# cierran la venta—, el cambio es añadir aquí ESTATUS/STATUS/ESTADO/AVANCE y sus
-# variantes, y actualizar esas dos pruebas. No se toca a medias: dejar el reverse
-# sync sin ESTATUS pero con AVANCE archivaría igual, por la regla del 100 %.
-#
-# CUMPLIMIENTO y las fechas de término sí se filtran: son del seguimiento del
-# trabajador y no significan lo mismo en la fila maestra.
+# CUMPLIMIENTO y las fechas de término son del seguimiento del trabajador y no
+# significan lo mismo en la fila maestra, así que se filtran siempre.
 REVERSE_SYNC_BLOCKED_KEYS = {
     "CUMPLIMIENTO", "FECHA_TERMINO", "FECHA TERMINO",
 }
+
+# Claves que además se filtran **cuando la fila es una microtarea de papa
+# caliente**, es decir, cuando trae marca de fase en el CONCEPTO.
+#
+# Es la regla que fijó el dueño: "cuando una persona le de 100% a su micro
+# actividad no pasará a tareas realizadas, sino que pasará a color verde ...
+# pero hasta que todos tengan 100% saldrá verde". Una fase es una parte de la
+# cotización; cerrarla no cierra la venta. Lo que sí viaja es PROCESO_LOG y
+# MAP COT, que es donde se pinta el verde, y `build_map_cot` solo lo pinta
+# cuando **todas** las entradas de esa fase están en DONE.
+#
+# Invierte la decisión anterior del proyecto, que sí archivaba la maestra con
+# el 100% de un solo trabajador. Las dos pruebas que la fijaban se actualizaron
+# a la regla nueva; ver `tests/test_asignacion_bilateral.py`.
+#
+# Para una asignación normal (sin fase) estas claves **sí** viajan: ahí el 100%
+# de quien recibió la actividad debe archivarla en las dos tablas.
+FASE_BLOCKED_KEYS = {
+    "AVANCE", "AVANCE %", "% AVANCE", "ESTATUS", "STATUS", "ESTADO",
+}
+
+
+class FaseEnCurso(Exception):
+    """
+    Se intentó delegar una fase dejando otra anterior sin cerrar.
+
+    Es un error de negocio, no un fallo técnico: `save_tracker_batch` lo
+    convierte en `{success: false, message}` para que el frontend explique por
+    qué no se pudo y quién falta, en vez de guardar una delegación que rompe el
+    orden del proceso.
+    """
 
 
 # ----------------------------------------------------------------------
@@ -637,6 +655,16 @@ def apply_hot_potato(sheet_name: str, task: Dict[str, Any], master_row: Optional
     if not folio:
         return None
 
+    # El proceso es una secuencia: no se delega una fase dejando otra anterior
+    # a medias. Import diferido para no crear un ciclo — `asignacion` importa
+    # las reglas de este módulo.
+    from api.services.asignacion import bloqueo_de_fase
+
+    log_previo = pick_task_value(task, ["PROCESO_LOG"]) or master.get("PROCESO_LOG")
+    motivo = bloqueo_de_fase(log_previo, step)
+    if motivo:
+        raise FaseEnCurso(motivo)
+
     concepto_base = strip_phase_marker(
         pick_task_value(task, ["CONCEPTO", "DESCRIPCION"]) or master.get("CONCEPTO") or master.get("DESCRIPCION") or ""
     )
@@ -673,16 +701,23 @@ def build_reverse_sync_payload(source_sheet: str, task: Dict[str, Any],
     """
     Payload que devuelve el avance del trabajador a su hoja maestra.
 
-      * **ESTATUS y AVANCE sí se propagan**: si el trabajador cierra al 100%, la
-        fila maestra queda cerrada y el auto-archivado se la lleva a TAREAS
-        REALIZADAS. Es una decisión de este proyecto, distinta del original, y la
-        fijan dos pruebas — ver `REVERSE_SYNC_BLOCKED_KEYS`. (Este docstring
-        afirmaba lo contrario y describía la regla del original, no la de aquí.)
+    Qué viaja depende de si la fila es una **microtarea de papa caliente** o una
+    **actividad asignada normal**, y esa es la distinción que gobierna todo:
+
+      * **Microtarea** (trae marca de fase en el CONCEPTO): AVANCE y ESTATUS
+        **no** viajan. Cerrar una fase no cierra la cotización. Lo que viaja es
+        PROCESO_LOG y MAP COT, y `build_map_cot` pinta la fase de verde solo
+        cuando todas sus entradas están en DONE — es decir, cuando terminaron
+        todos los asignados, no el primero. Ver `FASE_BLOCKED_KEYS`.
+      * **Actividad normal** (sin fase): AVANCE y ESTATUS sí viajan, para que el
+        100% de quien la recibió la archive también en la tabla de quien la
+        asignó. Es la sincronización bilateral.
+
+    En los dos casos:
       * CUMPLIMIENTO y las fechas de término no viajan.
       * No pisa el CONCEPTO maestro con el concepto marcado de la fase: el
         trabajador ve "COTIZAR NAVE [Calculo y Diseño]" y la maestra conserva
         "COTIZAR NAVE".
-      * Cierra la fase en PROCESO_LOG y pinta MAP COT en verde.
     """
     folio = str(pick_task_value(task, ["FOLIO", "ID"]) or "").strip()
     if not folio:
@@ -690,19 +725,23 @@ def build_reverse_sync_payload(source_sheet: str, task: Dict[str, Any],
     worker = worker_row or {}
     master = master_row or {}
 
+    phase = extract_phase_from_concepto(worker.get("CONCEPTO") or pick_task_value(task, ["CONCEPTO"]))
+    bloqueadas = set(REVERSE_SYNC_BLOCKED_KEYS)
+    if phase:
+        bloqueadas |= FASE_BLOCKED_KEYS
+
     clean: Dict[str, Any] = {}
     for key, value in task.items():
         if str(key).startswith("_"):
             continue
         up = normalize_header(key)
-        if up in REVERSE_SYNC_BLOCKED_KEYS:
+        if up in bloqueadas:
             continue
         if up == "CONCEPTO" and re.search(r"\[[^\]]+\]", str(value)):
             continue
         clean[key] = value
     clean["FOLIO"] = folio
 
-    phase = extract_phase_from_concepto(worker.get("CONCEPTO") or pick_task_value(task, ["CONCEPTO"]))
     avance = worker.get("AVANCE", pick_task_value(task, ["AVANCE"]))
     estatus = worker.get("ESTATUS", pick_task_value(task, ["ESTATUS"]))
     completed = is_progress_complete(avance) or is_terminal_status(estatus)

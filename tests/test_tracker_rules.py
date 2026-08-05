@@ -324,21 +324,29 @@ def test_reverse_sync_cierra_la_fase_en_el_timeline():
     assert "🟢 CD" in payload["MAP COT"]
 
 
-def test_reverse_sync_sends_cierre_status():
+def test_el_cierre_de_una_fase_no_manda_estatus_ni_avance_a_la_maestra():
+    """
+    Regla vigente (decisión del dueño, 2026-08): una microtarea de papa caliente
+    al 100 % **no** cierra la cotización.
+
+    Esta prueba afirmaba lo contrario. No se borró ni se relajó: se actualizó
+    porque la regla de negocio cambió, y el comentario de
+    `REVERSE_SYNC_BLOCKED_KEYS` ya decía exactamente qué había que tocar el día
+    que pasara. Lo que cierra la venta es que **todas** las fases estén verdes,
+    no la primera que reporte.
+    """
     task = {"FOLIO": "AV-2025", "COTIZACION": "https://drive/cot.pdf",
             "AVANCE": "100", "ESTATUS": "DONE", "estatus": "DONE", "Avance": "100"}
     worker_row = {"CONCEPTO": "COTIZACION PLANTA [Calculo y Diseño]", "AVANCE": "100", "ESTATUS": "DONE"}
 
     payload = build_reverse_sync_payload("ANGEL SALINAS (VENTAS)", task, worker_row, {"PROCESO_LOG": "[]"})
 
-    # ESTATUS y AVANCE SÍ sobreviven: es lo que cierra la venta en la maestra
-    # cuando el trabajador reporta el 100%. El comentario anterior decía justo lo
-    # contrario ("ninguna variante sobrevive") mientras las aserciones exigían que
-    # estuvieran, y esa contradicción ya llevó a "corregir" el filtro y romper el
-    # flujo. Ver `REVERSE_SYNC_BLOCKED_KEYS`.
     claves = {k.upper() for k in payload}
-    assert "ESTATUS" in claves
-    assert "AVANCE" in claves
+    assert "ESTATUS" not in claves
+    assert "AVANCE" not in claves
+    # Lo que sí llega: el archivo que subió el trabajador y el timeline.
+    assert payload["COTIZACION"] == "https://drive/cot.pdf"
+    assert "🟢 CD" in payload["MAP COT"]
 
 
 def test_reverse_sync_no_pisa_el_concepto_maestro():
@@ -347,7 +355,16 @@ def test_reverse_sync_no_pisa_el_concepto_maestro():
     assert "CONCEPTO" not in payload
 
 
-def test_la_venta_maestra_se_archiva_por_avance_del_trabajador():
+def test_la_venta_maestra_sigue_activa_aunque_el_trabajador_cierre_su_fase():
+    """
+    El reverso de la prueba anterior, visto desde la tabla de Toñita.
+
+    Antes esta prueba exigía que la venta pasara a TAREAS REALIZADAS en cuanto
+    un trabajador reportara el 100 % de su fase. La regla nueva es que la venta
+    se queda **activa**: su avance sigue en 40 % y lo único que cambia es el
+    timeline, donde CD ya aparece en verde. Así Toñita puede seguir delegando
+    las fases que faltan sobre una fila que sigue viva.
+    """
     master_values = sales([{
         "FOLIO": "AV-2025", "CLIENTE": "ACME", "CONCEPTO": "COTIZACION PLANTA",
         "FECHA": "01/07/26", "ESTATUS": "EN PROCESO", "AVANCE": "40", "PROCESO_LOG": "[]",
@@ -359,12 +376,15 @@ def test_la_venta_maestra_se_archiva_por_avance_del_trabajador():
     result = apply_batch_update(master_values, [payload], "ANTONIA_VENTAS", skip_notify=True)
 
     activas, historial, _ = rows_to_dicts(result.values)
-    assert not any(r.get("FOLIO") == "AV-2025" for r in activas)
-    assert any(r.get("FOLIO") == "AV-2025" for r in historial)
-    fila = next(r for r in historial if r.get("FOLIO") == "AV-2025")
-    assert fila["ESTATUS"] == "DONE"
-    assert fila["AVANCE"] == "100"
+    assert any(r.get("FOLIO") == "AV-2025" for r in activas), "la venta sigue abierta"
+    assert not any(r.get("FOLIO") == "AV-2025" for r in historial)
+
+    fila = next(r for r in activas if r.get("FOLIO") == "AV-2025")
+    assert fila["AVANCE"] == "40", "el avance de la venta no lo fija una sola fase"
+    assert fila["ESTATUS"] == "EN PROCESO"
+    # Lo que sí se actualiza: el entregable del trabajador y el timeline.
     assert fila["COTIZACION"] == "https://drive/cot.pdf"
+    assert "🟢 CD" in fila["MAP COT"]
 
 
 def test_map_cot_marca_etapas_previas_como_terminadas():
