@@ -51,7 +51,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
-          pip install ruff radon xenon pytest-cov
+          # Versiones fijas: un linter sin pinear cambia sus reglas por debajo
+          # y convierte la puerta en algo que se mueve solo. La primera corrida
+          # reporto 987 hallazgos contra los 51 de la version local por esto.
+          pip install ruff==0.15.8 radon==6.0.1 xenon==0.9.3 pytest-cov
 
       - name: Instalar Chromium
         # Sin esto las pruebas de UI se SALTAN (tests/conftest.py) en lugar de
@@ -89,12 +92,16 @@ jobs:
       # ------------------------------------------------------------------
       # R1 + R3 · Pruebas y cobertura — el corazon de la puerta
       # ------------------------------------------------------------------
-      - name: R1+R3 · Pytest con cobertura (piso del trinquete 63%)
+      - name: R1+R3 · Pytest con cobertura (piso del trinquete 60%)
+        # OJO con el numero: 63% es la cobertura de LINEAS; este comando usa
+        # --cov-branch, que ademas exige ramas y da 60.64%. El piso tiene que
+        # medirse con el comando EXACTO que corre la puerta, no con uno
+        # parecido. (Primera version de este workflow: rojo por eso.)
         run: |
           python -m pytest -v \
             --cov=api --cov=backend --cov=streamlit_cotizador \
             --cov-branch --cov-report=term-missing \
-            --cov-fail-under=63
+            --cov-fail-under=60
 
       # ------------------------------------------------------------------
       # R1 + R9 · Backend GAS y contratos entre capas
@@ -111,7 +118,10 @@ jobs:
       # ------------------------------------------------------------------
       - name: "Deuda · ruff completo (informativo, meta 0)"
         if: always()
-        run: ruff check api backend streamlit_cotizador tests || true
+        # --statistics en vez del reporte completo: la primera corrida escupio
+        # ~900 lineas de detalle que sepultaron el error real de pytest en el
+        # log. R10: si no puedes leer por que fallo, la puerta no sirve.
+        run: ruff check --statistics api backend streamlit_cotizador tests || true
 
       - name: "Deuda · complejidad D+ (informativo, meta menos de 10)"
         if: always()

@@ -480,15 +480,29 @@ repositorio**, no se estimaron:
 
 | Métrica | Valor medido hoy | Piso vigente | Meta |
 | --- | --- | --- | --- |
-| Pruebas Python (`pytest`) | **706 pasan** | 706 | crece con cada feature |
+| Pruebas Python (`pytest`) | **708 pasan** | 708 | crece con cada feature |
 | Pruebas GAS (`node tests/gas/run_tests.js`) | **87 pasan, 0 fallan** | 87 | crece |
-| Cobertura global (líneas) | **63%** | **63%** | 80% |
+| Cobertura de **líneas** | 63% | — | 80% |
+| Cobertura **con ramas** (`--cov-branch`) ← la del gate | **60.64%** | **60%** | 80% |
 | Cobertura del diff | — | **90%** | 90% |
 | Hallazgos de `ruff` (reglas por defecto) | **51** | **51** | 0 |
 | Complejidad promedio (498 bloques) | **A (4.56)** | A | A |
 | Funciones con complejidad ≥ 11 | **~25** | no aumentar | < 10 |
 | Escenarios Gherkin | **0** | — | 7 reglas críticas (R2) |
 | Puntaje de mutación (núcleo) | **no medido** | — | 80% |
+
+> ⚠️ **Segunda trampa, y esta rompió la primera corrida de CI en rojo.**
+> `63%` es la cobertura de **líneas**. El gate corre con `--cov-branch`, que además
+> exige ramas y da **60.64%**. Fijar el umbral con una medición *parecida* a la que
+> ejecuta la puerta no sirve: hay que medir con el **comando exacto**. La regla
+> general — vale para cobertura, lint y complejidad por igual:
+>
+> **El umbral se copia de la salida del comando que va en el workflow. Nunca de
+> uno similar corrido a mano.**
+>
+> Corolario relacionado: **fija la versión de tus herramientas**. La primera corrida
+> instaló el `ruff` más reciente y reportó **987** hallazgos contra los **51** de la
+> versión local. Un linter sin pinear es una puerta que se mueve sola.
 
 ### Regla del trinquete
 
