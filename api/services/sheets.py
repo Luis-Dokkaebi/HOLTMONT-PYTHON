@@ -208,27 +208,41 @@ def _rows_to_values(rows, header_map):
 SEPARADOR_ARCHIVO = "TAREAS REALIZADAS"
 
 
-def _valores_de_tareas(rows):
-    """Matriz de una hoja de tareas con su separador de archivadas."""
+def _esta_archivada(fila, campo_estatus="status", campo_cumplimiento="cumplimiento"):
+    """
+    ¿La fila va bajo `TAREAS REALIZADAS`?
+
+    Es la regla del original (`CODIGO.js:2485-2560`), que la aplica a **toda**
+    hoja: `internalBatchUpdateTasks` corre para la que se esté guardando, sea un
+    tracker o una hoja de ventas. Los nombres de columna cambian entre `tasks`
+    (`status`, `cumplimiento`) y `quotes` (`estatus`, `completada`), de ahí los
+    parámetros; la condición es la misma.
+    """
     from api.services.tracker_rules import (
         is_progress_complete_pct,
         is_terminal_status,
     )
 
-    def archivada(fila):
-        if is_progress_complete_pct(fila.get("avance")):
-            return True
-        if is_terminal_status(fila.get("status")):
-            return True
-        return str(fila.get("cumplimiento") or "").upper().strip() == "SI"
+    if is_progress_complete_pct(fila.get("avance")):
+        return True
+    if is_terminal_status(fila.get(campo_estatus)):
+        return True
+    return str(fila.get(campo_cumplimiento) or "").upper().strip() == "SI"
 
+
+def _valores_con_archivado(rows, header_map, campo_estatus="status",
+                           campo_cumplimiento="cumplimiento"):
+    """Matriz de una hoja con su separador `TAREAS REALIZADAS`."""
     if not rows:
         return None
+
+    def archivada(fila):
+        return _esta_archivada(fila, campo_estatus, campo_cumplimiento)
 
     # El mapa de columnas se calcula sobre TODAS las filas, no sobre cada
     # grupo: si se hiciera por grupo, una columna que solo aparece en las
     # archivadas desplazaría los encabezados entre una mitad y otra.
-    mapa = build_header_map(rows, TASK_HEADER_MAP)
+    mapa = build_header_map(rows, header_map)
     headers = [h for h, _ in mapa]
 
     def a_celdas(fila):
@@ -245,6 +259,25 @@ def _valores_de_tareas(rows):
         values.append(separador)
         values.extend(a_celdas(f) for f in archivadas)
     return values
+
+
+def _valores_de_tareas(rows):
+    """Hoja de tracker: el estatus está en `status` y el cierre en `cumplimiento`."""
+    return _valores_con_archivado(rows, TASK_HEADER_MAP)
+
+
+def _valores_de_cotizaciones(rows):
+    """
+    Hoja de ventas: mismas reglas, otros nombres de columna.
+
+    Antes pasaba por `_rows_to_values`, que no inserta el separador, así que
+    `history` salía siempre vacío y TODA cotización caía en la pestaña
+    COTIZACIONES EN PROCESO — incluidas 376 de las 583 de ANTONIA_VENTAS que
+    están al 100 %, algunas con fecha de visita de 2025.
+    """
+    return _valores_con_archivado(rows, QUOTE_HEADER_MAP,
+                                  campo_estatus="estatus",
+                                  campo_cumplimiento="completada")
 
 
 # --- Resolución tolerante del nombre de hoja -------------------------------
@@ -500,7 +533,7 @@ class GSheetsManager:
             # etc.) lives in `tasks`. Both keep the original hoja name in
             # `source_sheet`.
             rows = sb_manager.select("quotes", {"source_sheet": resolve_source_sheet("quotes", sheet_name)})
-            values = _rows_to_values(rows, QUOTE_HEADER_MAP)
+            values = _valores_de_cotizaciones(rows)
             if values:
                 return values
 

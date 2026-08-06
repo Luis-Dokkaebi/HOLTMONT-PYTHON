@@ -47,6 +47,23 @@ TABLAS_WO = {
         "CANTIDAD": "cantidad", "PRECIO": "precio", "TOTAL": "total",
         "RESPONSABLE": "responsable", "SECCION": "seccion", "ESTATUS": "estatus",
     }),
+    # Bloques F, G y H del formulario. No tenian tabla: `save_child_data`
+    # devolvia un aviso y el detalle quedaba solo en la nota de Obsidian.
+    # El esquema esta en `docs/DDL_WO_BLOQUES.sql`.
+    "DB_WO_VIATICOS": ("wo_viaticos", {
+        "FOLIO": "folio", "CONCEPTO": "concepto", "CANTIDAD": "cantidad",
+        "COSTO_UNITARIO": "costo_unitario", "TOTAL": "total",
+    }),
+    "DB_WO_TRANSPORTE": ("wo_transporte", {
+        "FOLIO": "folio", "VEHICULO": "vehiculo", "CHOFER": "chofer",
+        "TIEMPO": "tiempo", "LTS_GASOLINA": "lts_gasolina",
+        "COSTO_TOTAL": "costo_total", "NOTAS_CONTROL": "notas_control",
+    }),
+    "DB_WO_INGENIERIA": ("wo_ingenieria", {
+        "FOLIO": "folio", "ENTREGABLE": "entregable",
+        "HORAS_DISENO": "horas_diseno", "COSTO_HORA": "costo_hora",
+        "TOTAL": "total",
+    }),
 }
 
 # Columnas numéricas y de fecha de esas tablas: el formulario las manda como
@@ -206,9 +223,14 @@ def generate_work_order_folio(client_name, dept_name):
     seq_padded = seq_str.zfill(4)
 
     # Clean Client Name
-    clean_client = (client_name or "XX").upper().strip()
+    #
+    # La puntuacion se sustituye por un ESPACIO, no se borra, que es lo que
+    # hace el original (`.replace(/[^A-Z0-9]/g, ' ')`). Borrandola, `COCA-COLA`
+    # quedaba como una sola palabra y daba `CO`; el original la parte en dos y
+    # da `CC`. Cualquier cliente con guion, punto o `&` generaba un folio
+    # distinto al que la empresa lleva usando.
     import re
-    clean_client = re.sub(r'[^A-Z0-9 ]', '', clean_client)
+    clean_client = re.sub(r'[^A-Z0-9]', ' ', (client_name or "XX").upper()).strip()
     words = [w for w in clean_client.split() if w]
 
     client_str = "XX"
@@ -242,6 +264,12 @@ def generate_work_order_folio(client_name, dept_name):
         "COMPRAS": "Compras",
         "VENTAS": "Ventas",
         "HVAC": "HVAC",
+        # Faltaban las tres: sin ellas, una orden de Finanzas o Facturacion
+        # caia al truncado y salia como `Finan` y `Factu`. Son departamentos
+        # reales del organigrama (CODIGO.js:4192-4194).
+        "FINANZAS": "Finanzas",
+        "FACTURACION": "Factura",
+        "FACTURACIÓN": "Factura",
         "SEGURIDAD": "EHS",
         "EHS": "EHS"
     }

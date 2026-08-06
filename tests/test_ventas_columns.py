@@ -377,3 +377,72 @@ def test_una_fila_con_los_encabezados_de_la_hoja_no_pierde_ninguna_columna():
         f"se perdieron {len(esperadas - set(columnas))} columnas al guardar: "
         f"{sorted(esperadas - set(columnas))}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Auto-archivado en las hojas de ventas
+# ---------------------------------------------------------------------------
+# El original mueve bajo `TAREAS REALIZADAS` cualquier fila terminada, y lo hace
+# en **todas** las hojas: `internalBatchUpdateTasks` (CODIGO.js:2485-2560) corre
+# para la que se esté guardando, sea un tracker o una hoja de ventas. La vista
+# de cotizaciones lo aprovecha con dos pestañas: COTIZACIONES EN PROCESO lee
+# `data` y COTIZACIONES ENVIADAS PERDIDAS lee `history`.
+#
+# En la migración, `tasks` sí se partía (`_valores_de_tareas`) pero `quotes` no:
+# pasaba por `_rows_to_values`, que no inserta el separador. Resultado: `history`
+# siempre vacío y TODA cotización en la pestaña de "en proceso", incluidas 376 de
+# las 583 de ANTONIA_VENTAS que están al 100 %, algunas con visita de 2025.
+
+def _fila_archivada(valores):
+    """Índice de la fila separadora, o -1."""
+    for i, fila in enumerate(valores or []):
+        if any(str(c).upper().strip() == "TAREAS REALIZADAS" for c in fila):
+            return i
+    return -1
+
+
+def test_una_cotizacion_al_100_no_se_queda_en_proceso(fake):
+    fake(quotes=[
+        cotizacion(folio="AV-1", avance=100),
+        cotizacion(folio="AV-2", avance=30),
+    ])
+    valores = sheets.gs_manager.get_sheet_values("ANTONIA_VENTAS")
+
+    sep = _fila_archivada(valores)
+    assert sep != -1, "no hay separador TAREAS REALIZADAS en la hoja de ventas"
+
+    activas = [f for f in valores[1:sep]]
+    archivadas = [f for f in valores[sep + 1:]]
+    assert len(activas) == 1 and len(archivadas) == 1, (
+        f"activas={len(activas)} archivadas={len(archivadas)}"
+    )
+    assert "AV-2" in str(activas[0])
+    assert "AV-1" in str(archivadas[0])
+
+
+@pytest.mark.parametrize("estatus", ["PERDIDA POR TIEMPO", "CANCELADA", "REALIZADO"])
+def test_una_cotizacion_con_estatus_terminal_se_archiva(fake, estatus):
+    """`PERDIDA` y `CANCELADA` son terminales para una cotización."""
+    fake(quotes=[cotizacion(folio="AV-1", avance=10, estatus=estatus)])
+    valores = sheets.gs_manager.get_sheet_values("ANTONIA_VENTAS")
+
+    sep = _fila_archivada(valores)
+    assert sep != -1
+    assert "AV-1" in str(valores[sep + 1:])
+
+
+def test_una_cotizacion_en_proceso_no_se_archiva(fake):
+    fake(quotes=[cotizacion(folio="AV-1", avance=50, estatus="ASIGNADO")])
+    valores = sheets.gs_manager.get_sheet_values("ANTONIA_VENTAS")
+
+    sep = _fila_archivada(valores)
+    assert sep == -1, "sin filas terminadas no debe aparecer el separador"
+    assert len(valores) == 2  # encabezados + la fila
+
+
+def test_el_separador_no_rompe_el_ancho_de_la_tabla(fake):
+    """Todas las filas, separador incluido, con tantas celdas como encabezados."""
+    fake(quotes=[cotizacion(folio="AV-1", avance=100), cotizacion(folio="AV-2", avance=0)])
+    valores = sheets.gs_manager.get_sheet_values("ANTONIA_VENTAS")
+    ancho = len(valores[0])
+    assert all(len(f) == ancho for f in valores[1:])
