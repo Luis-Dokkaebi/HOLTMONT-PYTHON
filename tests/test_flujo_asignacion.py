@@ -365,3 +365,109 @@ def test_una_fase_a_medias_queda_en_progreso():
         {"PROCESO_LOG": "[]"})
 
     assert '"status": "IN_PROGRESS"' in payload["PROCESO_LOG"]
+
+
+# --- 6. Asignar con los encabezados que hoy manda el frontend ---------
+#
+# `TASK_HEADER_MAP` cambió para que la tabla se vea como la vista del original
+# (`ALTA`, `INVOLUCRADOS`, `AVANCE %`, `PRIORIDADES`, `STATUS`...). Esos nombres
+# son los que el frontend recibe y los que devuelve al guardar, así que el motor
+# de reglas tiene que reconocerlos: `pick_task_value` compara contra
+# `COLUMN_ALIASES`, que es una lista distinta de la de `backend/schemas`.
+#
+# El riesgo concreto: `ALTA` está declarada a la vez en `COLUMN_ALIASES["FECHA"]`
+# y en `COLUMN_ALIASES["AREA"]`. Si gana la primera, el nombre del departamento
+# acaba en la columna de fecha.
+
+def _encabezados_reales():
+    from api.services.sheets import TASK_HEADER_MAP
+    return [h for h, _ in TASK_HEADER_MAP]
+
+
+def test_una_asignacion_con_los_encabezados_de_hoy_cae_en_las_columnas_correctas():
+    encabezados = _encabezados_reales()
+    matriz = [list(encabezados)]
+
+    tarea = {
+        "CONCEPTO": "Revisar tablero",
+        "ALTA": "PRESUPUESTOS",          # área, NO fecha
+        "FECHA": "03/08/26",
+        "INVOLUCRADOS": "MIGUEL GALLARDO",
+        "AVANCE %": "25",
+        "PRIORIDADES": "ALTA",
+        "STATUS": "ASIGNADO",
+        "CLASIFICACION": "AA",
+        "_tempId": "t-encabezados",
+    }
+
+    res = rules.apply_batch_update(matriz, [tarea], "MIGUEL GALLARDO")
+    assert res.success, getattr(res, "message", "")
+    fila = res.data[0]
+
+    def leer(*nombres):
+        for n in nombres:
+            if n in fila and fila[n] not in (None, ""):
+                return str(fila[n])
+        return ""
+
+    # Lo que motivó la prueba: el área no puede acabar en la fecha.
+    assert "PRESUPUESTOS" not in leer("FECHA"), (
+        f"el área se escribió en la columna de fecha: FECHA={leer('FECHA')!r}"
+    )
+    assert leer("ALTA", "AREA") == "PRESUPUESTOS"
+    assert leer("CONCEPTO") == "Revisar tablero"
+    assert "MIGUEL GALLARDO" in leer("INVOLUCRADOS", "RESPONSABLE")
+    assert leer("AVANCE %", "AVANCE") == "25"
+    assert leer("PRIORIDADES", "PRIORIDAD") == "ALTA"
+    assert leer("STATUS", "ESTATUS") == "ASIGNADO"
+
+
+def test_cerrar_al_100_con_los_encabezados_de_hoy_la_manda_a_realizadas():
+    """La otra mitad del flujo diario: terminar una actividad."""
+    encabezados = _encabezados_reales()
+    matriz = [list(encabezados)]
+
+    alta = rules.apply_batch_update(
+        matriz, [{"CONCEPTO": "Cerrar pendiente", "_tempId": "t-cierre"}], "MIGUEL GALLARDO")
+    folio = alta.data[0].get("FOLIO") or alta.data[0].get("ID")
+
+    cierre = rules.apply_batch_update(
+        [list(encabezados)] + [[alta.data[0].get(h, "") for h in encabezados]],
+        [{"FOLIO": folio, "AVANCE %": "100", "STATUS": "REALIZADO"}],
+        "MIGUEL GALLARDO")
+
+    assert cierre.success, getattr(cierre, "message", "")
+    fila = next((f for f in cierre.data
+                 if str(f.get("FOLIO") or f.get("ID")) == str(folio)), None)
+    assert fila is not None, "la tarea desapareció al cerrarla"
+    assert str(fila.get("AVANCE %") or fila.get("AVANCE")) in ("100", "100.0")
+
+
+def test_el_area_nunca_se_lee_como_la_fecha():
+    """
+    `ALTA` es el área (`CODIGO.js:2229`), y estaba también en los alias de FECHA.
+
+    En una fila sin fecha —lo normal al crear una actividad y no tocar ese
+    campo— `pick_task_value` caía al alias `ALTA` y devolvía el nombre del
+    departamento como si fuera la fecha. Ese valor alimenta el emparejamiento
+    FOLIO->CONCEPTO+FECHA y la notificación a Outlook, así que no es cosmético.
+
+    El original no declara `ALTA` entre los alias de FECHA (CODIGO.js:2220);
+    esta lista se apartó de él en la migración.
+    """
+    tarea = {"CONCEPTO": "Sin fecha", "ALTA": "PRESUPUESTOS"}
+
+    leido = rules.pick_task_value(tarea, rules.COLUMN_ALIASES["FECHA"])
+    assert leido != "PRESUPUESTOS", (
+        "el área se está leyendo como la fecha; `ALTA` no puede estar en "
+        "COLUMN_ALIASES['FECHA']"
+    )
+    assert leido in ("", None)
+
+    # Y sigue resolviendo como área, que es lo que es.
+    assert rules.pick_task_value(tarea, rules.COLUMN_ALIASES["AREA"]) == "PRESUPUESTOS"
+
+    # `FECHA ALTA` y `FECHA DE ALTA` sí son la fecha: la ambigüedad era con
+    # `ALTA` a secas.
+    assert rules.pick_task_value(
+        {"FECHA ALTA": "03/08/26"}, rules.COLUMN_ALIASES["FECHA"]) == "03/08/26"
