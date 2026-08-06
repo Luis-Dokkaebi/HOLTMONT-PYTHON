@@ -2656,7 +2656,7 @@
                          <div v-else-if="isCol(h, ['REQUISITOR'])" class="d-flex" style="height:100%; width:100%; align-items:center;">
                              <input v-model="row[h]" :readonly="!isFieldEditable(h, row)" class="excel-input" style="flex:1; min-width:0;" spellcheck="false">
                          </div>
-                         <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F_ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO') || String(h).toUpperCase().includes('F_INICIO')" style="position:absolute; inset:0; width:100%; height:100%; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA', 'F_ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
+                         <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F_ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO') || String(h).toUpperCase().includes('F_INICIO')" style="position:absolute; inset:0; width:100%; height:100%; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA', 'F_ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
                              <div style="position:absolute; inset:0; display:flex; align-items:center; padding-left:4px; font-size:12px; pointer-events:none; color: #000 !important;">{{ formatDisplayDate(row[h]) }}</div>
                              <input type="date" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;" :disabled="!isFieldEditable(h, row)" :value="toIsoDate(row[h])" @input="updateDateFromPicker($event, row, h)">
                          </div>
@@ -2710,7 +2710,7 @@
                                  :style="getAntoniaStatusStyle(row[h])">
                                  {{ row[h] }}
                             </div>
-                            <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('ALTA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F_ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO') || String(h).toUpperCase().includes('F_INICIO')" style="position:absolute; inset:0; padding-left:4px; display:flex; align-items:center; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA', 'F_ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
+                            <div v-else-if="String(h).toUpperCase().includes('FECHA') || String(h).toUpperCase().includes('F. ENTREGA') || String(h).toUpperCase().includes('F_ENTREGA') || String(h).toUpperCase().includes('F_VISITA') || String(h).toUpperCase().includes('F. VISITA') || String(h).toUpperCase().includes('F. INICIO') || String(h).toUpperCase().includes('F_INICIO')" style="position:absolute; inset:0; padding-left:4px; display:flex; align-items:center; color: #000 !important;" :style="Object.assign({color: '#000'}, isCol(h, ['F. ENTREGA', 'F_ENTREGA']) ? getTrafficStyle(row) : (isCol(h, ['FECHA RESPUESTA', 'FECHA DE RESPUESTA', 'FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA DE ENTREGA']) ? getFechaRespuestaStyle(row) : getFechaInicioTrafficStyle(row)))">
                                  {{ formatDisplayDate(row[h]) }}
                             </div>
                             <div v-else-if="isCol(h, ['DIAS','RELOJ','DÍAS FINALIZ. COTIZ','DIAS FINALIZ. COTIZ'])" style="text-align:center; font-weight:bold; width:100%; height:100%; display:flex; align-items:center; justify-content:center;" :style="getTrafficStyle(row)">
@@ -7156,12 +7156,36 @@ async function toggleVoiceRecording(btnElement) {
       };
 
 
+      // Columnas que la vista no muestra. La API expone TODA columna presente en
+      // la tabla —así una columna nueva en Postgres aparece sola y no se pierde
+      // nada—, y decidir cuáles se enseñan es cosa de la vista.
+      //
+      //   PROCESO_LOG / PROCESO / MAP COT: alimentan el widget de Papa Caliente
+      //     que se dibuja dentro de la columna ESTATUS. Como columnas propias
+      //     mostrarían el JSON crudo. El original tampoco las enseña.
+      //   MONTO: no aparece en la vista de cotizaciones del original y está
+      //     vacía en las 661 filas de las 7 hojas de ventas. Era una columna en
+      //     blanco al final de la tabla.
+      //   Las técnicas (`sheets.COLUMNAS_TECNICAS` del backend): claves y
+      //     metadatos del esquema relacional que el original no tiene. Al usuario
+      //     le llegaban seis columnas de UUID y marcas de tiempo al final de cada
+      //     tabla. `ID` era ademas engañosa: en las hojas de Apps Script `ID` es
+      //     el folio, y aqui es la clave primaria de Postgres.
+      //
+      // Ocultar no afecta a la escritura: esto solo gobierna el render y la fila
+      // conserva todas sus claves (`isFieldEditable` sigue leyendo `row['ID']`).
+      //   COMENTARIOS_SEMANA / COMENTARIOS_SEMANA_PREVIA: decision del dueño
+      //     (2026-08), marcada como temporal. La vista del original no las
+      //     tiene. Es solo la vista: las 18 filas con dato siguen en la tabla y
+      //     se recuperan quitandolas de esta lista.
+      const COLUMNAS_OCULTAS = ['PROCESO_LOG', 'PROCESO', 'MAP COT', 'MONTO',
+                                'ID', 'DEDUPE_KEY', 'FOLIO_SINTETICO', 'ASSIGNEE_ID',
+                                'VENDEDOR_ID', 'SOURCE_SHEET', 'CREATED_AT',
+                                'COMENTARIOS_SEMANA', 'COMENTARIOS_SEMANA_PREVIA'];
+
       const visibleTrackerHeaders = computed(() => {
           if (!staffTracker.value.headers) return [];
-          return staffTracker.value.headers.filter(h => {
-              const up = String(h).toUpperCase().trim();
-              return up !== 'PROCESO_LOG' && up !== 'PROCESO' && up !== 'MAP COT';
-          });
+          return staffTracker.value.headers.filter(h => !COLUMNAS_OCULTAS.includes(String(h).toUpperCase().trim()));
       });
 
       const toggleTrackerSort = () => {
@@ -7315,13 +7339,40 @@ const filteredStaffTrackerData = computed(() => {
           return { width: w, fontSize: fs, padding: pad, textAlign: align, overflow: 'hidden', textOverflow: 'ellipsis', color: colColor };
       };
 
+      // Clave de encabezado sin acentos ni puntuación: el mismo criterio que
+      // `clave_encabezado` del backend. Hace falta porque la misma columna llega
+      // con dos grafías —la API rinde el nombre crudo (`FECHA_ESTIMADA_FIN`) y
+      // la hoja de Apps Script usa espacios (`FECHA ESTIMADA DE FIN`)— y antes
+      // se comparaba por igualdad exacta contra la segunda. Ninguna casaba con
+      // lo que entrega la API, así que cuatro columnas se rotulaban solas y
+      // llegaban al usuario con guion bajo: `Fecha_estimada_fin`, `Hora_alta`.
+      const claveEtiqueta = (h) => String(h || '').toUpperCase()
+          .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+          .replace(/[^A-Z0-9]/g, '');
+
+      // Etiquetas tal como se leen en el original. Solo las que no salen bien
+      // capitalizando el nombre de la columna.
+      const ETIQUETAS_DE_COLUMNA = {
+          'CLASIFICACION': 'Clasi',
+          'RESTRICCIONES': 'Restricciones y Comentarios',
+          'FECHAESTIMADADEFIN': 'Fec. Est. Fin',
+          'FECHAESTIMADAFIN': 'Fec. Est. Fin',
+          'HORAESTIMADADEFIN': 'Hr. Est. Fin',
+          'HORAESTIMADAFIN': 'Hr. Est. Fin',
+          'FECHARESPUESTA': 'Fecha respuesta',
+          'HORAALTA': 'Hora',
+          // Como se llaman en la hoja del original (ver `ALIAS_DE_HOJA` de
+          // backend/schemas/task.py).
+          'COMENTARIOSSEMANA': 'Comentarios semana en curso',
+          'COMENTARIOSSEMANAPREVIA': 'Comentarios previos',
+      };
+
       const getHeaderLabel = (h) => {
           const up = String(h).toUpperCase().trim();
           if (up === 'DIAS' && currentUsername.value === 'ANTONIA_VENTAS') return 'Días Finaliz. Cotiz';
-          if (up === 'CLASIFICACION') return 'Clasi';
-          if (up === 'FECHA ESTIMADA DE FIN') return 'Fec. Est. Fin';
-          if (up === 'HORA ESTIMADA DE FIN') return 'Hr. Est. Fin';
-          if (up === 'RESTRICCIONES') return 'Restricciones y Comentarios';
+
+          const etiqueta = ETIQUETAS_DE_COLUMNA[claveEtiqueta(h)];
+          if (etiqueta) return etiqueta;
 
           let str = String(h).toLowerCase();
           return str.charAt(0).toUpperCase() + str.slice(1);

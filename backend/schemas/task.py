@@ -129,14 +129,23 @@ OBLIGATORIAS_AL_INSERTAR: frozenset = frozenset(
 ALIAS_DE_HOJA: Dict[str, List[str]] = {
     "folio": ["FOLIO", "ID"],
     "assignee_raw": ["RESPONSABLE", "RESPONSABLES", "INVOLUCRADOS", "VENDEDOR", "ENCARGADO", "ASIGNADO"],
-    "departamento": ["AREA", "ESPECIALIDAD", "DEPARTAMENTO"],
-    "fecha_alta": ["FECHA", "FECHA ALTA", "ALTA", "FECHA DE ALTA"],
+    # `ALTA` a secas es el **área**: así se rotula la columna en la vista del
+    # original y así lo declara `CODIGO.js:2228`. Estaba aquí como alias de
+    # `fecha_alta`, de modo que una fila sin fecha guardaba el nombre del
+    # departamento en un campo `date`. Los ocho sitios del original que hacen
+    # `t['FECHA'] || t['ALTA']` son ese mismo defecto —leen el área como fecha
+    # cuando falta la fecha— y no se replican aquí.
+    "departamento": ["AREA", "ESPECIALIDAD", "DEPARTAMENTO", "ALTA"],
+    # `FECHA ALTA` y `FECHA DE ALTA` sí son la fecha; la ambigüedad era con
+    # `ALTA` sola.
+    "fecha_alta": ["FECHA", "FECHA ALTA", "FECHA DE ALTA"],
     "clasificacion": ["CLASIFICACION", "CLASI"],
     "concepto": ["CONCEPTO", "DESCRIPCION", "ACTIVIDAD"],
     "avance": ["AVANCE", "AVANCE %", "% AVANCE"],
-    "fecha_estimada_fin": ["FECHA ESTIMADA DE FIN", "FECHA ESTIMADA", "FECHA_FIN", "FECHA FIN"],
+    "fecha_estimada_fin": ["FECHA ESTIMADA DE FIN", "FECHA ESTIMADA", "FECHA_FIN",
+                           "FECHA FIN", "FEC. EST. FIN"],
     "reloj": ["RELOJ"],
-    "restricciones": ["RESTRICCIONES", "RESTRICCION"],
+    "restricciones": ["RESTRICCIONES", "RESTRICCION", "RESTRICCIONES Y COMENTARIOS"],
     "prioridad": ["PRIORIDAD", "PRIORIDADES"],
     "riesgos": ["RIESGOS", "RIESGO"],
     "fecha_respuesta": ["FECHA_RESPUESTA", "FECHA RESPUESTA", "DEADLINE"],
@@ -146,8 +155,11 @@ ALIAS_DE_HOJA: Dict[str, List[str]] = {
     "comentarios_semana": ["COMENTARIOS SEMANA EN CURSO"],
     "comentarios_semana_previa": ["COMENTARIOS PREVIOS", "PREVIOS", "COMENTARIOS SEMANA PREVIA"],
     "status": ["ESTATUS", "STATUS"],
-    "hora_alta": ["HORA ALTA", "HORA_ALTA"],
-    "hora_estimada_fin": ["HORA ESTIMADA FIN", "HORA_ESTIMADA_FIN"],
+    "hora_alta": ["HORA ALTA", "HORA_ALTA", "HORA"],
+    "hora_estimada_fin": ["HORA ESTIMADA FIN", "HORA_ESTIMADA_FIN", "HR. EST. FIN"],
+    # `correo` no lleva alias a propósito: está en SOLO_LECTURA porque contiene
+    # enlaces de Drive, no direcciones, y `SupabaseSync` nunca la escribe. Ver
+    # el comentario de SOLO_LECTURA, que documenta la medición.
 }
 
 # Encabezado normalizado -> columna. Se construye una vez: es el diccionario

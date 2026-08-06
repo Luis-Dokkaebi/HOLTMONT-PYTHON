@@ -138,12 +138,16 @@ ALIAS_DE_HOJA: Dict[str, List[str]] = {
     "area": ["AREA", "ESPECIALIDAD", "DEPARTAMENTO"],
     "cliente": ["CLIENTE"],
     "concepto": ["CONCEPTO", "DESCRIPCION", "ACTIVIDAD"],
-    "clasificacion": ["CLASIFICACION", "CLASI"],
+    # `CLAS` es como rotula la columna la vista de cotizaciones del original.
+    "clasificacion": ["CLASIFICACION", "CLASI", "CLAS"],
     "vendedor_raw": ["VENDEDOR", "RESPONSABLE", "RESPONSABLES", "INVOLUCRADOS", "ASIGNADO"],
     "f_visita": ["F. VISITA", "F VISITA", "FECHA VISITA", "FECHA_VISITA"],
     "f_inicio": ["F. INICIO", "F INICIO", "FECHA INICIO", "FECHA_INICIO", "ALTA", "FECHA ALTA"],
     "f_entrega": ["F. ENTREGA", "F ENTREGA", "FECHA ENTREGA", "FECHA_ENTREGA"],
-    "dias": ["DIAS", "DÍAS"],
+    # El encabezado completo de la hoja es `Días Finaliz. Cotiz`. `clave_encabezado`
+    # quita acentos y puntuación, así que basta declararlo una vez para que casen
+    # también `DIAS FINALIZ COTIZ` y la grafía sin acento.
+    "dias": ["DIAS", "DÍAS", "DÍAS FINALIZ. COTIZ"],
     "avance": ["AVANCE", "AVANCE %", "% AVANCE"],
     "estatus": ["ESTATUS", "STATUS"],
     "comentarios": ["COMENTARIOS", "OBSERVACIONES", "NOTAS"],

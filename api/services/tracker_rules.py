@@ -86,7 +86,11 @@ USER_EMAILS = {
 
 COLUMN_ALIASES: Dict[str, List[str]] = {
     "FOLIO": ["FOLIO", "ID"],
-    "FECHA": ["FECHA", "FECHAS", "FECHA ALTA", "FECHA INICIO", "ALTA", "FECHA DE INICIO", "FECHA VISITA", "FECHA DE ALTA", "F_INICIO"],
+    # `ALTA` NO va aqui: es el area (ver "AREA" mas abajo). Con ella puesta,
+    # una fila sin fecha devolvia el nombre del departamento como si fuera
+    # la fecha, y ese valor alimenta el emparejamiento FOLIO->CONCEPTO+FECHA
+    # y la notificacion a Outlook.
+    "FECHA": ["FECHA", "FECHAS", "FECHA ALTA", "FECHA INICIO", "FECHA DE INICIO", "FECHA VISITA", "FECHA DE ALTA", "F_INICIO"],
     "CONCEPTO": ["CONCEPTO", "DESCRIPCION", "DESCRIPCIÓN DE LA ACTIVIDAD", "DESCRIPCIÓN", "ACTIVIDAD"],
     "RESPONSABLE": ["RESPONSABLE", "RESPONSABLES", "INVOLUCRADOS", "VENDEDOR", "ENCARGADO", "ASIGNADO"],
     "RELOJ": ["RELOJ", "HORAS", "DIAS", "DÍAS"],
@@ -670,7 +674,7 @@ def apply_hot_potato(sheet_name: str, task: Dict[str, Any], master_row: Optional
     )
     cliente = pick_task_value(task, ["CLIENTE"]) or master.get("CLIENTE", "")
     clasificacion = pick_task_value(task, ["CLASIFICACION", "CLASI"]) or master.get("CLASIFICACION", "")
-    fecha = pick_task_value(task, ["FECHA", "FECHA ALTA", "ALTA"]) or master.get("FECHA") or datetime.now()
+    fecha = pick_task_value(task, ["FECHA", "FECHA ALTA"]) or master.get("FECHA") or datetime.now()
 
     log = parse_proceso_log(pick_task_value(task, ["PROCESO_LOG"]) or master.get("PROCESO_LOG"))
     for worker in workers:
@@ -767,7 +771,7 @@ def build_notification_payload(sheet_name: str, task: Dict[str, Any], assignee: 
         pick_task_value(task, ["RESPONSABLE", "INVOLUCRADOS", "VENDEDOR", "ENCARGADO", "ASIGNADO"]) or sheet_name
     ).split(",")[0].strip()
 
-    fecha = parse_sheet_date(pick_task_value(task, ["FECHA", "FECHA ALTA", "ALTA", "FECHA INICIO"])) or datetime.now()
+    fecha = parse_sheet_date(pick_task_value(task, ["FECHA", "FECHA ALTA", "FECHA INICIO"])) or datetime.now()
     fecha_fin = parse_sheet_date(pick_task_value(task, ["FECHA_RESPUESTA", "FECHA RESPUESTA", "FECHA FIN"]))
 
     return {

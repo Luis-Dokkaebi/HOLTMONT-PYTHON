@@ -307,3 +307,73 @@ def test_todas_las_filas_tienen_tantas_celdas_como_encabezados(fake):
     valores = sheets.gs_manager.get_sheet_values("ANTONIA_VENTAS")
     ancho = len(valores[0])
     assert all(len(f) == ancho for f in valores[1:])
+
+
+# ---------------------------------------------------------------------------
+# Alias de los encabezados tal como se leen en la hoja de Apps Script
+# ---------------------------------------------------------------------------
+# La vista de cotizaciones del original rotula dos columnas de forma abreviada:
+# `Clas` (por CLASIFICACION) y `Días Finaliz. Cotiz` (por DIAS). Guardando desde
+# la aplicación Python no se nota, porque el frontend usa los nombres que
+# devuelve la API (`CLASIFICACION`, `DIAS`). Pero cualquier dato que llegue con
+# los encabezados de la hoja —una reimportación o una sincronización desde
+# Sheets— perdía esas dos columnas **en silencio**: `columnas_desde_hoja`
+# descarta lo que no reconoce, así que la fila se guardaba sin clasificación y
+# sin días, y nada avisaba.
+
+ENCABEZADOS_DE_LA_HOJA = [
+    ("Folio", "folio"),
+    ("Area", "area"),
+    ("Cliente", "cliente"),
+    ("Concepto", "concepto"),
+    ("Clas", "clasificacion"),
+    ("Vendedor", "vendedor_raw"),
+    ("F. visita", "f_visita"),
+    ("F. inicio", "f_inicio"),
+    ("F. entrega", "f_entrega"),
+    ("Días Finaliz. Cotiz", "dias"),
+    ("Avance", "avance"),
+    ("Estatus", "estatus"),
+    ("Comentarios", "comentarios"),
+    ("Requisitor", "requisitor"),
+    ("Prio. cot.", "prioridad_cot"),
+    ("Info cliente", "info_cliente"),
+    ("F2", "f2"),
+    ("Cotizacion", "cotizacion"),
+    ("Timeline", "timeline"),
+    ("Layout", "layout"),
+]
+
+
+@pytest.mark.parametrize(("encabezado", "columna"), ENCABEZADOS_DE_LA_HOJA)
+def test_los_encabezados_de_la_hoja_de_ventas_se_reconocen(encabezado, columna):
+    """Las 20 columnas visibles en la hoja de Apps Script deben ser escribibles."""
+    from backend.schemas.hoja import clave_encabezado
+    from backend.schemas.quote import INDICE_ALIAS
+
+    resuelto = INDICE_ALIAS.get(clave_encabezado(encabezado))
+    assert resuelto == columna, (
+        f"el encabezado {encabezado!r} de la hoja no llega a la columna {columna!r}; "
+        f"se resolvió a {resuelto!r} y su valor se perderia al guardar"
+    )
+
+
+def test_una_fila_con_los_encabezados_de_la_hoja_no_pierde_ninguna_columna():
+    """
+    Es el control de conjunto: una fila entera tal como sale de la hoja.
+
+    Si un alias se rompe, aquí se ve cuántas columnas se pierden, no solo cuál.
+    """
+    from backend.schemas.hoja import columnas_desde_hoja
+    from backend.schemas.quote import INDICE_ALIAS
+
+    fila = {encabezado: f"valor-{i}"
+            for i, (encabezado, _) in enumerate(ENCABEZADOS_DE_LA_HOJA)}
+
+    columnas = columnas_desde_hoja(fila, INDICE_ALIAS)
+    esperadas = {col for _, col in ENCABEZADOS_DE_LA_HOJA}
+
+    assert esperadas - set(columnas) == set(), (
+        f"se perdieron {len(esperadas - set(columnas))} columnas al guardar: "
+        f"{sorted(esperadas - set(columnas))}"
+    )
