@@ -7156,12 +7156,21 @@ async function toggleVoiceRecording(btnElement) {
       };
 
 
+      // Columnas que la vista no muestra. La API expone TODA columna presente en
+      // la tabla —así una columna nueva en Postgres aparece sola y no se pierde
+      // nada—, y decidir cuáles se enseñan es cosa de la vista.
+      //
+      //   PROCESO_LOG / PROCESO / MAP COT: alimentan el widget de Papa Caliente
+      //     que se dibuja dentro de la columna ESTATUS. Como columnas propias
+      //     mostrarían el JSON crudo. El original tampoco las enseña.
+      //   MONTO: no aparece en la vista de cotizaciones del original y está
+      //     vacía en las 661 filas de las 7 hojas de ventas. Era una columna en
+      //     blanco al final de la tabla.
+      const COLUMNAS_OCULTAS = ['PROCESO_LOG', 'PROCESO', 'MAP COT', 'MONTO'];
+
       const visibleTrackerHeaders = computed(() => {
           if (!staffTracker.value.headers) return [];
-          return staffTracker.value.headers.filter(h => {
-              const up = String(h).toUpperCase().trim();
-              return up !== 'PROCESO_LOG' && up !== 'PROCESO' && up !== 'MAP COT';
-          });
+          return staffTracker.value.headers.filter(h => !COLUMNAS_OCULTAS.includes(String(h).toUpperCase().trim()));
       });
 
       const toggleTrackerSort = () => {
