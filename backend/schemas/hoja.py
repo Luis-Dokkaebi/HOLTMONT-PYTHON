@@ -182,6 +182,34 @@ def a_entero(valor: Any) -> Optional[int]:
     return None if numero is None else int(round(numero))
 
 
+def numero_a_texto(valor: Any) -> Any:
+    """
+    Un número en una columna `text` se guarda como su texto; lo demás no se toca.
+
+    `index.html` pinta cuatro encabezados con `<input type="number">` —`DIAS`,
+    `RELOJ` y las dos formas de `DÍAS FINALIZ. COTIZ`, línea 2616— y Vue aplica
+    el modificador `.number` solo por ser ese el tipo del input, así que la
+    celda viaja como número en el JSON. Además `addNewRow` las inicializa en
+    `0` y `calculateDiasCounter` escribe en ellas los días transcurridos. En la
+    hoja daba igual: una celda de Sheets acepta cualquier tipo. En Postgres,
+    `reloj` es `text`, y Pydantic rechazaba el `int` con un 422 que tumbaba el
+    lote entero.
+
+    Solo se convierten `int` y `float`. Un `dict` o una lista sigue siendo un
+    error de validación: `str()` los guardaría como `"{'a': 1}"`, que es
+    justamente el descarte silencioso que `extra="forbid"` viene a evitar. Los
+    `bool` tampoco: `"True"` no es un valor que ninguna hoja escriba.
+
+    No se reutiliza `a_texto` —que vive más arriba y hoy no tiene llamadores—
+    porque su contrato es otro: convierte `bool` en `"SI"`/`"NO"`, colapsa la
+    cadena vacía a `None` y recorta `70.0` a `"70"`. Aplicarlo a `reloj`
+    cambiaría el valor de celdas que hoy se guardan tal cual.
+    """
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return valor
+    return str(valor)
+
+
 def a_booleano(valor: Any) -> Optional[bool]:
     """La hoja escribe `SI`/`NO`; el frontend, `true`/`false`."""
     if valor is None or isinstance(valor, bool):
