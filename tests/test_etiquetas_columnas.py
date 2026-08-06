@@ -97,13 +97,18 @@ def test_ninguna_etiqueta_visible_conserva_guiones_bajos() -> None:
 
     Se recorren los encabezados que la API rinde de verdad para el tracker.
     """
-    encabezados = [
-        "FOLIO", "RESPONSABLE", "AREA", "FECHA", "CLASIFICACION", "CONCEPTO",
-        "AVANCE", "FECHA_ESTIMADA_FIN", "RELOJ", "RESTRICCIONES", "PRIORIDAD",
-        "RIESGOS", "FECHA_RESPUESTA", "CUMPLIMIENTO", "COMENTARIOS", "ESTATUS",
-        "HORA_ALTA", "HORA_ESTIMADA_FIN", "CORREO", "CARPETA",
-        "COMENTARIOS_SEMANA", "COMENTARIOS_SEMANA_PREVIA",
-    ]
+    from api.services.sheets import QUOTE_HEADER_MAP, TASK_HEADER_MAP
+
+    # Se derivan de los mapas en vez de copiarlos: si mañana se añade una
+    # columna curada, esta prueba la cubre sola. Se descuentan las que la vista
+    # oculta (`PROCESO_LOG` y compañía): su etiqueta no llega a nadie, así que
+    # exigirle rótulo sería inventar un requisito.
+    m = re.search(r"const COLUMNAS_OCULTAS = \[([^\]]*)\];", _fuente())
+    assert m, "no se encontró `COLUMNAS_OCULTAS` en index.html"
+    ocultas = {c.upper() for c in re.findall(r"'([^']+)'", m.group(1))}
+
+    encabezados = [h for h, _ in TASK_HEADER_MAP] + [h for h, _ in QUOTE_HEADER_MAP]
+    encabezados = [h for h in encabezados if h.upper() not in ocultas]
     guion = f"""
         {_bloque_de_etiquetas()}
         const hs = {json.dumps(encabezados)};

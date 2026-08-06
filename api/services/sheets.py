@@ -38,23 +38,44 @@ PEOPLE_HEADER_MAP = [
     ("TIPO_HOJA", "tipo_hoja"),
 ]
 
+# Orden y nombres de la vista `STAFF_TRACKER` del original, columna por columna.
+# El orden no es cosmética: el equipo lleva años leyendo esta tabla de izquierda
+# a derecha, y cambiarlo es lo que hace que un sistema portado «se sienta»
+# distinto aunque traiga los mismos datos. `tests/test_tracker_columnas.py` lo
+# fija contra la vista de Apps Script.
+#
+# El nombre de la izquierda es el que viaja al frontend y el que este devuelve al
+# guardar, así que cada uno tiene que estar en `ALIAS_DE_HOJA` de
+# `backend/schemas/task.py` o el valor se descarta en silencio.
+#
+# `ALTA` es el **área**, no una fecha (`CODIGO.js:2229`). Así se rotula la
+# columna en la hoja.
 TASK_HEADER_MAP = [
     ("FOLIO", "folio"),
-    ("RESPONSABLE", "assignee_raw"),
-    ("AREA", "departamento"),
+    ("ALTA", "departamento"),
     ("FECHA", "fecha_alta"),
+    ("HORA", "hora_alta"),
     ("CLASIFICACION", "clasificacion"),
     ("CONCEPTO", "concepto"),
-    ("AVANCE", "avance"),
+    ("INVOLUCRADOS", "assignee_raw"),
+    ("AVANCE %", "avance"),
     ("FECHA_ESTIMADA_FIN", "fecha_estimada_fin"),
+    ("HORA_ESTIMADA_FIN", "hora_estimada_fin"),
     ("RELOJ", "reloj"),
     ("RESTRICCIONES", "restricciones"),
-    ("PRIORIDAD", "prioridad"),
+    ("PRIORIDADES", "prioridad"),
     ("RIESGOS", "riesgos"),
     ("FECHA_RESPUESTA", "fecha_respuesta"),
+    ("CORREO", "correo"),
+    ("CARPETA", "carpeta"),
+    ("STATUS", "status"),
+    # Hasta aquí, la vista del original. Lo que sigue existe en la tabla pero no
+    # se enseña en esa hoja; va detrás para no alterar el orden que el equipo
+    # tiene memorizado.
     ("CUMPLIMIENTO", "cumplimiento"),
     ("COMENTARIOS", "comentarios"),
-    ("ESTATUS", "status"),
+    ("COMENTARIOS_SEMANA", "comentarios_semana"),
+    ("COMENTARIOS_SEMANA_PREVIA", "comentarios_semana_previa"),
 ]
 
 QUOTE_HEADER_MAP = [
