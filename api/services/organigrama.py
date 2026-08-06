@@ -136,6 +136,11 @@ PERFILES: Dict[str, Dict[str, Any]] = {
     "GERALDINE_MARTINEZ": {"role": "STAFF_USER", "label": "Geraldine Marie Martinez Hernandez", "email": "", "staff_name": "GERALDINE MARTINEZ HERNANDEZ", "dept": "PRECIOS UNITARIOS", "seller": False},
     "CESAR_EDUARDO_GARCIA": {"role": "STAFF_USER", "label": "Cesar Eduardo Garcia Avalos", "email": "", "staff_name": "CESAR EDUARDO GARCIA AVALOS", "dept": "CONSTRUCCION", "seller": False},
     "ANTONIO_SALAZAR": {"role": "STAFF_USER", "label": "Antonio Salazar", "email": "", "staff_name": "ANTONIO SALAZAR", "dept": "GENERAL", "seller": False},
+    # Baja (2026-08): se retiró de `USER_DB` en Apps Script y no se migra a
+    # `profiles`, así que no puede entrar a ninguna de las dos plataformas. Su
+    # casilla se conserva aquí porque el organigrama lo registra en GENERAL y
+    # `test_organigrama.py` verifica esa transcripción; sin contraseña, una
+    # entrada en esta semilla no concede acceso a nada.
     "CESAR_GOMEZ": {"role": "STAFF_USER", "label": "Cesar Gomez", "email": "", "staff_name": "CESAR GOMEZ", "dept": "GENERAL", "seller": False},
 }
 

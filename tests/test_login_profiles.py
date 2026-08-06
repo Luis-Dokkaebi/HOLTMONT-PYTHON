@@ -246,9 +246,13 @@ def test_el_filtro_tolera_matrices_vacias(values):
 
 # --- El script de migración -------------------------------------------
 
-def test_el_script_de_migracion_lee_las_41_cuentas():
+def test_el_script_de_migracion_lee_las_40_cuentas():
     """
     Se comprueba contra el `CODIGO.js` real si está al lado; si no, se salta.
+
+    Eran 41 hasta la baja de `CESAR_GOMEZ` (2026-08), que se retiró de `USER_DB`
+    en Apps Script. `CREDENCIALES.md` ya lo listaba como eliminado desde la
+    actualización del organigrama; el código se había quedado atrás.
     """
     from pathlib import Path
 
@@ -258,13 +262,59 @@ def test_el_script_de_migracion_lee_las_41_cuentas():
         pytest.skip("REAL-HOLTMONT/CODIGO.js no está disponible")
 
     cuentas = migrar.leer_user_db(Path(migrar.CODIGO_POR_DEFECTO))
-    assert len(cuentas) == 41
+    assert len(cuentas) == 40
     assert all(c["username"] and c["password"] for c in cuentas)
     assert sum(1 for c in cuentas if c["seller"]) == 9
+    assert "CESAR_GOMEZ" not in {c["username"] for c in cuentas}
 
     campos = set(cuentas[0])
     assert campos == {"username", "password", "role", "label", "email",
                       "staff_name", "dept", "seller"}
+
+
+# --- Cuentas duplicadas que no reciben credencial ----------------------
+
+def test_antonia_pineda_no_recibe_una_segunda_credencial():
+    """
+    Antonia Pineda Lopez es una persona con dos tablas y **un** login.
+
+    `ANTONIA_VENTAS` (rol TONITA) ya entrega las dos vistas: su tabla de
+    cotizaciones y su tracker, vía el módulo `MY_TRACKER` de `api/main.py`.
+    Migrar además `ANTONIA_PINEDA` crearía una segunda contraseña para la misma
+    persona que, encima, mostraría menos de lo que ya ve.
+    """
+    import scripts.migrar_perfiles as migrar
+
+    cuentas = [
+        {"username": "ANTONIA_VENTAS", "password": "x", "role": "TONITA"},
+        {"username": "ANTONIA_PINEDA", "password": "y", "role": "STAFF_USER"},
+        {"username": "LUIS_CARLOS", "password": "z", "role": "ADMIN"},
+    ]
+    quedan = {c["username"] for c in migrar.filtrar_sin_credencial(cuentas)}
+
+    assert quedan == {"ANTONIA_VENTAS", "LUIS_CARLOS"}
+
+
+def test_el_filtro_no_toca_a_nadie_mas():
+    """La lista de exclusión es cerrada: sólo saca lo que declara."""
+    import scripts.migrar_perfiles as migrar
+
+    cuentas = [{"username": u, "password": "x", "role": "STAFF_USER"}
+               for u in ("DIMAS_RAMOS", "TERESA_GARZA", "JESUS_CANTU")]
+
+    assert len(migrar.filtrar_sin_credencial(cuentas)) == 3
+
+
+def test_toda_exclusion_declara_su_motivo():
+    """
+    Sin motivo escrito, la lista se vuelve un cajón donde desaparece gente.
+    """
+    import scripts.migrar_perfiles as migrar
+
+    assert migrar.SIN_CREDENCIAL
+    for usuario, motivo in migrar.SIN_CREDENCIAL.items():
+        assert usuario.isupper(), usuario
+        assert motivo and len(motivo) > 10, usuario
 
 
 def test_el_script_no_versiona_ninguna_contrasena():

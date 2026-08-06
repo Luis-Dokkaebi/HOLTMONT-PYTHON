@@ -49,6 +49,19 @@ CLAVE_UPSERT = "username"
 # Ruta por omisión: el repo de Apps Script clonado al lado de este.
 CODIGO_POR_DEFECTO = RAIZ.parent / "REAL-HOLTMONT" / "CODIGO.js"
 
+# Cuentas que existen en `USER_DB` pero **no** reciben credencial propia aquí.
+# No es una lista de bajas: una baja se quita de `USER_DB` y desaparece sola.
+# Es la lista de cuentas que son un duplicado de otra persona que ya tiene
+# acceso, y que por eso no deben poder autenticarse por separado.
+SIN_CREDENCIAL: Dict[str, str] = {
+    # Antonia Pineda Lopez es una sola persona con dos tablas: `ANTONIA_VENTAS`
+    # (cotizaciones) y su tracker `ANTONIA PINEDA LOPEZ`. El rol TONITA ya
+    # entrega las dos vistas con un solo login —el módulo `MY_TRACKER` de
+    # `api/main.py` apunta a su tracker—, así que una segunda credencial no
+    # abriría nada nuevo: sólo sería otra contraseña que mantener.
+    "ANTONIA_PINEDA": "duplicado de ANTONIA_VENTAS (rol TONITA ya trae su tracker)",
+}
+
 
 def cargar_env() -> None:
     """Lee `.env` si existe, igual que los otros scripts del repo."""
@@ -109,6 +122,24 @@ def leer_user_db(ruta: Path) -> List[Dict[str, Any]]:
     return cuentas
 
 
+def filtrar_sin_credencial(cuentas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Aparta las cuentas de `SIN_CREDENCIAL` y explica por qué se queda cada una.
+
+    Va aparte de `leer_user_db()` a propósito: esa función describe lo que dice
+    `CODIGO.js` y no debe opinar. La decisión de a quién se le da credencial en
+    la plataforma nueva es de aquí, y así se puede leer y probar sola.
+    """
+    conservadas = []
+    for cuenta in cuentas:
+        motivo = SIN_CREDENCIAL.get(cuenta["username"])
+        if motivo:
+            print(f"  - {cuenta['username']}: sin credencial propia — {motivo}")
+            continue
+        conservadas.append(cuenta)
+    return conservadas
+
+
 def comparar_con_el_organigrama(cuentas: List[Dict[str, Any]]) -> None:
     """
     Avisa si `USER_DB` y la semilla del repo no coinciden.
@@ -166,15 +197,24 @@ def main() -> int:
         print("No se encontró ninguna cuenta con contraseña.")
         return 1
 
-    print(f"  {len(cuentas)} cuenta(s) con credencial")
+    print(f"  {len(cuentas)} cuenta(s) con credencial en USER_DB")
+
+    # La comparación va antes del filtro: describe `CODIGO.js` frente a la
+    # semilla, y el filtro es una decisión posterior que no debe ocultarla.
+    comparar_con_el_organigrama(cuentas)
+
+    cuentas = filtrar_sin_credencial(cuentas)
+    if not cuentas:
+        print("No queda ninguna cuenta que migrar.")
+        return 1
+
+    print(f"  {len(cuentas)} cuenta(s) a escribir")
     por_rol: Dict[str, int] = {}
     for c in cuentas:
         por_rol[c["role"]] = por_rol.get(c["role"], 0) + 1
     for rol, n in sorted(por_rol.items()):
         print(f"    {rol}: {n}")
     print(f"  vendedores (seller=true): {sum(1 for c in cuentas if c['seller'])}")
-
-    comparar_con_el_organigrama(cuentas)
 
     # Deliberadamente NO se imprime ninguna contraseña, ni truncada: este script
     # se corre en una terminal cuyo historial suele quedar guardado.
