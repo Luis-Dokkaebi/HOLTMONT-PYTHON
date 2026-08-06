@@ -48,8 +48,8 @@ PEOPLE_HEADER_MAP = [
 # guardar, así que cada uno tiene que estar en `ALIAS_DE_HOJA` de
 # `backend/schemas/task.py` o el valor se descarta en silencio.
 #
-# `ALTA` es el **área**, no una fecha (`CODIGO.js:2229`). Así se rotula la
-# columna en la hoja.
+# OJO con los nombres que contienen `FECHA` o `F. INICIO`: `index.html` decide
+# por el nombre si la celda lleva selector de fecha (`tests/test_selector_de_fecha.py`).
 TASK_HEADER_MAP = [
     ("FOLIO", "folio"),
     ("ALTA", "departamento"),

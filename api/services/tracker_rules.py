@@ -86,12 +86,10 @@ USER_EMAILS = {
 
 COLUMN_ALIASES: Dict[str, List[str]] = {
     "FOLIO": ["FOLIO", "ID"],
-    # `ALTA` NO va aqui: es el area (ver la entrada "AREA" mas abajo y
-    # CODIGO.js:2229). El original tampoco la declara entre los alias de
-    # FECHA (CODIGO.js:2220); esta lista se aparto de el en la migracion.
-    # Con ella puesta, una fila sin fecha devolvia el nombre del
-    # departamento como si fuera la fecha, y ese valor alimenta el
-    # emparejamiento FOLIO->CONCEPTO+FECHA y la notificacion a Outlook.
+    # `ALTA` NO va aqui: es el area (ver "AREA" mas abajo). Con ella puesta,
+    # una fila sin fecha devolvia el nombre del departamento como si fuera
+    # la fecha, y ese valor alimenta el emparejamiento FOLIO->CONCEPTO+FECHA
+    # y la notificacion a Outlook.
     "FECHA": ["FECHA", "FECHAS", "FECHA ALTA", "FECHA INICIO", "FECHA DE INICIO", "FECHA VISITA", "FECHA DE ALTA", "F_INICIO"],
     "CONCEPTO": ["CONCEPTO", "DESCRIPCION", "DESCRIPCIÓN DE LA ACTIVIDAD", "DESCRIPCIÓN", "ACTIVIDAD"],
     "RESPONSABLE": ["RESPONSABLE", "RESPONSABLES", "INVOLUCRADOS", "VENDEDOR", "ENCARGADO", "ASIGNADO"],

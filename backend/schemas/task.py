@@ -129,13 +129,15 @@ OBLIGATORIAS_AL_INSERTAR: frozenset = frozenset(
 ALIAS_DE_HOJA: Dict[str, List[str]] = {
     "folio": ["FOLIO", "ID"],
     "assignee_raw": ["RESPONSABLE", "RESPONSABLES", "INVOLUCRADOS", "VENDEDOR", "ENCARGADO", "ASIGNADO"],
-    # `ALTA` a secas es el **área**, no una fecha: en el original
-    # `'ALTA': ['AREA', 'DEPARTAMENTO', 'ESPECIALIDAD', 'ALTA']` (CODIGO.js:2229),
-    # y así se rotula la columna en la vista del tracker. Estaba declarada como
-    # alias de `fecha_alta`, de modo que importar una hoja con esa columna
-    # escribía el nombre del departamento en un campo `date`. `FECHA ALTA` y
-    # `FECHA DE ALTA` sí son la fecha; la ambigüedad era solo con `ALTA` sola.
+    # `ALTA` a secas es el **área**: así se rotula la columna en la vista del
+    # original y así lo declara `CODIGO.js:2228`. Estaba aquí como alias de
+    # `fecha_alta`, de modo que una fila sin fecha guardaba el nombre del
+    # departamento en un campo `date`. Los ocho sitios del original que hacen
+    # `t['FECHA'] || t['ALTA']` son ese mismo defecto —leen el área como fecha
+    # cuando falta la fecha— y no se replican aquí.
     "departamento": ["AREA", "ESPECIALIDAD", "DEPARTAMENTO", "ALTA"],
+    # `FECHA ALTA` y `FECHA DE ALTA` sí son la fecha; la ambigüedad era con
+    # `ALTA` sola.
     "fecha_alta": ["FECHA", "FECHA ALTA", "FECHA DE ALTA"],
     "clasificacion": ["CLASIFICACION", "CLASI"],
     "concepto": ["CONCEPTO", "DESCRIPCION", "ACTIVIDAD"],

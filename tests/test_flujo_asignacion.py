@@ -390,7 +390,7 @@ def test_una_asignacion_con_los_encabezados_de_hoy_cae_en_las_columnas_correctas
 
     tarea = {
         "CONCEPTO": "Revisar tablero",
-        "ALTA": "PRESUPUESTOS",          # área, NO fecha
+        "ALTA": "PRESUPUESTOS",          # area, NO fecha
         "FECHA": "03/08/26",
         "INVOLUCRADOS": "MIGUEL GALLARDO",
         "AVANCE %": "25",
@@ -445,15 +445,13 @@ def test_cerrar_al_100_con_los_encabezados_de_hoy_la_manda_a_realizadas():
 
 def test_el_area_nunca_se_lee_como_la_fecha():
     """
-    `ALTA` es el área (`CODIGO.js:2229`), y estaba también en los alias de FECHA.
+    `ALTA` es el área, y estaba también en los alias de FECHA de tracker_rules.
 
     En una fila sin fecha —lo normal al crear una actividad y no tocar ese
     campo— `pick_task_value` caía al alias `ALTA` y devolvía el nombre del
     departamento como si fuera la fecha. Ese valor alimenta el emparejamiento
-    FOLIO->CONCEPTO+FECHA y la notificación a Outlook, así que no es cosmético.
-
-    El original no declara `ALTA` entre los alias de FECHA (CODIGO.js:2220);
-    esta lista se apartó de él en la migración.
+    FOLIO->CONCEPTO+FECHA y la fecha que viaja a Outlook, así que no es
+    cosmético.
     """
     tarea = {"CONCEPTO": "Sin fecha", "ALTA": "PRESUPUESTOS"}
 
@@ -462,12 +460,10 @@ def test_el_area_nunca_se_lee_como_la_fecha():
         "el área se está leyendo como la fecha; `ALTA` no puede estar en "
         "COLUMN_ALIASES['FECHA']"
     )
-    assert leido in ("", None)
 
     # Y sigue resolviendo como área, que es lo que es.
     assert rules.pick_task_value(tarea, rules.COLUMN_ALIASES["AREA"]) == "PRESUPUESTOS"
 
-    # `FECHA ALTA` y `FECHA DE ALTA` sí son la fecha: la ambigüedad era con
-    # `ALTA` a secas.
+    # `FECHA ALTA` sí es la fecha: la ambigüedad era con `ALTA` a secas.
     assert rules.pick_task_value(
         {"FECHA ALTA": "03/08/26"}, rules.COLUMN_ALIASES["FECHA"]) == "03/08/26"

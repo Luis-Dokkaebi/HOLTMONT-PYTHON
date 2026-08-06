@@ -12,10 +12,12 @@ Cubre dos cosas que se rompen por separado:
      así que un alias que falta no da error — guarda la fila sin ese campo.
   2. **Que la API las exponga en el orden de la hoja** (`TASK_HEADER_MAP`).
 
-El defecto que motivó la primera: `ALTA` estaba declarada como alias de
-`fecha_alta`, pero en el original `'ALTA': ['AREA', 'DEPARTAMENTO',
-'ESPECIALIDAD', 'ALTA']` (`CODIGO.js:2229`) es la columna de **área**. Importar
-una hoja con esa columna escribía el nombre del departamento en un campo `date`.
+`ALTA` es el **área**: así se rotula la columna en la vista del original y así lo
+declara `CODIGO.js:2228` (`'ALTA': ['AREA', 'DEPARTAMENTO', 'ESPECIALIDAD',
+'ALTA']`). Estaba como alias de `fecha_alta`, de modo que una fila sin fecha
+guardaba el nombre del departamento en un campo `date`. Los ocho sitios del
+original que hacen `t['FECHA'] || t['ALTA']` son ese mismo defecto: leen el área
+como fecha cuando falta la fecha, y no se replican aquí.
 
 `correo` es la excepción deliberada: aparece en la vista pero no lleva alias,
 porque está en `SOLO_LECTURA` —contiene enlaces de Drive, no direcciones, y
@@ -83,9 +85,9 @@ def test_una_fila_de_la_hoja_no_pierde_ninguna_columna() -> None:
 
 def test_alta_es_el_area_y_no_una_fecha() -> None:
     """
-    `CODIGO.js:2229` — `'ALTA': ['AREA', 'DEPARTAMENTO', 'ESPECIALIDAD', 'ALTA']`.
+    `CODIGO.js:2228` — `'ALTA': ['AREA', 'DEPARTAMENTO', 'ESPECIALIDAD', 'ALTA']`.
 
-    Se comprueba en los dos sentidos: que `ALTA` resuelva a `departamento` y que
+    Se comprueba en los dos sentidos: que resuelva a `departamento` y que
     ninguna columna de fecha la reclame. Si las dos la declaran, cuál gana
     depende del orden del diccionario, que es un sitio pésimo donde dejar una
     regla de negocio.
