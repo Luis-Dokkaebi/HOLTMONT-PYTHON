@@ -44,7 +44,13 @@ INDEX = os.path.join(RAIZ, "index.html")
 TECNICAS = ["ID", "DEDUPE_KEY", "FOLIO_SINTETICO", "ASSIGNEE_ID", "VENDEDOR_ID",
             "SOURCE_SHEET", "CREATED_AT"]
 
-OCULTAS = ["PROCESO_LOG", "PROCESO", "MAP COT", "MONTO"] + TECNICAS
+# Decisión del dueño (2026-08), marcada como temporal: la vista del original no
+# las tiene y de momento no se enseñan. Es solo la vista — las 18 filas con dato
+# siguen en la tabla y se recuperan quitándolas de esta lista.
+COMENTARIOS_SEMANALES = ["COMENTARIOS_SEMANA", "COMENTARIOS_SEMANA_PREVIA"]
+
+OCULTAS = (["PROCESO_LOG", "PROCESO", "MAP COT", "MONTO"]
+           + TECNICAS + COMENTARIOS_SEMANALES)
 
 # Las 20 que se ven en la hoja de cotizaciones de Apps Script. Ninguna se oculta.
 VISIBLES = [

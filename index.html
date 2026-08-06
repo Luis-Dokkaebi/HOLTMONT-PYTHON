@@ -7174,9 +7174,14 @@ async function toggleVoiceRecording(btnElement) {
       //
       // Ocultar no afecta a la escritura: esto solo gobierna el render y la fila
       // conserva todas sus claves (`isFieldEditable` sigue leyendo `row['ID']`).
+      //   COMENTARIOS_SEMANA / COMENTARIOS_SEMANA_PREVIA: decision del dueño
+      //     (2026-08), marcada como temporal. La vista del original no las
+      //     tiene. Es solo la vista: las 18 filas con dato siguen en la tabla y
+      //     se recuperan quitandolas de esta lista.
       const COLUMNAS_OCULTAS = ['PROCESO_LOG', 'PROCESO', 'MAP COT', 'MONTO',
                                 'ID', 'DEDUPE_KEY', 'FOLIO_SINTETICO', 'ASSIGNEE_ID',
-                                'VENDEDOR_ID', 'SOURCE_SHEET', 'CREATED_AT'];
+                                'VENDEDOR_ID', 'SOURCE_SHEET', 'CREATED_AT',
+                                'COMENTARIOS_SEMANA', 'COMENTARIOS_SEMANA_PREVIA'];
 
       const visibleTrackerHeaders = computed(() => {
           if (!staffTracker.value.headers) return [];
