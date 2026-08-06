@@ -7183,9 +7183,32 @@ async function toggleVoiceRecording(btnElement) {
                                 'VENDEDOR_ID', 'SOURCE_SHEET', 'CREATED_AT',
                                 'COMENTARIOS_SEMANA', 'COMENTARIOS_SEMANA_PREVIA'];
 
+      // Columnas que existen en la tabla `quotes` pero que la vista de
+      // cotizaciones del original NO muestra. La API las expone porque
+      // `build_header_map` rinde toda columna presente —asi una columna nueva
+      // aparece sola y no se pierde nada—, pero al usuario le llegaban diez
+      // columnas de mas.
+      //
+      // Va aparte de COLUMNAS_OCULTAS y no dentro: `FECHA` y `RELOJ` son
+      // columnas de trabajo del tracker, y una lista global las borraria de la
+      // tabla de tareas de todo el mundo.
+      const COLUMNAS_OCULTAS_VENTAS = ['EXTRA', 'ARCHIVO', 'FECHA', 'COMENTARIO',
+                                       'ESTATUS_2', 'FECHA_ENVIO', 'DIAS_2',
+                                       'LLAMADA_CLIENTE', 'RELOJ', 'COMPLETADA'];
+
+      // Las siete hojas de ventas son `ANTONIA_VENTAS` y `<Vendedor> (VENTAS)`.
+      // `ANTONIA PINEDA LOPEZ` es su tracker, no su hoja de ventas: confundirlos
+      // le quitaria `FECHA` y `RELOJ` de su tabla de tareas.
+      const esHojaDeVentas = (nombre) => {
+          const up = String(nombre || '').toUpperCase();
+          return up === 'ANTONIA_VENTAS' || up.includes('(VENTAS)');
+      };
+
       const visibleTrackerHeaders = computed(() => {
           if (!staffTracker.value.headers) return [];
-          return staffTracker.value.headers.filter(h => !COLUMNAS_OCULTAS.includes(String(h).toUpperCase().trim()));
+          const ocultas = COLUMNAS_OCULTAS.concat(
+              esHojaDeVentas(staffTracker.value.name) ? COLUMNAS_OCULTAS_VENTAS : []);
+          return staffTracker.value.headers.filter(h => !ocultas.includes(String(h).toUpperCase().trim()));
       });
 
       const toggleTrackerSort = () => {
