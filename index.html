@@ -7166,7 +7166,17 @@ async function toggleVoiceRecording(btnElement) {
       //   MONTO: no aparece en la vista de cotizaciones del original y está
       //     vacía en las 661 filas de las 7 hojas de ventas. Era una columna en
       //     blanco al final de la tabla.
-      const COLUMNAS_OCULTAS = ['PROCESO_LOG', 'PROCESO', 'MAP COT', 'MONTO'];
+      //   Las técnicas (`sheets.COLUMNAS_TECNICAS` del backend): claves y
+      //     metadatos del esquema relacional que el original no tiene. Al usuario
+      //     le llegaban seis columnas de UUID y marcas de tiempo al final de cada
+      //     tabla. `ID` era ademas engañosa: en las hojas de Apps Script `ID` es
+      //     el folio, y aqui es la clave primaria de Postgres.
+      //
+      // Ocultar no afecta a la escritura: esto solo gobierna el render y la fila
+      // conserva todas sus claves (`isFieldEditable` sigue leyendo `row['ID']`).
+      const COLUMNAS_OCULTAS = ['PROCESO_LOG', 'PROCESO', 'MAP COT', 'MONTO',
+                                'ID', 'DEDUPE_KEY', 'FOLIO_SINTETICO', 'ASSIGNEE_ID',
+                                'VENDEDOR_ID', 'SOURCE_SHEET', 'CREATED_AT'];
 
       const visibleTrackerHeaders = computed(() => {
           if (!staffTracker.value.headers) return [];
@@ -7324,13 +7334,40 @@ const filteredStaffTrackerData = computed(() => {
           return { width: w, fontSize: fs, padding: pad, textAlign: align, overflow: 'hidden', textOverflow: 'ellipsis', color: colColor };
       };
 
+      // Clave de encabezado sin acentos ni puntuación: el mismo criterio que
+      // `clave_encabezado` del backend. Hace falta porque la misma columna llega
+      // con dos grafías —la API rinde el nombre crudo (`FECHA_ESTIMADA_FIN`) y
+      // la hoja de Apps Script usa espacios (`FECHA ESTIMADA DE FIN`)— y antes
+      // se comparaba por igualdad exacta contra la segunda. Ninguna casaba con
+      // lo que entrega la API, así que cuatro columnas se rotulaban solas y
+      // llegaban al usuario con guion bajo: `Fecha_estimada_fin`, `Hora_alta`.
+      const claveEtiqueta = (h) => String(h || '').toUpperCase()
+          .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+          .replace(/[^A-Z0-9]/g, '');
+
+      // Etiquetas tal como se leen en el original. Solo las que no salen bien
+      // capitalizando el nombre de la columna.
+      const ETIQUETAS_DE_COLUMNA = {
+          'CLASIFICACION': 'Clasi',
+          'RESTRICCIONES': 'Restricciones y Comentarios',
+          'FECHAESTIMADADEFIN': 'Fec. Est. Fin',
+          'FECHAESTIMADAFIN': 'Fec. Est. Fin',
+          'HORAESTIMADADEFIN': 'Hr. Est. Fin',
+          'HORAESTIMADAFIN': 'Hr. Est. Fin',
+          'FECHARESPUESTA': 'Fecha respuesta',
+          'HORAALTA': 'Hora',
+          // Como se llaman en la hoja del original (ver `ALIAS_DE_HOJA` de
+          // backend/schemas/task.py).
+          'COMENTARIOSSEMANA': 'Comentarios semana en curso',
+          'COMENTARIOSSEMANAPREVIA': 'Comentarios previos',
+      };
+
       const getHeaderLabel = (h) => {
           const up = String(h).toUpperCase().trim();
           if (up === 'DIAS' && currentUsername.value === 'ANTONIA_VENTAS') return 'Días Finaliz. Cotiz';
-          if (up === 'CLASIFICACION') return 'Clasi';
-          if (up === 'FECHA ESTIMADA DE FIN') return 'Fec. Est. Fin';
-          if (up === 'HORA ESTIMADA DE FIN') return 'Hr. Est. Fin';
-          if (up === 'RESTRICCIONES') return 'Restricciones y Comentarios';
+
+          const etiqueta = ETIQUETAS_DE_COLUMNA[claveEtiqueta(h)];
+          if (etiqueta) return etiqueta;
 
           let str = String(h).toLowerCase();
           return str.charAt(0).toUpperCase() + str.slice(1);

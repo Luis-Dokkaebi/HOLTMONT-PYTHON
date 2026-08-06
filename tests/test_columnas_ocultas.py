@@ -13,6 +13,15 @@ Qué se oculta y por qué:
     columnas propias mostraría el JSON crudo. El original hace lo mismo.
   * `MONTO` — no aparece en la vista de cotizaciones del original y está vacía
     en las 661 filas de las 7 hojas de ventas. Era una columna en blanco.
+  * Las columnas técnicas (`sheets.COLUMNAS_TECNICAS`) — `ID`, `DEDUPE_KEY`,
+    `FOLIO_SINTETICO`, `ASSIGNEE_ID`, `VENDEDOR_ID`, `SOURCE_SHEET`,
+    `CREATED_AT`. Son claves y metadatos del esquema relacional que el original
+    no tiene; al usuario le llegaban seis columnas de UUID y marcas de tiempo al
+    final de cada tabla. `ID` era además engañosa: en las hojas de Apps Script
+    `ID` es el folio, y aquí es la clave primaria de Postgres.
+
+Ocultarlas no afecta a la escritura: el filtro solo gobierna el render, y la
+fila conserva todas sus claves (`isFieldEditable` sigue leyendo `row['ID']`).
 
 La comprobación es de comportamiento: se evalúa el filtro real con Node sobre
 una lista de encabezados. Una prueba que solo buscara la cadena `'MONTO'` en el
@@ -32,7 +41,10 @@ import pytest
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX = os.path.join(RAIZ, "index.html")
 
-OCULTAS = ["PROCESO_LOG", "PROCESO", "MAP COT", "MONTO"]
+TECNICAS = ["ID", "DEDUPE_KEY", "FOLIO_SINTETICO", "ASSIGNEE_ID", "VENDEDOR_ID",
+            "SOURCE_SHEET", "CREATED_AT"]
+
+OCULTAS = ["PROCESO_LOG", "PROCESO", "MAP COT", "MONTO"] + TECNICAS
 
 # Las 20 que se ven en la hoja de cotizaciones de Apps Script. Ninguna se oculta.
 VISIBLES = [
@@ -107,3 +119,21 @@ def test_el_filtro_no_distingue_mayusculas_ni_espacios() -> None:
 def test_monto_esta_declarada_como_oculta() -> None:
     """Deja constancia de la decisión: no se muestra en ninguna hoja de ventas."""
     assert "'MONTO'" in _declaracion_de_ocultas()
+
+
+def test_las_columnas_tecnicas_del_esquema_no_se_muestran():
+    """
+    La lista de la vista cubre las que `sheets.COLUMNAS_TECNICAS` clasifica así.
+
+    Se contrasta contra el backend en vez de repetir la lista a mano: si mañana
+    se añade una columna técnica allí, esta prueba avisa de que la vista aún la
+    enseña, en lugar de que aparezca un UUID en la tabla de alguien.
+    """
+    from api.services.sheets import COLUMNAS_TECNICAS
+
+    declaradas = {c.upper() for c in COLUMNAS_TECNICAS}
+    ocultas = {c.upper() for c in re.findall(r"'([^']+)'", _declaracion_de_ocultas())}
+
+    assert declaradas - ocultas == set(), (
+        f"columnas técnicas que la vista sigue mostrando: {sorted(declaradas - ocultas)}"
+    )
