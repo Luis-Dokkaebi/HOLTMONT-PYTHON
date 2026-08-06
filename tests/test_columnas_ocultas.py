@@ -52,6 +52,14 @@ COMENTARIOS_SEMANALES = ["COMENTARIOS_SEMANA", "COMENTARIOS_SEMANA_PREVIA"]
 OCULTAS = (["PROCESO_LOG", "PROCESO", "MAP COT", "MONTO"]
            + TECNICAS + COMENTARIOS_SEMANALES)
 
+# Columnas que existen en `quotes` pero NO en la vista de cotizaciones del
+# original. Se ocultan **solo** en las hojas de ventas: `FECHA` y `RELOJ` son
+# columnas de trabajo del tracker, así que una lista global las borraría de ahí.
+SOLO_SOBRAN_EN_VENTAS = [
+    "EXTRA", "ARCHIVO", "FECHA", "COMENTARIO", "ESTATUS_2",
+    "FECHA_ENVIO", "DIAS_2", "LLAMADA_CLIENTE", "RELOJ", "COMPLETADA",
+]
+
 # Las 20 que se ven en la hoja de cotizaciones de Apps Script. Ninguna se oculta.
 VISIBLES = [
     "FOLIO", "AREA", "CLIENTE", "CONCEPTO", "CLASIFICACION", "VENDEDOR",
@@ -86,6 +94,7 @@ def test_el_filtro_oculta_exactamente_las_columnas_declaradas() -> None:
     entrada = VISIBLES + OCULTAS + ["ESTATUS_2", "SOURCE_SHEET"]
     guion = f"""
         {_declaracion_de_ocultas()}
+        const ocultas = COLUMNAS_OCULTAS;   // hoja de tracker
         const headers = {json.dumps(entrada)};
         console.log(JSON.stringify(headers.filter({_filtro()})));
     """
@@ -112,6 +121,7 @@ def test_el_filtro_no_distingue_mayusculas_ni_espacios() -> None:
     """
     guion = f"""
         {_declaracion_de_ocultas()}
+        const ocultas = COLUMNAS_OCULTAS;
         const headers = ["monto", " Monto ", "MONTO", "proceso"];
         console.log(JSON.stringify(headers.filter({_filtro()})));
     """
@@ -143,3 +153,89 @@ def test_las_columnas_tecnicas_del_esquema_no_se_muestran():
     assert declaradas - ocultas == set(), (
         f"columnas técnicas que la vista sigue mostrando: {sorted(declaradas - ocultas)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Las columnas que sobran solo en las hojas de ventas
+# ---------------------------------------------------------------------------
+# `build_header_map` expone toda columna presente en la tabla —se hizo así para
+# que los mapas curados no se quedaran cortos—, y `quotes` tiene diez que la
+# vista de cotizaciones del original no muestra. Ocultarlas globalmente no vale:
+# `FECHA` y `RELOJ` son columnas de trabajo del tracker.
+
+def _declaracion_de_ocultas_ventas() -> str:
+    m = re.search(r"const COLUMNAS_OCULTAS_VENTAS = \[[^\]]*\];", _fuente())
+    assert m, "no se encontró `const COLUMNAS_OCULTAS_VENTAS = [...]` en index.html"
+    return m.group(0)
+
+
+def _es_hoja_de_ventas() -> str:
+    m = re.search(r"const esHojaDeVentas = \(nombre\) => \{.*?\n      \};",
+                  _fuente(), re.S)
+    assert m, "no se encontró `esHojaDeVentas` en index.html"
+    return m.group(0)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+@pytest.mark.parametrize("columna", SOLO_SOBRAN_EN_VENTAS)
+def test_las_columnas_de_mas_no_salen_en_una_hoja_de_ventas(columna: str) -> None:
+    guion = f"""
+        {_declaracion_de_ocultas()}
+        {_declaracion_de_ocultas_ventas()}
+        {_es_hoja_de_ventas()}
+        const ocultas = COLUMNAS_OCULTAS.concat(
+            esHojaDeVentas('ANTONIA_VENTAS') ? COLUMNAS_OCULTAS_VENTAS : []);
+        console.log(JSON.stringify(ocultas.includes({json.dumps(columna)})));
+    """
+    salida = subprocess.run(["node", "-e", guion], capture_output=True,
+                            text=True, timeout=30, check=False)
+    assert salida.returncode == 0, f"node falló: {salida.stderr}"
+    assert json.loads(salida.stdout) is True, (
+        f"{columna} no existe en la vista de cotizaciones del original"
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+@pytest.mark.parametrize("columna", ["FECHA", "RELOJ", "COMENTARIOS"])
+def test_esas_columnas_siguen_saliendo_en_el_tracker(columna: str) -> None:
+    """`FECHA` y `RELOJ` son columnas de trabajo del tracker: no se tocan ahí."""
+    guion = f"""
+        {_declaracion_de_ocultas()}
+        {_declaracion_de_ocultas_ventas()}
+        {_es_hoja_de_ventas()}
+        const ocultas = COLUMNAS_OCULTAS.concat(
+            esHojaDeVentas('LUIS CARLOS') ? COLUMNAS_OCULTAS_VENTAS : []);
+        console.log(JSON.stringify(ocultas.includes({json.dumps(columna)})));
+    """
+    salida = subprocess.run(["node", "-e", guion], capture_output=True,
+                            text=True, timeout=30, check=False)
+    assert salida.returncode == 0, f"node falló: {salida.stderr}"
+    assert json.loads(salida.stdout) is False, (
+        f"{columna} es una columna del tracker y se está ocultando"
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+@pytest.mark.parametrize(("hoja", "es_ventas"), [
+    ("ANTONIA_VENTAS", True),
+    ("Sebastian Padilla (VENTAS)", True),
+    ("TERESA GARZA (VENTAS)", True),
+    ("LUIS CARLOS", False),
+    ("ANTONIA PINEDA LOPEZ", False),
+    ("ADMINISTRADOR", False),
+])
+def test_se_reconoce_cuando_la_hoja_es_de_ventas(hoja: str, es_ventas: bool) -> None:
+    """
+    Las siete hojas de ventas son `ANTONIA_VENTAS` y `<Vendedor> (VENTAS)`.
+
+    `ANTONIA PINEDA LOPEZ` es su tracker, no su hoja de ventas: si se
+    confundieran, perdería `FECHA` y `RELOJ` de su tabla de tareas.
+    """
+    guion = f"""
+        {_es_hoja_de_ventas()}
+        console.log(JSON.stringify(!!esHojaDeVentas({json.dumps(hoja)})));
+    """
+    salida = subprocess.run(["node", "-e", guion], capture_output=True,
+                            text=True, timeout=30, check=False)
+    assert salida.returncode == 0, f"node falló: {salida.stderr}"
+    assert json.loads(salida.stdout) is es_ventas
