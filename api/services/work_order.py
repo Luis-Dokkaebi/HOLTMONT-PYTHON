@@ -47,6 +47,23 @@ TABLAS_WO = {
         "CANTIDAD": "cantidad", "PRECIO": "precio", "TOTAL": "total",
         "RESPONSABLE": "responsable", "SECCION": "seccion", "ESTATUS": "estatus",
     }),
+    # Bloques F, G y H del formulario. No tenian tabla: `save_child_data`
+    # devolvia un aviso y el detalle quedaba solo en la nota de Obsidian.
+    # El esquema esta en `docs/DDL_WO_BLOQUES.sql`.
+    "DB_WO_VIATICOS": ("wo_viaticos", {
+        "FOLIO": "folio", "CONCEPTO": "concepto", "CANTIDAD": "cantidad",
+        "COSTO_UNITARIO": "costo_unitario", "TOTAL": "total",
+    }),
+    "DB_WO_TRANSPORTE": ("wo_transporte", {
+        "FOLIO": "folio", "VEHICULO": "vehiculo", "CHOFER": "chofer",
+        "TIEMPO": "tiempo", "LTS_GASOLINA": "lts_gasolina",
+        "COSTO_TOTAL": "costo_total", "NOTAS_CONTROL": "notas_control",
+    }),
+    "DB_WO_INGENIERIA": ("wo_ingenieria", {
+        "FOLIO": "folio", "ENTREGABLE": "entregable",
+        "HORAS_DISENO": "horas_diseno", "COSTO_HORA": "costo_hora",
+        "TOTAL": "total",
+    }),
 }
 
 # Columnas numéricas y de fecha de esas tablas: el formulario las manda como

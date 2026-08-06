@@ -132,3 +132,52 @@ def test_el_folio_completo_tiene_el_formato_del_original() -> None:
 def test_sin_departamento_se_usa_General_como_el_original() -> None:
     folio = work_order.generate_work_order_folio("ACME CORP", None)
     assert folio.split()[1] == "Gener"
+
+
+# --- Los tres bloques que no tenían tabla ----------------------------
+#
+# Viáticos, transporte e ingeniería se capturan en el formulario y
+# `process_and_save_work_order` los prepara, pero no estaban en `TABLAS_WO`:
+# `save_child_data` devolvía un aviso y el detalle quedaba solo en la nota de
+# Obsidian. Con `docs/DDL_WO_BLOQUES.sql` aplicado, ya tienen dónde ir.
+
+BLOQUES_DEL_FORMULARIO = [
+    ("DB_WO_VIATICOS", "wo_viaticos",
+     ["FOLIO", "CONCEPTO", "CANTIDAD", "COSTO_UNITARIO", "TOTAL"]),
+    ("DB_WO_TRANSPORTE", "wo_transporte",
+     ["FOLIO", "VEHICULO", "CHOFER", "TIEMPO", "LTS_GASOLINA", "COSTO_TOTAL",
+      "NOTAS_CONTROL"]),
+    ("DB_WO_INGENIERIA", "wo_ingenieria",
+     ["FOLIO", "ENTREGABLE", "HORAS_DISENO", "COSTO_HORA", "TOTAL"]),
+]
+
+
+@pytest.mark.parametrize(("hoja", "tabla", "encabezados"), BLOQUES_DEL_FORMULARIO)
+def test_cada_bloque_del_formulario_tiene_tabla(hoja: str, tabla: str,
+                                                encabezados: list) -> None:
+    """
+    Sin entrada en `TABLAS_WO`, el bloque no se guarda: se avisa y se pierde.
+
+    Los encabezados son los que arma `process_and_save_work_order`; si alguien
+    añade un campo al formulario y no al mapa, esa columna deja de guardarse sin
+    que nada falle.
+    """
+    destino = work_order.TABLAS_WO.get(hoja)
+    assert destino is not None, f"{hoja} no tiene tabla declarada en TABLAS_WO"
+
+    nombre, columnas = destino
+    assert nombre == tabla
+
+    faltan = [h for h in encabezados if h not in columnas]
+    assert faltan == [], f"{hoja}: encabezados sin columna destino: {faltan}"
+
+
+def test_ningun_bloque_del_formulario_se_queda_sin_guardar() -> None:
+    """Control de conjunto sobre los ocho bloques."""
+    esperados = {
+        "DB_WO_MATERIALES", "DB_WO_MANO_OBRA", "DB_WO_HERRAMIENTAS",
+        "DB_WO_EQUIPOS", "DB_WO_PROGRAMA", "DB_WO_VIATICOS",
+        "DB_WO_TRANSPORTE", "DB_WO_INGENIERIA",
+    }
+    faltan = sorted(esperados - set(work_order.TABLAS_WO))
+    assert faltan == [], f"bloques sin tabla (solo llegan a Obsidian): {faltan}"
