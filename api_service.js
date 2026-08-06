@@ -1,6 +1,13 @@
-const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? 'http://localhost:8000'
-    : window.location.origin; // Configure this for production
+// El origen de la pagina es siempre el de la API: `vercel.json` sirve
+// `index.html`, este archivo y `api/main.py` bajo el mismo dominio, y en local
+// FastAPI publica los tres. No hay ningun despliegue donde diverjan.
+//
+// Antes se fijaba `http://localhost:8000` a mano cuando el host era `localhost`
+// o `127.0.0.1`, ignorando el puerto real. Arrancar en cualquier otro puerto
+// dejaba el login roto de forma dificil de diagnosticar: el `fetch` salia hacia
+// un puerto vacio, no se registraba ninguna peticion a `/api/` y la pantalla
+// solo decia "Connection Error: TypeError: Failed to fetch".
+const API_BASE_URL = window.location.origin;
 window.API_BASE_URL = API_BASE_URL; // Ensure global visibility
 
 // Ensure window.google structure exists for localhost
