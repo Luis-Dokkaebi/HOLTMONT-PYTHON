@@ -48,12 +48,45 @@ from api.services.tracker_rules import (
     PROCESS_STEPS,
     SALES_MASTER_SHEET,
     extract_phase_from_concepto,
+    is_sales_sheet,
     normalize_header,
     normalize_phase_id,
     normalize_staff_name,
     parse_proceso_log,
     pick_task_value,
 )
+
+# Las ocho personas con tabla de cotizaciones `<NOMBRE> (VENTAS)`.
+#
+# Es una lista **declarada**, no deducida, y esa es la decisión. Había tres
+# fuentes que decían cosas distintas y ninguna acertaba por sí sola:
+#
+#   * el directorio (`INITIAL_DIRECTORY`), cuyo `type` VENTAS/HÍBRIDO es lo que
+#     en el original crea la hoja (`CODIGO.js:458`) — pero deja fuera a Edgar
+#     López y a Juan José Sánchez, que tienen cotizaciones migradas de verdad;
+#   * la bandera `seller` de `PERFILES`, que además marca a Alfonso Correa y a
+#     Judith Echavarría, sin hoja ni respaldo en el directorio;
+#   * las hojas con datos en `quotes`, que no ven a Ángel Salinas ni a Eduardo
+#     Terán porque su hoja existe pero está vacía.
+#
+# El dueño resolvió (2026-08-06) por la unión de las dos fuentes respaldadas por
+# algo real: directorio ∪ hojas con cotizaciones. Dejarlo escrito aquí obliga a
+# que dar de alta a un vendedor sea una decisión consciente, en vez del efecto
+# colateral de una bandera que nadie recuerda haber puesto.
+VENDEDORES_CON_TABLA: tuple = (
+    "EDUARDO MANZANARES",
+    "RAMIRO RODRIGUEZ",
+    "SEBASTIAN PADILLA",
+    "TERESA GARZA",
+    "ANGEL SALINAS",
+    "EDUARDO TERAN",
+    "EDGAR LOPEZ",
+    "JUAN JOSE SANCHEZ",
+)
+
+_VENDEDORES_NORMALIZADOS: Dict[str, str] = {
+    normalize_staff_name(nombre): nombre for nombre in VENDEDORES_CON_TABLA
+}
 
 # Columnas cuyo valor viaja entre las copias de una misma actividad.
 #
@@ -137,6 +170,26 @@ def hoja_de_persona(nombre: Any) -> str:
     return limpio
 
 
+def tabla_de_cotizaciones(nombre: Any) -> str:
+    """
+    Tabla `(VENTAS)` de una persona, o `""` si no tiene.
+
+    La cadena vacía significa "no hay a dónde mandarlo", y quien llama tiene que
+    tratarla como tal: **no** existe un destino de respaldo. El original sí lo
+    tiene —`CODIGO.js:2856` se cae al tracker personal cuando la hoja de ventas
+    no existe— y el dueño lo corrigió expresamente: una cotización no se filtra
+    al tracker de nadie.
+
+    `normalize_staff_name` ya purga el sufijo, así que un nombre que llegue como
+    "Teresa Garza (VENTAS)" y otro como "  teresa garza  " son la misma persona
+    y ninguno produce un `(VENTAS) (VENTAS)`.
+    """
+    limpio = normalize_staff_name(nombre)
+    if not limpio or limpio not in _VENDEDORES_NORMALIZADOS:
+        return ""
+    return f"{_VENDEDORES_NORMALIZADOS[limpio]} (VENTAS)"
+
+
 def responsables_de(task: Dict[str, Any]) -> List[str]:
     """Los nombres de la columna RESPONSABLE/INVOLUCRADOS, en orden y sin repetir."""
     crudo = pick_task_value(task, ["RESPONSABLE", "RESPONSABLES", "INVOLUCRADOS",
@@ -151,7 +204,8 @@ def responsables_de(task: Dict[str, Any]) -> List[str]:
     return nombres
 
 
-def destinos_espejo(hoja_origen: Any, task: Dict[str, Any]) -> List[str]:
+def destinos_espejo(hoja_origen: Any, task: Dict[str, Any],
+                    username: Any = "") -> List[str]:
     """
     Tablas que deben recibir una copia de esta actividad.
 
@@ -159,9 +213,29 @@ def destinos_espejo(hoja_origen: Any, task: Dict[str, Any]) -> List[str]:
     guardando: asignarse algo a uno mismo no duplica la fila. La papa caliente
     no pasa por aquí —tiene su propio reparto en `apply_hot_potato`, con fases
     y concepto marcado—, así que las microtareas se excluyen.
+
+    El destino depende de **qué** se está asignando, no solo de a quién:
+
+    * Desde una hoja de ventas se está repartiendo una **cotización**, y una
+      cotización solo puede caer en otra tabla `(VENTAS)`. Si el destinatario
+      no tiene una, no hay destino — ver `tabla_de_cotizaciones`. Y solo Toñita
+      reparte: la Ley de Antonia ya prohíbe a cualquier otro escribir en una
+      hoja con sufijo, y el tracker dejó de ser una salida, así que un vendedor
+      que asigne desde su propia tabla no tiene a dónde mandarlo.
+    * Desde un tracker se reparte una **actividad**, y va al tracker de quien la
+      recibe. Eso no cambia; ser vendedor no le quita a nadie su tracker.
+
+    `username` hace falta para distinguir a Toñita del resto. Antes no se
+    recibía, y por eso este camino resolvía el destino con `hoja_de_persona`
+    —que purga el sufijo siempre— en vez de con la regla que sí contempla la
+    excepción. Medido contra la base real el 2026-08-06: una cotización asignada
+    a Teresa Garza acababa en `tasks`, hoja `TERESA GARZA`.
     """
     if es_delegacion_de_fase(task):
         return []
+
+    if is_sales_sheet(hoja_origen):
+        return _destinos_de_cotizacion(hoja_origen, task, username)
 
     propia = hoja_de_persona(hoja_origen) or normalize_staff_name(hoja_origen)
     destinos: List[str] = []
@@ -170,6 +244,22 @@ def destinos_espejo(hoja_origen: Any, task: Dict[str, Any]) -> List[str]:
         if not hoja or hoja == propia or hoja in destinos:
             continue
         destinos.append(hoja)
+    return destinos
+
+
+def _destinos_de_cotizacion(hoja_origen: Any, task: Dict[str, Any],
+                            username: Any) -> List[str]:
+    """Tablas `(VENTAS)` que reciben copia de una cotización. Solo Toñita reparte."""
+    if normalize_staff_name(username) != normalize_staff_name(SALES_MASTER_SHEET):
+        return []
+
+    propia = normalize_staff_name(hoja_origen)
+    destinos: List[str] = []
+    for nombre in responsables_de(task):
+        tabla = tabla_de_cotizaciones(nombre)
+        if not tabla or normalize_staff_name(tabla) == propia or tabla in destinos:
+            continue
+        destinos.append(tabla)
     return destinos
 
 

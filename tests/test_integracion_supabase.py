@@ -189,20 +189,38 @@ def test_una_tarea_nueva_cae_en_la_particion_de_su_hoja(motor):
 
 def test_el_reverse_sync_no_le_roba_la_cotizacion_a_su_vendedor(motor):
     """
-    `quotes` tiene `folio` como clave primaria: una cotización vive en una sola
-    hoja. Al sincronizar hacia la hoja maestra de Toñita hay que actualizar la
-    fila, no cambiarle el dueño.
+    Sincronizar hacia la hoja de Toñita no puede mover la fila del vendedor.
+
+    El invariante es el mismo de siempre; lo que cambió es cómo se cumple.
+    Cuando `quotes` tenía `folio` como clave primaria había una sola fila en
+    toda la base, y la defensa era congelar `source_sheet` para que un guardado
+    desde otra vista no se la llevara. Desde que la identidad es
+    `(folio, source_sheet)` cada hoja tiene su propia fila, así que la de
+    Sebastián sencillamente no se toca: escribir en la de Antonia es escribir en
+    otra fila.
+
+    Se comprueba lo uno **y** lo otro —que la suya queda intacta y que la de
+    Antonia recibe los valores nuevos—, que es más de lo que verificaba la
+    versión anterior.
     """
     repo = QuoteRepository(motor)
     repo.guardar_lote("ANTONIA_VENTAS", [QuoteWrite.desde_hoja(
-        {"FOLIO": "AV-0100", "AVANCE": "60", "ESTATUS": "ENVIADA"}
+        {"FOLIO": "AV-0100", "AVANCE": "60", "ESTATUS": "ENVIADA",
+         "CLIENTE": "ACME", "CONCEPTO": "COTIZAR NAVE"}
     )])
 
-    fila = motor.select("quotes")[0]
-    assert fila["source_sheet"] == "Sebastian Padilla (VENTAS)"
-    assert fila["avance"] == 60.0
-    assert fila["estatus"] == "ENVIADA"
-    assert fila["cliente"] == "ACME"
+    por_hoja = {f["source_sheet"]: f for f in motor.select("quotes")
+                if f["folio"] == "AV-0100"}
+    assert sorted(por_hoja) == ["ANTONIA_VENTAS", "Sebastian Padilla (VENTAS)"]
+
+    del_vendedor = por_hoja["Sebastian Padilla (VENTAS)"]
+    assert del_vendedor["avance"] == 20.0, "la fila del vendedor no se toca"
+    assert del_vendedor["estatus"] == "EN PROCESO"
+
+    de_antonia = por_hoja["ANTONIA_VENTAS"]
+    assert de_antonia["avance"] == 60.0
+    assert de_antonia["estatus"] == "ENVIADA"
+    assert de_antonia["cliente"] == "ACME"
 
 
 # ----------------------------------------------------------------------

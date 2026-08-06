@@ -23,6 +23,7 @@ except ImportError:
 # Services
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
 from api.services import organigrama
+from api.services.asignacion import tabla_de_cotizaciones
 from api.services.work_order import process_and_save_work_order, get_next_sequence
 
 # MCP Server
@@ -133,6 +134,15 @@ def api_get_system_config(
     el comportamiento degrada a "sin rama por usuario", nunca a permisos de más.
     """
     full_directory = get_directory_from_db()
+    # `sales` marca a quien tiene tabla `<NOMBRE> (VENTAS)`, que es la única
+    # gente a la que se le puede asignar una cotización. La vista lo usa para no
+    # ofrecer como destino a alguien sin tabla: si no hay a dónde mandarlo, no
+    # debe aparecer en la lista. La fuente es `asignacion.VENDEDORES_CON_TABLA`,
+    # declarada en un solo sitio, para que el frontend no repita la lista.
+    full_directory = [
+        {**persona, "sales": bool(tabla_de_cotizaciones(persona.get("name")))}
+        for persona in full_directory
+    ]
     cuenta = organigrama.clave_usuario(username)
 
     ppc_module_master = { "id": "PPC_MASTER", "label": "PPC Maestro", "icon": "fa-tasks", "color": "#fd7e14", "type": "ppc_native" }

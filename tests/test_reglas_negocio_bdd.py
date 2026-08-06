@@ -13,12 +13,14 @@ from typing import Any, Dict, List, Optional
 import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from api.services.asignacion import destinos_espejo
 from api.services.tracker_rules import (
     Gatekeeper,
     apply_batch_update,
     build_notification_payload,
     build_reverse_sync_payload,
     is_progress_complete,
+    SALES_MASTER_SHEET,
     resolve_tracker_target,
 )
 
@@ -344,3 +346,38 @@ def _fila_con_estatus(contexto: Dict[str, Any], estatus: str) -> None:
     filas = _filas_con_concepto(contexto["matriz"], contexto["concepto"])
     assert len(filas) == 1
     assert _valor_de(filas[0], "ESTATUS") == estatus
+
+
+# ----------------------------------------------------------------------
+# A dónde va una cotización asignada
+# ----------------------------------------------------------------------
+
+@given(parsers.parse('que Toñita reparte una cotización a "{destinatario}"'))
+def _tonita_reparte(contexto: Dict[str, Any], destinatario: str) -> None:
+    contexto["destinos"] = destinos_espejo(
+        SALES_MASTER_SHEET, {"VENDEDOR": destinatario}, username=SALES_MASTER_SHEET)
+
+
+@given(parsers.parse(
+    'que el vendedor "{vendedor}" reparte una cotización a "{destinatario}"'))
+def _vendedor_reparte(contexto: Dict[str, Any], vendedor: str, destinatario: str) -> None:
+    contexto["destinos"] = destinos_espejo(
+        f"{vendedor} (VENTAS)", {"VENDEDOR": destinatario}, username=vendedor)
+
+
+@given(parsers.parse('que "{quien}" asigna una actividad a "{destinatario}"'))
+def _asigna_actividad(contexto: Dict[str, Any], quien: str, destinatario: str) -> None:
+    contexto["destinos"] = destinos_espejo(
+        quien, {"INVOLUCRADOS": destinatario}, username=quien)
+
+
+@then(parsers.parse('la copia va a la tabla "{tabla}"'))
+def _copia_va_a(contexto: Dict[str, Any], tabla: str) -> None:
+    assert contexto["destinos"] == [tabla]
+
+
+@then("no hay ninguna tabla destino")
+def _sin_destino(contexto: Dict[str, Any]) -> None:
+    assert contexto["destinos"] == [], (
+        f"sin tabla (VENTAS) no hay destino, y se resolvió {contexto['destinos']}"
+    )

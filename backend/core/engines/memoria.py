@@ -107,12 +107,22 @@ class MemoryEngine:
             return []
         self._validar_no_nulos(tabla, filas)
 
+        # `en_conflicto` acepta clave compuesta separada por comas, igual que el
+        # `on_conflict` de PostgREST: `quotes` la usa (`folio,source_sheet`)
+        # porque la misma cotización vive en la tabla de quien la reparte y en
+        # la de quien la recibe. `tasks` sigue con una sola (`dedupe_key`).
+        columnas_clave = [c.strip() for c in str(en_conflicto).split(",") if c.strip()]
+
+        def clave_de(fila: Dict[str, Any]) -> Optional[tuple]:
+            valores = tuple(fila.get(c) for c in columnas_clave)
+            return None if any(v is None for v in valores) else valores
+
         destino = self.datos.setdefault(tabla, [])
-        indice = {f.get(en_conflicto): f for f in destino if f.get(en_conflicto) is not None}
+        indice = {clave_de(f): f for f in destino if clave_de(f) is not None}
         resultado: List[Dict[str, Any]] = []
 
         for fila in filas:
-            clave = fila.get(en_conflicto)
+            clave = clave_de(fila)
             if clave is None:
                 raise ErrorDeMotor(
                     f"Fila sin {en_conflicto}: el upsert no tiene con qué resolver el conflicto",
