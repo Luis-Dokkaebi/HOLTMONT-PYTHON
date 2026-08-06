@@ -206,9 +206,14 @@ def generate_work_order_folio(client_name, dept_name):
     seq_padded = seq_str.zfill(4)
 
     # Clean Client Name
-    clean_client = (client_name or "XX").upper().strip()
+    #
+    # La puntuacion se sustituye por un ESPACIO, no se borra, que es lo que
+    # hace el original (`.replace(/[^A-Z0-9]/g, ' ')`). Borrandola, `COCA-COLA`
+    # quedaba como una sola palabra y daba `CO`; el original la parte en dos y
+    # da `CC`. Cualquier cliente con guion, punto o `&` generaba un folio
+    # distinto al que la empresa lleva usando.
     import re
-    clean_client = re.sub(r'[^A-Z0-9 ]', '', clean_client)
+    clean_client = re.sub(r'[^A-Z0-9]', ' ', (client_name or "XX").upper()).strip()
     words = [w for w in clean_client.split() if w]
 
     client_str = "XX"
@@ -242,6 +247,12 @@ def generate_work_order_folio(client_name, dept_name):
         "COMPRAS": "Compras",
         "VENTAS": "Ventas",
         "HVAC": "HVAC",
+        # Faltaban las tres: sin ellas, una orden de Finanzas o Facturacion
+        # caia al truncado y salia como `Finan` y `Factu`. Son departamentos
+        # reales del organigrama (CODIGO.js:4192-4194).
+        "FINANZAS": "Finanzas",
+        "FACTURACION": "Factura",
+        "FACTURACIÓN": "Factura",
         "SEGURIDAD": "EHS",
         "EHS": "EHS"
     }
