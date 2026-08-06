@@ -13,7 +13,9 @@ from typing import Any, Dict, List, Optional
 import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from api.services import tracker_store
 from api.services.asignacion import destinos_espejo
+from api.services.sheets import SEPARADOR_ARCHIVO, _valores_de_tareas
 from api.services.tracker_rules import (
     Gatekeeper,
     apply_batch_update,
@@ -23,6 +25,10 @@ from api.services.tracker_rules import (
     SALES_MASTER_SHEET,
     resolve_tracker_target,
 )
+from backend.core.engines.memoria import MemoryEngine
+from backend.schemas.quote import QuoteWrite
+from backend.schemas.task import TaskWrite
+from backend.services.persistencia import PersistenciaTracker
 
 scenarios("features")
 
@@ -380,4 +386,76 @@ def _copia_va_a(contexto: Dict[str, Any], tabla: str) -> None:
 def _sin_destino(contexto: Dict[str, Any]) -> None:
     assert contexto["destinos"] == [], (
         f"sin tabla (VENTAS) no hay destino, y se resolvió {contexto['destinos']}"
+    )
+
+
+# ----------------------------------------------------------------------
+# Una celda numérica en una columna de texto
+# ----------------------------------------------------------------------
+
+@given(parsers.parse("que llega una cotización nueva con RELOJ numérico {valor:d}"))
+def _cotizacion_con_reloj_numerico(contexto: Dict[str, Any], valor: int) -> None:
+    contexto["modelo"] = QuoteWrite
+    contexto["fila"] = {"FOLIO": "AV-1", "RELOJ": valor}
+
+
+@given(parsers.parse("que llega una actividad con RELOJ numérico {valor:d}"))
+def _actividad_con_reloj_numerico(contexto: Dict[str, Any], valor: int) -> None:
+    contexto["modelo"] = TaskWrite
+    contexto["fila"] = {"FOLIO": "JO-1", "RELOJ": valor}
+
+
+@given(parsers.parse('que llega una actividad con RELOJ de texto "{valor}"'))
+def _actividad_con_reloj_de_texto(contexto: Dict[str, Any], valor: str) -> None:
+    contexto["modelo"] = TaskWrite
+    contexto["fila"] = {"FOLIO": "JO-1", "RELOJ": valor}
+
+
+@when("el sistema la valida para guardarla")
+def _valida_la_fila(contexto: Dict[str, Any]) -> None:
+    contexto["validada"] = contexto["modelo"].desde_hoja(contexto["fila"])
+
+
+@then(parsers.parse('se acepta y RELOJ vale "{esperado}"'))
+def _reloj_vale(contexto: Dict[str, Any], esperado: str) -> None:
+    assert contexto["validada"].reloj == esperado
+
+
+@given(parsers.parse(
+    'que la actividad "{concepto}" está al 0 % con RELOJ numérico {reloj:d}'))
+def _actividad_abierta_con_reloj(contexto: Dict[str, Any], concepto: str, reloj: int) -> None:
+    contexto["concepto"] = concepto
+    contexto["reloj"] = reloj
+    contexto["motor"] = MemoryEngine({
+        "tasks": [{
+            "id": "11111111-1111-1111-1111-111111111111",
+            "dedupe_key": "JAIME OLIVO::JO-0001", "folio": "JO-0001",
+            "source_sheet": "JAIME OLIVO", "concepto": concepto,
+            "avance": 0.0, "status": "ASIGNADO", "reloj": str(reloj),
+        }],
+        "quotes": [], "people": [], "plan_semanal": [],
+        "task_involucrados": [], "system_log": [],
+    })
+
+
+@when("el usuario le pone 100 % y guarda")
+def _cierra_al_cien(contexto: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tracker_store, "_persistencia",
+                        lambda: PersistenciaTracker(contexto["motor"]))
+    monkeypatch.setattr(tracker_store, "read_values",
+                        lambda hoja: [["FOLIO", "CONCEPTO", "AVANCE", "ESTATUS", "RELOJ"]])
+    contexto["respuesta"] = tracker_store.save_tracker_batch(
+        "JAIME OLIVO",
+        [{"FOLIO": "JO-0001", "CONCEPTO": contexto["concepto"],
+          "AVANCE": "100", "ESTATUS": "ASIGNADO", "RELOJ": contexto["reloj"]}],
+        username="JAIME_OLIVO",
+    )
+
+
+@then("la actividad queda bajo TAREAS REALIZADAS")
+def _queda_archivada(contexto: Dict[str, Any]) -> None:
+    assert contexto["respuesta"]["success"] is True, contexto["respuesta"].get("message")
+    valores = _valores_de_tareas(contexto["motor"].select("tasks"))
+    assert any(SEPARADOR_ARCHIVO in celda for celda in valores[1]), (
+        f"la tarea al 100 % no quedó bajo {SEPARADOR_ARCHIVO}: {valores}"
     )
