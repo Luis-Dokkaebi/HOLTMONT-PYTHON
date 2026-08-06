@@ -34,3 +34,7 @@ coverage.xml
 .mutmut-cache
 .ruff_cache/
 .mypy_cache/
+
+# Respaldo que deja `scripts/sincronizar_espejo_administrador.py` antes de
+# escribir: es un volcado de datos de produccion, no codigo.
+respaldo_espejo_*.json
