@@ -23,7 +23,13 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.schemas.hoja import a_fecha, a_hora, columnas_desde_hoja, indice_de_alias
+from backend.schemas.hoja import (
+    a_fecha,
+    a_hora,
+    columnas_desde_hoja,
+    indice_de_alias,
+    numero_a_texto,
+)
 from backend.services.identity import normalize_avance
 
 # Las 28 columnas de `tasks`, en el orden en que se documentan.
@@ -191,7 +197,10 @@ class TaskWrite(BaseModel):
     hora_estimada_fin: Optional[time] = None
     # `reloj` es texto y su contenido es heterogéneo en los datos reales:
     # conviven horas ("17:00:00") y números sueltos ("70.0", "103.0"). Se
-    # conserva tal cual; interpretarlo sería inventar.
+    # conserva tal cual; interpretarlo sería inventar. Lo único que se hace es
+    # aceptar el número que manda el input `type="number"` de la vista (ver
+    # `numero_a_texto`), porque `calculateDiasCounter` escribe ahí los días
+    # transcurridos en cada carga del tracker.
     reloj: Optional[str] = None
     restricciones: Optional[str] = None
     prioridad: Optional[str] = None
@@ -236,6 +245,12 @@ class TaskWrite(BaseModel):
     @classmethod
     def _hora_de_hoja(cls, valor: Any) -> Any:
         return a_hora(valor)
+
+    @field_validator("reloj", mode="before")
+    @classmethod
+    def _texto_de_hoja(cls, valor: Any) -> Any:
+        """`RELOJ` se edita con un input numérico: llega `12`, se guarda `"12"`."""
+        return numero_a_texto(valor)
 
     @classmethod
     def desde_hoja(cls, fila: Dict[str, Any]) -> "TaskWrite":

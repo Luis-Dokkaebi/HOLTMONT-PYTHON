@@ -37,6 +37,7 @@ from backend.schemas.hoja import (
     a_numero,
     columnas_desde_hoja,
     indice_de_alias,
+    numero_a_texto,
 )
 from backend.services.identity import normalize_avance
 
@@ -250,6 +251,17 @@ class QuoteWrite(BaseModel):
     def _booleano_de_hoja(cls, valor: Any) -> Any:
         """La hoja escribe `SI`/`NO` en CUMPLIMIENTO; la columna es boolean."""
         return a_booleano(valor)
+
+    @field_validator("reloj", mode="before")
+    @classmethod
+    def _texto_de_hoja(cls, valor: Any) -> Any:
+        """
+        `RELOJ` es `text` pero se edita con un input numérico.
+
+        Una cotización recién creada nace con `RELOJ: 0` (`addNewRow`), así que
+        sin esto no se podía dar de alta ni asignar ninguna. Ver `numero_a_texto`.
+        """
+        return numero_a_texto(valor)
 
     @classmethod
     def desde_hoja(cls, fila: Dict[str, Any]) -> "QuoteWrite":
