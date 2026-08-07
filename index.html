@@ -62,6 +62,10 @@
       --pan-tarde:    oklch(58%   0.19  27);
       --pan-espera:   oklch(85%   0.16  95);
       --pan-atiempo:  oklch(72%   0.17  145);
+      /* Clasificaciones: azules/morados que combinan con la plataforma */
+      --pan-clasi-a:  oklch(70% 0.1 250);
+      --pan-clasi-aa: oklch(60% 0.15 260);
+      --pan-clasi-aaa:oklch(50% 0.2 270);
     }
 
     .panorama { background: var(--pan-papel); border: 1px solid var(--pan-regla);
@@ -2742,7 +2746,9 @@
                              <button class="btn btn-sm btn-light border py-0 px-1 text-secondary" :disabled="!isFieldEditable(h, row)" @click="openCellUpload(row, h)" title="Subir / Reemplazar"><i class="fas fa-cloud-upload-alt" style="font-size:10px"></i></button>
                          </div>
                          <div v-else-if="isCol(h, ['CLASIFICACION'])" style="position:relative; width:100%; height:100%;">
-                             <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; font-size:10px; font-weight:bold;">{{ row[h] }}</div>
+                             <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; font-size:10px; font-weight:bold;">
+                                 <span :class="row[h] ? 'clasi-badge clasi-' + row[h].toLowerCase() : ''">{{ row[h] }}</span>
+                             </div>
                              <select v-model="row[h]" :disabled="!isFieldEditable(h, row)" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;"><option value="">-</option><option value="A">A</option><option value="AA">AA</option><option value="AAA">AAA</option></select>
                          </div>
                          <input v-else-if="isCol(h, ['DIAS','RELOJ','DÍAS FINALIZ. COTIZ','DIAS FINALIZ. COTIZ'])" type="number" v-model="row[h]" :readonly="!isFieldEditable(h, row)" style="text-align:center; font-weight:bold; width:100%; height:100%; border:none; outline:none; padding:6px 0px; background:transparent;" :style="getTrafficStyle(row)">
@@ -7570,18 +7576,18 @@ const filteredStaffTrackerData = computed(() => {
           const activas = staffTracker.value.data || [];
           const terminadas = staffTracker.value.history || [];
           const retrasadas = activas.filter(esRetrasada);
+          const desglosados = desglosar(activas.concat(terminadas));
           return {
-              totales: desglosar(activas.concat(terminadas)),
+              totales: desglosados,
               terminadas: desglosar(terminadas),
               retrasadas: desglosar(retrasadas),
               urgentes: desglosar(activas.filter(esUrgente)),
-              // Para la dona: tres grupos que NO se solapan y suman el total.
-              // Urgentes no entra porque una urgente puede estar además retrasada
-              // y la suma dejaría de cuadrar.
+              // Para la dona: Mostrar clasificación de A, AA, AAA en lugar de estatus,
+              // permitiendo ver la carga de trabajo por clasificación.
               anillo: [
-                  { etiqueta: 'Terminadas', n: terminadas.length, color: 'var(--pan-neutro)' },
-                  { etiqueta: 'Retrasadas', n: retrasadas.length, color: 'var(--pan-tarde)' },
-                  { etiqueta: 'En tiempo',  n: activas.length - retrasadas.length, color: 'var(--pan-atiempo)' },
+                  { etiqueta: 'A', n: desglosados.A, color: 'var(--pan-clasi-a)' },
+                  { etiqueta: 'AA', n: desglosados.AA, color: 'var(--pan-clasi-aa)' },
+                  { etiqueta: 'AAA', n: desglosados.AAA, color: 'var(--pan-clasi-aaa)' },
               ],
           };
       });
