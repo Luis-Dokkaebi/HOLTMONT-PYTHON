@@ -372,8 +372,37 @@ def _motivo_de_bloqueo_por_reasignacion(persistencia, origen: str,
     return ""
 
 
+def _folios_reasignados(origen: str, tareas: List[Dict[str, Any]],
+                        persistencia) -> set:
+    """
+    Folios cuyo responsable cambia en esta captura, medidos **antes** de escribir.
+
+    Se compara contra la fila de la hoja de origen, que es la que el usuario
+    tiene delante. Si no hay fila almacenada la actividad se está creando, y
+    crear no es reasignar: tampoco hay copias que retirar.
+    """
+    if not persistencia:
+        return set()
+    reasignados = set()
+    for tarea in tareas:
+        folio = rules.pick_task_value(tarea, ["FOLIO", "ID"])
+        if not folio:
+            continue
+        propia = next(
+            (c for c in _copias_de(persistencia, folio)
+             if rules.normalize_staff_name(c.get("source_sheet"))
+             == rules.normalize_staff_name(origen)),
+            None,
+        )
+        if propia is None:
+            continue
+        if asignacion.cambia_el_responsable(tarea, propia.get("assignee_raw")):
+            reasignados.add(str(folio).strip())
+    return reasignados
+
+
 def _retirar_copias_huerfanas(origen: str, tareas: List[Dict[str, Any]], username: str,
-                              persistencia) -> None:
+                              persistencia, reasignados: Optional[set] = None) -> None:
     """
     Quita la copia de quien dejó de ser responsable.
 
@@ -387,6 +416,24 @@ def _retirar_copias_huerfanas(origen: str, tareas: List[Dict[str, Any]], usernam
     * las microtareas de papa caliente, que llevan marca de fase en el CONCEPTO.
       Cambiar el responsable de una cotización no puede borrar el trabajo ya
       repartido entre sus fases.
+
+    Y, sobre todo, **solo se retira cuando el responsable cambió de verdad**.
+    Retirar es la mitad de una reasignación: en un guardado que no toca el
+    responsable no hay reasignación que ejecutar, así que no hay nada que
+    retirar.
+
+    Sin esa condición el retiro corría en todo guardado, y entonces basta con
+    que alguien guarde su propia tabla para que desaparezcan las copias de los
+    demás: el responsable de las filas de Sebastián es Sebastián, así que la
+    lista de hojas vigentes se reduce a la suya y **toda** otra hoja con ese
+    folio parece huérfana. No hace falta ningún dato mal escrito; pasa con los
+    nombres completos tal como están guardados.
+
+    El 2026-08-07 eso borró 24 filas de producción con un clic en "Guardar
+    Todo", que reenvía la tabla entera y disparaba el retiro una vez por fila.
+    `cambia_el_responsable` ya existía —`_bloqueo_por_reasignacion` la usa unas
+    líneas más arriba— y su docstring ya advertía del caso; solo faltaba
+    consultarla aquí.
     """
     if not persistencia:
         return
@@ -398,11 +445,16 @@ def _retirar_copias_huerfanas(origen: str, tareas: List[Dict[str, Any]], usernam
         folio = rules.pick_task_value(tarea, ["FOLIO", "ID"])
         if not folio:
             continue
+
+        if str(folio).strip() not in (reasignados or set()):
+            continue
+
+        copias = _copias_de(persistencia, folio)
         vigentes = {rules.normalize_staff_name(d)
                     for d in asignacion.destinos_espejo(origen, tarea)}
         vigentes.add(rules.normalize_staff_name(origen))
 
-        for copia in _copias_de(persistencia, folio):
+        for copia in copias:
             hoja = copia.get("source_sheet")
             if not hoja or rules.normalize_staff_name(hoja) in vigentes:
                 continue
@@ -504,13 +556,19 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
                                        persistencia=persistencia, como_copia=True)
         processed.append(task)
 
+    # Quién era el responsable ANTES de escribir. Tiene que leerse aquí: el
+    # upsert deja en la fila el responsable nuevo, así que preguntárselo después
+    # siempre respondería "no cambió" y el retiro no se ejecutaría nunca.
+    reasignados = _folios_reasignados(target, processed, persistencia)
+
     result = _persist_batch(target, processed, username=username,
                             persistencia=persistencia)
     if not result.success:
         return {"success": False, "message": result.message}
 
     _espejar_asignaciones(target, result.data, username, persistencia)
-    _retirar_copias_huerfanas(target, result.data, username, persistencia)
+    _retirar_copias_huerfanas(target, result.data, username, persistencia,
+                              reasignados=reasignados)
     _sincronizar_copias(target, result.data, username, persistencia)
 
     # Reverse Sync: el trabajador cierra su parte y la maestra se entera.
