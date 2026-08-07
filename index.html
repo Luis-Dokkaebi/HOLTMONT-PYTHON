@@ -38,6 +38,68 @@
     .view-area.no-padding { padding: 0 !important; }
 
     /* TABLA EXCEL AVANZADA */
+    /* ===== Rediseño del tracker (2026-08) ==============================
+       Solo aspecto. Ni una columna, ni una regla, ni un semáforo cambian: los
+       estilos en línea de cada celda mandan sobre estas reglas, así que el
+       color por clasificación y los selectores siguen exactamente igual. */
+
+    .panorama { background: #fff; border: 1px solid #e6eaf0; border-radius: 14px;
+                box-shadow: 0 2px 10px rgba(16,32,64,.06); overflow: hidden; }
+    .panorama-titulo { background: linear-gradient(90deg,#dbeafe,#eff6ff);
+                       color: #1e3a8a; font-weight: 700; font-size: 12px;
+                       letter-spacing: .06em; text-align: center; padding: 10px; }
+    .panorama-cuerpo { display: flex; gap: 18px; padding: 16px; flex-wrap: wrap;
+                       align-items: center; }
+    .dona-caja { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .dona { width: 150px; height: 150px; }
+    .dona circle { transition: stroke-dasharray .5s ease; }
+    .dona-etiqueta { font-size: 10px; fill: #64748b; letter-spacing: .08em; font-weight: 700; }
+    .dona-cifra { font-size: 30px; fill: #0f172a; font-weight: 800; }
+    .dona-leyenda { display: flex; gap: 10px; font-size: 10px; color: #475569; flex-wrap: wrap;
+                    justify-content: center; }
+    .dona-leyenda i { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+                      margin-right: 4px; }
+    .tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+                gap: 12px; flex: 1; min-width: 300px; }
+    .kpi { border: 1px solid #e6eaf0; border-radius: 12px; overflow: hidden; background: #fff;
+           transition: transform .15s ease, box-shadow .15s ease; }
+    .kpi:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(16,32,64,.10); }
+    .kpi-titulo { color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+                  text-align: center; padding: 7px 6px; }
+    .kpi--azul   .kpi-titulo { background: linear-gradient(90deg,#3b9ae1,#5eb3ee); }
+    .kpi--gris   .kpi-titulo { background: linear-gradient(90deg,#64748b,#7c8899); }
+    .kpi--rojo   .kpi-titulo { background: linear-gradient(90deg,#dc2626,#ef4444); }
+    .kpi--morado .kpi-titulo { background: linear-gradient(90deg,#7c3aed,#9061f9); }
+    .kpi-cuerpo { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+    .kpi-cifra { font-size: 30px; font-weight: 800; color: #0f172a; line-height: 1; }
+    .kpi-desglose { display: flex; flex-direction: column; gap: 3px; font-size: 11px;
+                    color: #475569; }
+    .kpi-desglose span { display: flex; align-items: center; gap: 6px; }
+    .chip { color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 9px;
+            font-weight: 700; min-width: 26px; text-align: center; }
+    .chip--a { background: #22c55e; } .chip--aa { background: #f59e0b; }
+    .chip--aaa { background: #ef4444; }
+
+    /* Botones de la barra: mismo comportamiento, forma de píldora. */
+    .excel-container ~ * .btn-sm, .barra-tracker .btn { border-radius: 999px; }
+    .barra-tracker { border-radius: 14px !important; border-color: #e6eaf0 !important;
+                     box-shadow: 0 2px 10px rgba(16,32,64,.06); }
+    .barra-tracker .btn { border-radius: 999px !important; font-weight: 600;
+                          padding-left: 14px !important; padding-right: 14px !important;
+                          box-shadow: 0 1px 3px rgba(16,32,64,.12);
+                          transition: transform .12s ease, box-shadow .12s ease; }
+    .barra-tracker .btn:hover { transform: translateY(-1px);
+                                box-shadow: 0 4px 12px rgba(16,32,64,.18); }
+
+    /* La tabla: se respira más y el encabezado deja de ser plano. */
+    .excel-container { border-radius: 12px; box-shadow: 0 2px 12px rgba(16,32,64,.07); }
+    .excel-container thead th { background: linear-gradient(180deg,#f8fafc,#eef2f7) !important;
+                                color: #334155 !important; letter-spacing: .02em;
+                                border-bottom: 2px solid #dbe2ea !important; }
+    .excel-container tbody tr { transition: background .12s ease; }
+    .excel-container tbody tr:nth-child(even) > td { background: #fcfdfe; }
+    .excel-container tbody tr:hover > td { background: #f1f7ff; }
+
     .excel-container {
         flex: 1; overflow: auto; background: white; border: 1px solid #999;
         box-shadow: 0 2px 5px rgba(0,0,0,0.05); width: 100%;
@@ -2037,7 +2099,46 @@
                  </div>
              </template>
           </div>
-          <div class="d-flex justify-content-between align-items-center mb-2 p-2 bg-white border rounded mt-2">
+          <!-- Panorama: solo en la vista de actividades, nunca en cotizaciones. -->
+          <div v-if="trackerSubView === 'TASKS'" class="panorama mt-2 mb-2">
+             <div class="panorama-titulo">DASHBOARD DE GESTIÓN DE ACTIVIDADES &middot; PANORAMA GENERAL</div>
+             <div class="panorama-cuerpo">
+                <div class="dona-caja">
+                   <svg viewBox="0 0 140 140" class="dona">
+                      <circle cx="70" cy="70" r="54" fill="none" stroke="#eef1f6" stroke-width="18"></circle>
+                      <circle v-for="(a, i) in arcosDeLaDona" :key="i" cx="70" cy="70" r="54" fill="none"
+                              :stroke="a.color" stroke-width="18" :stroke-dasharray="a.dash"
+                              :stroke-dashoffset="a.offset" transform="rotate(-90 70 70)"></circle>
+                      <text x="70" y="64" text-anchor="middle" class="dona-etiqueta">TOTAL</text>
+                      <text x="70" y="88" text-anchor="middle" class="dona-cifra">{{ trackerKpis.totales.total }}</text>
+                   </svg>
+                   <div class="dona-leyenda">
+                      <span v-for="(a, i) in arcosDeLaDona" :key="i">
+                         <i :style="{background: a.color}"></i>{{ a.etiqueta }} {{ a.n }}
+                      </span>
+                   </div>
+                </div>
+                <div class="tarjetas">
+                   <div class="kpi" v-for="k in [
+                        {id:'totales',    titulo:'ACTIVIDADES TOTALES', tono:'azul'},
+                        {id:'terminadas', titulo:'TERMINADAS',          tono:'gris'},
+                        {id:'retrasadas', titulo:'RETRASADAS',          tono:'rojo'},
+                        {id:'urgentes',   titulo:'PRIORIDAD URGENTE',   tono:'morado'}]" :key="k.id"
+                        :class="'kpi--' + k.tono">
+                      <div class="kpi-titulo">{{ k.titulo }}</div>
+                      <div class="kpi-cuerpo">
+                         <span class="kpi-cifra">{{ trackerKpis[k.id].total }}</span>
+                         <div class="kpi-desglose">
+                            <span><b class="chip chip--a">A</b>{{ trackerKpis[k.id].A }}</span>
+                            <span><b class="chip chip--aa">AA</b>{{ trackerKpis[k.id].AA }}</span>
+                            <span><b class="chip chip--aaa">AAA</b>{{ trackerKpis[k.id].AAA }}</span>
+                         </div>
+                      </div>
+                   </div>
+                </div>
+             </div>
+          </div>
+          <div class="barra-tracker d-flex justify-content-between align-items-center mb-2 p-2 bg-white border rounded mt-2">
             <div class="d-flex align-items-center">
                 <button class="btn btn-light btn-sm border me-2" @click="goBackToDept"><i class="fas fa-arrow-left"></i></button>
 
@@ -7411,6 +7512,66 @@ const filteredStaffTrackerData = computed(() => {
           return str.charAt(0).toUpperCase() + str.slice(1);
       };
       const isMediaColumn = (h) => ['F2','COTIZACION','COT','COTIZACIÓN','TIMEOUT','TIME OUT','LAYOUT','TIMELINE','INFO CLIENTE','CORREO','CARPETA','CORREOS','CARPETAS'].includes(String(h).toUpperCase());
+      // --- Panorama del tracker ---------------------------------------------
+      // Los cuatro indicadores salen de las reglas que YA gobiernan la tabla, no
+      // de umbrales nuevos: "retrasada" es exactamente la fila que el semáforo
+      // pinta de rojo (A > 3 días, AA > 15, AAA > 30), y "urgente" es lo que
+      // dice su columna PRIORIDAD. Si mañana cambia un umbral, el panel cambia
+      // con él porque es la misma función.
+      const CLASIFICACIONES = ['A', 'AA', 'AAA'];
+
+      const valorDeColumna = (row, nombres) => {
+          const k = Object.keys(row || {}).find(k => nombres.includes(String(k).toUpperCase().trim()));
+          return k ? String(row[k] == null ? '' : row[k]).trim().toUpperCase() : '';
+      };
+      const clasificacionDe = (row) => valorDeColumna(row, ['CLASIFICACION', 'CLASI', 'CLAS']);
+      const esUrgente = (row) => valorDeColumna(row, ['PRIORIDAD', 'PRIORIDADES']) === 'URGENTE';
+      // Rojo del semáforo = lleva más días de los que su clasificación permite.
+      const esRetrasada = (row) => getTrafficStyle(row).backgroundColor === '#e74c3c';
+
+      const desglosar = (filas) => {
+          const d = { total: filas.length, A: 0, AA: 0, AAA: 0 };
+          filas.forEach(f => { const c = clasificacionDe(f); if (CLASIFICACIONES.includes(c)) d[c]++; });
+          return d;
+      };
+
+      const trackerKpis = computed(() => {
+          const activas = staffTracker.value.data || [];
+          const terminadas = staffTracker.value.history || [];
+          const retrasadas = activas.filter(esRetrasada);
+          return {
+              totales: desglosar(activas.concat(terminadas)),
+              terminadas: desglosar(terminadas),
+              retrasadas: desglosar(retrasadas),
+              urgentes: desglosar(activas.filter(esUrgente)),
+              // Para la dona: tres grupos que NO se solapan y suman el total.
+              // Urgentes no entra porque una urgente puede estar además retrasada
+              // y la suma dejaría de cuadrar.
+              anillo: [
+                  { etiqueta: 'Terminadas', n: terminadas.length, color: '#2ecc71' },
+                  { etiqueta: 'Retrasadas', n: retrasadas.length, color: '#e74c3c' },
+                  { etiqueta: 'En tiempo',  n: activas.length - retrasadas.length, color: '#f39c12' },
+              ],
+          };
+      });
+
+      // Arcos de la dona, en SVG. Se calcula aquí y no con una librería para que
+      // el panel no dependa de un ciclo de vida de gráfica: es un `computed` que
+      // se repinta solo cuando cambian los datos.
+      const arcosDeLaDona = computed(() => {
+          const partes = trackerKpis.value.anillo.filter(p => p.n > 0);
+          const total = partes.reduce((a, p) => a + p.n, 0);
+          if (!total) return [];
+          const R = 54, C = 2 * Math.PI * R;
+          let recorrido = 0;
+          return partes.map(p => {
+              const largo = (p.n / total) * C;
+              const arco = { ...p, dash: `${largo} ${C - largo}`, offset: -recorrido };
+              recorrido += largo;
+              return arco;
+          });
+      });
+
       const getTrafficStyle = (row) => {
           const clasiKey = Object.keys(row).find(k => ['CLASIFICACION', 'CLASI'].includes(String(k).toUpperCase().trim()));
           const t = clasiKey ? String(row[clasiKey]).trim().toUpperCase() : '';
@@ -10424,7 +10585,7 @@ const filteredStaffTrackerData = computed(() => {
           }
       });
 
-      return { allStaffList, visibleTrackerHeaders, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentUsername, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, esColumnaDeHora, toTimeValue, formatDisplayTime, updateTimeFromPicker, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, runTrackerProductivityAgent, trackerProductivityData, isLoadingTrackerProductivity,
+      return { trackerKpis, arcosDeLaDona, clasificacionDe, esRetrasada, esUrgente, allStaffList, visibleTrackerHeaders, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentUsername, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, esColumnaDeHora, toTimeValue, formatDisplayTime, updateTimeFromPicker, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, runTrackerProductivityAgent, trackerProductivityData, isLoadingTrackerProductivity,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, loadExecutiveSummary, executiveSummaryData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       openInvolucradosSelector,
       saveAllTrackerRows,
