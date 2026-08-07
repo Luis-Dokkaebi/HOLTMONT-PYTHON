@@ -128,7 +128,6 @@ tiempo: gastas la confianza de alguien más.
 ---
 ---
 
-
 # 🤖 AI Agent Specific Skills
 
 A continuación, se definen los "Skills" accionables que los agentes de IA (como Claude Code, Cursor o Jules) deben tener activamente en mente y ejecutar según el contexto de su trabajo.
@@ -188,3 +187,46 @@ A continuación, se definen los "Skills" accionables que los agentes de IA (como
 **Reglas a seguir:**
 - **Verificación de Organigrama:** Ejecuta `node test_departments.js` si tocas `USER_DB` o `INITIAL_DIRECTORY`.
 - **Syntax Check Frontend:** Ejecuta `node check_html2.js` para asegurar que las modificaciones en `index.html` no contengan errores de sintaxis catastróficos.
+
+---
+---
+
+# 📁 Biblioteca de Agentes y Skills Externas (`.claude/`)
+
+Este repositorio incluye una extensa colección de agentes y skills ubicados en la carpeta `.claude/`. Como agente de IA, **debes invocar y leer de forma dinámica** los archivos relevantes de estos directorios dependiendo del lenguaje, framework o tarea específica que estés ejecutando.
+
+### 🧠 Agentes Disponibles (`.claude/agents/`)
+Antes de iniciar una tarea compleja, busca tu rol correspondiente en esta lista y lee el archivo `.md`:
+
+- **Arquitectura y Diseño de Sistemas:**
+  - `architect.md`, `code-architect.md`, `homelab-architect.md`, `network-architect.md`
+  - `type-design-analyzer.md`, `a11y-architect.md`
+- **Revisores de Código Especializados (Reviewers):**
+  - **General:** `code-reviewer.md`, `security-reviewer.md`, `mle-reviewer.md`, `network-config-reviewer.md`
+  - **Python / Backend:** `python-reviewer.md`, `django-reviewer.md`, `fastapi-reviewer.md`, `database-reviewer.md`
+  - **Frontend / Móvil:** `vue-reviewer.md`, `react-reviewer.md`, `swift-reviewer.md`, `kotlin-reviewer.md`, `flutter-reviewer.md`
+  - **Sistemas / Otros:** `cpp-reviewer.md`, `csharp-reviewer.md`, `go-reviewer.md`, `java-reviewer.md`, `php-reviewer.md`, `rust-reviewer.md`, `typescript-reviewer.md`, `healthcare-reviewer.md`
+- **Resolución de Errores y Build (Resolvers):**
+  - **General:** `build-error-resolver.md`, `network-troubleshooter.md`, `silent-failure-hunter.md`
+  - **Lenguajes:** `cpp-build-resolver.md`, `dart-build-resolver.md`, `django-build-resolver.md`, `go-build-resolver.md`, `java-build-resolver.md`, `kotlin-build-resolver.md`, `pytorch-build-resolver.md`, `react-build-resolver.md`, `rust-build-resolver.md`, `swift-build-resolver.md`, `harmonyos-app-resolver.md`
+- **Optimización y Refactorización:**
+  - `code-simplifier.md`, `performance-optimizer.md`, `refactor-cleaner.md`, `harness-optimizer.md`
+- **Testing, QA y Análisis de PRs:**
+  - `e2e-runner.md`, `pr-test-analyzer.md`, `tdd-guide.md`, `agent-evaluator.md`, `gan-evaluator.md`
+- **Planificación, Documentación y Open Source:**
+  - `planner.md`, `chief-of-staff.md`, `doc-updater.md`, `docs-lookup.md`
+  - `comment-analyzer.md`, `conversation-analyzer.md`, `spec-miner.md`
+  - `opensource-forker.md`, `opensource-packager.md`, `opensource-sanitizer.md`
+- **Especializados:**
+  - `code-explorer.md`, `gan-generator.md`, `gan-planner.md`, `loop-operator.md`, `marketing-agent.md`, `seo-specialist.md`
+
+### 🛠️ Skills Técnicas y Frameworks (`.claude/skills/`)
+Cuando la tarea involucre tecnologías o patrones de diseño específicos, consulta obligatoriamente estas carpetas (dentro de ellas habrá un `README.md` o instrucciones equivalentes):
+
+- **Arquitectura y Patrones:** `architecture-decision-records/`, `hexagonal-architecture/`, `security-review/`, `security-scan/`, `tdd-workflow/`, `caveman/`
+- **Inteligencia Artificial y NLP:** `building-pydantic-ai-agents/`, `langchain-fundamentals/`, `langgraph-persistence/`, `mcp-builder/`
+- **Desarrollo Backend y APIs:** `fastapi/`, `groq-api/`
+- **Herramientas de Procesamiento:** `ffmpeg/`, `pdf-extraction/`
+- **Google Workspace y Datos:** `gws-script/`, `developing-with-streamlit/`
+
+> **Instrucción para Agentes (Jules, Claude, Cursor):** No asumas conocer las reglas de un framework sin antes consultar el directorio `.claude/skills/` correspondiente. Si vas a revisar código Python, abre y asimila `.claude/agents/python-reviewer.md` primero.
