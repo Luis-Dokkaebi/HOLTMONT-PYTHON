@@ -7599,7 +7599,7 @@ const filteredStaffTrackerData = computed(() => {
           const partes = trackerKpis.value.anillo.filter(p => p.n > 0);
           const total = partes.reduce((a, p) => a + p.n, 0);
           if (!total) return [];
-          const R = 54, C = 2 * Math.PI * R;
+          const R = 42, C = 2 * Math.PI * R;
           let recorrido = 0;
           return partes.map(p => {
               const largo = (p.n / total) * C;
