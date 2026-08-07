@@ -7,14 +7,23 @@ diferencia de fondo entre ambos está en la identidad de la fila:
 * En `tasks` la clave es `dedupe_key`, que **incluye la hoja** para los folios
   no globales. Por eso `JO-0009` puede vivir en diez trackers a la vez: cada
   copia es una fila legítima de la difusión lateral ("papa caliente").
-* En `quotes` la clave primaria es `folio` a secas. Una cotización existe una
-  sola vez y pertenece a una sola hoja. Se verificó: 661 folios, ninguno
-  repetido, ninguno compartido entre hojas.
+* En `quotes` la identidad de una fila es **`(folio, source_sheet)`**, no el
+  folio a secas. Una misma cotización puede vivir en dos tablas: la de quien la
+  reparte y la de quien la trabaja.
 
-De ahí la regla que más importa aquí: **`source_sheet` se escribe al dar de
-alta y no se vuelve a tocar**. Sin ella, el "Reverse Sync" hacia
-`ANTONIA_VENTAS` (AGENTS.md §3) no sincronizaría la cotización de un vendedor:
-se la llevaría, cambiándole el dueño en la base.
+  Fue `folio` a secas hasta el 2026-08-06, y ahí estaba el defecto. La llave
+  simple hacía imposible la copia asignada —el upsert la colapsaba contra el
+  original— y ya había costado datos en la migración: 25 folios `AV-`, nacidos
+  en la tabla de Antonia, acabaron viviendo **solo** en la hoja del vendedor
+  porque la llave obligó a que ganara una de las dos filas. Antonia dejó de
+  verlos. Ver `docs/DDL_QUOTES_CLAVE_COMPUESTA.sql`.
+
+De ahí la regla que más importa aquí: **`source_sheet` identifica la fila**, así
+que se escribe siempre con la hoja que se está guardando. Antes se congelaba el
+valor almacenado, y era la única defensa que tenía el "Reverse Sync"
+(AGENTS.md §3) para no llevarse la cotización de un vendedor al sincronizar
+hacia `ANTONIA_VENTAS`; ahora esa defensa la da la propia clave, porque cada
+hoja tiene su fila y escribir en una no toca la otra.
 """
 
 from __future__ import annotations
@@ -37,7 +46,10 @@ from backend.schemas.quote import (
 from backend.services.identity import primera_persona
 
 TABLA = "quotes"
-CLAVE_UPSERT = "folio"
+# Clave de identidad de una fila de `quotes`, en el formato que espera el
+# `on_conflict` de PostgREST. El motor en memoria la parte por comas igual.
+CLAVE_UPSERT = "folio,source_sheet"
+COLUMNAS_CLAVE = ("folio", "source_sheet")
 
 
 def _clave_hoja(nombre: Any) -> str:
@@ -106,11 +118,23 @@ class QuoteRepository:
             (cerradas if esta_cerrada(cotizacion) else abiertas).append(cotizacion)
         return abiertas, cerradas
 
-    def por_folios(self, folios: Sequence[str]) -> Dict[str, QuoteRead]:
+    def por_folios(self, folios: Sequence[str]) -> Dict[Tuple[str, str], QuoteRead]:
+        """
+        Cotizaciones ya guardadas con esos folios, indexadas por `(folio, hoja)`.
+
+        Se consulta por folio —que es lo que trae la petición— pero se indexa
+        por el par: el mismo folio puede tener fila en la tabla de quien reparte
+        y en la de quien recibe, y confundirlas haría que una actualización en
+        una hoja se validara contra la fila de la otra.
+        """
         if not folios:
             return {}
-        filas = self.engine.select(TABLA, donde_en={CLAVE_UPSERT: list(folios)})
-        return {f[CLAVE_UPSERT]: QuoteRead.model_validate(f) for f in filas if f.get(CLAVE_UPSERT)}
+        filas = self.engine.select(TABLA, donde_en={"folio": list(folios)})
+        return {
+            (f["folio"], f["source_sheet"]): QuoteRead.model_validate(f)
+            for f in filas
+            if f.get("folio") and f.get("source_sheet")
+        }
 
     # --- directorio ------------------------------------------------------
 
@@ -148,11 +172,13 @@ class QuoteRepository:
           es un `INSERT ... ON CONFLICT`: Postgres valida el NOT NULL sobre la
           tupla del INSERT antes de resolver el conflicto, así que omitirla en
           una actualización devuelve un 23502. Comprobado contra la base.
-        * **No puede cambiar de valor.** Si la cotización ya existe se manda la
-          hoja *almacenada*, no la que pidió el cliente. Con `folio` como clave
-          primaria una cotización vive en una sola hoja, y sin esta regla el
-          "Reverse Sync" hacia `ANTONIA_VENTAS` (AGENTS.md §3) no sincronizaría
-          la cotización de un vendedor: se la llevaría.
+        * **Es parte de la identidad de la fila.** Se manda la hoja que se está
+          guardando, siempre. Antes se congelaba el valor almacenado porque con
+          `folio` como clave primaria una cotización vivía en una sola hoja y
+          esa congelación era lo único que evitaba que el "Reverse Sync" hacia
+          `ANTONIA_VENTAS` (AGENTS.md §3) se llevara la cotización de un
+          vendedor. Con la clave compuesta esa defensa sobra: cada hoja tiene su
+          propia fila, y escribir en una no puede mover la otra.
         """
         columnas = cotizacion.columnas()
         for prohibida in SOLO_LECTURA:
@@ -165,7 +191,7 @@ class QuoteRepository:
         columnas["folio"] = folio
 
         fila: Dict[str, Any] = dict(columnas)
-        fila["source_sheet"] = (previa.source_sheet if previa else None) or sheet_name
+        fila["source_sheet"] = sheet_name
 
         if fila.get("vendedor_raw"):
             vendedor = self.resolver_vendedor_id(fila["vendedor_raw"])
@@ -175,7 +201,7 @@ class QuoteRepository:
         return fila
 
     def guardar_lote(self, sheet_name: str, cotizaciones: Sequence[QuoteWrite]) -> List[QuoteRead]:
-        """Guarda un lote de cotizaciones con `merge-duplicates` sobre `folio`."""
+        """Guarda un lote con `merge-duplicates` sobre `(folio, source_sheet)`."""
         if not self.settings.escritura_habilitada:
             raise EscrituraDeshabilitada(
                 "La escritura de cotizaciones está deshabilitada "
@@ -194,7 +220,8 @@ class QuoteRepository:
         filas: List[Dict[str, Any]] = []
         for cotizacion in cotizaciones:
             folio = str(cotizacion.folio or "").strip()
-            fila = self.preparar_fila(cotizacion, sheet_name, previa=existentes.get(folio))
+            fila = self.preparar_fila(cotizacion, sheet_name,
+                                      previa=existentes.get((folio, sheet_name)))
             if fila:
                 filas.append(fila)
         if not filas:
@@ -209,12 +236,13 @@ class QuoteRepository:
         return [QuoteRead.model_validate(f) for f in guardadas]
 
     def _validar_altas(
-        self, filas: Sequence[Dict[str, Any]], existentes: Dict[str, QuoteRead]
+        self, filas: Sequence[Dict[str, Any]], existentes: Dict[Tuple[str, str], QuoteRead]
     ) -> None:
         faltantes = [
             (fila.get("folio"), sorted(OBLIGATORIAS_AL_INSERTAR - set(fila)))
             for fila in filas
-            if fila.get("folio") not in existentes and (OBLIGATORIAS_AL_INSERTAR - set(fila))
+            if (fila.get("folio"), fila.get("source_sheet")) not in existentes
+            and (OBLIGATORIAS_AL_INSERTAR - set(fila))
         ]
         if faltantes:
             detalle = "; ".join(f"folio {folio!r} sin {', '.join(cols)}" for folio, cols in faltantes)

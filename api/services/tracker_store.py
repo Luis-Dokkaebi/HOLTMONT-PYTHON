@@ -281,7 +281,7 @@ def _espejar_asignaciones(origen: str, tareas: List[Dict[str, Any]], username: s
     """
     por_destino: Dict[str, List[Dict[str, Any]]] = {}
     for tarea in tareas:
-        for destino in asignacion.destinos_espejo(origen, tarea):
+        for destino in asignacion.destinos_espejo(origen, tarea, username):
             espejo = asignacion.construir_espejo(origen, tarea, destino, username)
             por_destino.setdefault(destino, []).append(espejo)
 
@@ -290,22 +290,41 @@ def _espejar_asignaciones(origen: str, tareas: List[Dict[str, Any]], username: s
                        persistencia=persistencia, como_copia=True)
 
 
-def _copias_de(persistencia, folio: Any) -> List[Dict[str, Any]]:
+def _tabla_de(hoja_origen: Any) -> str:
+    """Tabla donde viven las copias de lo que se guarda en esta hoja."""
+    return "quotes" if rules.is_sales_sheet(hoja_origen) else "tasks"
+
+
+def _copias_de(persistencia, folio: Any, tabla: str = "tasks") -> List[Dict[str, Any]]:
     """
-    Filas de `tasks` que comparten folio: las copias de una misma actividad.
+    Filas que comparten folio: las copias de una misma actividad o cotización.
 
     El vínculo entre copias es el **folio**, que ya está en la base y no exige
     columna nueva ni metadato que el frontend tenga que recordar. Nunca lanza:
     la tarea ya se guardó y perder la sincronización de una copia no justifica
     devolverle un error a quien capturó.
+
+    `tabla` la decide quien llama a partir de la hoja de origen, porque una
+    cotización repartida vive en `quotes` y una actividad asignada en `tasks`.
+    Buscar siempre en `tasks` dejaba las copias de cotización sin sincronizar:
+    Antonia cerraba al 100 % y la fila del vendedor se quedaba en su avance
+    viejo. `quotes` no tiene `assignee_raw`, así que la columna equivalente es
+    `vendedor_raw` y se expone con el mismo nombre para que el resto del módulo
+    no tenga que distinguir.
     """
     if not persistencia or not folio:
         return []
+    de_ventas = tabla == "quotes"
+    columna_responsable = "vendedor_raw" if de_ventas else "assignee_raw"
     try:
-        return list(persistencia.engine.select(
-            "tasks",
-            columnas=["source_sheet", "assignee_raw", "concepto", "created_at"],
+        filas = list(persistencia.engine.select(
+            tabla,
+            columnas=["source_sheet", columna_responsable, "concepto", "created_at"],
             donde={"folio": str(folio).strip()}))
+        if de_ventas:
+            for fila in filas:
+                fila["assignee_raw"] = fila.get("vendedor_raw")
+        return filas
     except Exception as exc:  # noqa: BLE001
         print(f"[tracker_store] No se pudieron buscar las copias de {folio!r}: {exc}")
         return []
@@ -326,11 +345,12 @@ def _hoja_originadora(copias: Sequence[Dict[str, Any]]) -> Optional[str]:
     return min(con_hoja, key=lambda c: str(c.get("created_at") or "9999"))["source_sheet"]
 
 
-def _hojas_con_folio(persistencia, folio: str, excepto: Iterable[str] = ()) -> List[str]:
+def _hojas_con_folio(persistencia, folio: str, excepto: Iterable[str] = (),
+                     tabla: str = "tasks") -> List[str]:
     """Hojas con una copia de este folio, salvo las indicadas. Sin repetir."""
     fuera = {rules.normalize_staff_name(h) for h in excepto}
     hojas: List[str] = []
-    for fila in _copias_de(persistencia, folio):
+    for fila in _copias_de(persistencia, folio, tabla):
         hoja = fila.get("source_sheet")
         if not hoja or rules.normalize_staff_name(hoja) in fuera:
             continue
@@ -353,9 +373,10 @@ def _motivo_de_bloqueo_por_reasignacion(persistencia, origen: str,
     de escribir nada: guardar la mitad del lote y rechazar la otra dejaría las
     dos tablas contándose historias distintas.
     """
+    tabla = _tabla_de(origen)
     for tarea in tareas:
         folio = rules.pick_task_value(tarea, ["FOLIO", "ID"])
-        copias = _copias_de(persistencia, folio)
+        copias = _copias_de(persistencia, folio, tabla)
         originadora = _hoja_originadora(copias)
         if not originadora or rules.normalize_staff_name(originadora) == rules.normalize_staff_name(origen):
             continue
@@ -383,13 +404,16 @@ def _folios_reasignados(origen: str, tareas: List[Dict[str, Any]],
     """
     if not persistencia:
         return set()
+    # La fila previa de una cotización vive en `quotes`; buscarla en `tasks`
+    # no la encontraría y ninguna reasignación de venta se detectaría.
+    tabla = _tabla_de(origen)
     reasignados = set()
     for tarea in tareas:
         folio = rules.pick_task_value(tarea, ["FOLIO", "ID"])
         if not folio:
             continue
         propia = next(
-            (c for c in _copias_de(persistencia, folio)
+            (c for c in _copias_de(persistencia, folio, tabla)
              if rules.normalize_staff_name(c.get("source_sheet"))
              == rules.normalize_staff_name(origen)),
             None,
@@ -438,6 +462,7 @@ def _retirar_copias_huerfanas(origen: str, tareas: List[Dict[str, Any]], usernam
     if not persistencia:
         return
 
+    tabla = _tabla_de(origen)
     eventos = []
     for tarea in tareas:
         if asignacion.es_delegacion_de_fase(tarea):
@@ -449,9 +474,9 @@ def _retirar_copias_huerfanas(origen: str, tareas: List[Dict[str, Any]], usernam
         if str(folio).strip() not in (reasignados or set()):
             continue
 
-        copias = _copias_de(persistencia, folio)
+        copias = _copias_de(persistencia, folio, tabla)
         vigentes = {rules.normalize_staff_name(d)
-                    for d in asignacion.destinos_espejo(origen, tarea)}
+                    for d in asignacion.destinos_espejo(origen, tarea, username)}
         vigentes.add(rules.normalize_staff_name(origen))
 
         for copia in copias:
@@ -491,6 +516,7 @@ def _sincronizar_copias(origen: str, tareas: List[Dict[str, Any]], username: str
     el mismo guardado que viven en la tabla de la misma persona se le mandan en
     una sola escritura.
     """
+    tabla = _tabla_de(origen)
     por_destino: Dict[str, List[Dict[str, Any]]] = {}
     for tarea in tareas:
         cambios = asignacion.campos_sincronizables(tarea)
@@ -500,7 +526,7 @@ def _sincronizar_copias(origen: str, tareas: List[Dict[str, Any]], username: str
         # reverse sync, que además cierra la fase en el timeline.
         maestra = _hoja_maestra_de_folio(cambios["FOLIO"])
         excepto = [origen] + ([maestra] if maestra else [])
-        for hoja in _hojas_con_folio(persistencia, cambios["FOLIO"], excepto):
+        for hoja in _hojas_con_folio(persistencia, cambios["FOLIO"], excepto, tabla):
             por_destino.setdefault(hoja, []).append(dict(cambios))
 
     for hoja, filas in por_destino.items():

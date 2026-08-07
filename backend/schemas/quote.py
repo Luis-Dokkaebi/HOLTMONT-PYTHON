@@ -11,16 +11,23 @@ evidencia estaban mal (§7.6 del plan).
 
 Un detalle del esquema que gobierna toda la escritura de esta tabla:
 
-    la clave primaria de `quotes` es `folio` **a secas**, no `(folio,
-    source_sheet)`.
+    la clave primaria de `quotes` es `(folio, source_sheet)`.
 
-Es decir, una cotización vive en **una sola** hoja. Se comprobó contra los
-datos: los 661 folios son distintos y ninguno se repite entre hojas, al
-contrario de `tasks`, donde 382 folios viven en varios trackers por difusión
-lateral. La consecuencia práctica está en `QuoteRepository.preparar_fila()`:
-`source_sheet` se escribe al **dar de alta** y nunca se pisa después, para que
-una edición hecha desde la vista de Toñita no se lleve la cotización de un
-vendedor a la hoja maestra.
+Es decir, la misma cotización puede vivir en dos tablas: la de quien la reparte
+y la de quien la trabaja, igual que una actividad asignada en `tasks`.
+
+Fue `folio` **a secas** hasta el 2026-08-06, y esa forma se defendía con un dato
+que era consecuencia del propio defecto: "los 661 folios son distintos y ninguno
+se repite entre hojas". No se repetían porque la llave simple no dejaba —al
+migrar, cada par de filas se colapsó en una y 25 folios `AV-` nacidos en la
+tabla de Antonia acabaron viviendo solo en la del vendedor, fuera de su vista.
+
+La consecuencia práctica está en `QuoteRepository.preparar_fila()`:
+`source_sheet` se escribe siempre con la hoja que se está guardando, porque es
+parte de la identidad de la fila. Antes se congelaba el valor almacenado, y esa
+congelación era lo único que evitaba que el "Reverse Sync" hacia
+`ANTONIA_VENTAS` se llevara la cotización de un vendedor; ahora esa defensa la
+da la propia clave. Ver `docs/DDL_QUOTES_CLAVE_COMPUESTA.sql`.
 """
 
 from __future__ import annotations

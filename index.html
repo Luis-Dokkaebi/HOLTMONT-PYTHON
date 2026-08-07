@@ -7082,7 +7082,13 @@ async function toggleVoiceRecording(btnElement) {
       const salesStaff = computed(() => (config.value.directory || []).filter(p => p.dept === 'VENTAS' && p.name !== 'ANTONIA_VENTAS').map(p => p.name));
       const allStaffList = computed(() => (config.value.directory || config.value.staff || []).map(p => p.name).filter((n, i, a) => a.indexOf(n) === i && n !== 'ANTONIA_VENTAS'));
       const filteredStaff = computed(() => config.value.staff.filter(p => p.dept === currentDept.value && p.name.toLowerCase().includes(searchQuery.value.toLowerCase())));
-      const filteredDirectory = computed(() => (config.value.directory || config.value.staff).filter(p => p.name.toLowerCase().includes(staffSearch.value.toLowerCase()) && !selectedResponsables.value.includes(p.name) && p.name !== 'ANTONIA_VENTAS').slice(0,5));
+      // Desde una tabla de ventas se reparte una COTIZACION, y una cotizacion
+      // solo puede caer en una tabla "<NOMBRE> (VENTAS)". A quien no tiene una
+      // no hay a donde mandarsela, asi que no se ofrece: la alternativa seria
+      // asignarsela y que se perdiera. El backend marca `sales` en cada persona
+      // del directorio (api/main.py) desde una unica lista declarada.
+      const puedeRecibirDeEstaTabla = (p) => !esHojaDeVentas(staffTracker.value.name) || !!p.sales;
+      const filteredDirectory = computed(() => (config.value.directory || config.value.staff).filter(p => p.name.toLowerCase().includes(staffSearch.value.toLowerCase()) && !selectedResponsables.value.includes(p.name) && p.name !== 'ANTONIA_VENTAS' && puedeRecibirDeEstaTabla(p)).slice(0,5));
       const pageTitle = computed(() => currentView.value);
       const currentDeptData = computed(() => config.value.departments[currentDept.value] || {});
 
