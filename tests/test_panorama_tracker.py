@@ -203,3 +203,77 @@ def test_el_panorama_solo_sale_en_la_vista_de_actividades() -> None:
     """En la tabla de cotizaciones no se pinta: sus indicadores son otros."""
     m = re.search(r'<div v-if="trackerSubView === \'TASKS\'" class="panorama', _fuente())
     assert m, "el panorama debe estar condicionado a la vista de actividades"
+
+
+# ---------------------------------------------------------------------------
+# Las puertas de Hallmark (.agents/skills/SKILL.md)
+# ---------------------------------------------------------------------------
+# El rediseño se hizo con la skill `hallmark`, que impone reglas duras para que
+# la interfaz no tenga el aspecto de generada. Las que se pueden comprobar sin
+# ojo humano se comprueban aquí.
+
+def _bloque_del_panorama() -> str:
+    fuente = _fuente()
+    ini = fuente.index("/* Hallmark · pre-emit critique")
+    return fuente[ini:fuente.index(".excel-container tbody tr:hover", ini)]
+
+
+def test_gate_48_ni_un_color_fuera_de_token() -> None:
+    """
+    Todo color pasa por `var(--pan-*)`. Es la puerta 48 de la skill.
+
+    Su razón no es estética sino de erosión: en cuanto se cuela un hex en un
+    `:hover`, a la tercera edición la página tiene ocho colores en vez de tres
+    y la contención que hacía funcionar la paleta desaparece.
+    """
+    sueltos = re.findall(r"#[0-9a-fA-F]{3,6}\b|rgb\(|hsl\(", _bloque_del_panorama())
+    assert sueltos == [], f"colores fuera de token: {sueltos}"
+
+
+def test_la_paleta_esta_en_oklch_y_sin_extremos_puros() -> None:
+    """
+    OKLCH porque `hsl`/`rgb` mienten sobre el brillo, y nada de negro ni blanco
+    puros: todos los tonos llevan la traza de azul del ancla para que los
+    grises no choquen con el acento.
+    """
+    tokens = re.findall(r"--pan-[a-z0-9-]+:\s*([^;]+);", _bloque_del_panorama())
+    assert tokens, "no se encontraron los tokens del panorama"
+    for valor in tokens:
+        assert valor.strip().startswith("oklch("), f"{valor!r} no está en OKLCH"
+    claridades = [float(m) for m in re.findall(r"oklch\(\s*([\d.]+)%", _bloque_del_panorama())]
+    assert max(claridades) < 100 and min(claridades) > 0, "hay un extremo puro"
+
+
+def test_el_acento_solo_se_enciende_si_hay_algo_retrasado() -> None:
+    """
+    La postura del rediseño: el panel calla salvo cuando algo va tarde.
+
+    La clase `tiene` es la que enciende el rojo, y se pone desde el dato. Si
+    alguien colorea la tarjeta siempre, el acento deja de significar nada.
+    """
+    fuente = _fuente()
+    assert "{tiene: trackerKpis[k.id].total > 0}" in fuente, (
+        "el acento debe depender del dato, no ser fijo"
+    )
+    bloque = _bloque_del_panorama()
+    assert ".cifra--tarde.tiene .cifra-dato" in bloque, (
+        "el color de alerta tiene que ir condicionado a la clase `tiene`"
+    )
+
+
+def test_no_hay_encabezados_en_italica() -> None:
+    """Un display en itálica es de los indicios más fiables de interfaz generada."""
+    assert "font-style: italic" not in _bloque_del_panorama()
+
+
+def test_la_autocritica_quedo_sellada_en_el_archivo() -> None:
+    """
+    La skill exige puntuarse en seis ejes y dejar el sello, para que la
+    siguiente pasada encuentre la debilidad conocida en vez de repetirla.
+    """
+    m = re.search(r"Hallmark · pre-emit critique: P(\d) H(\d) E(\d) S(\d) R(\d) V(\d)",
+                  _fuente())
+    assert m, "falta el sello de autocrítica de Hallmark"
+    assert all(int(n) >= 3 for n in m.groups()), (
+        f"un eje por debajo de 3 exige otra pasada antes de emitir: {m.groups()}"
+    )
