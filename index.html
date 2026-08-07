@@ -98,6 +98,22 @@
     .cifra-clases { display: flex; gap: 8px; margin-top: 4px; font-size: 10px;
                     color: var(--pan-neutro); font-variant-numeric: tabular-nums; }
     .cifra-clases b { font-weight: 600; color: var(--pan-tenue); }
+    .cifra-clases span {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+    }
+    .clasi-badge {
+        padding: 0px 4px;
+        border-radius: 4px;
+        font-weight: 700;
+        font-size: 9px;
+        color: white;
+    }
+    .clasi-a { background-color: var(--pan-clasi-a); }
+    .clasi-aa { background-color: var(--pan-clasi-aa); }
+    .clasi-aaa { background-color: var(--pan-clasi-aaa); }
+
 
     @media (max-width: 560px) {
       .cifras { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 0; }
@@ -2145,9 +2161,9 @@
                       <div class="cifra-rotulo">{{ k.rotulo }}</div>
                       <div class="cifra-dato">{{ trackerKpis[k.id].total }}</div>
                       <div class="cifra-clases">
-                         <span><b>A</b> {{ trackerKpis[k.id].A }}</span>
-                         <span><b>AA</b> {{ trackerKpis[k.id].AA }}</span>
-                         <span><b>AAA</b> {{ trackerKpis[k.id].AAA }}</span>
+                         <span><span class="clasi-badge clasi-a">A</span> {{ trackerKpis[k.id].A }}</span>
+                         <span><span class="clasi-badge clasi-aa">AA</span> {{ trackerKpis[k.id].AA }}</span>
+                         <span><span class="clasi-badge clasi-aaa">AAA</span> {{ trackerKpis[k.id].AAA }}</span>
                       </div>
                    </div>
                 </div>
