@@ -166,6 +166,102 @@ def test_las_filas_sin_clasificar_cuentan_en_el_total_pero_no_en_el_desglose() -
 
 
 # ---------------------------------------------------------------------------
+# La dona: los arcos tienen que caber en el círculo que se dibuja
+# ---------------------------------------------------------------------------
+
+def _radio_del_svg() -> int:
+    """
+    El `r` con el que se pinta el aro, leído del propio SVG.
+
+    Los dos `<circle>` —el riel de fondo y los arcos— tienen que compartir
+    radio; si alguien cambiara solo uno, aquí saldrían dos valores y el `pop`
+    fallaría antes de que la dona se viera torcida.
+    """
+    svg = _bloque(r'<svg viewBox="0 0 104 104" class="dona".*?</svg>', "SVG de la dona")
+    radios = {int(r) for r in re.findall(r'\br="(\d+)"', svg)}
+    assert len(radios) == 1, f"los círculos de la dona no comparten radio: {radios}"
+    return radios.pop()
+
+
+def _radio_del_computo() -> int:
+    """El radio con el que `arcosDeLaDona` calcula la circunferencia."""
+    bloque = _bloque(r"const arcosDeLaDona = computed\(\(\) => \{.*?\n      \}\);",
+                     "arcosDeLaDona")
+    m = re.search(r"\bR\s*=\s*(\d+)", bloque)
+    assert m, "no se encontró el radio en arcosDeLaDona"
+    return int(m.group(1))
+
+
+def test_el_radio_del_computo_es_el_del_circulo() -> None:
+    """
+    Un radio en el cálculo y otro en el dibujo hacen que la dona mienta.
+
+    Con `R = 54` en el cómputo y `r = 42` en el SVG, la circunferencia que se
+    reparte (339.29) es un 28 % mayor que la que existe (263.89). Con los datos
+    reales del tracker —338 actividades: 309 A, 16 AA, 11 AAA— el arco de A
+    mide 310.18 y por sí solo da la vuelta entera al aro: se ve un único color
+    y las tres clasificaciones dejan de distinguirse.
+    """
+    assert _radio_del_computo() == _radio_del_svg()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+def test_los_tres_arcos_caben_y_llenan_la_dona() -> None:
+    """
+    Los arcos suman la circunferencia exacta, ni uno la desborda.
+
+    Se usan las cifras reales de la captura del cliente para que el caso sea el
+    que falló, no uno inventado.
+    """
+    bloque = _bloque(r"const arcosDeLaDona = computed\(\(\) => \{.*?\n      \}\);",
+                     "arcosDeLaDona")
+    guion = f"""
+        const computed = (fn) => ({{ get value() {{ return fn(); }} }});
+        const trackerKpis = {{ value: {{ anillo: [
+            {{ etiqueta: 'A',   n: 309, color: 'a' }},
+            {{ etiqueta: 'AA',  n: 16,  color: 'aa' }},
+            {{ etiqueta: 'AAA', n: 11,  color: 'aaa' }},
+        ] }} }};
+        {bloque}
+        const C = 2 * Math.PI * {_radio_del_svg()};
+        const arcos = arcosDeLaDona.value;
+        const largos = arcos.map(a => Number(a.dash.split(' ')[0]));
+        console.log(JSON.stringify({{
+            n: arcos.length,
+            cabe: largos.every(l => l <= C + 1e-6),
+            suma: Math.round(largos.reduce((a, b) => a + b, 0) * 1000) / 1000,
+            circunferencia: Math.round(C * 1000) / 1000,
+        }}));
+    """
+    r = _node(guion)
+    assert r["n"] == 3, "las tres clasificaciones tienen que dar un arco cada una"
+    assert r["cabe"], "un arco mide más que el aro y tapa a los demás"
+    assert r["suma"] == pytest.approx(r["circunferencia"], abs=0.01)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+def test_cada_clasificacion_conserva_su_color() -> None:
+    """
+    Tres arcos, tres colores distintos: es lo que hace legible el reparto.
+    """
+    bloque = _bloque(r"const arcosDeLaDona = computed\(\(\) => \{.*?\n      \}\);",
+                     "arcosDeLaDona")
+    guion = f"""
+        const computed = (fn) => ({{ get value() {{ return fn(); }} }});
+        const trackerKpis = {{ value: {{ anillo: [
+            {{ etiqueta: 'A',   n: 309, color: 'var(--pan-clasi-a)' }},
+            {{ etiqueta: 'AA',  n: 16,  color: 'var(--pan-clasi-aa)' }},
+            {{ etiqueta: 'AAA', n: 11,  color: 'var(--pan-clasi-aaa)' }},
+        ] }} }};
+        {bloque}
+        console.log(JSON.stringify(arcosDeLaDona.value.map(a => a.color)));
+    """
+    assert _node(guion) == [
+        "var(--pan-clasi-a)", "var(--pan-clasi-aa)", "var(--pan-clasi-aaa)",
+    ]
+
+
+# ---------------------------------------------------------------------------
 # El rediseño no cambia ninguna regla
 # ---------------------------------------------------------------------------
 
