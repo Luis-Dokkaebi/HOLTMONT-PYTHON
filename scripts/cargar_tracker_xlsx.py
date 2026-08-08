@@ -32,7 +32,11 @@ import collections
 import pathlib
 import sys
 from datetime import date, datetime, time
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
+
+# `(tarea, hoja) -> dedupe_key`. Se inyecta para que el conteo del dry-run use
+# exactamente la misma regla que la escritura, incluido el modo copia.
+ClaveDe = Callable[[Any, str], Optional[str]]
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
@@ -128,6 +132,61 @@ LOTE = 200
 # Claves por consulta. Van dentro de la URL, así que el tope no es de memoria
 # sino de longitud de petición.
 LOTE_CONSULTA = 100
+
+
+class IndiceDeClavesGlobales:
+    """
+    Motor con memoria para la única consulta que `resolver_clave` repite.
+
+    En modo copia, `TaskRepository.resolver_clave` pregunta a la base, **por
+    cada fila con folio de secuencia global**, qué hojas tienen ya esa clave.
+    En este export son 3.131 filas (2.427 `PPC-`, 517 `AV-`, 35 `TG-`), o sea
+    3.131 peticiones HTTP en serie.
+
+    Este envoltorio precarga esa relación de una vez y la sirve de memoria. No
+    reimplementa la regla: `resolver_clave` sigue decidiendo, solo que su
+    consulta se responde sin salir a la red. Todo lo demás —el upsert, el
+    borrado, la transacción— se delega al motor real.
+
+    El índice se mantiene al día observando los upserts: si una hoja estrena un
+    folio global, la siguiente que lo traiga tiene que ver que ya existe y
+    quedarse con su copia propia, en vez de pisar la fila de la primera.
+    """
+
+    def __init__(self, motor: Any) -> None:
+        self._motor = motor
+        self._indice: Dict[str, List[Dict[str, Any]]] = collections.defaultdict(list)
+        for fila in motor.select("tasks", columnas=["dedupe_key", "source_sheet"]):
+            clave = fila.get("dedupe_key")
+            if clave:
+                self._indice[clave].append(
+                    {"dedupe_key": clave, "source_sheet": fila.get("source_sheet")})
+
+    def _anotar(self, filas: Iterable[Dict[str, Any]]) -> None:
+        for fila in filas:
+            clave = fila.get("dedupe_key")
+            if not clave:
+                continue
+            hoja = fila.get("source_sheet")
+            entradas = self._indice[clave]
+            if not any(e["source_sheet"] == hoja for e in entradas):
+                entradas.append({"dedupe_key": clave, "source_sheet": hoja})
+
+    def select(self, tabla: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        donde = kwargs.get("donde") or {}
+        if tabla == "tasks" and list(donde) == ["dedupe_key"] and not kwargs.get("donde_en"):
+            return list(self._indice.get(donde["dedupe_key"], []))
+        return self._motor.select(tabla, **kwargs)
+
+    def upsert(self, tabla: str, filas: Sequence[Dict[str, Any]], *,
+               en_conflicto: str) -> List[Dict[str, Any]]:
+        guardadas = self._motor.upsert(tabla, filas, en_conflicto=en_conflicto)
+        if tabla == "tasks":
+            self._anotar(guardadas or filas)
+        return guardadas
+
+    def __getattr__(self, nombre: str) -> Any:
+        return getattr(self._motor, nombre)
 
 
 def _cargar_env() -> None:
@@ -241,7 +300,7 @@ def falta_para_el_alta(tarea: TaskWrite) -> List[str]:
 
 
 def colapsar_claves_repetidas(
-    hoja: str, tareas: Sequence[TaskWrite]
+    hoja: str, tareas: Sequence[TaskWrite], clave_de: Optional[ClaveDe] = None
 ) -> Tuple[List[TaskWrite], List[str]]:
     """
     Deja una sola fila por `dedupe_key`, quedándose con la última.
@@ -258,12 +317,13 @@ def colapsar_claves_repetidas(
     colapsadas se devuelven para reportarlas: el arreglo de fondo es corregir
     el folio en la hoja, y eso no lo puede hacer este script.
     """
+    clave_de = clave_de or (lambda t, h: compute_dedupe_key(t.folio, h))
     por_clave: Dict[str, TaskWrite] = {}
     orden: List[str] = []
     sueltas: List[TaskWrite] = []
     repetidas: List[str] = []
     for tarea in tareas:
-        clave = compute_dedupe_key(tarea.folio, hoja)
+        clave = clave_de(tarea, hoja)
         if not clave:
             sueltas.append(tarea)
             continue
@@ -276,8 +336,9 @@ def colapsar_claves_repetidas(
 
 
 def clasificar(
-    repo: TaskRepository, hoja: str, tareas: Sequence[TaskWrite]
-) -> Tuple[List[str], List[str], List[str]]:
+    repo: TaskRepository, hoja: str, tareas: Sequence[TaskWrite],
+    clave_de: Optional[ClaveDe] = None,
+) -> Tuple[List[str], List[str], List[str], Set[str]]:
     """
     `(altas, actualizaciones, sin_clave)` por `dedupe_key`.
 
@@ -285,10 +346,11 @@ def clasificar(
     con la misma función que usa la escritura (`compute_dedupe_key`), no con
     una regla paralela que pudiera discrepar.
     """
+    clave_de = clave_de or (lambda t, h: compute_dedupe_key(t.folio, h))
     claves: List[str] = []
     sin_clave: List[str] = []
     for tarea in tareas:
-        clave = compute_dedupe_key(tarea.folio, hoja)
+        clave = clave_de(tarea, hoja)
         if clave:
             claves.append(clave)
         else:
@@ -305,7 +367,8 @@ def clasificar(
 
 
 def apartar_incompletas(
-    hoja: str, tareas: Sequence[TaskWrite], existentes: Set[str]
+    hoja: str, tareas: Sequence[TaskWrite], existentes: Set[str],
+    clave_de: Optional[ClaveDe] = None,
 ) -> Tuple[List[TaskWrite], List[Tuple[str, str]]]:
     """
     Separa las altas a las que les falta una columna NOT NULL.
@@ -318,10 +381,11 @@ def apartar_incompletas(
     Rellenarlas con un texto de relleno sería inventar contenido en una tabla
     de producción, así que no se hace.
     """
+    clave_de = clave_de or (lambda t, h: compute_dedupe_key(t.folio, h))
     cargables: List[TaskWrite] = []
     apartadas: List[Tuple[str, str]] = []
     for tarea in tareas:
-        clave = compute_dedupe_key(tarea.folio, hoja)
+        clave = clave_de(tarea, hoja)
         if clave and clave not in existentes:
             faltantes = falta_para_el_alta(tarea)
             if faltantes:
@@ -340,6 +404,16 @@ def main() -> int:
         action="store_true",
         help="Escribe de verdad en la base. Sin esta bandera solo se cuenta.",
     )
+    parser.add_argument(
+        "--como-copia",
+        action="store_true",
+        help=(
+            "Cada hoja recibe su propia fila de los folios de secuencia global "
+            "(PPC-, AV-, TG-) que ya pertenecen a otra hoja. Sin esta bandera "
+            "esos folios tienen una única fila en toda la base y solo aparecen "
+            "en el tracker de quien los registró primero."
+        ),
+    )
     args = parser.parse_args()
 
     ruta = pathlib.Path(args.archivo)
@@ -352,10 +426,17 @@ def main() -> int:
     if not settings.hay_postgrest:
         print("Faltan SUPABASE_URL / SUPABASE_KEY.", file=sys.stderr)
         return 2
-    engine = PostgrestEngine(settings.supabase_url, settings.supabase_key)
+    engine: Any = PostgrestEngine(settings.supabase_url, settings.supabase_key)
+    if args.como_copia:
+        # Sin el índice, `resolver_clave` consultaría la base una vez por cada
+        # fila con folio global: 3.131 peticiones en serie en este export.
+        engine = IndiceDeClavesGlobales(engine)
     repo = TaskRepository(engine, settings)
+    clave_de: ClaveDe = lambda t, h: repo.resolver_clave(t.folio, h, args.como_copia)  # noqa: E731
 
     print(f"Archivo: {ruta.name}")
+    if args.como_copia:
+        print("Modo copia: cada hoja tendrá su fila de los folios globales.")
     hojas = leer_hojas(ruta, args.hoja)
     print(f"Hojas con firma de tareas: {len(hojas)}\n")
 
@@ -369,11 +450,11 @@ def main() -> int:
         tareas, rechazos = convertir(filas)
         if rechazos:
             rechazos_por_hoja[hoja] = rechazos
-        tareas, repetidas = colapsar_claves_repetidas(hoja, tareas)
+        tareas, repetidas = colapsar_claves_repetidas(hoja, tareas, clave_de)
         if repetidas:
             repetidas_por_hoja[hoja] = repetidas
-        altas, actualizaciones, sin_clave, existentes = clasificar(repo, hoja, tareas)
-        cargables, incompletas = apartar_incompletas(hoja, tareas, existentes)
+        altas, actualizaciones, sin_clave, existentes = clasificar(repo, hoja, tareas, clave_de)
+        cargables, incompletas = apartar_incompletas(hoja, tareas, existentes, clave_de)
         if incompletas:
             incompletas_por_hoja[hoja] = incompletas
 
@@ -390,7 +471,7 @@ def main() -> int:
 
         if args.ejecutar and cargables:
             for inicio in range(0, len(cargables), LOTE):
-                repo.guardar_lote(hoja, cargables[inicio : inicio + LOTE])
+                repo.guardar_lote(hoja, cargables[inicio : inicio + LOTE], args.como_copia)
 
     ancho = max((len(h) for h, *_ in detalle), default=10)
     print(f"{'hoja'.ljust(ancho)}  {'altas':>6} {'actual.':>8} {'rechazo':>8}")

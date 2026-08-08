@@ -156,6 +156,90 @@ class TestCoercionDeTipos:
         assert carga._a_texto_si_toca("COLUMNA INVENTADA", 5.0) == 5.0
 
 
+class MotorFalso:
+    """Motor mínimo que cuenta sus consultas, para ver si el índice las evita."""
+
+    def __init__(self, filas):
+        self.filas = list(filas)
+        self.consultas = 0
+        self.upserts = []
+
+    def select(self, tabla, *, columnas=None, donde=None, donde_en=None):
+        self.consultas += 1
+        filas = self.filas
+        if donde:
+            filas = [f for f in filas if all(f.get(k) == v for k, v in donde.items())]
+        return [dict(f) for f in filas]
+
+    def upsert(self, tabla, filas, *, en_conflicto):
+        self.upserts.append(list(filas))
+        return [dict(f) for f in filas]
+
+
+class TestIndiceDeClavesGlobales:
+    """
+    En modo copia `resolver_clave` consulta una vez por fila con folio global.
+
+    Son 3.131 filas en el export real, o sea 3.131 peticiones en serie. El
+    índice responde esa consulta de memoria sin cambiar la regla.
+    """
+
+    def _motor(self):
+        return MotorFalso([
+            {"dedupe_key": "PPC-1", "source_sheet": "ADMINISTRADOR"},
+            {"dedupe_key": "HOJA::LM-1", "source_sheet": "HOJA"},
+        ])
+
+    def test_precarga_una_sola_vez_y_luego_no_consulta(self):
+        motor = self._motor()
+        indice = carga.IndiceDeClavesGlobales(motor)
+        assert motor.consultas == 1
+        for _ in range(50):
+            indice.select("tasks", donde={"dedupe_key": "PPC-1"})
+        assert motor.consultas == 1, "el índice salió a la red pudiendo responder de memoria"
+
+    def test_devuelve_lo_mismo_que_el_motor(self):
+        indice = carga.IndiceDeClavesGlobales(self._motor())
+        assert indice.select("tasks", donde={"dedupe_key": "PPC-1"}) == [
+            {"dedupe_key": "PPC-1", "source_sheet": "ADMINISTRADOR"}
+        ]
+        assert indice.select("tasks", donde={"dedupe_key": "NO-EXISTE"}) == []
+
+    def test_una_consulta_que_no_es_la_suya_se_delega(self):
+        motor = self._motor()
+        indice = carga.IndiceDeClavesGlobales(motor)
+        indice.select("people", columnas=["id", "nombre"])
+        assert motor.consultas == 2
+
+    def test_un_folio_global_estrenado_queda_visible_para_la_hoja_siguiente(self):
+        """
+        Sin esto, la segunda hoja que traiga un folio nuevo no vería la fila que
+        acaba de crear la primera y le pisaría el `source_sheet` en vez de
+        quedarse con su copia. Es el fallo que dejó 158 filas mal atribuidas.
+        """
+        motor = self._motor()
+        indice = carga.IndiceDeClavesGlobales(motor)
+        assert indice.select("tasks", donde={"dedupe_key": "PPC-9"}) == []
+        indice.upsert("tasks", [{"dedupe_key": "PPC-9", "source_sheet": "PRIMERA"}],
+                      en_conflicto="dedupe_key")
+        assert indice.select("tasks", donde={"dedupe_key": "PPC-9"}) == [
+            {"dedupe_key": "PPC-9", "source_sheet": "PRIMERA"}
+        ]
+
+    def test_el_upsert_llega_al_motor_real(self):
+        motor = self._motor()
+        indice = carga.IndiceDeClavesGlobales(motor)
+        indice.upsert("tasks", [{"dedupe_key": "PPC-9", "source_sheet": "X"}],
+                      en_conflicto="dedupe_key")
+        assert motor.upserts == [[{"dedupe_key": "PPC-9", "source_sheet": "X"}]]
+
+    def test_lo_que_no_implementa_se_delega_al_motor(self):
+        motor = self._motor()
+        motor.borrar = lambda tabla, donde: "borrado"
+        indice = carga.IndiceDeClavesGlobales(motor)
+        assert indice.borrar("tasks", {"dedupe_key": "PPC-1"}) == "borrado"
+
+
 class TestConvertir:
     def test_una_fila_invalida_no_tumba_a_las_buenas(self):
         """
