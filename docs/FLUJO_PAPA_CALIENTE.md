@@ -48,7 +48,8 @@ Entrada: `POST /api/legacy/saveTrackerBatch` → `tracker_store.save_tracker_bat
 3. **Se reparte.** Una fila por trabajador en su propia partición de `tasks`, con
    `ESTATUS = ASIGNADO`, avance vacío y la fase marcada en el CONCEPTO. Se escribe con
    `como_copia=True` para que cada copia tenga clave propia por hoja
-   (`clave_de_copia` → `"<hoja>::<folio>"`).
+   (`clave_de_copia` → `"<hoja>::<folio>"`). El destino lo da `resolve_worker_sheet`
+   (`api/services/tracker_store.py:72`), y es **siempre el tracker** — ver §3.
 4. **El trabajador cierra.** Al guardar su microtarea al 100 %, el reverse sync
    (`build_reverse_sync_payload`, `api/services/tracker_rules.py:702`) devuelve a la maestra
    **solo** `PROCESO_LOG` y `MAP COT`. `AVANCE`, `ESTATUS`, `CUMPLIMIENTO` y el CONCEPTO
@@ -62,7 +63,53 @@ origen (`_hoja_maestra_de_folio`).
 
 ---
 
-## 3. Los dos caminos no se pisan
+## 3. El destino: siempre el tracker, nunca la tabla de ventas
+
+> Decisión del dueño (2026-08-09): *"las delegaciones siempre van al Tracker y no a
+> cotizaciones, incluso si es vendedor siempre va a su Tracker. Si Antonia delega en papa
+> caliente a Sebastián, no cae en su tabla ventas sino en su tabla de Tracker"*.
+
+`resolve_worker_sheet` normaliza el nombre con `asignacion.hoja_de_persona` y devuelve el
+tracker de la persona. Nada más. Que alguien venda no le quita su tracker, y una fase es
+trabajo, no una venta.
+
+Es la imagen simétrica de la regla que ya existía en el otro sentido: `tabla_de_cotizaciones`
+prohíbe que una cotización se filtre al tracker de nadie; ahora una fase tampoco se filtra a
+la tabla de ventas de nadie.
+
+**Lo que había antes** y por qué cambió: la función probaba dos hojas *por existencia* —el
+tracker primero y, si esa partición estaba vacía, `<NOMBRE> (VENTAS)`—. Como
+`PersistenciaTracker` decide la tabla por el nombre de la hoja (`is_sales_sheet` → `quotes`),
+un vendedor sin filas en su tracker recibía la microtarea entre sus cotizaciones. Medido
+sobre los ocho vendedores con tabla, con el tracker vacío:
+
+| Vendedor | Regla anterior | Regla vigente |
+| --- | --- | --- |
+| EDUARDO MANZANARES | `quotes` · EDUARDO MANZANARES (VENTAS) | `tasks` · EDUARDO MANZANARES |
+| RAMIRO RODRIGUEZ | `quotes` · RAMIRO RODRIGUEZ (VENTAS) | `tasks` · RAMIRO RODRIGUEZ |
+| SEBASTIAN PADILLA | `quotes` · SEBASTIAN PADILLA (VENTAS) | `tasks` · SEBASTIAN PADILLA |
+| TERESA GARZA | `quotes` · TERESA GARZA (VENTAS) | `tasks` · TERESA GARZA |
+| ANGEL SALINAS | `quotes` · ANGEL SALINAS (VENTAS) | `tasks` · ANGEL SALINAS |
+| EDUARDO TERAN | `quotes` · EDUARDO TERAN (VENTAS) | `tasks` · EDUARDO TERAN |
+| EDGAR LOPEZ | `quotes` · EDGAR LOPEZ (VENTAS) | `tasks` · EDGAR LOPEZ |
+| JUAN JOSE SANCHEZ | `quotes` · JUAN JOSE SANCHEZ (VENTAS) | `tasks` · JUAN JOSE SANCHEZ |
+
+Las dos columnas están **medidas**, no supuestas: `matriz_de_vendedores()` corre la misma
+delegación con las dos reglas y mira dónde acabó la fila.
+
+**Segundo efecto del cambio.** Se retiró también la comprobación de existencia. Antes, un
+nombre sin ninguna de las dos particiones devolvía `None` y la delegación **se perdía en
+silencio**: Toñita veía "Guardado exitoso", el PROCESO_LOG apuntaba a esa persona en
+`IN_PROGRESS`, no se escribía fila alguna, y como nadie puede cerrar una fila que no existe,
+la cotización quedaba bloqueada para siempre (`puede_delegar` no deja pasar a la fase
+siguiente). Ahora la persona estrena su tracker, que es lo que `_matriz_de_trabajo` ya sabía
+hacer con una partición vacía.
+
+`sheet_exists()` se eliminó: existía solo para esa comprobación y nada más la usaba.
+
+---
+
+## 4. Los dos caminos no se pisan
 
 La papa caliente y la asignación normal comparten tabla y folio, así que hay tres puertas
 que las mantienen separadas. Las tres preguntan lo mismo —`es_delegacion_de_fase`,
@@ -76,12 +123,13 @@ que las mantienen separadas. Las tres preguntan lo mismo —`es_delegacion_de_fa
 
 ---
 
-## 4. La evidencia
+## 5. La evidencia
 
 ```bash
 ./venv/bin/python verification/verify_papa_caliente.py           # traza legible
 ./venv/bin/python verification/verify_papa_caliente.py --json    # traza en JSON
-./venv/bin/python -m pytest tests/test_flujo_papa_caliente_e2e.py -q
+./venv/bin/python -m pytest tests/test_flujo_papa_caliente_e2e.py \
+                           tests/test_papa_caliente_destino.py -q
 ```
 
 El trazador encadena seis guardados reales contra `MemoryEngine` —cada uno leyendo el
@@ -96,14 +144,18 @@ estado que dejó el anterior— e imprime el estado de la base después de cada 
 | 4 | con los dos en DONE, 🟢 CD — y la cotización sigue al 0 % / EN PROCESO |
 | 5 | cerrada CD, EP ya se delega |
 
-Al final comprueba cinco invariantes contra el estado de la base: identidad propia por
-copia, el 100 % de una fase no cierra la cotización, la maestra no hereda el concepto
-marcado, las microtareas no se sincronizan entre sí, y la papa caliente no pasa por el
-espejo de asignaciones.
+Al final comprueba seis invariantes contra el estado de la base: identidad propia por copia,
+el 100 % de una fase no cierra la cotización, la maestra no hereda el concepto marcado, las
+microtareas no se sincronizan entre sí, la papa caliente no pasa por el espejo de
+asignaciones, y —barriendo a los ocho vendedores con tabla `(VENTAS)`— una fase delegada
+siempre aterriza en el tracker.
+
+`tests/test_papa_caliente_destino.py` fija la regla del §3 con 33 pruebas: la resolución del
+destino nombre por nombre y la delegación de punta a punta para cada vendedor.
 
 ---
 
-## 5. Hallazgo abierto: la copia delegada y el guardado del trabajador usan claves distintas
+## 6. Hallazgo abierto: la copia delegada y el guardado del trabajador usan claves distintas
 
 **Estado: sin corregir.** Se documenta aquí porque arreglarlo cambia la regla de identidad
 de fila y eso toca las 4.626 filas migradas — es una decisión del dueño, no un ajuste.

@@ -124,9 +124,23 @@ def test_cerrada_la_fase_anterior_ya_se_delega_la_siguiente(recorrido):
 
 def test_todas_las_invariantes_del_flujo_se_cumplen(recorrido):
     """
-    Las cinco propiedades que el trazador comprueba contra el estado final.
+    Las seis propiedades que el trazador comprueba contra el estado final: las
+    cinco del recorrido más la del destino, que barre a los ocho vendedores.
     Se afirman con nombre para que un fallo diga cuál se rompió.
     """
     incumplidas = [i["nombre"] for i in recorrido["invariantes"] if not i["cumple"]]
     assert not incumplidas, f"invariantes rotas: {incumplidas}"
-    assert len(recorrido["invariantes"]) == 5
+    assert len(recorrido["invariantes"]) == 6
+
+
+def test_ningun_vendedor_recibe_su_fase_en_quotes(recorrido):
+    """
+    La matriz del trazador, afirmada: los ocho vendedores con tabla `(VENTAS)`
+    reciben la microtarea en `tasks`, y la regla anterior los mandaba a `quotes`
+    —esa columna se mide, no se supone, para que el antes/después sea real—.
+    """
+    matriz = recorrido["vendedores"]
+    assert len(matriz) == 8
+    assert all(f["ahora"]["tabla"] == "tasks" for f in matriz)
+    assert all(f["antes"]["tabla"] == "quotes" for f in matriz), (
+        "si esto deja de fallar con la regla vieja, el experimento ya no compara nada")

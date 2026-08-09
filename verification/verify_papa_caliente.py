@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.services import sheets, tracker_store  # noqa: E402
 from api.services import tracker_rules as rules  # noqa: E402
+from api.services.asignacion import VENDEDORES_CON_TABLA  # noqa: E402
 from backend.core.engines.memoria import MemoryEngine  # noqa: E402
 from backend.services.persistencia import PersistenciaTracker  # noqa: E402
 
@@ -256,15 +257,118 @@ def _recorrido(motor: MemoryEngine) -> Dict[str, Any]:
         "a la siguiente mano.",
         {"respuesta": ep}))
 
+    vendedores = matriz_de_vendedores()
     return {
         "pasos": pasos,
-        "invariantes": _invariantes(motor),
-        "auditoria": [
-            {"accion": e.get("accion"), "detalle": e.get("detalle"),
-             "usuario": e.get("usuario")}
-            for e in motor.select("system_log")
-        ],
+        "invariantes": _invariantes(motor) + [_invariante_del_destino(vendedores)],
+        "vendedores": vendedores,
     }
+
+
+def _invariante_del_destino(vendedores: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """La regla del dueño, comprobada sobre los ocho vendedores con tabla."""
+    desviados = [f["vendedor"] for f in vendedores if f["ahora"]["tabla"] != "tasks"]
+    return {
+        "nombre": "Una fase delegada siempre aterriza en el tracker",
+        "explicacion": "Ninguno de los ocho vendedores con tabla `(VENTAS)` "
+                       "recibe su microtarea en `quotes`, ni siquiera con el "
+                       "tracker vacío y la tabla de ventas poblada.",
+        "cumple": not desviados,
+        "evidencia": {"desviados_a_ventas": desviados,
+                      "vendedores_comprobados": len(vendedores)},
+    }
+
+
+# ----------------------------------------------------------------------
+# LA REGLA DEL DESTINO: una fase delegada siempre va al tracker
+# ----------------------------------------------------------------------
+
+def _resolver_anterior(nombre: Any) -> Optional[str]:
+    """
+    La regla que estuvo vigente hasta el 2026-08-09, reproducida para poder
+    medir el antes y el después con el mismo experimento.
+
+    Probaba dos hojas por existencia: primero el tracker y, si esa partición
+    estaba vacía, `<NOMBRE> (VENTAS)`. Como `PersistenciaTracker` decide la
+    tabla por el nombre de la hoja, esa segunda rama mandaba la microtarea a
+    `quotes`.
+    """
+    limpio = rules.SALES_SUFFIX_RE.sub("", str(nombre or "")).strip()
+    if not limpio:
+        return None
+    if tracker_store.read_values(limpio):
+        return limpio
+    if tracker_store.read_values(f"{limpio} (VENTAS)"):
+        return f"{limpio} (VENTAS)"
+    return None
+
+
+def _motor_de_vendedor(vendedor: str) -> MemoryEngine:
+    """
+    Base donde el vendedor tiene **solo** su tabla de ventas poblada.
+
+    Es el caso que separa las dos reglas: con el tracker vacío, la regla
+    anterior desviaba la fase a `quotes` y la nueva la manda igual al tracker.
+    Es además la situación real de un vendedor que cotiza pero no captura
+    actividades en su tracker.
+    """
+    return MemoryEngine({
+        "quotes": [
+            {"folio": FOLIO, "source_sheet": MAESTRA, "cliente": "ACME",
+             "concepto": "COTIZAR NAVE", "avance": 0.0, "estatus": "EN PROCESO",
+             "map_cot": "", "proceso_log": ""},
+            {"folio": "AV-0100", "source_sheet": f"{vendedor} (VENTAS)",
+             "concepto": "OTRA COTIZACION", "avance": 0.0, "estatus": "EN PROCESO"},
+        ],
+        "tasks": [],
+        "people": [],
+        "plan_semanal": [],
+        "task_involucrados": [],
+        "system_log": [],
+    })
+
+
+def _delegar_y_localizar(vendedor: str, resolver=None) -> Dict[str, Any]:
+    """Delega CD al vendedor y devuelve en qué tabla aterrizó la microtarea."""
+    motor = _motor_de_vendedor(vendedor)
+    with _conectado(motor):
+        original = tracker_store.resolve_worker_sheet
+        if resolver is not None:
+            tracker_store.resolve_worker_sheet = resolver
+        try:
+            destino = tracker_store.resolve_worker_sheet(vendedor)
+            tracker_store.save_tracker_batch(MAESTRA, [{
+                "FOLIO": FOLIO, "CONCEPTO": "COTIZAR NAVE",
+                "_assignToWorker": [vendedor], "_assignStep": "CD",
+            }], username=TONITA)
+        finally:
+            tracker_store.resolve_worker_sheet = original
+
+        en_tasks = [f for f in motor.select("tasks") if f.get("folio") == FOLIO]
+        en_quotes = [f for f in motor.select("quotes")
+                     if f.get("folio") == FOLIO and f.get("source_sheet") != MAESTRA]
+
+    if en_tasks:
+        return {"tabla": "tasks", "hoja": en_tasks[0]["source_sheet"], "destino": destino}
+    if en_quotes:
+        return {"tabla": "quotes", "hoja": en_quotes[0]["source_sheet"], "destino": destino}
+    return {"tabla": "(ninguna)", "hoja": "—", "destino": destino}
+
+
+def matriz_de_vendedores() -> List[Dict[str, Any]]:
+    """
+    Los ocho vendedores con tabla `(VENTAS)`, uno por uno, con la regla
+    anterior y con la vigente. La columna que importa es `tabla`: tiene que ser
+    `tasks` en todos.
+    """
+    filas = []
+    for vendedor in VENDEDORES_CON_TABLA:
+        filas.append({
+            "vendedor": vendedor,
+            "antes": _delegar_y_localizar(vendedor, resolver=_resolver_anterior),
+            "ahora": _delegar_y_localizar(vendedor),
+        })
+    return filas
 
 
 def _invariantes(motor: MemoryEngine) -> List[Dict[str, Any]]:
@@ -357,6 +461,21 @@ def _imprimir(traza: Dict[str, Any]) -> None:
         else:
             print("  microtarea  : (ninguna)")
         print()
+
+    print("=" * 72)
+    print("DESTINO POR VENDEDOR · una fase delegada siempre va al tracker")
+    print("-" * 72)
+    print(f"  {'VENDEDOR':<20} {'REGLA ANTERIOR':<38} {'REGLA VIGENTE':<24}")
+    for fila in traza["vendedores"]:
+        antes, ahora = fila["antes"], fila["ahora"]
+        print(f"  {fila['vendedor']:<20} "
+              f"{antes['tabla'] + ' · ' + str(antes['hoja']):<38} "
+              f"{ahora['tabla'] + ' · ' + str(ahora['hoja']):<24}")
+    desviados = [f["vendedor"] for f in traza["vendedores"] if f["ahora"]["tabla"] != "tasks"]
+    print()
+    print("  TODOS CAEN EN SU TRACKER" if not desviados
+          else f"  CAEN FUERA DEL TRACKER: {', '.join(desviados)}")
+    print()
 
     print("=" * 72)
     print("INVARIANTES")
