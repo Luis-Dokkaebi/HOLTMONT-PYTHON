@@ -69,9 +69,42 @@
     }
 
     .panorama { background: var(--pan-papel); border: 1px solid var(--pan-regla);
-                border-radius: 10px; }
+                border-radius: 10px; position: relative; }
     .panorama-cuerpo { display: flex; align-items: center; gap: clamp(14px, 3vw, 28px);
                        padding: clamp(12px, 2.5vw, 20px); flex-wrap: wrap; }
+
+    /* Plegado del panel.
+       La tabla es `flex: 1` dentro de la misma columna, así que el alto que
+       suelta el panorama se lo queda ella sin tocar nada más. Plegado no
+       desaparece: deja una tira con el total y lo retrasado, que es lo que el
+       panel existe para contestar. Esconder también eso obligaría a
+       desplegarlo para saber si hay algo que atender. */
+    .panorama-plegar {
+        position: absolute; top: 6px; right: 8px; z-index: 2;
+        display: inline-flex; align-items: center; gap: 5px;
+        background: transparent; border: 1px solid var(--pan-regla);
+        border-radius: 7px; padding: 2px 8px; cursor: pointer;
+        font-size: 10px; font-weight: 600; letter-spacing: .06em;
+        text-transform: uppercase; color: var(--pan-neutro);
+        line-height: 1.8;
+    }
+    .panorama-plegar:hover { background: var(--pan-papel-2); color: var(--pan-tinta); }
+    .panorama-plegar:focus-visible { outline: 2px solid var(--pan-foco); outline-offset: 2px; }
+    .panorama-plegar .chevron { transition: transform .15s ease; }
+    .panorama.plegado .panorama-plegar .chevron { transform: rotate(180deg); }
+
+    .panorama-tira {
+        display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+        padding: 7px clamp(10px, 2vw, 16px); padding-right: 108px;
+        font-size: 12px; color: var(--pan-neutro);
+        font-variant-numeric: tabular-nums;
+    }
+    .panorama-tira b { color: var(--pan-tinta); font-weight: 700; font-size: 15px; }
+    .panorama-tira .tira-tarde { color: var(--pan-tarde); font-weight: 600; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .panorama-plegar .chevron { transition: none; }
+    }
 
     /* La dona: 3% de acento, sin leyenda propia — las cifras son la leyenda. */
     .dona { width: 104px; height: 104px; flex: none; }
@@ -2144,8 +2177,24 @@
              </template>
           </div>
           <!-- Panorama: solo en la vista de actividades, nunca en cotizaciones. -->
-          <div v-if="trackerSubView === 'TASKS'" class="panorama mt-2 mb-2">
-             <div class="panorama-cuerpo">
+          <div v-if="trackerSubView === 'TASKS'" class="panorama mt-2 mb-2"
+               :class="{plegado: panoramaPlegado}">
+             <button type="button" class="panorama-plegar" @click="alternarPanorama"
+                     :aria-expanded="!panoramaPlegado" aria-controls="panorama-cuerpo"
+                     :title="panoramaPlegado ? 'Mostrar el panorama' : 'Plegar el panorama y dar más alto a la tabla'">
+                <i class="fas fa-chevron-up chevron"></i>{{ panoramaPlegado ? 'Ver panorama' : 'Plegar' }}
+             </button>
+             <!-- Plegado: el total y lo retrasado siguen a la vista. Son las dos
+                  preguntas que el panel contesta; esconderlas obligaría a
+                  desplegarlo para saber si hace falta desplegarlo. -->
+             <div v-if="panoramaPlegado" class="panorama-tira">
+                <span><b>{{ trackerKpis.totales.total }}</b> actividades</span>
+                <span><b>{{ trackerKpis.terminadas.total }}</b> terminadas</span>
+                <span :class="{'tira-tarde': trackerKpis.retrasadas.total > 0}">
+                   <b>{{ trackerKpis.retrasadas.total }}</b> retrasadas</span>
+                <span><b>{{ trackerKpis.urgentes.total }}</b> urgentes</span>
+             </div>
+             <div v-show="!panoramaPlegado" id="panorama-cuerpo" class="panorama-cuerpo">
                 <svg viewBox="0 0 104 104" class="dona" role="img"
                      :aria-label="'Total ' + trackerKpis.totales.total + ' actividades'">
                    <circle cx="52" cy="52" r="42" fill="none" stroke="var(--pan-regla)" stroke-width="9"></circle>
@@ -7615,6 +7664,29 @@ const filteredStaffTrackerData = computed(() => {
           });
       });
 
+      // Panorama plegado: la tabla es lo que se trabaja, el panel es contexto.
+      //
+      // La preferencia se recuerda entre sesiones porque quien pliega el panel
+      // lo hace por su pantalla, no por esa visita: obligarle a plegarlo en
+      // cada carga sería pedirle que repita la misma decisión para siempre.
+      // Un `localStorage` que no se pueda leer —modo privado, permisos— no es
+      // motivo para romper la vista: se cae al panel desplegado, que es el
+      // comportamiento de antes de esta opción.
+      const CLAVE_PANORAMA = 'holtmont.panorama.plegado';
+
+      const _panoramaGuardado = () => {
+          try { return localStorage.getItem(CLAVE_PANORAMA) === '1'; }
+          catch (e) { return false; }
+      };
+
+      const panoramaPlegado = ref(_panoramaGuardado());
+
+      const alternarPanorama = () => {
+          panoramaPlegado.value = !panoramaPlegado.value;
+          try { localStorage.setItem(CLAVE_PANORAMA, panoramaPlegado.value ? '1' : '0'); }
+          catch (e) { /* sin almacenamiento la sesión sigue, solo no se recuerda */ }
+      };
+
       const getTrafficStyle = (row) => {
           const clasiKey = Object.keys(row).find(k => ['CLASIFICACION', 'CLASI'].includes(String(k).toUpperCase().trim()));
           const t = clasiKey ? String(row[clasiKey]).trim().toUpperCase() : '';
@@ -10628,7 +10700,7 @@ const filteredStaffTrackerData = computed(() => {
           }
       });
 
-      return { trackerKpis, arcosDeLaDona, clasificacionDe, esRetrasada, esUrgente, allStaffList, visibleTrackerHeaders, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentUsername, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, esColumnaDeHora, toTimeValue, formatDisplayTime, updateTimeFromPicker, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, runTrackerProductivityAgent, trackerProductivityData, isLoadingTrackerProductivity,
+      return { trackerKpis, arcosDeLaDona, panoramaPlegado, alternarPanorama, clasificacionDe, esRetrasada, esUrgente, allStaffList, visibleTrackerHeaders, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentUsername, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, esColumnaDeHora, toTimeValue, formatDisplayTime, updateTimeFromPicker, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, runTrackerProductivityAgent, trackerProductivityData, isLoadingTrackerProductivity,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, loadExecutiveSummary, executiveSummaryData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       openInvolucradosSelector,
       saveAllTrackerRows,

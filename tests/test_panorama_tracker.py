@@ -262,6 +262,100 @@ def test_cada_clasificacion_conserva_su_color() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Plegar el panel para que la tabla gane alto
+# ---------------------------------------------------------------------------
+
+def test_el_boton_de_plegar_existe_y_alterna_el_estado() -> None:
+    fuente = _fuente()
+    assert 'class="panorama-plegar"' in fuente
+    assert '@click="alternarPanorama"' in fuente
+    assert ":class=\"{plegado: panoramaPlegado}\"" in fuente
+
+
+def test_el_boton_dice_que_hace_y_es_accesible() -> None:
+    """
+    `aria-expanded` y `aria-controls` porque es un plegable, y `title` porque
+    el rótulo es de dos palabras y no alcanza a explicar el efecto.
+    """
+    boton = _bloque(r'<button type="button" class="panorama-plegar".*?</button>', "botón de plegar")
+    assert ':aria-expanded="!panoramaPlegado"' in boton
+    assert 'aria-controls="panorama-cuerpo"' in boton
+    assert ":title=" in boton
+
+
+def test_el_cuerpo_se_oculta_con_v_show_y_no_con_v_if() -> None:
+    """
+    `v-show` y no `v-if`: el SVG de la dona y sus cuatro cifras se recalcularían
+    en cada despliegue sin ninguna ganancia, y `aria-controls` tiene que apuntar
+    a un elemento que exista en el DOM.
+    """
+    assert 'v-show="!panoramaPlegado" id="panorama-cuerpo" class="panorama-cuerpo"' in _fuente()
+
+
+def test_plegado_conserva_el_total_y_lo_retrasado() -> None:
+    """
+    Si al plegar desapareciera todo, habría que desplegar el panel para saber si
+    hace falta desplegarlo. La tira deja las cuatro cifras.
+    """
+    tira = _bloque(r'<div v-if="panoramaPlegado" class="panorama-tira">.*?</div>\s*</div>', "tira plegada")
+    for clave in ("totales", "terminadas", "retrasadas", "urgentes"):
+        assert f"trackerKpis.{clave}.total" in tira
+
+
+def test_el_acento_de_retrasadas_sigue_condicionado_en_la_tira() -> None:
+    """Misma regla que el panel abierto: el rojo solo si hay algo retrasado."""
+    tira = _bloque(r'<div v-if="panoramaPlegado" class="panorama-tira">.*?</div>\s*</div>', "tira plegada")
+    assert "trackerKpis.retrasadas.total > 0" in tira
+
+
+def test_la_preferencia_se_recuerda_entre_sesiones() -> None:
+    assert "holtmont.panorama.plegado" in _fuente()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+def test_sin_localStorage_el_panel_sale_desplegado() -> None:
+    """
+    Modo privado o permisos denegados hacen que `localStorage` lance. Eso no
+    puede tumbar la vista: se cae al panel abierto, como antes de esta opción.
+    """
+    bloque = _bloque(r"const CLAVE_PANORAMA = .*?\n      \};\n\n      const panoramaPlegado",
+                     "lectura de la preferencia")
+    guion = f"""
+        const localStorage = {{ getItem() {{ throw new Error('denegado'); }} }};
+        {bloque.replace('const panoramaPlegado', '')}
+        console.log(JSON.stringify(_panoramaGuardado()));
+    """
+    assert _node(guion) is False
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+def test_la_preferencia_guardada_se_respeta() -> None:
+    bloque = _bloque(r"const CLAVE_PANORAMA = .*?\n      \};\n\n      const panoramaPlegado",
+                     "lectura de la preferencia")
+    guion = f"""
+        const localStorage = {{ getItem: (k) => k === 'holtmont.panorama.plegado' ? '1' : null }};
+        {bloque.replace('const panoramaPlegado', '')}
+        console.log(JSON.stringify(_panoramaGuardado()));
+    """
+    assert _node(guion) is True
+
+
+def test_la_tabla_se_queda_el_alto_que_suelta_el_panel() -> None:
+    """
+    `.excel-container` es `flex: 1` en la misma columna, así que el alto sale
+    solo. Si alguien le pusiera un alto fijo, plegar dejaría de servir para lo
+    único que se pidió.
+    """
+    reglas = re.findall(r"\n    \.excel-container \{([^}]*)\}", _fuente())
+    assert reglas, "no se encontró ninguna regla de .excel-container"
+    crecen = [r for r in reglas if "flex: 1" in r]
+    assert crecen, f"ninguna regla de .excel-container crece; hay {len(reglas)}"
+    for regla in reglas:
+        assert not re.search(r"\b(height|max-height):\s*\d", regla), (
+            f"la tabla tiene alto fijo y plegar el panel no le daría espacio: {regla.strip()}")
+
+
+# ---------------------------------------------------------------------------
 # El rediseño no cambia ninguna regla
 # ---------------------------------------------------------------------------
 
