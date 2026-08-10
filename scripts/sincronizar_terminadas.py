@@ -474,7 +474,7 @@ def main() -> int:
     parser.add_argument("--cotizaciones", action="store_true",
                         help="Cierra en `quotes` lo que la hoja de ventas tiene bajo el rótulo.")
     parser.add_argument("--huerfanas", action="store_true",
-                        help="Solo lista las filas que la hoja ya no tiene. No escribe nunca.")
+                        help="Cierra las filas que la hoja ya no tiene (con --ejecutar; sin él, lista).")
     parser.add_argument("--ejecutar", action="store_true",
                         help="Escribe de verdad. Sin esta bandera solo se cuenta.")
     args = parser.parse_args()
@@ -560,8 +560,15 @@ def main() -> int:
         huerfanas = [f for f in filas
                      if _norm(f["source_sheet"]) in en_hoja
                      and str(f["folio"]).strip() not in en_hoja[_norm(f["source_sheet"])]]
-        _resumen("En la base pero ya no en la hoja (NO se tocan)", huerfanas)
-        print(f"\n   de ellas, activas hoy: {sum(1 for f in huerfanas if not _esta_archivada(f))}")
+        abiertas = [f for f in huerfanas if not _esta_archivada(f)]
+        _resumen("En la base pero ya no en la hoja", huerfanas)
+        print(f"\n   de ellas, activas hoy: {len(abiertas)}")
+        # Se cierran solo las abiertas, y solo si se pide. Que una fila ya no
+        # esté en la hoja no dice por sí solo que esté terminada: alguien la
+        # quitó, y el motivo —hecha, duplicada, error de captura— no está en el
+        # dato. Cerrarlas es la lectura que eligió el dueño; borrarlas no, y por
+        # eso este script no borra nunca.
+        cargas.extend(fila_de_cierre(f) for f in abiertas)
 
     if not cargas:
         print("\nNada que escribir.")
