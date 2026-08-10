@@ -21,7 +21,9 @@ from api.services.tracker_rules import (
     apply_batch_update,
     build_notification_payload,
     build_reverse_sync_payload,
+    compute_quote_metrics,
     is_progress_complete,
+    needs_final_quote_status,
     SALES_MASTER_SHEET,
     resolve_tracker_target,
 )
@@ -146,6 +148,64 @@ def _evalua_avance(contexto: Dict[str, Any]) -> None:
 @then(parsers.parse("la respuesta es {terminada}"))
 def _respuesta_avance(contexto: Dict[str, Any], terminada: str) -> None:
     assert contexto["terminada"] is (terminada.strip() == "sí")
+
+
+# ----------------------------------------------------------------------
+# Estatus final — al 100 % el vendedor dice en qué terminó la cotización
+# ----------------------------------------------------------------------
+
+@given(parsers.parse("que una cotización tiene el AVANCE en {avance}"))
+def _cotizacion_con_avance(contexto: Dict[str, Any], avance: str) -> None:
+    contexto["avance"] = _dato_de_ejemplo(avance)
+
+
+@given(parsers.parse("su columna ESTATUS dice {estatus}"))
+def _cotizacion_con_estatus(contexto: Dict[str, Any], estatus: str) -> None:
+    contexto["estatus"] = _dato_de_ejemplo(estatus)
+
+
+@when("el vendedor guarda la cotización")
+def _vendedor_guarda_cotizacion(contexto: Dict[str, Any]) -> None:
+    contexto["pide_estatus"] = needs_final_quote_status(
+        contexto["avance"], contexto["estatus"]
+    )
+
+
+@then(parsers.parse("el sistema {decision} el selector de estatus final"))
+def _decision_del_selector(contexto: Dict[str, Any], decision: str) -> None:
+    assert contexto["pide_estatus"] is (decision.strip() == "abre")
+
+
+@given(parsers.parse("que una cotización cerró con el estatus {estatus}"))
+def _cotizacion_cerrada_con(contexto: Dict[str, Any], estatus: str) -> None:
+    contexto["filas_de_cotizaciones"] = [
+        {"FOLIO": "AV-1", "FECHA": "05/07/26", "ESTATUS": _dato_de_ejemplo(estatus)}
+    ]
+
+
+@when("se calculan los indicadores de cotizaciones")
+def _calcula_indicadores(contexto: Dict[str, Any]) -> None:
+    contexto["metricas"] = compute_quote_metrics(
+        contexto["filas_de_cotizaciones"], month=7, year=2026
+    )
+
+
+@then(parsers.parse("la cotización cuenta como {cubo}"))
+def _cotizacion_cuenta_como(contexto: Dict[str, Any], cubo: str) -> None:
+    cubos = {"ganada": "ganada", "perdida": "perdida", "en proceso": "enProceso"}
+    assert contexto["metricas"]["winLoss"][cubos[cubo.strip()]] == 1
+
+
+@then(parsers.parse("su motivo de cierre queda registrado como {motivo}"))
+def _motivo_de_cierre(contexto: Dict[str, Any], motivo: str) -> None:
+    conteo = {f["estatus"]: f["total"] for f in contexto["metricas"]["porMotivoArr"]}
+    assert conteo[motivo.strip()] == 1
+    assert contexto["metricas"]["cerradasSinMotivo"] == 0
+
+
+@then("se contabiliza como cierre sin motivo")
+def _cierre_sin_motivo(contexto: Dict[str, Any]) -> None:
+    assert contexto["metricas"]["cerradasSinMotivo"] == 1
 
 
 # ----------------------------------------------------------------------

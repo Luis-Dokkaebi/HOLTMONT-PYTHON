@@ -3977,8 +3977,14 @@ const CANONICAL_STATUSES = {
   "SUSPENDIDA": ["SUSPENDIDO", "SUSPENDIA"],
   "PERDIDA POR TIEMPO": ["PERDIDA X TIEMPO", "PERDIDA TIEMPO",
                          "PERDIDO POR TIEMPO", "PERDIDO X TIEMPO"],
-  "CANCELADA": ["CANCELADO", "CANCELADA X PLANTA", "CANCELADA POR PLANTA",
-                "CANCELADA X CLIENTE", "CANCELADA POR CLIENTE"],
+  "PERDIDA POR PRECIO": ["PERDIDA X PRECIO", "PERDIDA PRECIO",
+                         "PERDIDO POR PRECIO", "PERDIDO X PRECIO"],
+  // `CANCELADA POR PLANTA` es un canónico propio, no un alias de `CANCELADA`:
+  // que cancele la planta o que cancele el cliente son motivos distintos, y el
+  // vendedor elige entre ellos al cerrar la cotización al 100 %.
+  "CANCELADA POR PLANTA": ["CANCELADA X PLANTA", "CANCELADO POR PLANTA",
+                           "CANCELADO X PLANTA"],
+  "CANCELADA": ["CANCELADO", "CANCELADA X CLIENTE", "CANCELADA POR CLIENTE"],
   // Terminales: se conservan tal cual para no alterar el auto-archivado.
   "HECHO": [], "TERMINADO": [], "FINALIZADO": [], "REALIZADO": [],
   "COMPLETADO": [], "DONE": [], "CERRADO": [],
@@ -4108,9 +4114,14 @@ const SupabaseSync = {
     if (!clave || STATUS_PLACEHOLDERS.indexOf(clave) >= 0) return "";
     if (STATUS_LOOKUP[clave]) return STATUS_LOOKUP[clave];
 
-    // Familias con sufijo libre ("PERDIDA X TIEMPO DEL CLIENTE").
-    if ((clave.indexOf("PERDIDA ") === 0 || clave.indexOf("PERDIDO ") === 0) &&
-        clave.indexOf("TIEMPO") >= 0) return "PERDIDA POR TIEMPO";
+    // Familias con sufijo libre ("PERDIDA X TIEMPO DEL CLIENTE"). El motivo se
+    // busca antes que la familia a secas, o "CANCELADA X PLANTA 3" caería en
+    // "CANCELADA" y perdería el dato que alimenta los indicadores.
+    if (clave.indexOf("PERDIDA ") === 0 || clave.indexOf("PERDIDO ") === 0) {
+      if (clave.indexOf("TIEMPO") >= 0) return "PERDIDA POR TIEMPO";
+      if (clave.indexOf("PRECIO") >= 0) return "PERDIDA POR PRECIO";
+    }
+    if (clave.indexOf("CANCELAD") === 0 && clave.indexOf("PLANTA") >= 0) return "CANCELADA POR PLANTA";
     if (clave.indexOf("CANCELAD") === 0) return "CANCELADA";
     if (clave.indexOf("SUSPENDID") === 0) return "SUSPENDIDA";
 

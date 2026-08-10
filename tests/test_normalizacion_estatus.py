@@ -60,7 +60,13 @@ def test_variantes_de_perdida_por_tiempo(variante):
     ("Falta Información", "FALTA INFORMACION"),      # con acento
     ("En Revisión", "EN REVISION"),
     ("EN REVISION", "EN REVISION"),
-    ("Cancelada x Planta", "CANCELADA"),
+    # Desde 2026-08-10 el motivo no se colapsa: `CANCELADA POR PLANTA` es uno
+    # de los cinco cierres que el vendedor elige al 100 % y alimenta los KPI
+    # (ver tests/test_estatus_final_cotizacion.py). Que cancele la planta y que
+    # cancele el cliente dejaron de ser el mismo dato.
+    ("Cancelada x Planta", "CANCELADA POR PLANTA"),
+    ("Cancelada x Cliente", "CANCELADA"),
+    ("Perdida x Precio", "PERDIDA POR PRECIO"),
     ("BIERTO", "ABIERTO"),                            # errata real
     ("abierto", "ABIERTO"),
     ("SUSPENDIDA", "SUSPENDIDA"),

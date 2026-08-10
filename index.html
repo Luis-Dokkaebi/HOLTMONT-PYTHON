@@ -1762,6 +1762,28 @@
                     </div>
                 </div>
 
+                <!-- FILA 1b: MOTIVO DE CIERRE (lo que el vendedor elige al 100 %) -->
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header fw-bold" style="background:#1E3A5F; color:#fff;">
+                        <i class="fas fa-flag-checkered me-2"></i>¿EN QUÉ TERMINARON? — Motivo de cierre
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3 text-center">
+                            <div v-for="motivo in (quoteMetrics.data.porMotivoArr || [])" :key="motivo.estatus" class="col-6 col-md">
+                                <div class="border rounded py-2">
+                                    <div class="fs-3 fw-bold" :style="{ color: colorDeEstatusFinal(motivo.estatus) }">{{ motivo.total }}</div>
+                                    <div class="small text-muted" style="line-height:1.1;">{{ motivo.estatus }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-if="quoteMetrics.data.cerradasSinMotivo > 0" class="alert alert-warning mt-3 mb-0 py-2 small">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            {{ quoteMetrics.data.cerradasSinMotivo }} cotización(es) cerraron sin decir en qué terminaron
+                            (estatus viejo o texto libre). Al 100 % el selector ya obliga a elegir uno de los cinco.
+                        </div>
+                    </div>
+                </div>
+
                 <!-- FILA 2: SLA POR CLASIFICACIÓN -->
                 <div class="card shadow-sm mb-4">
                     <div class="card-header fw-bold" style="background:#1E3A5F; color:#fff;">
@@ -2802,7 +2824,7 @@
                          </div>
                          <input v-else-if="isCol(h, ['DIAS','RELOJ','DÍAS FINALIZ. COTIZ','DIAS FINALIZ. COTIZ'])" type="number" v-model="row[h]" :readonly="!isFieldEditable(h, row)" style="text-align:center; font-weight:bold; width:100%; height:100%; border:none; outline:none; padding:6px 0px; background:transparent;" :style="getTrafficStyle(row)">
                          <div v-else-if="String(h).toUpperCase().includes('AVANCE')" style="position:relative; width:100%; height:100%;">
-                             <input v-model="row[h]" :readonly="!isFieldEditable(h, row)" style="text-align:center; font-weight:bold; color:#217346; width:100%; height:100%; border:none; outline:none; padding:6px 10px 6px 0px; background:transparent;" spellcheck="false">
+                             <input v-model="row[h]" @change="onAvanceEditado(row)" :readonly="!isFieldEditable(h, row)" style="text-align:center; font-weight:bold; color:#217346; width:100%; height:100%; border:none; outline:none; padding:6px 10px 6px 0px; background:transparent;" spellcheck="false">
                              <span style="position:absolute; right:2px; top:50%; transform:translateY(-50%); color:#217346; font-size:10px; font-weight:bold; pointer-events:none;">%</span>
                          </div>
                          <div v-else-if="isCol(h, ['ESTATUS','STATUS'])" style="width:100%; height:100%;">
@@ -8628,7 +8650,7 @@ const filteredStaffTrackerData = computed(() => {
           return { valid: true };
       };
 
-      const saveAllTrackerRows = () => {
+      const saveAllTrackerRows = async () => {
           if (staffTracker.value.data.length === 0) return;
           if (isSubmitting.value) return; // Prevention for double clicking and racing conditions
 
@@ -8636,6 +8658,16 @@ const filteredStaffTrackerData = computed(() => {
               const validation = validateCompletionFiles(row, staffTracker.value.headers);
               if (!validation.valid) {
                   Swal.fire('Archivos incompletos', `Falta subir archivos a ${validation.missing} en la tarea ${row.FOLIO || row.ID || ''} para poder dar 100%`, 'warning');
+                  return;
+              }
+          }
+
+          // Cada cotización al 100 % dice en qué terminó antes de que salga el
+          // lote: una sola cancelación detiene el guardado completo, porque
+          // guardar el resto dejaría la fila sin cierre y sin aviso.
+          for (const row of staffTracker.value.data) {
+              if (!await pedirEstatusFinal(row, staffTracker.value.headers)) {
+                  Swal.fire('Falta el estatus final', `La cotización ${row.FOLIO || row.ID || ''} está al 100 % y tiene que decir en qué terminó.`, 'warning');
                   return;
               }
           }
@@ -8711,7 +8743,7 @@ const filteredStaffTrackerData = computed(() => {
           staffTracker.value.data.unshift(row);
           pulseNewRow('trackerTable', 'first');
       };
-      const saveRow = (row, event) => {
+      const saveRow = async (row, event) => {
           if (row._isSaving || isSubmitting.value) {
                Swal.fire({
                     toast: true,
@@ -8727,6 +8759,14 @@ const filteredStaffTrackerData = computed(() => {
           const validation = validateCompletionFiles(row, staffTracker.value.headers);
           if (!validation.valid) {
               Swal.fire('Archivos incompletos', `Falta subir archivos a ${validation.missing} para poder dar 100%`, 'warning');
+              return;
+          }
+
+          // La celda de AVANCE ya pregunta al marcar el 100 %, pero el guardado
+          // es la puerta: al 100 % se puede llegar pegando un valor o desde otra
+          // vista, y sin el cierre la cotización no alimenta ningún indicador.
+          if (!await pedirEstatusFinal(row, staffTracker.value.headers)) {
+              Swal.fire('Falta el estatus final', 'Una cotización al 100 % tiene que decir en qué terminó.', 'warning');
               return;
           }
 
@@ -9940,6 +9980,153 @@ const filteredStaffTrackerData = computed(() => {
           });
       };
 
+      // ------------------------------------------------------------------
+      // ESTATUS FINAL DE UNA COTIZACIÓN (regla del dueño, 2026-08-10)
+      // ------------------------------------------------------------------
+      // Al llegar el AVANCE al 100 % el vendedor tiene que decir en qué terminó
+      // la cotización. Sin ese dato los KPI solo saben que se cerró: no si se
+      // perdió por tiempo, por precio o si la canceló la planta.
+      //
+      // La lista es gemela de `FINAL_QUOTE_STATUSES` (api/services/tracker_rules.py)
+      // y las dos se comparan en tests/test_estatus_final_cotizacion.py. Si
+      // divergen, el vendedor elegiría un estatus que los indicadores no saben
+      // clasificar.
+      const ESTATUS_FINAL_COTIZACION = [
+          { label: 'PERDIDA POR TIEMPO', bg: '#B71C1C', color: '#ffffff' },
+          { label: 'PERDIDA POR PRECIO', bg: '#D32F2F', color: '#ffffff' },
+          { label: 'CANCELADA POR PLANTA', bg: '#006064', color: '#ffffff' },
+          { label: 'ENVIADA', bg: '#4CAF50', color: '#ffffff' },
+          { label: 'GANADA', bg: '#1B5E20', color: '#ffffff' }
+      ];
+
+      // Gemela de `is_progress_complete()`: el número 1 que devuelve una celda
+      // con formato de porcentaje ES 100 %, pero el string "1" que teclea una
+      // persona es 1 % (AGENTS.md §4).
+      const esAvanceCompleto = (valor) => {
+          if (valor === null || valor === undefined || valor === '') return false;
+          if (typeof valor === 'boolean') return false;
+          if (valor instanceof Date) return false;
+          if (typeof valor === 'number') {
+              return Math.abs(valor - 1) < 0.001 || Math.abs(valor - 100) < 0.01;
+          }
+          const crudo = String(valor).trim();
+          if (!crudo) return false;
+          const limpio = crudo.replace('%', '').replace(',', '.').trim();
+          const num = Number(limpio);
+          if (limpio === '' || isNaN(num)) return false;
+          if (limpio === '1' || limpio === '1.0' || limpio === '1.00') return false;
+          return Math.abs(num - 100) < 0.01 || (Math.abs(num - 1) < 0.001 && crudo.indexOf('%') === -1);
+      };
+
+      // Gemela de `is_final_quote_status()`. Acepta las grafías que ya viven en
+      // la hoja ("Perdida x Tiempo", "GANADO") para no volver a preguntar por
+      // una cotización que ya dijo en qué terminó. `CANCELADA` a secas no
+      // cuenta: no dice quién canceló, que es el dato que faltaba.
+      const esEstatusFinalCotizacion = (valor) => {
+          if (valor === null || valor === undefined) return false;
+          let v = String(valor);
+          if (v.normalize) v = v.normalize('NFD').replace(/[̀-ͯ]/g, '');
+          v = v.replace(/[\n\r]+/g, ' ').replace(/[.,;:_/\\-]+/g, ' ')
+               .replace(/\s+/g, ' ').trim().toUpperCase();
+          if (!v) return false;
+          if (ESTATUS_FINAL_COTIZACION.some(o => o.label === v)) return true;
+          if (v.indexOf('PERDIDA ') === 0 || v.indexOf('PERDIDO ') === 0) {
+              if (v.indexOf('TIEMPO') >= 0 || v.indexOf('PRECIO') >= 0) return true;
+          }
+          if (v.indexOf('CANCELAD') === 0 && v.indexOf('PLANTA') >= 0) return true;
+          return v === 'GANADO' || v === 'ENVIADO';
+      };
+
+      // Solo las hojas de ventas llevan cotizaciones. Se detectan por sus
+      // columnas propias, igual que `validateCompletionFiles`: una actividad
+      // del tracker general al 100 % no tiene por qué contestar esto.
+      const esTablaDeCotizaciones = (headers) => (headers || []).some(
+          h => ['COTIZACION', 'F2', 'LAYOUT'].indexOf(String(h).toUpperCase().trim()) >= 0);
+
+      const claveDeColumna = (row, nombres) => Object.keys(row || {}).find(
+          k => nombres.indexOf(String(k).toUpperCase().trim()) >= 0);
+
+      const claveDeAvance = (row) => Object.keys(row || {}).find(
+          k => String(k).toUpperCase().indexOf('AVANCE') >= 0);
+
+      const necesitaEstatusFinal = (row, headers) => {
+          if (!row || !esTablaDeCotizaciones(headers)) return false;
+          const kAvance = claveDeAvance(row);
+          if (!kAvance || !esAvanceCompleto(row[kAvance])) return false;
+          const kEstatus = claveDeColumna(row, ['ESTATUS', 'STATUS']);
+          if (!kEstatus) return false;
+          return !esEstatusFinalCotizacion(row[kEstatus]);
+      };
+
+      // Un solo selector por fila. Al pulsar «guardar» el navegador dispara
+      // antes el `change` de la celda de AVANCE, así que sin este candado la
+      // fila abriría dos diálogos encadenados por el mismo dato.
+      const selectorEstatusAbierto = new WeakMap();
+
+      /**
+       * Abre el selector y escribe el estatus elegido en la fila.
+       * Devuelve `true` si la fila ya puede guardarse (se eligió, o no hacía
+       * falta preguntar) y `false` si el vendedor canceló.
+       */
+      const pedirEstatusFinal = async (row, headers) => {
+          if (!necesitaEstatusFinal(row, headers)) return true;
+          if (selectorEstatusAbierto.has(row)) return selectorEstatusAbierto.get(row);
+          const kEstatus = claveDeColumna(row, ['ESTATUS', 'STATUS']);
+
+          let htmlContent = '<div style="display:flex; flex-direction:column; gap:8px;">';
+          ESTATUS_FINAL_COTIZACION.forEach((opt, idx) => {
+              htmlContent += `<div id="fin-opt-${idx}" style="background:${opt.bg}; color:${opt.color}; padding:10px; border-radius:4px; cursor:pointer; font-weight:bold;">${opt.label}</div>`;
+          });
+          htmlContent += '</div>';
+
+          const eleccion = new Promise((resolve) => {
+              Swal.fire({
+                  title: '¿En qué terminó la cotización?',
+                  text: 'La cotización llegó al 100 %. Elige el cierre para los indicadores.',
+                  html: htmlContent,
+                  showConfirmButton: false,
+                  showCancelButton: true,
+                  cancelButtonText: 'Cancelar',
+                  allowOutsideClick: false,
+                  didOpen: () => {
+                      ESTATUS_FINAL_COTIZACION.forEach((opt, idx) => {
+                          const el = document.getElementById(`fin-opt-${idx}`);
+                          if (el) {
+                              el.addEventListener('click', () => {
+                                  resolve(opt.label);
+                                  Swal.close();
+                              });
+                          }
+                      });
+                  }
+              }).then(() => resolve(null));   // cerrar sin elegir: gana el primer resolve
+          }).then((elegido) => {
+              if (!elegido) return false;
+              row[kEstatus] = elegido;
+              return true;
+          });
+
+          selectorEstatusAbierto.set(row, eleccion);
+          try {
+              return await eleccion;
+          } finally {
+              selectorEstatusAbierto.delete(row);
+          }
+      };
+
+      /** Color del motivo en el panel de KPI: el mismo del selector. */
+      const colorDeEstatusFinal = (etiqueta) => {
+          const opt = ESTATUS_FINAL_COTIZACION.find(
+              o => o.label === String(etiqueta === null || etiqueta === undefined ? '' : etiqueta).toUpperCase().trim());
+          return opt ? opt.bg : '#6c757d';
+      };
+
+      /** La celda de AVANCE pregunta en cuanto se marca el 100 %. */
+      const onAvanceEditado = (row) => {
+          if (!necesitaEstatusFinal(row, staffTracker.value.headers)) return;
+          pedirEstatusFinal(row, staffTracker.value.headers);
+      };
+
       const openHotPotatoView = () => {
           activeTrackerTab.value = 'PAPA_CALIENTE';
           trackerSubView.value = 'HOT_POTATO';
@@ -10721,7 +10908,7 @@ const filteredStaffTrackerData = computed(() => {
       infoBankState, ibYears, ibMonths, ibCompanies, ibFolders, filteredIbCompanies, selectIbYear, selectIbMonth, selectIbCompany, goBackInfoBank, resetInfoBank, openIbFolder, fetchInfoBankFiles, getBadgeClass,
       dashboardCalendar, calendarLoading, calendarUserFilter, weekDays, currentMonthYearLabel, navigateCalendar, loadDashboardCalendar, getTasksForDay, getTaskColor, isTaskDone, animTaskHover, animTaskLeave, getResponsible,
       staffTrackerFilters, staffTrackerSortAsc, toggleTrackerSort, filteredStaffTrackerData, getUniqueValues, historySearchQuery, filteredStaffTrackerHistory,
-      currentActivityContext, showResourceModal, currentResourceTab, openResourcePopup, addResourceToActivity, getActivityTotal, reqCotizacionTotal, cotPreconstruccionTotal, setCheckStatus, openVendorSelector, getAntoniaStatusStyle, openStatusSelector, hotPotatoData, openHotPotatoView, showProcessFlow, openProcessFlow,
+      currentActivityContext, showResourceModal, currentResourceTab, openResourcePopup, addResourceToActivity, getActivityTotal, reqCotizacionTotal, cotPreconstruccionTotal, setCheckStatus, openVendorSelector, getAntoniaStatusStyle, openStatusSelector, onAvanceEditado, colorDeEstatusFinal, hotPotatoData, openHotPotatoView, showProcessFlow, openProcessFlow,
       getProcessTimeline, getProcessTimelineDetailed, getProcessStatus, getProcessBtnClass, advanceProcess, getLastUpdate, getFullProcessName, showHotPotatoModal, currentHotPotatoRow, openHotPotatoModal, closeHotPotatoModal,
       quoteMetrics, qmFilters, qmMonthNames, qmYears, loadQuoteMetrics, writeQuoteMetricsToSheet,
       agentState, runAgent, showGeminiKeyModal, geminiKeyInput, geminiKeyState, saveGeminiKey,

@@ -384,9 +384,18 @@ CANONICAL_STATUSES = {
         "PERDIDA X TIEMPO", "PERDIDA POR TIEMPO", "PERDIDA TIEMPO",
         "PERDIDO POR TIEMPO", "PERDIDO X TIEMPO",
     ],
+    "PERDIDA POR PRECIO": [
+        "PERDIDA X PRECIO", "PERDIDA PRECIO",
+        "PERDIDO POR PRECIO", "PERDIDO X PRECIO",
+    ],
+    # `CANCELADA POR PLANTA` es un canónico propio y no un alias de `CANCELADA`:
+    # que cancele la planta o que cancele el cliente son dos motivos distintos y
+    # el vendedor ahora elige entre ellos al cerrar (ver `FINAL_QUOTE_STATUSES`).
+    "CANCELADA POR PLANTA": [
+        "CANCELADA X PLANTA", "CANCELADO POR PLANTA", "CANCELADO X PLANTA",
+    ],
     "CANCELADA": [
-        "CANCELADO", "CANCELADA X PLANTA", "CANCELADA POR PLANTA",
-        "CANCELADA X CLIENTE", "CANCELADA POR CLIENTE",
+        "CANCELADO", "CANCELADA X CLIENTE", "CANCELADA POR CLIENTE",
     ],
     # Terminales: se conservan tal cual para no alterar el auto-archivado.
     "HECHO": [], "TERMINADO": [], "FINALIZADO": [], "REALIZADO": [],
@@ -436,14 +445,58 @@ def normalize_status(value: Any) -> Optional[str]:
     if directo:
         return directo
     # Familias con sufijo libre: "PERDIDA X TIEMPO DEL CLIENTE",
-    # "CANCELADA X PLANTA 3", etc.
+    # "CANCELADA X PLANTA 3", etc. El motivo se busca antes que la familia a
+    # secas, o "CANCELADA X PLANTA 3" acabaría en `CANCELADA` y perdería el
+    # dato que alimenta los indicadores.
     for prefijo in ("PERDIDA", "PERDIDO"):
-        if clave.startswith(prefijo + " ") and "TIEMPO" in clave:
-            return "PERDIDA POR TIEMPO"
+        if clave.startswith(prefijo + " "):
+            if "TIEMPO" in clave:
+                return "PERDIDA POR TIEMPO"
+            if "PRECIO" in clave:
+                return "PERDIDA POR PRECIO"
+    if clave.startswith("CANCELAD") and "PLANTA" in clave:
+        return "CANCELADA POR PLANTA"
     for prefijo, canon in (("CANCELAD", "CANCELADA"), ("SUSPENDID", "SUSPENDIDA")):
         if clave.startswith(prefijo):
             return canon
     return None
+
+
+# ----------------------------------------------------------------------
+# CIERRE DE UNA COTIZACIÓN
+# ----------------------------------------------------------------------
+# Regla del dueño (2026-08-10): al llegar el AVANCE al 100 % el vendedor elige
+# en cuál de estos cinco terminó la cotización. Antes podía quedarse en
+# `PENDIENTE` o vacía, y los indicadores solo sabían que se había cerrado.
+#
+# El orden es el del selector que ve el vendedor (`ESTATUS_FINAL_COTIZACION` en
+# index.html); las dos listas se comparan en
+# tests/test_estatus_final_cotizacion.py.
+
+FINAL_QUOTE_STATUSES: Tuple[str, ...] = (
+    "PERDIDA POR TIEMPO",
+    "PERDIDA POR PRECIO",
+    "CANCELADA POR PLANTA",
+    "ENVIADA",
+    "GANADA",
+)
+
+
+def is_final_quote_status(value: Any) -> bool:
+    """
+    ¿El estatus es uno de los cinco cierres que el vendedor puede elegir?
+
+    Se compara contra el canónico, así que `Perdida x Precio` y `PERDIDO X
+    PRECIO` cuentan igual: lo que ya está capturado en la hoja no se vuelve a
+    preguntar. `CANCELADA` a secas **no** cuenta — no dice quién canceló, que
+    es justo el dato que faltaba.
+    """
+    return normalize_status(value) in FINAL_QUOTE_STATUSES
+
+
+def needs_final_quote_status(avance: Any, estatus: Any) -> bool:
+    """¿Hay que abrir el selector? Cotización al 100 % sin cierre elegido."""
+    return is_progress_complete(avance) and not is_final_quote_status(estatus)
 
 
 def is_status_like(value: Any) -> bool:
@@ -1251,6 +1304,11 @@ def compute_quote_metrics(rows: Iterable[Dict[str, Any]], month: Optional[int] =
         "byCotizadorArr": [],
         "byDepartmentArr": [],
         "aaaByClientArr": [],
+        # Desglose por motivo de cierre: es lo que el selector de estatus final
+        # hace posible. `winLoss` solo dice ganada/perdida; aquí se ve si se
+        # perdió por tiempo, por precio o si canceló la planta.
+        "porMotivoArr": [],
+        "cerradasSinMotivo": 0,
         "alerts": [],
     }
 
@@ -1258,6 +1316,7 @@ def compute_quote_metrics(rows: Iterable[Dict[str, Any]], month: Optional[int] =
     by_department: Dict[str, Dict[str, Any]] = {}
     aaa_by_client: Dict[str, Dict[str, Any]] = {}
     sla_days: Dict[str, List[int]] = {c: [] for c in SLA_LIMITS}
+    por_motivo: Dict[str, int] = {motivo: 0 for motivo in FINAL_QUOTE_STATUSES}
 
     for row in rows:
         fecha = parse_sheet_date(pick_task_value(row, ["FECHA", "FECHA INICIO", "FECHA ALTA", "ALTA"]))
@@ -1276,7 +1335,16 @@ def compute_quote_metrics(rows: Iterable[Dict[str, Any]], month: Optional[int] =
             metrics["winLoss"]["enProceso"] += 1
         metrics["winLoss"]["total"] += 1
 
-        vendedor = str(pick_task_value(row, ["VENDEDOR", "RESPONSABLE", "COTIZADOR"]) or "SIN ASIGNAR").upper().strip()
+        motivo = normalize_status(estatus)
+        if motivo in por_motivo:
+            por_motivo[motivo] += 1
+        elif bucket in ("GANADA", "PERDIDA"):
+            # Cerró, pero con un estatus que no dice por qué: `CANCELADA` a
+            # secas, `HECHO`, texto libre. Son las filas históricas que el
+            # selector nuevo evita que se sigan capturando.
+            metrics["cerradasSinMotivo"] += 1
+
+        vendedor =str(pick_task_value(row, ["VENDEDOR", "RESPONSABLE", "COTIZADOR"]) or "SIN ASIGNAR").upper().strip()
         entry = by_cotizador.setdefault(vendedor, {"nombre": vendedor, "total": 0, "ganada": 0, "perdida": 0, "enProceso": 0})
         entry["total"] += 1
         entry["ganada" if bucket == "GANADA" else ("perdida" if bucket == "PERDIDA" else "enProceso")] += 1
@@ -1324,6 +1392,9 @@ def compute_quote_metrics(rows: Iterable[Dict[str, Any]], month: Optional[int] =
     cerradas = metrics["winLoss"]["ganada"] + metrics["winLoss"]["perdida"]
     metrics["closeRate"] = round((metrics["winLoss"]["ganada"] / cerradas) * 100, 1) if cerradas else 0
 
+    metrics["porMotivoArr"] = [
+        {"estatus": motivo, "total": por_motivo[motivo]} for motivo in FINAL_QUOTE_STATUSES
+    ]
     metrics["byCotizadorArr"] = sorted(by_cotizador.values(), key=lambda v: v["total"], reverse=True)
     metrics["byDepartmentArr"] = sorted(by_department.values(), key=lambda v: v["total"], reverse=True)
     metrics["aaaByClientArr"] = sorted(aaa_by_client.values(), key=lambda v: v["total"], reverse=True)

@@ -850,7 +850,11 @@ run('8.11', 'normalizeStatus colapsa las 45 variantes reales', () => {
     ['PEDIENTE', 'PENDIENTE'], ['Pendiente', 'PENDIENTE'],
     ['Falta Información', 'FALTA INFORMACION'],
     ['En Revisión', 'EN REVISION'],
-    ['Cancelada x Planta', 'CANCELADA'],
+    // El motivo ya no se colapsa: son dos de los cinco cierres que el vendedor
+    // elige al 100 % (ver tests/test_estatus_final_cotizacion.py).
+    ['Cancelada x Planta', 'CANCELADA POR PLANTA'],
+    ['Cancelada x Cliente', 'CANCELADA'],
+    ['Perdida x Precio', 'PERDIDA POR PRECIO'],
     ['Perdida x Tiempo', 'PERDIDA POR TIEMPO'],
     ['perdida por tiempo', 'PERDIDA POR TIEMPO'],
     ['BIERTO', 'ABIERTO'], ['abierto', 'ABIERTO'],
@@ -881,7 +885,7 @@ run('8.13', 'Normalizar no altera el auto-archivado', () => {
   const S = env.api.SupabaseSync;
   const isTerminal = env.api.isTerminalStatus;
   const valores = ['ASIGNADO', 'Asignado', 'ASIGNADA', 'PEDIENTE', 'Perdida x Tiempo',
-                   'perdida por tiempo', 'Cancelada x Planta', 'SUSPENDIDA',
+                   'perdida por tiempo', 'Cancelada x Planta', 'Perdida x Precio', 'SUSPENDIDA',
                    'HECHO', 'TERMINADO', 'GANADA', 'PERDIDA', '-', ''];
   const fallos = valores.filter(v => isTerminal(v) !== isTerminal(S.normalizeStatus(v)))
                         .map(v => `${JSON.stringify(v)}: ${isTerminal(v)} -> ${isTerminal(S.normalizeStatus(v))}`);

@@ -62,6 +62,10 @@ tiempo: gastas la confianza de alguien más.
   - **Restricción de Enrutamiento Global:** Para cualquier otro usuario, está estrictamente prohibido enviar tareas a hojas que terminen en `(VENTAS)`. El código debe eliminar globalmente este sufijo usando `.replace(/\s*\(VENTAS\)/ig, "").trim()` (ver `apiSavePPCData` y `apiSaveTrackerBatch`).
 - **Distribución Lateral ("Papa Caliente"):**
   - La delegación lateral y el seguimiento del equipo utilizan la columna `INVOLUCRADOS`. Modificar la lógica aquí debe hacerse con cuidado y respetando el "timeline" (`ESTATUS`). La columna `VENDEDOR` es exclusiva para asignaciones desde `ANTONIA_VENTAS`.
+- **Cierre de una cotización (regla del dueño, 2026-08-10):**
+  - Una cotización que llega al 100 % de `AVANCE` tiene que decir en qué terminó. El vendedor elige uno de estos cinco y no hay sexto: `PERDIDA POR TIEMPO`, `PERDIDA POR PRECIO`, `CANCELADA POR PLANTA`, `ENVIADA`, `GANADA` (`FINAL_QUOTE_STATUSES` en `api/services/tracker_rules.py`, `ESTATUS_FINAL_COTIZACION` en `index.html`; las dos listas se comparan en `tests/test_estatus_final_cotizacion.py`).
+  - Por eso `CANCELADA POR PLANTA` y `PERDIDA POR PRECIO` son canónicos propios de la normalización y **no** se colapsan contra `CANCELADA` ni se descartan: el motivo es justo lo que alimenta los KPI (`porMotivoArr` de `compute_quote_metrics`). Colapsarlos otra vez borra el dato.
+  - `ENVIADA` no es un cierre ganado: `classify_quote_status` la deja en `EN_PROCESO` porque la cotización salió al cliente pero el resultado aún no se conoce. Meterla en ganadas infla la tasa de cierre.
 
 ## 4. Manejo Avanzado de Google Sheets y Procesamiento de Datos
 
