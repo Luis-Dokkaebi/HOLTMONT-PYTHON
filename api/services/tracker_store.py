@@ -69,19 +69,37 @@ def find_row_object(sheet_name: str, folio: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def sheet_exists(sheet_name: str) -> bool:
-    return bool(read_values(sheet_name))
-
-
 def resolve_worker_sheet(worker_name: str) -> Optional[str]:
-    clean = rules.SALES_SUFFIX_RE.sub("", str(worker_name or "")).strip()
-    if not clean:
-        return None
-    if sheet_exists(clean):
-        return clean
-    if sheet_exists(f"{clean} (VENTAS)"):
-        return f"{clean} (VENTAS)"
-    return None
+    """
+    Tabla donde aterriza una fase delegada por papa caliente: **siempre** el
+    tracker de la persona.
+
+    Decisión del dueño (2026-08-09): "las delegaciones siempre van al Tracker y
+    no a cotizaciones, incluso si es vendedor siempre va a su Tracker". Que
+    alguien venda no le quita su tracker, y una fase es trabajo, no una venta.
+
+    Antes esto probaba dos hojas por existencia —el tracker primero y, si esa
+    partición estaba vacía, `<NOMBRE> (VENTAS)`—, y como `PersistenciaTracker`
+    rutea la tabla por el nombre de la hoja (`is_sales_sheet` -> `quotes`), la
+    microtarea de un vendedor sin filas en su tracker acababa entre sus
+    cotizaciones. Es la imagen simétrica de lo que `tabla_de_cotizaciones` ya
+    prohíbe en el otro sentido: una cotización no se filtra al tracker de nadie,
+    y una fase no se filtra a la tabla de ventas de nadie.
+
+    Tampoco se comprueba ya que la partición exista. Antes, un nombre sin
+    ninguna de las dos hojas devolvía `None` y la delegación **se perdía en
+    silencio**: `save_tracker_batch` respondía "Guardado exitoso", el
+    PROCESO_LOG apuntaba a esa persona en IN_PROGRESS, no se escribía fila
+    alguna, y como nadie puede cerrar una fila que no existe, la cotización se
+    quedaba bloqueada —`puede_delegar` no deja pasar a la fase siguiente—. Con
+    la regla nueva la persona estrena su tracker, que es lo que
+    `_matriz_de_trabajo` ya sabe hacer con una partición vacía.
+
+    `hoja_de_persona` normaliza el nombre y traduce el único que no es una
+    persona: `ANTONIA_VENTAS` es la tabla de ventas, y el trabajo que se le
+    asigna a Antonia va a su tracker personal.
+    """
+    return asignacion.hoja_de_persona(worker_name) or None
 
 
 # ----------------------------------------------------------------------
