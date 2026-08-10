@@ -7457,19 +7457,30 @@ async function toggleVoiceRecording(btnElement) {
       //      `pulseNewRow('trackerTable', 'first')` marcaría otra fila;
       //   2. las filas con fecha, de la más vieja a la más nueva (o al revés);
       //   3. las filas ya guardadas sin fecha, que no tienen por dónde ordenarse.
-      // Los empates conservan el orden de la hoja: `Array.prototype.sort` es
-      // estable, y el índice original desempata para que no dependa de eso.
+      // Las cotizaciones del mismo día desempatan por FOLIO ascendente, en los
+      // dos sentidos: dentro de un día el folio se busca siempre en el mismo
+      // lugar, se lea la tabla de vieja a nueva o al revés. El orden de la hoja
+      // no sirve de desempate porque cambia con cada recarga.
+      const compararFolios = (a, b) => {
+          const fa = String(a || '').trim();
+          const fb = String(b || '').trim();
+          if (!fa || !fb) return (fa ? 0 : 1) - (fb ? 0 : 1); // sin folio, al final
+          // `numeric` para que AV-9 quede antes que AV-10 y no al revés.
+          return fa.localeCompare(fb, undefined, { numeric: true, sensitivity: 'base' });
+      };
+
       const ordenarPorFechaDeInicio = (filas, asc) => {
           const nuevas = [];
           const conFecha = [];
           const sinFecha = [];
-          filas.forEach((fila, i) => {
+          filas.forEach((fila) => {
               if (fila && fila._isNew) { nuevas.push(fila); return; }
               const t = fechaDeInicioDeFila(fila);
               if (t === null) sinFecha.push(fila);
-              else conFecha.push({ fila, t, i });
+              else conFecha.push({ fila, t, folio: (fila || {})['FOLIO'] });
           });
-          conFecha.sort((a, b) => (asc ? a.t - b.t : b.t - a.t) || (a.i - b.i));
+          conFecha.sort((a, b) => (asc ? a.t - b.t : b.t - a.t)
+                                  || compararFolios(a.folio, b.folio));
           return nuevas.concat(conFecha.map(x => x.fila), sinFecha);
       };
 
