@@ -120,6 +120,36 @@ def leer_tabla(url: str, key: str, tabla: str, columnas: Sequence[str]) -> List[
 # La hoja: qué hay debajo del separador
 # ---------------------------------------------------------------------------
 
+ROTULO = "TAREAS REALIZADAS"
+
+
+def _plano(valor: Any) -> str:
+    """Mayúsculas, sin acentos y con los espacios colapsados."""
+    import unicodedata
+
+    if valor is None:
+        return ""
+    crudo = unicodedata.normalize("NFKD", str(valor).upper())
+    return " ".join("".join(c for c in crudo if not unicodedata.combining(c)).split())
+
+
+def fila_del_rotulo(ws: Any, fila_encabezado: int) -> Optional[int]:
+    """
+    Fila donde la hoja escribe «TAREAS REALIZADAS», o `None` si no lo escribe.
+
+    Es el separador de verdad, y manda sobre el hueco. Dos cosas hacen que sea
+    fácil no encontrarlo: no está en la columna del folio sino en la del
+    concepto, y en `ADMINISTRADOR` está en la fila 1.864, así que cualquier
+    búsqueda acotada a las primeras filas lo pierde. Lo escriben 73 de las 104
+    hojas, incluidas las de ventas.
+    """
+    for fila in range(fila_encabezado, (ws.max_row or 0) + 1):
+        for columna in range(1, min(ws.max_column or 0, 25) + 1):
+            if _plano(ws.cell(fila, columna).value).startswith(ROTULO):
+                return fila
+    return None
+
+
 def separar_por_hueco(ws: Any, fila_encabezado: int) -> Tuple[List[int], List[int]]:
     """
     `(filas_arriba, filas_abajo)` del separador de la hoja.
@@ -171,13 +201,35 @@ def _folios_bajo(ruta: pathlib.Path) -> Dict[str, set]:
         ubicacion = cargador.localizar_encabezado(hoja)
         if ubicacion is None:
             continue
-        _, abajo = separar_por_hueco(hoja, ubicacion[0])
-        if abajo:
-            resultado[nombre] = {
-                str(hoja.cell(r, 1).value).strip() for r in abajo
-                if hoja.cell(r, 1).value not in (None, "")
-            }
+        abajo = filas_de_realizadas(hoja, ubicacion[0])
+        if not abajo:
+            continue
+        encabezados = ubicacion[1]
+        col_avance = next((i for i, e in enumerate(encabezados, start=1)
+                           if clave_encabezado(e).startswith("AVANCE")), None)
+        resultado[nombre] = {
+            str(hoja.cell(r, 1).value).strip():
+                (hoja.cell(r, col_avance).value if col_avance else None)
+            for r in abajo if hoja.cell(r, 1).value not in (None, "")
+        }
     return resultado
+
+
+def filas_de_realizadas(ws: Any, fila_encabezado: int) -> List[int]:
+    """
+    Filas de la sección de realizadas: manda el rótulo, y solo si falta el hueco.
+
+    El rótulo es explícito y el hueco es una inferencia, así que no compiten:
+    donde hay rótulo, el hueco se ignora. La diferencia no es teórica —en
+    `SONIA GARCIA PEREZ` el hueco deja 247 filas arriba y el rótulo solo 29—,
+    y las 31 hojas sin rótulo siguen necesitando el hueco para no quedarse sin
+    sección de realizadas.
+    """
+    rotulo = fila_del_rotulo(ws, fila_encabezado)
+    if rotulo is None:
+        return separar_por_hueco(ws, fila_encabezado)[1]
+    return [fila for fila in range(rotulo + 1, (ws.max_row or 0) + 1)
+            if ws.cell(fila, 1).value not in (None, "")]
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +240,87 @@ def _norm(valor: Any) -> str:
     return " ".join(str(valor or "").split()).upper()
 
 
+# Firma de una hoja de ventas: comparte FOLIO y AVANCE con las de tareas, pero
+# CLIENTE y COTIZACION solo existen aquí.
+FIRMA_VENTAS = frozenset({"FOLIO", "AVANCE", "ESTATUS", "CLIENTE"})
+
+
+def folios_realizados_de_ventas(ruta: pathlib.Path) -> Dict[str, set]:
+    """
+    `{hoja de ventas: {folios bajo el rótulo}}`.
+
+    Las trece hojas `(VENTAS)` usan el mismo separador que los trackers
+    —`ANTONIA_VENTAS` lo tiene en la fila 192— pero alimentan `quotes`, con
+    otro esquema y otra clave (`folio` + `source_sheet`), así que no pueden
+    pasar por el mismo camino que las tareas.
+    """
+    import openpyxl
+
+    libro = openpyxl.load_workbook(ruta, data_only=True)
+    resultado: Dict[str, set] = {}
+    for nombre in libro.sheetnames:
+        hoja = libro[nombre]
+        if not hoja.max_row or hoja.max_row < 2:
+            continue
+        encabezado = None
+        for fila in range(1, min(hoja.max_row, 12) + 1):
+            claves = {clave_encabezado(hoja.cell(fila, c).value)
+                      for c in range(1, (hoja.max_column or 0) + 1)}
+            if FIRMA_VENTAS <= claves:
+                encabezado = fila
+                break
+        if encabezado is None:
+            continue
+        rotulo = fila_del_rotulo(hoja, encabezado)
+        if rotulo is None:
+            continue
+        columnas = {clave_encabezado(hoja.cell(encabezado, c).value): c
+                    for c in range(1, (hoja.max_column or 0) + 1)}
+        folios: Dict[str, Dict[str, Any]] = {}
+        for fila in range(rotulo + 1, (hoja.max_row or 0) + 1):
+            folio = hoja.cell(fila, 1).value
+            if folio in (None, ""):
+                continue
+            folios[str(folio).strip()] = {
+                "avance": hoja.cell(fila, columnas["AVANCE"]).value if "AVANCE" in columnas else None,
+                "estatus": hoja.cell(fila, columnas["ESTATUS"]).value if "ESTATUS" in columnas else None,
+            }
+        if folios:
+            resultado[nombre] = folios
+    return resultado
+
+
+def cotizaciones_abiertas_bajo_el_rotulo(
+    filas: Sequence[Dict[str, Any]], bajo: Dict[str, set]
+) -> List[Dict[str, Any]]:
+    """Cotizaciones que la hoja tiene como realizadas y la base sigue abriendo."""
+    from api.services.tracker_rules import is_progress_complete_pct, is_terminal_status
+
+    def cerrada(fila: Dict[str, Any]) -> bool:
+        try:
+            avance = float(fila.get("avance")) if fila.get("avance") is not None else None
+        except (TypeError, ValueError):
+            avance = None
+        if avance is not None and is_progress_complete_pct(avance):
+            return True
+        return is_terminal_status(fila.get("estatus"))
+
+    indice = {_norm(h): f for h, f in bajo.items()}
+    pendientes: List[Dict[str, Any]] = []
+    for fila in filas:
+        hoja = indice.get(_norm(fila.get("source_sheet")))
+        if not hoja:
+            continue
+        dato = hoja.get(str(fila.get("folio") or "").strip())
+        if dato is None or cerrada(fila):
+            continue
+        # El estatus de la hoja es lo que cierra: media docena son
+        # «Perdida x Tiempo» o «Cancelada x Planta», y marcarlas al 100 %
+        # diría que se entregaron cuando lo que pasó es que se perdieron.
+        pendientes.append({**fila, "_hoja": dato})
+    return pendientes
+
+
 def desajustes_por_separador(
     filas: Sequence[Dict[str, Any]], bajo: Dict[str, set]
 ) -> List[Dict[str, Any]]:
@@ -196,10 +329,17 @@ def desajustes_por_separador(
     pendientes: List[Dict[str, Any]] = []
     for fila in filas:
         folios = indice.get(_norm(fila.get("source_sheet")))
-        if not folios:
+        if folios is None:
             continue
-        if str(fila.get("folio") or "").strip() in folios and not _esta_archivada(fila):
-            pendientes.append(fila)
+        folio = str(fila.get("folio") or "").strip()
+        if folio not in folios:
+            continue
+        # Solo importa si la base la sigue mostrando activa. No se compara el
+        # avance contra el de la hoja: estar debajo del rótulo la cierra al
+        # 100 % por decisión del dueño del dato, así que la hoja diría 33 % para
+        # siempre y la fila se re-detectaría en cada pasada sin converger nunca.
+        if not _esta_archivada(fila):
+            pendientes.append({**fila, "_avance_hoja": folios[folio]})
     return pendientes
 
 
@@ -252,9 +392,15 @@ def fila_de_cierre(fila: Dict[str, Any], modelo: Optional[Dict[str, Any]] = None
     """
     Carga útil del upsert: la identidad, las obligatorias y el cierre.
 
-    Sin `modelo` se cierra por la regla de la hoja —100 % y CUMPLIMIENTO SI—,
-    que es lo que significa estar debajo del separador. Con `modelo` se copia el
-    estado de la copia hermana, sin inventar valores.
+    Sin `modelo` se cierra con avance 100 y `CUMPLIMIENTO = SI`.
+
+    Las dos cosas, y el 100 es una decisión del dueño del dato, no una
+    inferencia: estar debajo del rótulo significa terminada, y un avance de
+    10 % o 33 % ahí abajo es residuo de la plataforma anterior, no progreso
+    real. `CUMPLIMIENTO` se pone igualmente porque es la bandera que consulta
+    `_esta_archivada` y no depende de cómo se lea el número.
+
+    Con `modelo` se copia el estado de la copia hermana, sin inventar valores.
     """
     carga: Dict[str, Any] = {"dedupe_key": fila["dedupe_key"]}
     for columna in OBLIGATORIAS:
@@ -269,6 +415,32 @@ def fila_de_cierre(fila: Dict[str, Any], modelo: Optional[Dict[str, Any]] = None
         valor = modelo.get(campo)
         if valor is not None and str(valor).strip() != "":
             carga[campo] = valor
+    return carga
+
+
+def _cierre_de_cotizacion(fila: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Carga útil para cerrar una cotización, con el estado que trae la hoja.
+
+    Misma regla que en `tasks`: debajo del rótulo es cerrada, con avance 100.
+
+    `completada` es la bandera equivalente a `cumplimiento` —lo que consulta
+    `_esta_archivada` con `campo_cumplimiento="completada"`— pero **es boolean
+    en el esquema, no texto**: mandarle `"SI"` aborta el lote con un 22P02
+    («invalid input syntax for type boolean»). Comprobado contra la base.
+
+    Si la hoja trae un estatus terminal se guarda además, porque dice *por qué*
+    se cerró: «Perdida x Tiempo» y «Cancelada x Planta» no son lo mismo que
+    entregada, y esa distinción es la que alimenta los KPIs de ventas.
+    """
+    from api.services.tracker_rules import is_terminal_status
+
+    hoja = fila["_hoja"]
+    carga: Dict[str, Any] = {"folio": fila["folio"], "source_sheet": fila["source_sheet"],
+                             "avance": 100, "completada": True}
+    estatus = hoja.get("estatus")
+    if estatus not in (None, "") and is_terminal_status(estatus):
+        carga["estatus"] = str(estatus).strip()
     return carga
 
 
@@ -299,16 +471,18 @@ def main() -> int:
                         help="Cierra lo que la hoja tiene debajo del separador.")
     parser.add_argument("--copias", action="store_true",
                         help="Propaga el cierre entre copias del mismo folio.")
+    parser.add_argument("--cotizaciones", action="store_true",
+                        help="Cierra en `quotes` lo que la hoja de ventas tiene bajo el rótulo.")
     parser.add_argument("--huerfanas", action="store_true",
                         help="Solo lista las filas que la hoja ya no tiene. No escribe nunca.")
     parser.add_argument("--ejecutar", action="store_true",
                         help="Escribe de verdad. Sin esta bandera solo se cuenta.")
     args = parser.parse_args()
 
-    if not (args.separador or args.copias or args.huerfanas):
-        parser.error("Indica al menos un modo: --separador, --copias o --huerfanas")
-    if (args.separador or args.huerfanas) and not args.archivo:
-        parser.error("--separador y --huerfanas necesitan --archivo")
+    if not (args.separador or args.copias or args.huerfanas or args.cotizaciones):
+        parser.error("Indica al menos un modo: --separador, --copias, --cotizaciones o --huerfanas")
+    if (args.separador or args.huerfanas or args.cotizaciones) and not args.archivo:
+        parser.error("--separador, --cotizaciones y --huerfanas necesitan --archivo")
 
     _cargar_env()
     settings = cargar_settings()
@@ -342,6 +516,34 @@ def main() -> int:
                   f"avance {fila['avance']} -> {modelo['avance']} "
                   f"(de {str(modelo['source_sheet'])[:20]})")
         cargas.extend(fila_de_cierre(f, m) for f, m in pendientes)
+
+    if args.cotizaciones:
+        bajo = folios_realizados_de_ventas(pathlib.Path(args.archivo))
+        cotizaciones = leer_tabla(settings.supabase_url, settings.supabase_key, "quotes",
+                                  ["folio", "source_sheet", "avance", "estatus"])
+        pendientes = cotizaciones_abiertas_bajo_el_rotulo(cotizaciones, bajo)
+        print(f"\n`quotes`: {len(cotizaciones)} filas | "
+              f"{len(bajo)} hojas de ventas con rótulo")
+        _resumen("Bajo el rótulo en la hoja pero ABIERTAS en la base", pendientes)
+        for fila in pendientes[:8]:
+            print(f"     {fila['folio']:12} {str(fila['source_sheet'])[:24]:26} "
+                  f"bd({fila['avance']}, {str(fila['estatus'])[:18]!r}) -> "
+                  f"hoja({fila['_hoja']['avance']}, {str(fila['_hoja']['estatus'])[:18]!r})")
+        if args.ejecutar and pendientes:
+            # Agrupadas por conjunto de columnas: PostgREST exige que todos los
+            # objetos de un mismo arreglo tengan las mismas claves, y `estatus`
+            # solo viaja en las que la hoja cierra con un motivo.
+            escritas = 0
+            grupos: Dict[tuple, List[Dict[str, Any]]] = collections.defaultdict(list)
+            for fila in pendientes:
+                carga = _cierre_de_cotizacion(fila)
+                grupos[tuple(sorted(carga))].append(carga)
+            for grupo in grupos.values():
+                for inicio in range(0, len(grupo), LOTE):
+                    motor.upsert("quotes", grupo[inicio : inicio + LOTE],
+                                 en_conflicto="folio,source_sheet")
+                    escritas += len(grupo[inicio : inicio + LOTE])
+            print(f"   ESCRITO: {escritas} cotizaciones cerradas.")
 
     if args.huerfanas:
         import importlib.util
