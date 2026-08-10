@@ -230,3 +230,71 @@ class TestAltasIncompletas:
         _, rechazos = carga.convertir(filas)
         assert rechazos[0][0] == 99
         assert "concepto" in rechazos[0][1].lower()
+
+
+ENCABEZADO_VENTAS_REAL = [
+    "FOLIO", "AREA", "CLIENTE", "CONCEPTO", "CLASIFICACION", "VENDEDOR",
+    "F. VISITA", "F. INICIO", "F. ENTREGA", "DIAS", "AVANCE", "ESTATUS",
+    "COMENTARIOS", "REQUISITOR", "PRIO. COT.", "INFO CLIENTE", "F2",
+    "COTIZACION", "TIMELINE", "LAYOUT",
+]
+
+
+class TestHojasDeVentas:
+    """
+    Las hojas `(VENTAS)` alimentan `quotes`, no `tasks`.
+
+    Nunca se habían cargado: la base tenía 651 cotizaciones contra 1.397 filas
+    en las trece hojas del export, y seis vendedores no tenían ni una fila.
+    """
+
+    def test_una_hoja_de_ventas_se_reconoce(self):
+        hoja = _hoja(ENCABEZADO_VENTAS_REAL, [["AV-1", "OBRA", "NIDEC"]], fila_encabezado=1)
+        ubicacion = carga.localizar_encabezado_ventas(hoja)
+        assert ubicacion is not None
+        assert ubicacion[0] == 1
+
+    def test_una_hoja_de_tareas_no_se_confunde_con_una_de_ventas(self):
+        """
+        La diferencia está en el rótulo del estatus —`ESTATUS` contra `STATUS`—
+        y en `CLIENTE`, que ninguna hoja de tareas tiene.
+        """
+        hoja = _hoja(ENCABEZADO_TAREAS, [["RR-1"]], fila_encabezado=10)
+        assert carga.localizar_encabezado_ventas(hoja) is None
+
+    def test_una_hoja_de_ventas_no_entra_por_el_camino_de_tareas(self):
+        """La frontera tiene que valer en las dos direcciones."""
+        hoja = _hoja(ENCABEZADO_VENTAS_REAL, [["AV-1", "OBRA", "NIDEC"]], fila_encabezado=1)
+        assert carga.localizar_encabezado(hoja) is None
+
+    def test_una_hoja_que_alimenta_otra_tabla_se_descarta(self):
+        """
+        `DB_BANCO_DATOS` tiene FOLIO, CLIENTE y ESTATUS, así que cumple la
+        firma, pero `TABLAS_POR_HOJA` la enruta a `banco_datos`. Cargarla en
+        `quotes` inventaría cotizaciones que nadie cotizó.
+        """
+        assert carga._es_hoja_de_otra_tabla("DB_BANCO_DATOS") is True
+        assert carga._es_hoja_de_otra_tabla("DB_SITIOS") is True
+        assert carga._es_hoja_de_otra_tabla("ANTONIA_VENTAS") is False
+        assert carga._es_hoja_de_otra_tabla("Ramiro Rodriguez (VENTAS)") is False
+
+    def test_convertir_ventas_aparta_la_fila_mala_sin_perder_las_buenas(self):
+        filas = [
+            {"FOLIO": "AV-1", "CLIENTE": "NIDEC", "_fila_xlsx": 2},
+            {"FOLIO": "AV-2", "CLIENTE": {"no": "texto"}, "_fila_xlsx": 3},
+            {"FOLIO": "AV-3", "CLIENTE": "BOSCH", "_fila_xlsx": 4},
+        ]
+        convertidas, rechazos = carga.convertir_ventas(filas)
+        assert [c.folio for c in convertidas] == ["AV-1", "AV-3"]
+        assert [n for n, _ in rechazos] == [3]
+
+    def test_la_coercion_usa_el_esquema_de_quotes(self):
+        """
+        `CLIENTE` es `text` en `quotes` y un número dentro se guarda como texto;
+        `MONTO` es `numeric` y tiene que conservar su tipo. Son mapas distintos
+        a los de `tasks`, y por eso la regla se parametriza.
+        """
+        from backend.schemas.quote import INDICE_ALIAS, TIPOS_REALES
+
+        assert carga._a_texto_generico("CLIENTE", 3478.0, INDICE_ALIAS, TIPOS_REALES) == "3478.0"
+        assert carga._a_texto_generico("MONTO", 1250.5, INDICE_ALIAS, TIPOS_REALES) == 1250.5

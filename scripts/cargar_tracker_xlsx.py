@@ -94,6 +94,23 @@ MAX_FILA_ENCABEZADO = 30
 ENCABEZADOS_IGNORADOS = frozenset({"RELOJ", "HORAESTIMADADEFIN"})
 
 
+def _a_texto_generico(encabezado: str, valor: Any, indice: Dict[str, str],
+                      tipos: Dict[str, str]) -> Any:
+    """
+    `_a_texto_si_toca` parametrizado por el esquema de la tabla destino.
+
+    La patología es la misma en tareas y en ventas —Excel tipa la celda y la
+    base tipa la columna— pero los mapas de alias y de tipos son distintos, así
+    que la regla se comparte y los diccionarios no.
+    """
+    columna = indice.get(clave_encabezado(encabezado))
+    if not columna or tipos.get(columna) != "text":
+        return valor
+    if isinstance(valor, (datetime, date, time)):
+        return str(valor)
+    return numero_a_texto(valor)
+
+
 def _a_texto_si_toca(encabezado: str, valor: Any) -> Any:
     """
     Un número en una columna `text` se guarda como texto; lo demás no se toca.
@@ -116,12 +133,112 @@ def _a_texto_si_toca(encabezado: str, valor: Any) -> Any:
     que esto reproduce lo que el camino de Apps Script venía escribiendo en vez
     de introducir una grafía nueva.
     """
-    columna = INDICE_ALIAS.get(clave_encabezado(encabezado))
-    if not columna or TIPOS_REALES.get(columna) != "text":
-        return valor
-    if isinstance(valor, (datetime, date, time)):
-        return str(valor)
-    return numero_a_texto(valor)
+    return _a_texto_generico(encabezado, valor, INDICE_ALIAS, TIPOS_REALES)
+
+
+# --- hojas de ventas -> `quotes` -------------------------------------------
+#
+# Se cargan por separado de las de tareas y con su propio repositorio: la clave
+# de identidad es `(folio, source_sheet)` y no `dedupe_key`, el esquema tiene
+# 37 columnas distintas, y una cotización no puede acabar en `tasks` —eso es lo
+# que `FIRMA_VENTAS` impide en `localizar_encabezado`—.
+#
+# `RELOJ` se ignora por el mismo motivo que en tareas: el .xlsx lo entrega como
+# serial de fecha. `COMPLETADA` también, pero por otro: es boolean en la base y
+# la hoja no la escribe, así que dejarla pasar solo puede estropear el archivado
+# que ya se sincroniza con `scripts/sincronizar_terminadas.py --cotizaciones`.
+ENCABEZADOS_IGNORADOS_VENTAS = frozenset({"RELOJ", "COMPLETADA"})
+
+
+# Firma de una hoja de ventas. `ESTATUS` y no `STATUS`: es la diferencia de
+# rótulo entre los dos dominios y la razón por la que `FIRMA_TAREAS` no sirve
+# aquí. `CLIENTE` es lo que ninguna hoja de tareas tiene.
+FIRMA_HOJA_VENTAS = frozenset({"FOLIO", "CLIENTE", "ESTATUS"})
+
+
+def _es_hoja_de_otra_tabla(nombre: str) -> bool:
+    """
+    ¿Esta hoja alimenta una tabla que no es `quotes`?
+
+    `DB_BANCO_DATOS` cumple la firma de ventas —tiene FOLIO, CLIENTE y
+    ESTATUS— pero `TABLAS_POR_HOJA` la enruta a `banco_datos`. Meterla en
+    `quotes` inventaría tres cotizaciones que nadie cotizó. La lista de destinos
+    se consulta en vez de repetirse para que añadir una hoja allí baste.
+
+    Se prueba también sin el prefijo `DB_`: el mapa registra `BANCO_DATOS` y la
+    pestaña se llama `DB_BANCO_DATOS`, así que la comparación literal la deja
+    pasar.
+    """
+    from api.services.sheets import TABLAS_POR_HOJA
+
+    limpio = str(nombre).strip().upper()
+    return limpio in TABLAS_POR_HOJA or limpio.removeprefix("DB_") in TABLAS_POR_HOJA
+
+
+def localizar_encabezado_ventas(ws: Any) -> Optional[Tuple[int, List[str]]]:
+    """`(fila, encabezados)` de una hoja de ventas, o `None` si no lo es."""
+    tope = min(ws.max_row or 0, MAX_FILA_ENCABEZADO)
+    for fila in range(1, tope + 1):
+        crudos = [ws.cell(fila, col).value for col in range(1, (ws.max_column or 0) + 1)]
+        claves = {clave_encabezado(v) for v in crudos if v is not None}
+        if FIRMA_HOJA_VENTAS <= claves:
+            return fila, [("" if v is None else str(v)) for v in crudos]
+    return None
+
+
+def leer_hojas_de_ventas(ruta: pathlib.Path,
+                         solo: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
+    """`{hoja de ventas: [filas]}`, con los tipos ya conciliados."""
+    import openpyxl
+
+    from backend.schemas.quote import INDICE_ALIAS as ALIAS_Q
+    from backend.schemas.quote import TIPOS_REALES as TIPOS_Q
+
+    libro = openpyxl.load_workbook(ruta, data_only=True)
+    resultado: Dict[str, List[Dict[str, Any]]] = {}
+    for nombre in libro.sheetnames:
+        if solo is not None and nombre != solo:
+            continue
+        if _es_hoja_de_otra_tabla(nombre):
+            continue
+        hoja = libro[nombre]
+        if not hoja.max_row or hoja.max_row < 2:
+            continue
+        ubicacion = localizar_encabezado_ventas(hoja)
+        if ubicacion is None:
+            continue
+        fila_encabezado, encabezados = ubicacion
+        filas: List[Dict[str, Any]] = []
+        for numero in range(fila_encabezado + 1, (hoja.max_row or 0) + 1):
+            folio = hoja.cell(numero, 1).value
+            if folio is None or str(folio).strip() == "":
+                continue
+            fila = {
+                encabezado: _a_texto_generico(encabezado, hoja.cell(numero, col).value,
+                                              ALIAS_Q, TIPOS_Q)
+                for col, encabezado in enumerate(encabezados, start=1)
+                if encabezado and clave_encabezado(encabezado) not in ENCABEZADOS_IGNORADOS_VENTAS
+            }
+            fila["_fila_xlsx"] = numero
+            filas.append(fila)
+        if filas:
+            resultado[nombre] = filas
+    return resultado
+
+
+def convertir_ventas(filas: Sequence[Dict[str, Any]]) -> Tuple[List[Any], List[Tuple[int, str]]]:
+    """`[QuoteWrite]` y los rechazos, con la misma tolerancia que en tareas."""
+    from backend.schemas.quote import QuoteWrite
+
+    convertidas: List[Any] = []
+    rechazos: List[Tuple[int, str]] = []
+    for fila in filas:
+        numero = fila.pop("_fila_xlsx", -1)
+        try:
+            convertidas.append(QuoteWrite.desde_hoja(fila))
+        except Exception as exc:  # noqa: BLE001 - se reporta, no se traga
+            rechazos.append((numero, str(exc).replace("\n", " ")[:160]))
+    return convertidas, rechazos
 
 LOTE = 200
 
@@ -331,6 +448,69 @@ def apartar_incompletas(
     return cargables, apartadas
 
 
+def _cargar_ventas(ruta: pathlib.Path, engine: Any, settings: Any, args: Any) -> int:
+    """
+    Carga las hojas `(VENTAS)` en `quotes`.
+
+    Camino paralelo al de tareas y por los mismos motivos: se reutiliza
+    `QuoteRepository.guardar_lote`, que ya resuelve `vendedor_id`, las columnas
+    NOT NULL y el upsert sobre `(folio, source_sheet)`. Aquí no hace falta
+    colapsar folios repetidos —la clave incluye la hoja, así que dos personas
+    con el mismo folio no colisionan— pero sí apartar las altas sin folio, que
+    es la única obligatoria que el export puede no traer.
+    """
+    from backend.repositories.quotes import QuoteRepository
+
+    repo = QuoteRepository(engine, settings)
+    print(f"Archivo: {ruta.name}")
+    hojas = leer_hojas_de_ventas(ruta, args.hoja)
+    print(f"Hojas con firma de ventas: {len(hojas)}\n")
+
+    total = collections.Counter()
+    detalle: List[Tuple[str, int, int, int]] = []
+    rechazos_por_hoja: Dict[str, List[Tuple[int, str]]] = {}
+
+    for hoja, filas in sorted(hojas.items()):
+        cotizaciones, rechazos = convertir_ventas(filas)
+        if rechazos:
+            rechazos_por_hoja[hoja] = rechazos
+
+        folios = [str(c.folio).strip() for c in cotizaciones
+                  if c.folio is not None and str(c.folio).strip()]
+        existentes = {}
+        for inicio in range(0, len(folios), LOTE_CONSULTA):
+            existentes.update(repo.por_folios(folios[inicio : inicio + LOTE_CONSULTA]))
+        altas = sum(1 for f in folios if (f, hoja) not in existentes)
+
+        total["filas"] += len(filas)
+        total["altas"] += altas
+        total["actualizaciones"] += len(folios) - altas
+        total["rechazos"] += len(rechazos)
+        detalle.append((hoja, altas, len(folios) - altas, len(rechazos)))
+
+        if args.ejecutar and cotizaciones:
+            for inicio in range(0, len(cotizaciones), LOTE):
+                repo.guardar_lote(hoja, cotizaciones[inicio : inicio + LOTE])
+
+    ancho = max((len(h) for h, *_ in detalle), default=10)
+    print(f"{'hoja'.ljust(ancho)}  {'altas':>6} {'actual.':>8} {'rechazo':>8}")
+    for hoja, altas, actualizaciones, rechazos in detalle:
+        print(f"{hoja.ljust(ancho)}  {altas:>6} {actualizaciones:>8} {rechazos:>8}")
+
+    print(f"\nTOTAL  filas={total['filas']}  altas={total['altas']}  "
+          f"actualizaciones={total['actualizaciones']}  rechazos={total['rechazos']}")
+
+    for hoja, rechazos in rechazos_por_hoja.items():
+        print(f"\nRECHAZOS en {hoja!r}:")
+        for numero, motivo in rechazos[:10]:
+            print(f"  fila {numero}: {motivo}")
+        if len(rechazos) > 10:
+            print(f"  ... y {len(rechazos) - 10} más")
+
+    print("\n" + ("ESCRITO EN LA BASE." if args.ejecutar else "DRY-RUN: no se escribió nada."))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archivo", required=True, help="Ruta del .xlsx exportado del Tracker")
@@ -339,6 +519,12 @@ def main() -> int:
         "--ejecutar",
         action="store_true",
         help="Escribe de verdad en la base. Sin esta bandera solo se cuenta.",
+    )
+    parser.add_argument(
+        "--ventas",
+        action="store_true",
+        help=("Carga las hojas `(VENTAS)` en `quotes` en vez de las de tareas en "
+              "`tasks`. Son tablas distintas y nunca se mezclan."),
     )
     args = parser.parse_args()
 
@@ -353,6 +539,10 @@ def main() -> int:
         print("Faltan SUPABASE_URL / SUPABASE_KEY.", file=sys.stderr)
         return 2
     engine = PostgrestEngine(settings.supabase_url, settings.supabase_key)
+
+    if args.ventas:
+        return _cargar_ventas(ruta, engine, settings, args)
+
     repo = TaskRepository(engine, settings)
 
     print(f"Archivo: {ruta.name}")
