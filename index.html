@@ -3776,6 +3776,16 @@
 
                                                 <i class="fas fa-microphone" style="font-size: 1.2rem;"></i>
                                             </button>
+
+                                            <!-- AGENCIA PAPERCLIP: lee la descripción y llena mano de obra,
+                                                 materiales, herramienta, equipo y viáticos, más el pre-diseño 3D.
+                                                 Se coloca a la izquierda del micrófono (que ocupa hasta ~74px). -->
+                                            <button v-if="isPaperclipRunning" class="btn btn-info position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center" style="width: 50px; height: 50px; right: 80px !important;" disabled>
+                                                <span class="spinner-border spinner-border-sm text-white" role="status" aria-hidden="true"></span>
+                                            </button>
+                                            <button v-else @click="runPaperclipAgents" class="btn btn-info position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center" style="width: 50px; height: 50px; right: 80px !important;" title="Ejecutar Agencia Paperclip (levantamiento, cálculo y pre-diseño 3D)">
+                                                <i class="fas fa-paperclip text-white" style="font-size: 1.2rem;"></i>
+                                            </button>
                                          </div>
                                     </div>
                                     <div class="col-md-4" v-if="showWorkOrderLogic">
@@ -3941,6 +3951,14 @@
                             <div class="d-flex justify-content-between align-items-center mb-2 p-2" style="background: #000000;">
                                 <span class="fw-bold text-white fs-5 ps-2">2. Requerimiento Pre-Diseños , Pre-Analisis de Riesgos y Precios Unitarios( Paso 2 )</span>
                                 <div class="d-flex align-items-center gap-2 pe-2">
+                                    <!-- BOTON PLANO 2D IA -->
+                                    <button class="btn btn-warning fw-bold text-dark shadow-sm" @click="generateBlueprintFromDescription" title="Generar Plano 2D con IA" style="display: flex; align-items: center; gap: 8px;">
+                                        <i class="fas fa-map"></i> Plano 2D (IA)
+                                    </button>
+                                    <!-- BOTON PASCAL 3D -->
+                                    <button class="btn btn-info fw-bold text-white shadow-sm" @click="currentView = 'PASCAL_DESIGNER'" title="Abrir Editor 3D" style="display: flex; align-items: center; gap: 8px;">
+                                        <i class="fas fa-cube"></i> Editor 3D Pascal
+                                    </button>
                                     <button class="btn btn-primary fw-bold text-white fs-4 py-0 px-3" @click="addProjectItem('reqCotizacion')" title="Agregar Requerimiento">+</button>
                                     <div class="bg-white border border-dark px-2 py-1 fw-bold text-dark">
                                         Total: {{ formatCurrency(reqCotizacionTotal) }}
@@ -4779,6 +4797,53 @@
         </div>
       </div>
       <div v-if="['IFRAME', 'MODULE_TABS'].includes(currentView)" class="iframe-container"><div class="iframe-toolbar"><span class="fw-bold">{{ iframeTitle }}</span><button class="btn btn-sm btn-danger" @click="closeIframe">Cerrar</button></div><iframe :src="currentIframeUrl"></iframe></div>
+
+      <!-- VISTA DEL EDITOR PASCAL 3D -->
+      <div v-if="currentView === 'PASCAL_DESIGNER'" class="pascal-designer-view h-100 p-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h2><i class="fas fa-pencil-ruler text-primary me-2"></i> Pre-Diseños 3D Arquitectónicos</h2>
+          <div>
+            <button class="btn btn-outline-secondary me-3 shadow-sm" @click="currentView = 'WORKORDER_FORM'">
+              <i class="fas fa-arrow-left"></i> Volver a Work Order
+            </button>
+            <button class="btn btn-outline-primary me-3 shadow-sm" @click="download3DJson" :disabled="!saved3DProjectData" title="Descargar el diseño como JSON">
+              <i class="fas fa-download"></i> Descargar JSON
+            </button>
+            <span class="badge bg-success p-2 text-white shadow-sm" v-if="design3DStatus === 'SAVED'">
+              <i class="fas fa-check-circle me-1"></i> Diseño Anexado a Work Order
+            </span>
+            <span class="badge bg-warning p-2 text-dark shadow-sm" v-else-if="design3DStatus === 'PENDING'">
+              <i class="fas fa-exclamation-triangle me-1"></i> Diseño no anexado
+            </span>
+            <span class="badge bg-danger p-2 text-white shadow-sm" v-else-if="design3DStatus === 'ERROR'">
+              <i class="fas fa-times-circle me-1"></i> Error al recuperar diseño
+            </span>
+          </div>
+        </div>
+
+        <div class="card shadow border-0 h-100" style="border-radius: 12px; overflow: hidden;">
+          <div class="card-body p-0 m-0" style="height: 85vh; min-height: 700px; position: relative;">
+            <div v-if="!iframeLoaded" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center bg-light" style="z-index: 2;">
+              <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                <span class="visually-hidden">Cargando motor 3D...</span>
+              </div>
+              <h4 class="text-secondary font-weight-bold">Inicializando Pascal Engine 3D...</h4>
+              <p class="text-muted small">Esto puede tardar unos segundos la primera vez.</p>
+            </div>
+
+            <!-- El id tiene que seguir siendo `pascal-editor-iframe`: es el que
+                 busca `onIframeLoaded()` para inyectar el diseño del agente. -->
+            <iframe
+              id="pascal-editor-iframe"
+              :src="pascalEditorUrl"
+              style="width: 100%; height: 100%; border: none; display: block;"
+              @load="onIframeLoaded"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; webgl"
+              allowfullscreen>
+            </iframe>
+          </div>
+        </div>
+      </div>
 
       <!-- VISTA INSTRUCCIONES (ANTONIA / TONITA) -->
       <div v-if="currentView === 'INSTRUCCIONES'" class="h-100 d-flex flex-column animate__animated animate__fadeIn" style="background:white; padding:20px; overflow-y:auto;">
@@ -5747,6 +5812,30 @@
               <div class="mb-2"><label class="small fw-bold">Fecha Respuesta:</label><input type="date" v-model="extraData.fechaRespuesta" class="form-control form-control-sm"></div>
           </div>
           <div class="custom-modal-footer"><button class="btn btn-primary btn-sm w-100" @click="confirmAddToQueue">Agregar</button></div>
+      </div>
+  </div>
+
+  <!-- PLANO 2D GENERADO POR IA -->
+  <div v-if="showBlueprintModal" class="custom-modal-overlay" style="z-index: 2000;" @click.self="showBlueprintModal = false">
+      <div class="custom-modal" style="width: 720px; max-width: 92vw;">
+          <div class="custom-modal-header"><span><i class="fas fa-map me-2"></i>Plano 2D generado por IA</span><button type="button" class="btn-close" @click="showBlueprintModal = false"></button></div>
+          <div class="custom-modal-body text-center">
+              <div v-if="isGeneratingBlueprint" class="d-flex flex-column align-items-center justify-content-center py-5">
+                  <div class="spinner-border text-warning mb-3" style="width: 3rem; height: 3rem;" role="status">
+                      <span class="visually-hidden">Generando plano...</span>
+                  </div>
+                  <h6 class="text-secondary fw-bold mb-1">Generando plano a partir de la descripción...</h6>
+                  <p class="text-muted small mb-0">Puede tardar unos segundos.</p>
+              </div>
+              <div v-else-if="blueprintImageUrl" class="py-2">
+                  <img :src="blueprintImageUrl" alt="Plano generado por IA" style="max-width: 100%; max-height: 65vh; object-fit: contain; border: 1px solid #dee2e6; border-radius: 4px;">
+                  <p class="text-muted small mt-2 mb-0">Apoyo visual para la cotización. No se guarda en la Work Order.</p>
+              </div>
+          </div>
+          <div class="custom-modal-footer">
+              <button class="btn btn-secondary btn-sm" @click="showBlueprintModal = false">Cerrar</button>
+              <a v-if="blueprintImageUrl && !isGeneratingBlueprint" :href="blueprintImageUrl" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm ms-2"><i class="fas fa-external-link-alt me-1"></i> Abrir original</a>
+          </div>
       </div>
   </div>
 
@@ -7866,7 +7955,19 @@ const filteredStaffTrackerData = computed(() => {
           });
       };
       const doLogin = () => { if(loggingIn.value || !loginPass.value || !loginUser.value) return; loggingIn.value=true; google.script.run.withSuccessHandler(res => { loggingIn.value=false; if(res.success){ isLoggedIn.value=true; currentUser.value=res.name; currentUsername.value = res.username; currentRole.value = res.role; loadConfig(res.role, res.username); loadCascadeTree(); } else { if(!isLoggedIn.value) Swal.fire('Error',res.message,'error'); } }).withFailureHandler(err => { loggingIn.value=false; handleErr(err); }).apiLogin(loginUser.value, loginPass.value); };
-      const loadConfig = (r, u) => { google.script.run.withSuccessHandler(d => { config.value=d; loadDashboardCalendar(); if(r === 'PPC_ADMIN' || r === 'ADMIN_CONTROL' || r === 'ADMIN') { google.script.run.withSuccessHandler(res => { if(res.success && res.data.length > 0) { activityQueue.value = res.data; } }).apiFetchDrafts(); } }).getSystemConfig(r, u); };
+      const loadConfig = (r, u) => { google.script.run.withSuccessHandler(d => {
+          config.value=d;
+          loadDashboardCalendar();
+          // PREWORK_ORDER no tiene departamentos, ni tracker, ni proyectos: su
+          // configuración trae un solo módulo. Aterrizar en el menú vacío y
+          // tener que buscar el mosaico no era el comportamiento anterior, así
+          // que se le abre el formulario en cuanto entra.
+          if(r === 'WORKORDER_USER') {
+              const woMod = (d.specialModules || []).find(m => m.type === 'work_order_form');
+              if(woMod) openModule(woMod);
+          }
+          if(r === 'PPC_ADMIN' || r === 'ADMIN_CONTROL' || r === 'ADMIN') { google.script.run.withSuccessHandler(res => { if(res.success && res.data.length > 0) { activityQueue.value = res.data; } }).apiFetchDrafts(); }
+      }).getSystemConfig(r, u); };
       const toggleSidebar = () => { isCompact.value = !isCompact.value; };
       const animateCyberpunkLogo = () => {
           anime({
@@ -8001,33 +8102,48 @@ const filteredStaffTrackerData = computed(() => {
           });
       };
 
+      // Abre la Pre Work Order en blanco. Tiene dos llamadores —el mosaico y el
+      // arranque de sesión de PREWORK_ORDER— y por eso vive aparte: cuando este
+      // bloque estaba escrito dentro de `openModule()`, el segundo llamador no
+      // existía y la cuenta entraba a una pantalla vacía.
+      const abrirPreWorkOrder = () => {
+          currentView.value = 'WORKORDER_FORM';
+          fetchNextSequence();
+          workorderData.value = {
+              cliente: '', planta: '', requisitor: '', newRequisitor: '', contactName: '', contacto: '', celular: '', fechaCotizacion: '', proyecto: '',
+              cotizador: [], departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
+              prioridad: 'AAA - Alta Prioridad', conceptoDesc: '',
+              checkList: { libreta: false, cinta: false, bernier: false, chaleco: false, laser: false, epp: false, casco: false, credencial: false, zapato: false, sua: false, lentes: false },
+              restricciones: { produccion: '', seguridad: '', dificultad: '', horarios: '', especificidad: '' },
+              files: [],
+              designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] }
+          };
+          projectProgram.value = {
+              timeEstimated: 1,
+              timeUnit: 'dias',
+              visita: [{ description: '', date: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, responsable: [] }],
+              reqCotizacion: JSON.parse(JSON.stringify(defaultReqCotizacion)),
+              cotPreconstruccion: JSON.parse(JSON.stringify(defaultCotPreconstruccion)),
+              cotTrabajo: []
+          };
+          // El diseño 3D es por Work Order: si no se limpia, el formulario nuevo
+          // nace con el plano del anterior ya marcado como anexado.
+          saved3DProjectData.value = null;
+          design3DStatus.value = 'PENDING';
+      };
+
       const openModule = (m) => {
           currentModuleId.value = m.id; currentDept.value = '';
           if(m.type==='mirror_staff') { openStaffTracker({name:m.target}); }
+          // `work_order_form` es el tipo que publica `/api/config` para el módulo
+          // "Pre Work Order". Sin esta rama el mosaico no hacía nada: la cadena
+          // de `else if` se agotaba en silencio, sin error de consola.
+          else if(m.type==='work_order_form') { abrirPreWorkOrder(); }
           else if(m.type==='ppc_native') {
-              if (currentRole.value === 'WORKORDER_USER') {
-                  currentView.value = 'WORKORDER_FORM';
-                  fetchNextSequence();
-                  workorderData.value = {
-                      cliente: '', planta: '', requisitor: '', newRequisitor: '', contactName: '', contacto: '', celular: '', fechaCotizacion: '', proyecto: '',
-                      cotizador: [], departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
-                      prioridad: 'AAA - Alta Prioridad', conceptoDesc: '',
-                      checkList: { libreta: false, cinta: false, bernier: false, chaleco: false, laser: false, epp: false, casco: false, credencial: false, zapato: false, sua: false, lentes: false },
-                      restricciones: { produccion: '', seguridad: '', dificultad: '', horarios: '', especificidad: '' },
-                      files: [],
-                      designValidation: { items: [{ diseno: [], maquinados: [], dibujos: [] }] }
-                  };
-                      projectProgram.value = {
-                          timeEstimated: 1,
-                          timeUnit: 'dias',
-                          visita: [{ description: '', date: '', duration: '', durationUnit: 'dias', unit: '', quantity: '', price: '', total: 0, responsable: [] }],
-                          reqCotizacion: JSON.parse(JSON.stringify(defaultReqCotizacion)),
-                          cotPreconstruccion: JSON.parse(JSON.stringify(defaultCotPreconstruccion)),
-                          cotTrabajo: []
-                      };
-              } else {
-                  currentView.value='PPC_MENU';
-              }
+              // Respaldo por si un despliegue viejo del backend todavía manda
+              // `ppc_native` para esta cuenta, como hacía `CODIGO.js`.
+              if (currentRole.value === 'WORKORDER_USER') { abrirPreWorkOrder(); }
+              else { currentView.value='PPC_MENU'; }
           }
           else if(m.type==='ppc_dynamic_view') { currentView.value='PPC_DINAMICO'; dynamicPpc.value = { especialidad: '', clasificacion: 'A', concepto: '', riesgos: 'BAJO', prioridad: 'MEDIA', fechaFin: '', comentarios: '', archivoUrl: '' }; selectedResponsables.value = []; uploadSuccess.value = false; }
           else if(m.type==='weekly_plan_view') { currentView.value='WEEKLY_PLAN'; loadWeeklyPlan(); }
@@ -8973,8 +9089,13 @@ const filteredStaffTrackerData = computed(() => {
                      Swal.fire({ icon:'success', title: 'Workorder Completa', text: `Folio: ${currentWorkorderId.value} actualizado con detalles.`, timer: 2000, showConfirmButton: false });
                      showExtraModal.value = false;
                      workorderData.value = {
+                         // `cotizador` es un arreglo en todos los demás sitios:
+                         // `addCotizador()` hace push, `removeCotizador()` splice
+                         // y el guardado hace join. Este reset lo dejaba en cadena
+                         // vacía, así que agregar un cotizador después de guardar
+                         // reventaba con "push is not a function".
                          cliente: '', planta: '', requisitor: '', newRequisitor: '', contactName: '', contacto: '', celular: '', fechaCotizacion: '', proyecto: '',
-                         cotizador: '', departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
+                         cotizador: [], departamento: '', tipoTrabajo: '', fechaEntrega: '', tiempoEstimado: '', items: [],
                          prioridad: 'AAA - Alta Prioridad', conceptoDesc: ''
                      };
                      currentWorkorderId.value = null;
@@ -10650,6 +10771,49 @@ const filteredStaffTrackerData = computed(() => {
       };
 
 
+      // Plano 2D por IA. Es un servicio de imagen externo (pollinations.ai) que
+      // devuelve un PNG por URL: no pasa por `api/main.py` ni guarda nada, así
+      // que el plano es una ayuda visual para la cotización, no un entregable.
+      const showBlueprintModal = Vue.ref(false);
+      const isGeneratingBlueprint = Vue.ref(false);
+      const blueprintImageUrl = Vue.ref('');
+
+      const generateBlueprintFromDescription = () => {
+          const desc = workorderData.value.conceptoDesc;
+          if (!desc || desc.trim() === '') {
+              Swal.fire({
+                  icon: 'warning',
+                  title: 'Falta Descripción',
+                  text: 'Por favor, escribe una Descripción del Trabajo a Realizar en el Paso 1 antes de generar el plano.'
+              });
+              return;
+          }
+
+          showBlueprintModal.value = true;
+          isGeneratingBlueprint.value = true;
+          blueprintImageUrl.value = '';
+
+          const prompt = `Architectural floor plan blueprint, 2D top down view, precise lines, technical drawing, schematic, black and white or blueprint blue. Strictly adhere to the exact dimensions, shape, layout, and number of rooms requested. Do NOT add extra unrequested rooms, and do NOT expand simple single-room requests into complex multi-room structures. Space description: ${desc}`;
+          // La semilla evita que el servicio devuelva la imagen cacheada cuando
+          // se pide otra variante del mismo texto.
+          const seed = Math.floor(Math.random() * 100000);
+          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${seed}`;
+
+          // Se precarga para que el modal muestre el plano ya completo en vez de
+          // dibujarlo por bandas mientras baja.
+          const img = new Image();
+          img.onload = () => {
+              blueprintImageUrl.value = url;
+              isGeneratingBlueprint.value = false;
+          };
+          img.onerror = () => {
+              isGeneratingBlueprint.value = false;
+              showBlueprintModal.value = false;
+              Swal.fire('Error', 'Hubo un problema al generar el plano. Inténtalo de nuevo más tarde.', 'error');
+          };
+          img.src = url;
+      };
+
       const isActivityPaperclipRunning = Vue.ref(false);
       const isPaperclipRunning = Vue.ref(false);
       const saved3DProjectData = Vue.ref(null);
@@ -10757,15 +10921,43 @@ const filteredStaffTrackerData = computed(() => {
           }
       };
 
+      // Manda el diseño al editor Pascal. La clave del mensaje es `projectData`
+      // porque es la que el fork lee (`PARCHE_PASCAL_EDITOR.md`); con `payload`
+      // el canvas se queda vacío sin ningún aviso de este lado.
+      //
+      // El retraso da tiempo a que el motor 3D monte su store antes del mensaje.
+      const enviarDisenoAPascal = (retrasoMs) => {
+          setTimeout(() => {
+              const iframe = document.getElementById('pascal-editor-iframe');
+              if (!iframe || !iframe.contentWindow) return;
+              let diseno;
+              try {
+                  // El JSON.parse/stringify hace dos cosas a la vez y las dos hacen
+                  // falta:
+                  //
+                  //   - Si el diseño viene del agente es una cadena
+                  //     (`json.dumps(scene)`) y hay que convertirla en objeto,
+                  //     porque el fork comprueba `projectData.nodes`.
+                  //   - Si viene del propio Pascal, `ref` lo dejó envuelto en un
+                  //     Proxy reactivo de Vue, y `postMessage` no sabe clonar un
+                  //     Proxy: lanza "could not be cloned" y el diseño no viaja.
+                  //     Esto solo se manifiesta al reabrir el editor después de
+                  //     haber exportado, que es justo el ciclo normal de trabajo.
+                  const crudo = saved3DProjectData.value;
+                  diseno = JSON.parse(typeof crudo === 'string' ? crudo : JSON.stringify(crudo));
+              } catch (e) {
+                  console.error('El diseño 3D no se pudo preparar para el editor:', e);
+                  design3DStatus.value = 'ERROR';
+                  return;
+              }
+              iframe.contentWindow.postMessage({ type: 'HOLTMONT_3D_IMPORT', projectData: diseno }, '*');
+          }, retrasoMs);
+      };
+
       const onIframeLoaded = () => {
           iframeLoaded.value = true;
           if (saved3DProjectData.value && currentView.value === 'PASCAL_DESIGNER') {
-              setTimeout(() => {
-                  const iframe = document.getElementById('pascalIframe');
-                  if (iframe && iframe.contentWindow) {
-                      iframe.contentWindow.postMessage({ type: 'HOLTMONT_3D_IMPORT', payload: saved3DProjectData.value }, '*');
-                  }
-              }, 1500);
+              enviarDisenoAPascal(1500);
           }
       };
 
@@ -10780,20 +10972,24 @@ const filteredStaffTrackerData = computed(() => {
 
       Vue.watch(currentView, (newView) => {
           if (newView === 'PASCAL_DESIGNER' && saved3DProjectData.value && iframeLoaded.value) {
-              setTimeout(() => {
-                  const iframe = document.getElementById('pascalIframe');
-                  if (iframe && iframe.contentWindow) {
-                      iframe.contentWindow.postMessage({ type: 'HOLTMONT_3D_IMPORT', payload: saved3DProjectData.value }, '*');
-                  }
-              }, 1000);
+              enviarDisenoAPascal(1000);
           } else if (newView !== 'PASCAL_DESIGNER') {
               iframeLoaded.value = false;
           }
       });
 
       window.addEventListener('message', (event) => {
-          if (event.data && event.data.type === 'HOLTMONT_3D_EXPORT') {
-              saved3DProjectData.value = event.data.payload;
+          const data = event.data;
+          if (data && data.type === 'HOLTMONT_3D_EXPORT') {
+              // El fork manda `{ type, data, version, timestamp }`. Antes se leía
+              // `payload`, que no existe: guardaba `undefined` y aun así marcaba
+              // 'SAVED', o sea que la interfaz decía que sí y no había diseño.
+              if (!data.data) {
+                  design3DStatus.value = 'ERROR';
+                  Swal.fire({ icon: 'error', title: 'Diseño 3D vacío', text: 'El editor Pascal respondió sin datos de diseño.' });
+                  return;
+              }
+              saved3DProjectData.value = data.data;
               design3DStatus.value = 'SAVED';
               Swal.fire({ icon: 'success', title: 'Diseño 3D Guardado', text: 'El diseño arquitectónico ha sido anexado a la Work Order localmente.', timer: 2500, showConfirmButton: false });
           }
@@ -10827,6 +11023,8 @@ const filteredStaffTrackerData = computed(() => {
       openPpcForm, ppcMenuTipo,
       certActivities, certNewActivity, showCertModal, certStep,
       isActivityPaperclipRunning, isPaperclipRunning, runActivityPaperclipAgents, runPaperclipAgents,
+      showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription,
+      abrirPreWorkOrder,
       saved3DProjectData, design3DStatus, pascalEditorUrl, iframeLoaded, onIframeLoaded, download3DJson,
       addCertActivity, completeCertActivity, closeCertModal, resetCertPractice };
     }
