@@ -10,3 +10,9 @@ playwright>=1.40
 # el salto de major cambia el analizador de .feature y con el las palabras clave
 # en espanol, que es justo lo que estos escenarios necesitan estable.
 pytest-bdd>=8.1,<9
+# Lectura de los export .xlsx del Tracker: la usan `scripts/cargar_tracker_xlsx.py`,
+# `scripts/sincronizar_terminadas.py` y sus dos pruebas. Faltaba desde 80dfaf7
+# (2026-08-08) y la puerta de CI llevaba desde entonces en rojo por
+# `ModuleNotFoundError: No module named 'openpyxl'` al recolectar, sin llegar
+# nunca a correr la suite.
+openpyxl>=3.1
