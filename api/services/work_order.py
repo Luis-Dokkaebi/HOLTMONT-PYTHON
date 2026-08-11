@@ -2,6 +2,7 @@ import json
 import os
 import re
 from datetime import datetime
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 SEQUENCES_FILE = "sequences.json"
 
@@ -353,6 +354,111 @@ def save_to_obsidian(item, item_id):
     except Exception as e:
         print(f"Error saving to Obsidian: {e}")
 
+# --- La Pre Work Order en el Tracker --------------------------------------
+# Una orden no la trabaja una sola persona: su programa ya trae responsable y
+# fechas por renglón. Cada renglón se convierte en una tarea del tracker de su
+# responsable, anclada al folio de la orden, y la fila global queda como
+# cabecera. Es el mismo reparto que la papa caliente hace con las fases
+# (`docs/FLUJO_PAPA_CALIENTE.md`), aplicado al programa.
+
+# Las tres clases que el Tracker sabe pintar: son las claves de
+# `tracker_rules.SLA_LIMITS`, y `traffic_light_color` devuelve `None` para
+# cualquier otra cosa.
+CLASIFICACIONES_TRACKER = ("A", "AA", "AAA")
+
+# Prefijo de la marca de sección del programa. Lleva prefijo a propósito: la
+# marca desnuda (`[VISITA]`) compite con las marcas de fase de la papa caliente,
+# que `es_delegacion_de_fase` lee de los corchetes del CONCEPTO. Hoy ninguna
+# sección normaliza a un paso de `PROCESS_STEPS`, pero basta con que alguien
+# añada una sección "Levantamiento" para que las líneas de una Pre Work Order
+# empiecen a entrar por el camino del reverse sync de cotizaciones.
+MARCA_PROGRAMA = "PWO"
+
+
+def clasificacion_de_tracker(valor: Any) -> str:
+    """
+    `"aa"` -> `"AA"`; lo que el semáforo no entiende -> `""`.
+
+    No inventa una clase por descarte: quien llama decide qué hacer con la
+    cadena vacía. El default anterior era `"Media"`, que no está en
+    `SLA_LIMITS` y dejaba sin semáforo a toda tarea nacida de una orden.
+    """
+    limpio = ("" if valor is None else str(valor)).strip().upper()
+    return limpio if limpio in CLASIFICACIONES_TRACKER else ""
+
+
+def _responsables_de_linea(valor: Any) -> List[str]:
+    """El formulario manda lista o cadena con comas; aquí siempre es lista."""
+    crudos = valor if isinstance(valor, (list, tuple)) else str(valor or "").split(",")
+    nombres = []
+    for crudo in crudos:
+        nombre = str("" if crudo is None else crudo).strip()
+        if nombre and nombre not in nombres:
+            nombres.append(nombre)
+    return nombres
+
+
+def _concepto_de_linea(descripcion: Any, seccion: Any) -> str:
+    """
+    `"MONTAR TABLERO"` + `"TRABAJO"` -> `"MONTAR TABLERO [PWO: TRABAJO]"`.
+
+    Los corchetes que traiga la descripción se convierten en paréntesis:
+    `extract_phase_from_concepto` lee **todas** las marcas del concepto, no solo
+    la última, así que una descripción como `"REVISAR TABLERO [L]"` haría pasar
+    la línea por una fase de Levantamiento.
+    """
+    limpio = str(descripcion).strip().replace("[", "(").replace("]", ")")
+    marca = str(seccion or "").strip().upper()
+    return f"{limpio} [{MARCA_PROGRAMA}: {marca}]" if marca else limpio
+
+
+def tareas_de_programa(
+    programa: Optional[Iterable[Dict[str, Any]]],
+    cabecera: Dict[str, Any],
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """
+    Las tareas de tracker que salen del programa de una orden.
+
+    Devuelve `[(hoja, fila), ...]`, una por renglón y responsable. Se descartan
+    en silencio dos casos, los dos a propósito:
+
+    * **Renglón sin descripción**: el formulario precrea filas en blanco en las
+      cuatro secciones del programa, y sin este filtro cada orden sembraría
+      tareas fantasma con solo la marca de sección por concepto.
+    * **Renglón sin responsable**: no se le asigna al cotizador por descarte.
+      La línea sigue viva en `wo_programa`, que es su sitio, y nadie recibe
+      trabajo que no aceptó.
+
+    El destino lo da `resolve_worker_sheet`: siempre el tracker de la persona,
+    nunca su tabla de ventas, aunque venda (decisión del dueño, 2026-08-09).
+    """
+    from api.services.tracker_store import resolve_worker_sheet
+
+    derivadas = []
+    for linea in programa or []:
+        descripcion = str(linea.get("description") or linea.get("DESCRIPCION") or "").strip()
+        if not descripcion:
+            continue
+        concepto = _concepto_de_linea(descripcion, linea.get("seccion") or linea.get("SECCION"))
+        fecha_respuesta = str(linea.get("fechaEntrega") or linea.get("date") or "").strip()
+        for nombre in _responsables_de_linea(linea.get("responsable") or linea.get("RESPONSABLE")):
+            hoja = resolve_worker_sheet(nombre)
+            if not hoja:
+                continue
+            derivadas.append((hoja, {
+                "FOLIO": cabecera.get("FOLIO", ""),
+                "CONCEPTO": concepto,
+                "AREA": cabecera.get("AREA", ""),
+                "CLASIFICACION": cabecera.get("CLASIFICACION", ""),
+                "FECHA": cabecera.get("FECHA", ""),
+                "INVOLUCRADOS": nombre,
+                "FECHA_RESPUESTA": fecha_respuesta,
+                "ESTATUS": "ASIGNADO",
+                "AVANCE": "",
+            }))
+    return derivadas
+
+
 def process_and_save_work_order(items, active_user):
     generated_ids = []
     errores = []
@@ -376,6 +482,18 @@ def process_and_save_work_order(items, active_user):
     WO_INGENIERIA_SHEET = "DB_WO_INGENIERIA"
 
     for item in items:
+        # La clasificación se valida ANTES de generar el folio: rechazar aquí no
+        # consume secuencia ni deja la orden a medias en `work_orders`. Solo
+        # aplica a la Pre Work Order, que es la que estrenó el campo; el PPC
+        # dinámico y el lote de actividades siguen como estaban.
+        clasificacion = clasificacion_de_tracker(item.get("clasificacion"))
+        if active_user == 'PREWORK_ORDER' and not clasificacion:
+            errores.append(
+                f"{item.get('cliente') or 'La orden'}: la CLASIFICACION debe ser "
+                f"A, AA o AAA para que el Tracker le calcule el SLA "
+                f"(llegó '{item.get('clasificacion', '')}')")
+            continue
+
         # ID Generation
         item_id = item.get("id") or item.get("FOLIO")
         if not item_id:
@@ -580,7 +698,7 @@ def process_and_save_work_order(items, active_user):
         task_data = {
             'FOLIO': item_id,
             'CONCEPTO': item.get("concepto", ""),
-            'CLASIFICACION': item.get("clasificacion", "Media"),
+            'CLASIFICACION': clasificacion or item.get("clasificacion", "Media"),
             'AREA': item.get("especialidad", ""),
             'INVOLUCRADOS': item.get("responsable", ""),
             'FECHA': now_str,
@@ -653,11 +771,9 @@ def _distribuir_tarea(task_data, item, item_id, active_user):
     * El sufijo `(VENTAS)` se sigue filtrando: AGENTS.md §3 prohíbe enrutar
       tareas generales a hojas de ventas.
     """
-    from backend.services.persistencia import PersistenciaTracker
-
     errores = []
     try:
-        persistencia = PersistenciaTracker()
+        persistencia = _persistencia()
     except Exception as exc:  # noqa: BLE001 - sin base configurada
         return [f"Folio {item_id}: no hay base de datos configurada ({exc})"]
 
@@ -678,7 +794,44 @@ def _distribuir_tarea(task_data, item, item_id, active_user):
         if not parcial.exito:
             errores.append(f"Folio {item_id} hacia {hoja}: {parcial.mensaje}")
 
+    errores.extend(_repartir_programa(persistencia, item, task_data))
+
     _auditar_alta(persistencia, item_id, resultado.hoja, active_user)
+    return errores
+
+
+def _persistencia() -> Any:
+    """El puente a la base. Aparte para poder sustituirlo en las pruebas."""
+    from backend.services.persistencia import PersistenciaTracker
+
+    return PersistenciaTracker()
+
+
+def _repartir_programa(
+    persistencia: Any,
+    item: Dict[str, Any],
+    task_data: Dict[str, Any],
+) -> List[str]:
+    """
+    Cada renglón del programa, a la tabla de su responsable.
+
+    Se guarda con `como_copia=True` porque varias personas comparten el folio de
+    la orden y cada una necesita fila propia: la clave la da `clave_de_copia`
+    (`"<hoja>::<folio>"`), igual que en el reparto por fases.
+    """
+    cabecera = {
+        "FOLIO": task_data.get("FOLIO", ""),
+        "AREA": task_data.get("AREA", ""),
+        "CLASIFICACION": task_data.get("CLASIFICACION", ""),
+        "FECHA": task_data.get("FECHA", ""),
+    }
+    errores = []
+    for hoja, fila in tareas_de_programa(item.get("programa"), cabecera):
+        resultado = persistencia.guardar(hoja, [fila], como_copia=True)
+        if not resultado.exito:
+            errores.append(
+                f"Folio {cabecera['FOLIO']}, línea de programa hacia {hoja}: "
+                f"{resultado.mensaje}")
     return errores
 
 

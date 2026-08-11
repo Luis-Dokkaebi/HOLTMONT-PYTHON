@@ -10,3 +10,8 @@ playwright>=1.40
 # el salto de major cambia el analizador de .feature y con el las palabras clave
 # en espanol, que es justo lo que estos escenarios necesitan estable.
 pytest-bdd>=8.1,<9
+# `tests/test_carga_tracker_xlsx.py` y `tests/test_sincronizar_terminadas.py` la
+# importan directamente. No estaba declarada en ningun requirements: en un
+# entorno limpio la suite entera moria en la recoleccion con dos
+# ModuleNotFoundError, antes de correr una sola prueba.
+openpyxl>=3.1
