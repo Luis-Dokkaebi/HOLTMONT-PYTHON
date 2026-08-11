@@ -168,6 +168,25 @@ def test_workorder_user_solo_ve_su_formulario():
     assert cfg["accessProjects"] is False
 
 
+def test_el_modulo_de_workorder_declara_el_tipo_que_el_frontend_sabe_abrir():
+    """
+    `type` es el contrato real, no `id`: `openModule()` de `index.html` rutea por
+    tipo y `loadConfig()` busca el módulo con `find(m => m.type === ...)`.
+
+    Un tipo que el frontend no conozca no da error: cae al final de la cadena de
+    `else if` y el clic no hace nada. Por eso se fija aquí, en la única prueba
+    que mira la forma del módulo.
+    """
+    for rol, cuenta in (("WORKORDER_USER", "PREWORK_ORDER"), ("ADMIN", "LUIS_CARLOS")):
+        modulos = config(rol, cuenta)["specialModules"]
+        wo = [m for m in modulos if m["id"] == "WORK_ORDER_FORM"]
+        assert wo, f"{rol} perdió el módulo Pre Work Order"
+        assert wo[0]["type"] == "work_order_form", (
+            f"{rol}: el tipo del módulo cambió y `openModule()` ya no lo enruta"
+        )
+        assert wo[0]["label"] == "Pre Work Order"
+
+
 def test_sin_username_no_se_conceden_permisos_de_mas():
     """
     Un cliente viejo que solo mande `role` degrada a "sin rama por usuario".
