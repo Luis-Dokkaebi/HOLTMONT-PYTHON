@@ -35,8 +35,12 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class BaseIndexHtml(unittest.TestCase):
     """Carga `index.html` una sola vez por clase: son 700 KB."""
 
+    # Anotado a nivel de clase para que `mypy` lo vea: `setUpClass` lo asigna en
+    # tiempo de ejecución y sin esto el análisis estático no lo encuentra.
+    contenido: str
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         ruta = os.path.join(RAIZ, "index.html")
         if not os.path.exists(ruta):
             raise AssertionError(f"{ruta} no encontrado.")
