@@ -19,9 +19,11 @@ guardaba el nombre del departamento en un campo `date`. Los ocho sitios del
 original que hacen `t['FECHA'] || t['ALTA']` son ese mismo defecto: leen el área
 como fecha cuando falta la fecha, y no se replican aquí.
 
-`correo` es la excepción deliberada: aparece en la vista pero no lleva alias,
-porque está en `SOLO_LECTURA` —contiene enlaces de Drive, no direcciones, y
-`SupabaseSync` nunca la escribe—. Se muestra; no se manda al guardar.
+`correo` fue la excepción hasta el 2026-08-12: aparecía en la vista pero no
+llevaba alias, y estaba en `SOLO_LECTURA`. Ya no. Contiene enlaces de Drive, no
+direcciones, y la tabla deja subir documentos ahí, así que sin alias cada
+guardado borraba el archivo recién subido (`tests/test_documento_en_correo.py`).
+Ahora las 18 columnas de la vista se leen y se escriben.
 """
 
 from __future__ import annotations

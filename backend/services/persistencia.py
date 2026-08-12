@@ -264,16 +264,38 @@ class PersistenciaTracker:
                 return hojas[0]
 
         if responsable:
-            if self.tareas.hoja_existe(responsable):
-                return self.tareas.resolver_hoja(responsable)
-            # Persona del directorio que todavía no tiene tareas: estrena su
-            # partición con el nombre tal como está en `people`, para no crear
-            # una hoja con una grafía distinta a la del directorio.
-            del_directorio = self.tareas.nombre_de_persona(responsable)
-            if del_directorio:
-                return del_directorio
+            return self.hoja_del_responsable(responsable)
 
         return HOJA_PPC_POR_DEFECTO
+
+    def hoja_del_responsable(self, responsable: str) -> str:
+        """
+        Tracker de una persona a partir de cualquiera de sus nombres.
+
+        El orden lo manda una sola pregunta: ¿en qué hoja lo va a **ver**? Su
+        vista abre la que dice el organigrama (`staff_name`), así que esa gana
+        sobre la grafía del directorio. Guardar bajo el otro nombre archivaba
+        la actividad en una partición que la persona no abre por ningún lado, y
+        ese es justo el defecto que reportó el dueño el 2026-08-12.
+
+        Si el organigrama no conoce a esa persona se conserva lo de antes: la
+        partición que ya exista, la grafía de `people`, y —solo entonces— el
+        nombre tal cual. Lo que **no** se hace ya es mandarla a `ADMINISTRADOR`:
+        esa hoja es de las tareas sin responsable, y meter ahí la de alguien con
+        nombre y apellido la hace invisible para su dueño.
+        """
+        from api.services import organigrama
+
+        canonicas = organigrama.hojas_de_persona(responsable)
+        if canonicas:
+            return self.tareas.resolver_hoja(canonicas[0])
+
+        if self.tareas.hoja_existe(responsable):
+            return self.tareas.resolver_hoja(responsable)
+        # Persona del directorio que todavía no tiene tareas: estrena su
+        # partición con el nombre tal como está en `people`, para no crear
+        # una hoja con una grafía distinta a la del directorio.
+        return self.tareas.nombre_de_persona(responsable) or responsable
 
     def _indexar_en_ppc_maestro(self, guardadas: Sequence[Any]) -> None:
         """

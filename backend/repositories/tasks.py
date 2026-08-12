@@ -129,10 +129,37 @@ class TaskRepository:
 
     # --- lectura --------------------------------------------------------
 
+    def hojas_del_tracker(self, sheet_name: str) -> List[str]:
+        """
+        Particiones que forman el tracker de una hoja, la pedida primero.
+
+        Son dos cuando la misma persona tiene tareas guardadas bajo sus dos
+        nombres —el del organigrama, que es el que abre su vista, y el del
+        directorio, con el que se le asignaban—. Es la misma regla que aplica
+        `sheets.particiones_del_tracker` en el camino legacy; vive en los dos
+        porque los dos leen, y la regla es una sola:
+        `organigrama.hojas_de_persona`.
+        """
+        from api.services import organigrama
+
+        principal = self.resolver_hoja(sheet_name)  # además, asegura el índice
+        indice = self._indice_hojas or {}
+        hojas = [principal]
+        vistas = {_clave_hoja(principal)}
+        for alias in organigrama.hojas_de_persona(sheet_name):
+            real = indice.get(_clave_hoja(alias))
+            if real and _clave_hoja(real) not in vistas:
+                vistas.add(_clave_hoja(real))
+                hojas.append(real)
+        return hojas
+
     def listar(self, sheet_name: str) -> List[TaskRead]:
         """Todas las tareas de una hoja, con tipos."""
-        real = self.resolver_hoja(sheet_name)
-        filas = self.engine.select(TABLA, donde={"source_sheet": real})
+        hojas = self.hojas_del_tracker(sheet_name)
+        if len(hojas) == 1:
+            filas = self.engine.select(TABLA, donde={"source_sheet": hojas[0]})
+        else:
+            filas = self.engine.select(TABLA, donde_en={"source_sheet": hojas})
         return [TaskRead.model_validate(f) for f in filas]
 
     def particionar(self, sheet_name: str) -> Tuple[List[TaskRead], List[TaskRead]]:

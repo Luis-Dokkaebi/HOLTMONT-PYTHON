@@ -443,15 +443,20 @@ def test_las_horas_son_time_no_texto():
     assert tarea.hora_estimada_fin == time(17, 33)
 
 
-def test_correo_no_se_acepta_del_cliente():
+def test_correo_se_acepta_del_cliente_como_columna_de_archivos():
     """
     La columna se llama `correo` pero no contiene ni una dirección: sus 2.266
     valores son enlaces de Drive y de Sheets, igual que `carpeta`. Es una
-    columna de archivos mal nombrada por la migración, y los archivos quedan
-    fuera del alcance de esta fase.
+    columna de archivos mal nombrada por la migración.
+
+    Esa medición la había dejado en `SOLO_LECTURA` «mientras los archivos
+    quedaran fuera del alcance de la fase». No quedaron: la vista deja subir
+    documentos ahí (`isMediaColumn`), así que de solo lectura la columna no se
+    congelaba — se borraba en cada guardado. Ver
+    `tests/test_documento_en_correo.py`, que cubre el defecto completo.
     """
-    assert "correo" in SOLO_LECTURA
-    assert "correo" not in TaskWrite.model_fields
+    assert "correo" not in SOLO_LECTURA
+    assert "correo" in TaskWrite.model_fields
     assert "correo" in TaskRead.model_fields
 
 

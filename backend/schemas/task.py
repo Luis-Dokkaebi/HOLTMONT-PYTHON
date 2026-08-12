@@ -66,16 +66,17 @@ COLUMNAS_TASKS: tuple = (
 
 # Columnas que el servidor calcula y el cliente no puede tocar.
 #
-# `correo` está aquí por lo que contiene, no por su nombre: **ninguno** de sus
-# 2.266 valores es una dirección de correo. Son enlaces de Google Drive (2.157)
-# y de Google Sheets (el resto), igual que `carpeta`, y 2.084 filas traen las
-# dos. Es una columna de archivos mal nombrada por la migración. Aceptarla
-# desde el cliente invitaría a escribir un correo encima de un enlace, y además
-# `SupabaseSync` nunca la escribe, así que hoy es un dato congelado. Los
-# archivos de Drive quedan fuera del alcance de esta fase: se conservan como
-# texto y no se tocan.
+# `correo` **estuvo aquí** y ya no está. La medición que la puso sigue siendo
+# cierta: ninguno de sus 2.266 valores es una dirección de correo; son enlaces
+# de Google Drive (2.157) y de Google Sheets (el resto), igual que `carpeta`, y
+# 2.084 filas traen las dos. Es una columna de archivos mal nombrada por la
+# migración. Lo que cambió es la conclusión: dejarla de solo lectura no la
+# congelaba, la **borraba**. La vista la trata como columna de archivos
+# (`isMediaColumn` de `index.html` la lista junto a `CARPETA`) y deja subir
+# documentos ahí, así que cada guardado descartaba en silencio el enlace que el
+# usuario acababa de subir — el defecto que reportó el dueño el 2026-08-12.
 SOLO_LECTURA: frozenset = frozenset(
-    {"id", "dedupe_key", "assignee_id", "source_sheet", "folio_sintetico", "created_at", "correo"}
+    {"id", "dedupe_key", "assignee_id", "source_sheet", "folio_sintetico", "created_at"}
 )
 
 # Tipos reales de `tasks`, leídos del esquema que publica PostgREST y
@@ -163,9 +164,11 @@ ALIAS_DE_HOJA: Dict[str, List[str]] = {
     "status": ["ESTATUS", "STATUS"],
     "hora_alta": ["HORA ALTA", "HORA_ALTA", "HORA"],
     "hora_estimada_fin": ["HORA ESTIMADA FIN", "HORA_ESTIMADA_FIN", "HR. EST. FIN"],
-    # `correo` no lleva alias a propósito: está en SOLO_LECTURA porque contiene
-    # enlaces de Drive, no direcciones, y `SupabaseSync` nunca la escribe. Ver
-    # el comentario de SOLO_LECTURA, que documenta la medición.
+    # `correo` es la segunda columna de archivos, no un buzón: guarda los
+    # enlaces de los documentos que se suben desde la tabla. `CORREOS` está
+    # porque `isMediaColumn` acepta las dos formas y las hojas viejas usan el
+    # plural.
+    "correo": ["CORREO", "CORREOS"],
 }
 
 # Encabezado normalizado -> columna. Se construye una vez: es el diccionario
@@ -206,7 +209,11 @@ class TaskWrite(BaseModel):
     prioridad: Optional[str] = None
     riesgos: Optional[str] = None
     fecha_respuesta: Optional[date] = None
+    # Las dos columnas de archivos de la tabla. Guardan la URL del documento que
+    # devuelve `/api/legacy/upload`, y `handleCellFile` concatena varias con
+    # `\n` en la misma celda: el texto se conserva tal cual, saltos incluidos.
     carpeta: Optional[str] = None
+    correo: Optional[str] = None
     cumplimiento: Optional[str] = None
     comentarios: Optional[str] = None
     comentarios_semana: Optional[str] = None

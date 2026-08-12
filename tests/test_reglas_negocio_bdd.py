@@ -548,3 +548,49 @@ def _falla_por_clasificacion(contexto: Dict[str, Any]) -> None:
 @then("no queda ninguna tarea guardada")
 def _sin_tareas(contexto: Dict[str, Any]) -> None:
     assert contexto["motor"].select("tasks") == []
+
+
+# ----------------------------------------------------------------------
+# Una persona, un tracker
+# ----------------------------------------------------------------------
+
+@given(parsers.parse('que "{directorio}" es el nombre de directorio de "{hoja}"'))
+def _persona_con_dos_nombres(contexto: Dict[str, Any], directorio: str, hoja: str) -> None:
+    """
+    El directorio (`people`) la registra con su nombre completo y su tracker se
+    llama como dice el organigrama. Los dos nombres son suyos.
+    """
+    contexto["motor"] = MemoryEngine({
+        "tasks": [], "quotes": [],
+        "people": [{"id": "p-1", "nombre": directorio, "departamento": "COMPRAS"}],
+        "profiles": [], "plan_semanal": [], "task_involucrados": [],
+        "system_log": [], "work_orders": [],
+    })
+    contexto["hoja_de_la_persona"] = hoja
+
+
+@when(parsers.parse('se captura la actividad "{concepto}" a cargo de "{responsable}"'))
+def _captura_actividad(contexto: Dict[str, Any], concepto: str, responsable: str,
+                       monkeypatch: pytest.MonkeyPatch) -> None:
+    """La cola de "Agregar Actividad", tal como la manda `submitBatch`."""
+    monkeypatch.setattr(work_order, "_persistencia",
+                        lambda: PersistenciaTracker(contexto["motor"]))
+    monkeypatch.setattr(work_order, "_engine", lambda: contexto["motor"])
+    monkeypatch.setattr(work_order, "save_to_obsidian", lambda *a, **k: None)
+    contexto["respuesta"] = work_order.process_and_save_work_order(
+        [{"id": "PPC-800001", "concepto": concepto, "responsable": responsable,
+          "especialidad": "COMPRAS", "clasificacion": "A", "cumplimiento": "NO"}],
+        "VANESSA_DE_LARA")
+
+
+@then(parsers.parse('la actividad queda en la hoja "{hoja}"'))
+def _actividad_en_la_hoja(contexto: Dict[str, Any], hoja: str) -> None:
+    assert contexto["respuesta"]["success"] is True, contexto["respuesta"].get("message")
+    hojas = sorted({f["source_sheet"] for f in contexto["motor"].select("tasks")})
+    assert hojas == [hoja], f"la actividad quedó en {hojas} y se esperaba {[hoja]}"
+
+
+@when(parsers.parse('se captura la actividad "{concepto}" sin responsable'))
+def _captura_actividad_sin_responsable(contexto: Dict[str, Any], concepto: str,
+                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    _captura_actividad(contexto, concepto, "", monkeypatch)

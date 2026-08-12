@@ -350,6 +350,81 @@ def test_el_tracker_no_se_ordena_por_la_columna_F_INICIO() -> None:
 
 
 # ---------------------------------------------------------------------------
+# `ALTA` es el área, no una fecha
+# ---------------------------------------------------------------------------
+
+# Las mismas cuatro tareas, pero con la fila **completa** que manda el backend:
+# `TASK_HEADER_MAP` pone `ALTA` (el área) entre `FOLIO` y `FECHA`. Es la forma
+# real de una fila del tracker, y la que rompía el orden.
+FILAS_TRACKER_CON_ALTA = [
+    {"FOLIO": "SP-0060", "ALTA": "OPERATIVO", "FECHA": "03/07/26",
+     "CONCEPTO": "REVISAR PLANOS"},
+    {"FOLIO": "SP-1190", "ALTA": "OPERATIVO", "FECHA": "28/05/26",
+     "CONCEPTO": "VISITA OBRA"},
+    {"FOLIO": "SP-1245", "ALTA": "ADMINISTRATIVO", "FECHA": "19/06/26",
+     "CONCEPTO": "COTIZAR MATERIAL"},
+    {"FOLIO": "SP-0009", "ALTA": "OPERATIVO", "FECHA": "19/06/26",
+     "CONCEPTO": "ENTREGA"},
+]
+
+
+def test_la_columna_ALTA_no_secuestra_el_orden_por_fecha() -> None:
+    """
+    Reporte del dueño (2026-08-12): «FUNCIÓN INVERTIR ORDEN — no funciona al
+    momento de accionar».
+
+    `ALTA` es el **área** (`CODIGO.js:2228`, `ALIAS_DE_HOJA['departamento']`),
+    pero estaba listada en `COLUMNAS_FECHA_TRACKER`. Como `fechaDeFila` tomaba
+    la primera clave de la fila que casara con la lista, y el backend manda
+    `ALTA` antes que `FECHA`, cada fila se ordenaba por su departamento:
+    `fechaDeOrden('OPERATIVO')` es `null`, así que las cuatro caían en el
+    bloque «sin fecha» y la tabla se quedaba tal como venía de la hoja.
+
+    Con las filas de prueba que no traían `ALTA` el defecto era invisible.
+    """
+    resultado = _orden("ANTONIA PINEDA LOPEZ", FILAS_TRACKER_CON_ALTA)
+    assert resultado["folios"] == ["SP-1190", "SP-0009", "SP-1245", "SP-0060"], (
+        "con `ALTA` presente el orden debe seguir siendo por FECHA ascendente"
+    )
+
+
+def test_invertir_orden_funciona_con_la_fila_completa_del_backend() -> None:
+    """El síntoma que se ve: el botón no hacía nada."""
+    apertura = _orden("ANTONIA PINEDA LOPEZ", FILAS_TRACKER_CON_ALTA)
+    invertido = _orden("ANTONIA PINEDA LOPEZ", FILAS_TRACKER_CON_ALTA, invertir=1)
+
+    assert invertido["folios"] == ["SP-0060", "SP-0009", "SP-1245", "SP-1190"]
+    assert invertido["folios"] != apertura["folios"], (
+        "invertir tiene que cambiar el orden de la tabla, no solo el icono"
+    )
+    assert invertido["asc"] is False
+
+
+def test_una_fila_sin_FECHA_no_se_ordena_por_su_area() -> None:
+    """
+    Sin `FECHA`, la fila va al bloque «sin fecha» y se queda al final: el área
+    no es una fecha ni cuando es lo único que hay.
+    """
+    filas = FILAS_TRACKER_CON_ALTA + [{"FOLIO": "SP-SIN", "ALTA": "OPERATIVO"}]
+    folios = _orden("ANTONIA PINEDA LOPEZ", filas)["folios"]
+    assert len(folios) == 5, "no se pierde ninguna fila"
+    assert folios[-1] == "SP-SIN"
+
+
+def test_FECHA_ALTA_sigue_sirviendo_para_ordenar() -> None:
+    """
+    Quitar `ALTA` de la lista no puede llevarse por delante `FECHA ALTA`, que
+    sí es la fecha de alta en las hojas que la rotulan así.
+    """
+    filas = [
+        {"FOLIO": "SP-1", "FECHA ALTA": "03/07/26"},
+        {"FOLIO": "SP-2", "FECHA ALTA": "28/05/26"},
+    ]
+    assert _orden("ANTONIA PINEDA LOPEZ", filas)["folios"] == ["SP-2", "SP-1"]
+    assert _orden("ANTONIA PINEDA LOPEZ", filas, invertir=1)["folios"] == ["SP-1", "SP-2"]
+
+
+# ---------------------------------------------------------------------------
 # El orden convive con los filtros de columna
 # ---------------------------------------------------------------------------
 
