@@ -2234,7 +2234,7 @@
                 </template>
 
                 <button class="btn btn-primary btn-sm py-0 px-2 me-1" @click="loadTrackerData" title="Actualizar"><i class="fas fa-sync-alt me-1"></i> Actualizar</button>
-                <button class="btn btn-success btn-sm py-0 px-2" @click="addNewRow" title="Agregar"><i class="fas fa-plus me-1"></i> Fila</button>
+                <button class="btn btn-success btn-sm py-0 px-2" @click="addNewRow" title="Agregar"><i class="fas fa-plus me-1"></i> NUEVA ACTIVIDAD</button>
                 <button class="btn btn-warning btn-sm py-0 px-2 ms-1 fw-bold" @click="saveAllTrackerRows" title="Guardar Todo"><i class="fas fa-save me-1"></i> Guardar Todo</button>
                 <button class="btn btn-info btn-sm py-0 px-2 ms-1 fw-bold text-white" @click="toggleTrackerSort" title="Invertir Orden">
                     <i class="fas" :class="trackerOrdenAsc ? 'fa-sort-amount-down-alt' : 'fa-sort-amount-up'"></i> Invertir Orden
@@ -4018,7 +4018,7 @@
                             <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-dark pb-1" style="background: #ffffcc;">
                                 <div class="d-flex align-items-center">
                                     <span class="fw-bold text-dark small text-uppercase ps-2">3. Cotización Preconstrucción</span>
-                                    <button class="btn btn-primary btn-sm py-0 px-2 fw-bold ms-2" style="font-size: 10px;" @click="addProjectItem('cotPreconstruccion')" title="Agregar Fila"><i class="fas fa-plus"></i></button>
+                                    <button class="btn btn-primary btn-sm py-0 px-2 fw-bold ms-2" style="font-size: 10px;" @click="addProjectItem('cotPreconstruccion')" title="Agregar NUEVA ACTIVIDAD"><i class="fas fa-plus"></i></button>
                                 </div>
                                 <span class="fw-bold text-dark pe-2 small">Total: {{ formatCurrency(cotPreconstruccionTotal) }}</span>
                             </div>
@@ -4799,7 +4799,7 @@
                </table>
            </div>
            <div class="d-flex justify-content-center mb-3">
-               <button class="btn btn-outline-primary btn-sm rounded-circle shadow-sm" style="width: 32px; height: 32px;" @click="activityQueue.push({ concepto: '', responsable: '', especialidad: '', cumplimiento: 'NO', cliente: '', comentarios: '', comentariosPrevios: '', fechaAlta: '', clasificacion: '', prioridades: '', riesgos: '', restricciones: '', fechaRespuesta: '' })" title="Agregar fila vacía"><i class="fas fa-plus"></i></button>
+               <button class="btn btn-outline-primary btn-sm rounded-circle shadow-sm" style="width: 32px; height: 32px;" @click="activityQueue.push({ concepto: '', responsable: '', especialidad: '', cumplimiento: 'NO', cliente: '', comentarios: '', comentariosPrevios: '', fechaAlta: '', clasificacion: '', prioridades: '', riesgos: '', restricciones: '', fechaRespuesta: '' })" title="Agregar NUEVA ACTIVIDAD vacía"><i class="fas fa-plus"></i></button>
            </div>
            <div class="d-flex justify-content-end mb-4 gap-2"><button class="btn btn-danger fw-bold" @click="clearQueue" :disabled="isSubmitting || !activityQueue.length">DEPURAR</button><button class="btn btn-success fw-bold" @click="submitBatch" :disabled="isSubmitting || !activityQueue.length">{{ isSubmitting ? 'Procesando...' : 'GUARDAR TODO' }}</button></div>
         </div>
@@ -4862,8 +4862,8 @@
 
           <div class="card shadow-sm border-0 mb-4" style="max-width: 800px; margin: 0 auto;">
               <div class="card-body">
-                  <h5 class="fw-bold mb-3 border-bottom pb-2">PASO 1: AÑADIR FILA</h5>
-                  <p><i class="fas fa-plus-circle text-success me-2"></i><strong>Acción:</strong> Para crear una nueva fila en la tabla.</p>
+                  <h5 class="fw-bold mb-3 border-bottom pb-2">PASO 1: AÑADIR NUEVA ACTIVIDAD</h5>
+                  <p><i class="fas fa-plus-circle text-success me-2"></i><strong>Acción:</strong> Para crear una nueva actividad en la tabla.</p>
                   <div class="alert alert-danger py-2 small fw-bold">
                       <i class="fas fa-exclamation-triangle me-2"></i>NOTA IMPORTANTE: EL FOLIO SE CREA DE MANERA AUTOMÁTICA EN LA TABLA DEL VENDEDOR AL SER ENVIADO. <strong>NO</strong> escribirlo manualmente.
                   </div>
@@ -4891,7 +4891,7 @@
           <div class="card shadow-sm border-0 mb-4" style="max-width: 800px; margin: 0 auto;">
               <div class="card-body">
                   <h5 class="fw-bold mb-3 border-bottom pb-2">PASO 3: GUARDAR Y ENVIAR</h5>
-                  <p><i class="fas fa-save text-primary me-2"></i><strong>Acción:</strong> Proceder a GUARDAR la fila nueva que se acaba de crear para ser enviada al vendedor correspondiente.</p>
+                  <p><i class="fas fa-save text-primary me-2"></i><strong>Acción:</strong> Proceder a GUARDAR la actividad nueva que se acaba de crear para ser enviada al vendedor correspondiente.</p>
               </div>
           </div>
       </div>
