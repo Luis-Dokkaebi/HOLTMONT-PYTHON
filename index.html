@@ -7533,8 +7533,15 @@ async function toggleVoiceRecording(btnElement) {
       // `FECHA`. `FECHA_ESTIMADA_FIN` y `FECHA_RESPUESTA` quedan fuera: la
       // comparación es por nombre exacto, no por subcadena, así que una tarea
       // se ordena por cuándo entró y no por cuándo se prometió.
+      //
+      // `ALTA` a secas tampoco está, y no es un olvido: es el **área**, no una
+      // fecha (`CODIGO.js:2228`, `ALIAS_DE_HOJA['departamento']`). Estaba en
+      // esta lista y, como el backend manda `ALTA` antes que `FECHA`
+      // (`TASK_HEADER_MAP`), cada fila se «ordenaba» por su departamento:
+      // ninguna daba fecha válida, todas caían en el bloque «sin fecha» y el
+      // botón Invertir Orden no movía nada.
       const COLUMNAS_FECHA_TRACKER = ['FECHA', 'F. ALTA', 'F ALTA',
-                                      'FECHA ALTA', 'FECHA DE ALTA', 'ALTA'];
+                                      'FECHA ALTA', 'FECHA DE ALTA'];
 
       // Cada tabla se ordena por SU columna de fecha. Las dos listas no se
       // juntan en una sola: en las hojas de ventas `FECHA` es una columna
@@ -7569,10 +7576,21 @@ async function toggleVoiceRecording(btnElement) {
           return (dObj && !isNaN(dObj.getTime())) ? dObj.getTime() : null;
       };
 
+      // La columna se busca recorriendo `columnas` en SU orden, no el de las
+      // claves de la fila: el primer nombre de la lista es el rótulo real de la
+      // tabla y los siguientes son alias de hojas viejas. Al revés —tomando la
+      // primera clave de la fila que casara— quien decidía por dónde ordenar
+      // era el orden en que el backend serializa las columnas, que no es un
+      // sitio donde deba vivir esta regla.
       const fechaDeFila = (row, columnas) => {
-          const clave = Object.keys(row || {}).find(
-              k => columnas.includes(String(k).toUpperCase().trim()));
-          return clave ? fechaDeOrden(row[clave]) : null;
+          const claves = Object.keys(row || {});
+          for (const columna of columnas) {
+              const clave = claves.find(k => String(k).toUpperCase().trim() === columna);
+              if (clave === undefined) continue;
+              const t = fechaDeOrden(row[clave]);
+              if (t !== null) return t;
+          }
+          return null;
       };
 
       // Ordena por la columna de fecha de la tabla (`F. INICIO` en ventas,
