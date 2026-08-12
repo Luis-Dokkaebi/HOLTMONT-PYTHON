@@ -231,6 +231,73 @@ def nombre_de_hoja(username: Any) -> str:
     return p.get("staff_name") or p.get("label") or clave_usuario(username)
 
 
+def _clave_nombre(nombre: Any) -> str:
+    """Normaliza un nombre **solo para comparar**: mayúsculas y un solo espacio."""
+    return " ".join(str(nombre or "").replace("_", " ").split()).upper()
+
+
+def _nombres_de_la_cuenta(datos: Dict[str, Any]) -> List[str]:
+    """
+    Los nombres con los que una misma persona aparece por el sistema.
+
+    Son dos y se guardan por separado porque **no son iguales**: `staff_name`
+    es la hoja de su tracker ("VANESSA DE LARA") y `label` el nombre completo
+    con el que la registra el directorio ("Erika Vanessa Rodriguez De Lara").
+
+    El canónico es siempre `staff_name`, que es el que abre su vista
+    (`nombre_de_hoja`) y el que está almacenado en `source_sheet`. El `label`
+    solo sirve para **reconocerla**; devolverlo como canónico estrenaría una
+    partición con su capitalización ("Jaime Olivo").
+
+    Una cuenta sin `staff_name` no tiene tracker propio (las de control:
+    `JAIME_OLIVO`, `JESUS_CANTU`, `PREWORK_ORDER`) y no entra aquí.
+    """
+    hoja = str(datos.get("staff_name") or "").strip()
+    # `ANTONIA_VENTAS` es el core de ventas, no el tracker de una persona
+    # (AGENTS.md §3): traducir hacia o desde esa hoja metería cotizaciones en un
+    # tracker personal.
+    if not hoja or "VENTAS" in _clave_nombre(hoja):
+        return []
+
+    nombres = [hoja]
+    etiqueta = str(datos.get("label") or "").strip()
+    if etiqueta and _clave_nombre(etiqueta) != _clave_nombre(hoja):
+        nombres.append(etiqueta)
+    return nombres
+
+
+def hojas_de_persona(nombre: Any) -> tuple:
+    """
+    Hojas de tracker que corresponden a una persona, la canónica primero.
+
+    Existe porque el nombre de la hoja se decidía en dos sitios que podían no
+    coincidir: la vista abre `nombre_de_hoja(cuenta)` (el `staff_name`) y el
+    selector de involucrados ofrece los nombres de `people` (que suelen ser el
+    `label`). Cuando los dos textos difieren, guardar por un lado y leer por el
+    otro deja la actividad archivada en una partición que nadie abre: se guarda
+    de verdad, con éxito, y la persona no la vuelve a ver.
+
+    Devuelve `()` para un nombre que el organigrama no conoce —ahí no hay nada
+    que traducir— y para la hoja maestra de ventas.
+    """
+    clave = _clave_nombre(nombre)
+    if not clave:
+        return ()
+
+    por_etiqueta: tuple = ()
+    for cuenta, semilla in PERFILES.items():
+        nombres = _nombres_de_la_cuenta(perfil(cuenta) or semilla)
+        if not nombres:
+            continue
+        # La hoja gana sobre la etiqueta: dos cuentas pueden compartir etiqueta
+        # y solo una tiene ese tracker.
+        if _clave_nombre(nombres[0]) == clave:
+            return tuple(nombres)
+        if not por_etiqueta and any(_clave_nombre(n) == clave for n in nombres[1:]):
+            por_etiqueta = tuple(nombres)
+    return por_etiqueta
+
+
 def es_vendedor(username: Any) -> bool:
     return bool(perfil(username).get("seller"))
 

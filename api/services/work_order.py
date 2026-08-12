@@ -789,7 +789,10 @@ def _distribuir_tarea(task_data, item, item_id, active_user):
             destinos.append(nombre)
 
     for nombre in destinos:
-        hoja = persistencia.resolver_hoja(nombre)
+        # Por el nombre de la persona, no por el texto tal cual: el selector de
+        # involucrados ofrece la grafía de `people` y su tracker abre la del
+        # organigrama. Ver `hoja_del_responsable`.
+        hoja = persistencia.hoja_del_responsable(nombre)
         parcial = persistencia.guardar(hoja, [task_data])
         if not parcial.exito:
             errores.append(f"Folio {item_id} hacia {hoja}: {parcial.mensaje}")

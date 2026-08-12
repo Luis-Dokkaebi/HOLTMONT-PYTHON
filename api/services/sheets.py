@@ -297,17 +297,8 @@ def _clave_hoja(nombre):
     return " ".join(str(nombre or "").split()).upper()
 
 
-def resolve_source_sheet(tabla, sheet_name):
-    """
-    Devuelve el `source_sheet` real que corresponde a `sheet_name`.
-
-    Si no hay coincidencia, devuelve el nombre pedido sin tocar, para que la
-    consulta se comporte como antes en vez de inventar una hoja.
-    """
-    pedido = str(sheet_name or "")
-    if not pedido:
-        return pedido
-
+def _indice_de_hojas(tabla):
+    """Clave normalizada -> `source_sheet` tal como está almacenado."""
     indice = _SOURCE_SHEET_CACHE.get(tabla)
     if indice is None:
         indice = {}
@@ -319,8 +310,49 @@ def resolve_source_sheet(tabla, sheet_name):
         except Exception as exc:  # la resolución nunca debe tumbar la lectura
             print(f"No se pudo indexar source_sheet de {tabla}: {exc}")
         _SOURCE_SHEET_CACHE[tabla] = indice
+    return indice
 
-    return indice.get(_clave_hoja(pedido), pedido)
+
+def resolve_source_sheet(tabla, sheet_name):
+    """
+    Devuelve el `source_sheet` real que corresponde a `sheet_name`.
+
+    Si no hay coincidencia, devuelve el nombre pedido sin tocar, para que la
+    consulta se comporte como antes en vez de inventar una hoja.
+    """
+    pedido = str(sheet_name or "")
+    if not pedido:
+        return pedido
+    return _indice_de_hojas(tabla).get(_clave_hoja(pedido), pedido)
+
+
+def particiones_del_tracker(sheet_name):
+    """
+    Particiones de `tasks` que forman el tracker de una hoja.
+
+    Casi siempre es una sola —la pedida— y entonces esto se comporta igual que
+    `resolve_source_sheet`. Son dos cuando la misma persona tiene guardadas
+    tareas bajo sus dos nombres: el del organigrama, que es el que abre su
+    vista, y el del directorio, que es el que ofrecía el selector de
+    involucrados al asignar. Ver `organigrama.hojas_de_persona`.
+
+    Sin esto, el arreglo del guardado solo serviría para lo que se capture de
+    hoy en adelante y lo ya archivado con el otro nombre seguiría invisible
+    para su dueño.
+    """
+    from api.services import organigrama
+
+    principal = resolve_source_sheet("tasks", sheet_name)
+    hojas = [principal]
+    vistas = {_clave_hoja(principal)}
+
+    indice = _indice_de_hojas("tasks")
+    for alias in organigrama.hojas_de_persona(sheet_name):
+        real = indice.get(_clave_hoja(alias))
+        if real and _clave_hoja(real) not in vistas:
+            vistas.add(_clave_hoja(real))
+            hojas.append(real)
+    return hojas
 
 
 def reset_source_sheet_cache():
@@ -537,7 +569,9 @@ class GSheetsManager:
             if values:
                 return values
 
-            rows = sb_manager.select("tasks", {"source_sheet": resolve_source_sheet("tasks", sheet_name)})
+            rows = []
+            for particion in particiones_del_tracker(sheet_name):
+                rows.extend(sb_manager.select("tasks", {"source_sheet": particion}))
             values = _valores_de_tareas(rows)
             if values:
                 return values
