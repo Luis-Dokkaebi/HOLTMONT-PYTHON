@@ -3964,7 +3964,7 @@
                                         <i class="fas fa-map"></i> Plano 2D (IA)
                                     </button>
                                     <!-- BOTON PASCAL 3D -->
-                                    <button class="btn btn-info fw-bold text-white shadow-sm" @click="currentView = 'PASCAL_DESIGNER'" title="Abrir Editor 3D" style="display: flex; align-items: center; gap: 8px;">
+                                    <button class="btn btn-info fw-bold text-white shadow-sm" @click="abrirEditor3D" title="Abrir Editor 3D" style="display: flex; align-items: center; gap: 8px;">
                                         <i class="fas fa-cube"></i> Editor 3D Pascal
                                     </button>
                                     <button class="btn btn-primary fw-bold text-white fs-4 py-0 px-3" @click="addProjectItem('reqCotizacion')" title="Agregar Requerimiento">+</button>
@@ -5826,23 +5826,34 @@
   <!-- PLANO 2D GENERADO POR IA -->
   <div v-if="showBlueprintModal" class="custom-modal-overlay" style="z-index: 2000;" @click.self="showBlueprintModal = false">
       <div class="custom-modal" style="width: 720px; max-width: 92vw;">
-          <div class="custom-modal-header"><span><i class="fas fa-map me-2"></i>Plano 2D generado por IA</span><button type="button" class="btn-close" @click="showBlueprintModal = false"></button></div>
+          <div class="custom-modal-header"><span><i class="fas fa-map me-2"></i>Plano 2D a escala</span><button type="button" class="btn-close" @click="showBlueprintModal = false"></button></div>
           <div class="custom-modal-body text-center">
               <div v-if="isGeneratingBlueprint" class="d-flex flex-column align-items-center justify-content-center py-5">
                   <div class="spinner-border text-warning mb-3" style="width: 3rem; height: 3rem;" role="status">
                       <span class="visually-hidden">Generando plano...</span>
                   </div>
-                  <h6 class="text-secondary fw-bold mb-1">Generando plano a partir de la descripción...</h6>
-                  <p class="text-muted small mb-0">Puede tardar unos segundos.</p>
+                  <h6 class="text-secondary fw-bold mb-1">Dibujando el plano a partir de la descripción...</h6>
               </div>
-              <div v-else-if="blueprintImageUrl" class="py-2">
-                  <img :src="blueprintImageUrl" alt="Plano generado por IA" style="max-width: 100%; max-height: 65vh; object-fit: contain; border: 1px solid #dee2e6; border-radius: 4px;">
-                  <p class="text-muted small mt-2 mb-0">Apoyo visual para la cotización. No se guarda en la Work Order.</p>
+              <!-- El SVG lo construye el backend a partir de la geometría; no es
+                   HTML de usuario. `v-html` es la unica forma de insertarlo. -->
+              <div v-else-if="blueprintSvg" class="py-2">
+                  <div v-html="blueprintSvg" style="max-height: 62vh; overflow: auto; border: 1px solid #dee2e6; border-radius: 4px;"></div>
+                  <p class="text-muted small mt-2 mb-0">
+                      {{ blueprintResumen.muros }} muros ·
+                      {{ blueprintResumen.puertas }} puerta(s) ·
+                      {{ blueprintResumen.ventanas }} ventana(s) ·
+                      altura {{ blueprintResumen.altura_m }} m
+                  </p>
+                  <p class="small mb-0" :class="blueprintOrigen === 'medidas' ? 'text-success' : 'text-warning'">
+                      <i class="fas" :class="blueprintOrigen === 'medidas' ? 'fa-ruler-combined' : 'fa-robot'"></i>
+                      {{ blueprintOrigen === 'medidas' ? 'Dibujado con las medidas escritas en la descripción.' : 'Medidas deducidas por el agente: revísalas antes de cotizar.' }}
+                  </p>
               </div>
           </div>
           <div class="custom-modal-footer">
               <button class="btn btn-secondary btn-sm" @click="showBlueprintModal = false">Cerrar</button>
-              <a v-if="blueprintImageUrl && !isGeneratingBlueprint" :href="blueprintImageUrl" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm ms-2"><i class="fas fa-external-link-alt me-1"></i> Abrir original</a>
+              <button v-if="blueprintSvg && !isGeneratingBlueprint" class="btn btn-outline-primary btn-sm ms-2" @click="descargarPlano2D"><i class="fas fa-download me-1"></i> Descargar SVG</button>
+              <button v-if="blueprintSvg && !isGeneratingBlueprint" class="btn btn-info text-white btn-sm ms-2" @click="showBlueprintModal = false; currentView = 'PASCAL_DESIGNER'"><i class="fas fa-cube me-1"></i> Ver en 3D</button>
           </div>
       </div>
   </div>
@@ -10785,14 +10796,21 @@ const filteredStaffTrackerData = computed(() => {
       };
 
 
-      // Plano 2D por IA. Es un servicio de imagen externo (pollinations.ai) que
-      // devuelve un PNG por URL: no pasa por `api/main.py` ni guarda nada, así
-      // que el plano es una ayuda visual para la cotización, no un entregable.
+      // Plano 2D. Lo calcula `/api/plano_2d` a partir de la misma geometría que
+      // alimenta el editor 3D, así que es un entregable: SVG a escala, con
+      // cotas, descargable y reproducible.
       const showBlueprintModal = Vue.ref(false);
+      const blueprintSvg = Vue.ref('');
+      const blueprintOrigen = Vue.ref('');
+      const blueprintResumen = Vue.ref({});
       const isGeneratingBlueprint = Vue.ref(false);
-      const blueprintImageUrl = Vue.ref('');
 
-      const generateBlueprintFromDescription = () => {
+      // El plano y el modelo 3D salen del MISMO calculo del backend
+      // (`/api/plano_2d`). Antes esto llamaba a un generador de imagenes por
+      // difusion externo: devolvia una ilustracion con medidas inventadas,
+      // distinta en cada intento, y sin ninguna relacion con lo que abria el
+      // editor 3D. El porque completo esta en `api/services/plano.py`.
+      const generateBlueprintFromDescription = async () => {
           const desc = workorderData.value.conceptoDesc;
           if (!desc || desc.trim() === '') {
               Swal.fire({
@@ -10805,27 +10823,68 @@ const filteredStaffTrackerData = computed(() => {
 
           showBlueprintModal.value = true;
           isGeneratingBlueprint.value = true;
-          blueprintImageUrl.value = '';
+          blueprintSvg.value = '';
 
-          const prompt = `Architectural floor plan blueprint, 2D top down view, precise lines, technical drawing, schematic, black and white or blueprint blue. Strictly adhere to the exact dimensions, shape, layout, and number of rooms requested. Do NOT add extra unrequested rooms, and do NOT expand simple single-room requests into complex multi-room structures. Space description: ${desc}`;
-          // La semilla evita que el servicio devuelva la imagen cacheada cuando
-          // se pide otra variante del mismo texto.
-          const seed = Math.floor(Math.random() * 100000);
-          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${seed}`;
-
-          // Se precarga para que el modal muestre el plano ya completo en vez de
-          // dibujarlo por bandas mientras baja.
-          const img = new Image();
-          img.onload = () => {
-              blueprintImageUrl.value = url;
-              isGeneratingBlueprint.value = false;
-          };
-          img.onerror = () => {
-              isGeneratingBlueprint.value = false;
+          try {
+              const res = await ApiService.generarPlano2D(desc);
+              if (!res.success) {
+                  // Se dice por que no se pudo, en vez de dibujar una
+                  // habitacion por defecto que nadie pidio.
+                  showBlueprintModal.value = false;
+                  Swal.fire('No se pudo dibujar el plano', res.message, 'warning');
+                  return;
+              }
+              blueprintSvg.value = res.svg;
+              blueprintOrigen.value = res.origen;
+              blueprintResumen.value = res.resumen || {};
+              // La escena 3D viaja en la misma respuesta: el editor abre con
+              // exactamente lo que se acaba de ver en planta.
+              if (res.escena_3d) {
+                  saved3DProjectData.value = res.escena_3d;
+                  design3DStatus.value = 'SAVED';
+              }
+          } catch (err) {
               showBlueprintModal.value = false;
-              Swal.fire('Error', 'Hubo un problema al generar el plano. Inténtalo de nuevo más tarde.', 'error');
-          };
-          img.src = url;
+              Swal.fire('Error', 'No se pudo generar el plano: ' + err.message, 'error');
+          } finally {
+              isGeneratingBlueprint.value = false;
+          }
+      };
+
+      const descargarPlano2D = () => {
+          if (!blueprintSvg.value) return;
+          const blob = new Blob([blueprintSvg.value], { type: 'image/svg+xml' });
+          const enlace = document.createElement('a');
+          enlace.href = URL.createObjectURL(blob);
+          enlace.download = 'plano_' + (workorderData.value.cliente || 'work_order') + '.svg';
+          enlace.click();
+          URL.revokeObjectURL(enlace.href);
+      };
+
+      // El boton del editor 3D ya no depende de que alguien haya pulsado antes
+      // la Agencia Paperclip: si no hay diseno cargado, lo calcula de la misma
+      // descripcion. Antes abria el editor vacio sin decir por que.
+      const abrirEditor3D = async () => {
+          if (!saved3DProjectData.value) {
+              const desc = workorderData.value.conceptoDesc;
+              if (!desc || desc.trim() === '') {
+                  Swal.fire('Falta Descripción', 'Escribe la Descripción del Trabajo a Realizar para levantar el modelo 3D.', 'warning');
+                  return;
+              }
+              try {
+                  const res = await ApiService.generarPlano2D(desc);
+                  if (!res.success) {
+                      Swal.fire('No se pudo levantar el modelo', res.message, 'warning');
+                      return;
+                  }
+                  saved3DProjectData.value = res.escena_3d;
+                  design3DStatus.value = 'SAVED';
+              } catch (err) {
+                  Swal.fire('Error', 'No se pudo levantar el modelo 3D: ' + err.message, 'error');
+                  return;
+              }
+          }
+          currentView.value = 'PASCAL_DESIGNER';
       };
 
       const isActivityPaperclipRunning = Vue.ref(false);
@@ -11037,7 +11096,8 @@ const filteredStaffTrackerData = computed(() => {
       openPpcForm, ppcMenuTipo,
       certActivities, certNewActivity, showCertModal, certStep,
       isActivityPaperclipRunning, isPaperclipRunning, runActivityPaperclipAgents, runPaperclipAgents,
-      showBlueprintModal, isGeneratingBlueprint, blueprintImageUrl, generateBlueprintFromDescription,
+      showBlueprintModal, isGeneratingBlueprint, blueprintSvg, blueprintOrigen, blueprintResumen,
+      generateBlueprintFromDescription, descargarPlano2D, abrirEditor3D,
       abrirPreWorkOrder,
       saved3DProjectData, design3DStatus, pascalEditorUrl, iframeLoaded, onIframeLoaded, download3DJson,
       addCertActivity, completeCertActivity, closeCertModal, resetCertPractice };

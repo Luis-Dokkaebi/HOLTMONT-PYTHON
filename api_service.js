@@ -31,6 +31,26 @@ class ApiService {
         }
     }
 
+    // Plano 2D y escena 3D de la Descripción del Trabajo a Realizar. Antes esto
+    // lo resolvía el navegador llamando a `image.pollinations.ai`, que devolvía
+    // una ilustración sin escala ni cotas; ahora lo calcula el backend y las dos
+    // vistas salen de la misma geometría.
+    static async generarPlano2D(descripcion) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/plano_2d`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ descripcion: descripcion })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || 'Error generando el plano');
+            return data;
+        } catch (error) {
+            console.error('Error generando plano 2D:', error);
+            throw error;
+        }
+    }
+
     static async login(username, password) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/login`, {

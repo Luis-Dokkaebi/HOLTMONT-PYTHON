@@ -586,8 +586,27 @@ def architect_node(state: PaperclipState, llm) -> dict:
         )
         return {"architect_data": json.dumps(scene)}
     except Exception as e:
-        print(f"Error generando escena Pascal: {e}. Usando habitacion 4x4 por defecto.")
-        return {"architect_data": json.dumps(_default_room_scene())}
+        # Antes se devolvía una habitación 4x4 sin puertas y el frontend la
+        # anunciaba como "3D actualizado": quien pedía "8 x 5 m con una puerta"
+        # recibía otra cosa sin enterarse. Ahora se intenta leer las medidas del
+        # propio texto —que resuelve el caso corriente sin LLM— y solo si eso
+        # tampoco da nada se recurre a la 4x4, dejando dicho que es un supuesto.
+        print(f"Error generando escena Pascal: {e}. Intentando leer las medidas del texto.")
+        from api.services import plano as servicio_plano
+
+        extraccion = servicio_plano.extraccion_desde_texto(state.get("levantamiento_data"))
+        if extraccion is not None:
+            scene = _build_pascal_scene(
+                extraccion.walls, extraccion.ceiling_height, extraccion.doors,
+                extraccion.windows, extraccion.staircases, extraccion.roof,
+                extraccion.furniture, extraccion.num_levels)
+            return {"architect_data": json.dumps(scene), "architect_origen": "medidas"}
+        return {"architect_data": json.dumps(_default_room_scene()),
+                "architect_origen": "supuesto",
+                "architect_aviso": (
+                    "No se pudo interpretar el levantamiento y no se encontraron "
+                    "medidas en el texto: el modelo 3D es una habitación de 4x4 m "
+                    "de ejemplo, no la del proyecto.")}
 
 def _normalize_calculo(data: CalculoData) -> CalculoData:
     """Garantiza cantidades > 0 (regla: nunca 0/null) y normaliza unidades de tiempo."""
