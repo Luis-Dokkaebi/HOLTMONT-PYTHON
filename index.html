@@ -6402,10 +6402,11 @@ async function toggleVoiceRecording(btnElement) {
       });
       const staffTrackerFilters = ref({});
       const staffTrackerSortAsc = ref(false); // NUEVO: Estado para el orden de las cotizaciones
-      // Las hojas de ventas se ordenan por `F. INICIO`, no por el orden de la
-      // hoja: arrancan de la cotización más vieja a la más nueva, y el botón
-      // "Invertir Orden" las pone de la más nueva a la más vieja.
-      const ventasSortAsc = ref(true);
+      // Las tablas con columna de fecha se ordenan por ella, no por el orden de
+      // la hoja: las de ventas por `F. INICIO` y los trackers por `FECHA`.
+      // Arrancan de la fila más vieja a la más nueva, y el botón "Invertir
+      // Orden" las pone de la más nueva a la más vieja.
+      const ordenFechaAsc = ref(true);
       const activeTrackerTab = ref('OPERATIVO');
       const trackerSubView = ref('TASKS');
       const currentStaffName = ref('');
@@ -7509,6 +7510,21 @@ async function toggleVoiceRecording(btnElement) {
       const COLUMNAS_FECHA_DE_ORDEN = ['F. INICIO', 'F INICIO', 'F_INICIO',
                                        'FECHA INICIO', 'FECHA DE INICIO'];
 
+      // La misma idea en los trackers, donde la columna de alta se rotula
+      // `FECHA`. `FECHA_ESTIMADA_FIN` y `FECHA_RESPUESTA` quedan fuera: la
+      // comparación es por nombre exacto, no por subcadena, así que una tarea
+      // se ordena por cuándo entró y no por cuándo se prometió.
+      const COLUMNAS_FECHA_TRACKER = ['FECHA', 'F. ALTA', 'F ALTA',
+                                      'FECHA ALTA', 'FECHA DE ALTA', 'ALTA'];
+
+      // Cada tabla se ordena por SU columna de fecha. Las dos listas no se
+      // juntan en una sola: en las hojas de ventas `FECHA` es una columna
+      // heredada que se oculta (`COLUMNAS_OCULTAS_VENTAS`) y trae valores que
+      // no son la fecha de inicio; ordenar por ella pondría las cotizaciones en
+      // un orden que la tabla no muestra por ningún lado.
+      const columnasDeOrdenDe = (hoja) =>
+          esHojaDeVentas(hoja) ? COLUMNAS_FECHA_DE_ORDEN : COLUMNAS_FECHA_TRACKER;
+
       // En las mismas hojas conviven `dd/mm/aa`, `dd/mm/aaaa` y `aaaa-mm-dd`.
       // Se arma la fecha con el constructor de tres argumentos: `new Date(cadena)`
       // lee `aaaa-mm-dd` como UTC y en husos negativos la corre un día.
@@ -7534,22 +7550,23 @@ async function toggleVoiceRecording(btnElement) {
           return (dObj && !isNaN(dObj.getTime())) ? dObj.getTime() : null;
       };
 
-      const fechaDeInicioDeFila = (row) => {
+      const fechaDeFila = (row, columnas) => {
           const clave = Object.keys(row || {}).find(
-              k => COLUMNAS_FECHA_DE_ORDEN.includes(String(k).toUpperCase().trim()));
+              k => columnas.includes(String(k).toUpperCase().trim()));
           return clave ? fechaDeOrden(row[clave]) : null;
       };
 
-      // Ordena por `F. INICIO`. Tres bloques, siempre en este orden:
+      // Ordena por la columna de fecha de la tabla (`F. INICIO` en ventas,
+      // `FECHA` en los trackers). Tres bloques, siempre en este orden:
       //   1. las filas recién agregadas (`_isNew`), que `addNewRow` mete arriba
       //      y todavía no tienen fecha: si cayeran al final, el resaltado de
       //      `pulseNewRow('trackerTable', 'first')` marcaría otra fila;
       //   2. las filas con fecha, de la más vieja a la más nueva (o al revés);
       //   3. las filas ya guardadas sin fecha, que no tienen por dónde ordenarse.
-      // Las cotizaciones del mismo día desempatan por FOLIO ascendente, en los
-      // dos sentidos: dentro de un día el folio se busca siempre en el mismo
-      // lugar, se lea la tabla de vieja a nueva o al revés. El orden de la hoja
-      // no sirve de desempate porque cambia con cada recarga.
+      // Las filas del mismo día desempatan por FOLIO ascendente, en los dos
+      // sentidos: dentro de un día el folio se busca siempre en el mismo lugar,
+      // se lea la tabla de vieja a nueva o al revés. El orden de la hoja no
+      // sirve de desempate porque cambia con cada recarga.
       const compararFolios = (a, b) => {
           const fa = String(a || '').trim();
           const fb = String(b || '').trim();
@@ -7558,15 +7575,18 @@ async function toggleVoiceRecording(btnElement) {
           return fa.localeCompare(fb, undefined, { numeric: true, sensitivity: 'base' });
       };
 
-      const ordenarPorFechaDeInicio = (filas, asc) => {
+      const ordenarPorFecha = (filas, asc, columnas) => {
           const nuevas = [];
           const conFecha = [];
           const sinFecha = [];
           filas.forEach((fila) => {
               if (fila && fila._isNew) { nuevas.push(fila); return; }
-              const t = fechaDeInicioDeFila(fila);
+              const t = fechaDeFila(fila, columnas);
               if (t === null) sinFecha.push(fila);
-              else conFecha.push({ fila, t, folio: (fila || {})['FOLIO'] });
+              // Las tareas del tracker se identifican con FOLIO, pero las hojas
+              // viejas traen esa columna como ID: es la misma pareja que busca
+              // `find_row_object` en el backend.
+              else conFecha.push({ fila, t, folio: (fila || {})['FOLIO'] || (fila || {})['ID'] });
           });
           conFecha.sort((a, b) => (asc ? a.t - b.t : b.t - a.t)
                                   || compararFolios(a.folio, b.folio));
@@ -7575,22 +7595,24 @@ async function toggleVoiceRecording(btnElement) {
 
       // ¿Alguna fila trae la columna de fecha? Sin ella no hay nada que ordenar
       // y la tabla se queda con el orden de la hoja.
-      const hayFechaDeOrden = (filas) => filas.some(
+      const hayFechaDeOrden = (filas, columnas) => filas.some(
           fila => Object.keys(fila || {}).some(
-              k => COLUMNAS_FECHA_DE_ORDEN.includes(String(k).toUpperCase().trim())));
+              k => columnas.includes(String(k).toUpperCase().trim())));
+
+      const columnasDeOrden = computed(() => columnasDeOrdenDe(staffTracker.value.name));
 
       const ordenaPorFecha = computed(
-          () => esHojaDeVentas(staffTracker.value.name) && hayFechaDeOrden(staffTracker.value.data || []));
+          () => hayFechaDeOrden(staffTracker.value.data || [], columnasDeOrden.value));
 
       // El botón "Invertir Orden" mueve el estado de la tabla que se ve: las
-      // hojas de ventas llevan el suyo porque arrancan ascendentes y los
-      // trackers no.
+      // que se ordenan por fecha llevan el suyo porque arrancan ascendentes, y
+      // las que no tienen columna de fecha siguen con el orden de la hoja.
       const trackerOrdenAsc = computed(
-          () => ordenaPorFecha.value ? ventasSortAsc.value : staffTrackerSortAsc.value);
+          () => ordenaPorFecha.value ? ordenFechaAsc.value : staffTrackerSortAsc.value);
 
       const toggleTrackerSort = () => {
           if (ordenaPorFecha.value) {
-              ventasSortAsc.value = !ventasSortAsc.value;
+              ordenFechaAsc.value = !ordenFechaAsc.value;
               return;
           }
           staffTrackerSortAsc.value = !staffTrackerSortAsc.value;
@@ -7610,7 +7632,7 @@ const filteredStaffTrackerData = computed(() => {
           });
 
           if (ordenaPorFecha.value) {
-              return ordenarPorFechaDeInicio(filtered, ventasSortAsc.value);
+              return ordenarPorFecha(filtered, ordenFechaAsc.value, columnasDeOrden.value);
           }
 
           if (!staffTrackerSortAsc.value) {
@@ -11015,7 +11037,7 @@ const filteredStaffTrackerData = computed(() => {
       showEmployeeModal, newEmployee, openNewEmployeeModal, saveNewEmployee, deleteEmployee, resyncDirectory,
       infoBankState, ibYears, ibMonths, ibCompanies, ibFolders, filteredIbCompanies, selectIbYear, selectIbMonth, selectIbCompany, goBackInfoBank, resetInfoBank, openIbFolder, fetchInfoBankFiles, getBadgeClass,
       dashboardCalendar, calendarLoading, calendarUserFilter, weekDays, currentMonthYearLabel, navigateCalendar, loadDashboardCalendar, getTasksForDay, getTaskColor, isTaskDone, animTaskHover, animTaskLeave, getResponsible,
-      staffTrackerFilters, staffTrackerSortAsc, ventasSortAsc, trackerOrdenAsc, toggleTrackerSort, filteredStaffTrackerData, getUniqueValues, historySearchQuery, filteredStaffTrackerHistory,
+      staffTrackerFilters, staffTrackerSortAsc, ordenFechaAsc, trackerOrdenAsc, toggleTrackerSort, filteredStaffTrackerData, getUniqueValues, historySearchQuery, filteredStaffTrackerHistory,
       currentActivityContext, showResourceModal, currentResourceTab, openResourcePopup, addResourceToActivity, getActivityTotal, reqCotizacionTotal, cotPreconstruccionTotal, setCheckStatus, openVendorSelector, getAntoniaStatusStyle, openStatusSelector, hotPotatoData, openHotPotatoView, showProcessFlow, openProcessFlow,
       getProcessTimeline, getProcessTimelineDetailed, getProcessStatus, getProcessBtnClass, advanceProcess, getLastUpdate, getFullProcessName, showHotPotatoModal, currentHotPotatoRow, openHotPotatoModal, closeHotPotatoModal,
       quoteMetrics, qmFilters, qmMonthNames, qmYears, loadQuoteMetrics, writeQuoteMetricsToSheet,
