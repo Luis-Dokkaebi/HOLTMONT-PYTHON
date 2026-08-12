@@ -10,8 +10,9 @@ playwright>=1.40
 # el salto de major cambia el analizador de .feature y con el las palabras clave
 # en espanol, que es justo lo que estos escenarios necesitan estable.
 pytest-bdd>=8.1,<9
-# `tests/test_carga_tracker_xlsx.py` y `tests/test_sincronizar_terminadas.py` la
-# importan directamente. No estaba declarada en ningun requirements: en un
-# entorno limpio la suite entera moria en la recoleccion con dos
-# ModuleNotFoundError, antes de correr una sola prueba.
+# Lectura de los export .xlsx del Tracker: la usan `scripts/cargar_tracker_xlsx.py`,
+# `scripts/sincronizar_terminadas.py` y sus dos pruebas. Faltaba desde 80dfaf7
+# (2026-08-08) y la puerta de CI llevaba desde entonces en rojo por
+# `ModuleNotFoundError: No module named 'openpyxl'` al recolectar, sin llegar
+# nunca a correr la suite.
 openpyxl>=3.1

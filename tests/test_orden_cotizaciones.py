@@ -1,5 +1,5 @@
 """
-Orden de la tabla de cotizaciones (`ANTONIA_VENTAS` y las hojas `(VENTAS)`).
+Orden de la tabla del tracker: cotizaciones y tareas.
 
 La tabla se ordenaba por el orden de la hoja, no por fecha: `index.html` tomaba
 las filas tal como llegaban y las invertía con `staffTrackerSortAsc`. Con las
@@ -10,15 +10,22 @@ Lo que se pide y lo que aquí se fija:
 
   * Las hojas de ventas abren de la cotización **más vieja a la más nueva**,
     tomando `F. INICIO` como fecha.
+  * Los trackers hacen lo mismo con su propia columna de alta, `FECHA`: las
+    tareas abren de la más vieja a la más nueva (decisión del dueño,
+    2026-08-11: "necesito que las tareas se inicien desde la más vieja a la más
+    nueva usando Fecha, y si hay empate en la fecha, desempata con folio").
   * "Invertir Orden" las pone de la **más nueva a la más vieja**.
-  * Las cotizaciones del mismo día desempatan por **FOLIO** ascendente en los
-    dos sentidos. El orden de la hoja no sirve: cambia con cada recarga.
+  * Las filas del mismo día desempatan por **FOLIO** ascendente en los dos
+    sentidos. El orden de la hoja no sirve: cambia con cada recarga.
   * Las filas recién agregadas (`_isNew`) siguen arriba en los dos sentidos:
     `addNewRow` las mete con `unshift` y resalta la primera fila
     (`pulseNewRow('trackerTable', 'first')`); si se fueran al final, el
     resaltado marcaría otra fila.
-  * Los trackers (las hojas que no son de ventas) conservan su comportamiento:
-    orden de la hoja invertido, que es lo que había antes de este cambio.
+  * Cada tabla mira **solo su** columna: una hoja de ventas nunca se ordena por
+    `FECHA` (ahí es una columna heredada y oculta) y un tracker nunca por
+    `F. INICIO`.
+  * Sin columna de fecha, la tabla conserva el comportamiento de siempre: orden
+    de la hoja invertido.
 
 Se evalúa el código **real** de `index.html` con Node —la región que va de
 `COLUMNAS_FECHA_DE_ORDEN` a `filteredStaffTrackerData`— sobre `ref` y `computed`
@@ -73,14 +80,14 @@ def _guion(hoja: str, filas: list, *, filtros: dict | None = None,
             data: {json.dumps(filas)} }});
         const staffTrackerFilters = ref({json.dumps(filtros or {})});
         const staffTrackerSortAsc = ref(false);
-        const ventasSortAsc = ref(true);
+        const ordenFechaAsc = ref(true);
 
         {es_ventas}
         {region}
 
         for (let i = 0; i < {invertir}; i++) toggleTrackerSort();
         console.log(JSON.stringify({{
-            folios: filteredStaffTrackerData.value.map(f => f.FOLIO),
+            folios: filteredStaffTrackerData.value.map(f => f.FOLIO || f.ID || ""),
             asc: trackerOrdenAsc.value }}));
     """
 
@@ -220,23 +227,126 @@ def test_sin_columna_de_fecha_la_hoja_de_ventas_conserva_su_orden() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Los trackers no se tocan
+# Los trackers: la misma regla sobre su columna `FECHA`
 # ---------------------------------------------------------------------------
 
-def test_el_tracker_de_tareas_conserva_el_orden_que_ya_tenia() -> None:
-    """
-    `ANTONIA PINEDA LOPEZ` es su tracker, no su hoja de ventas.
+# Cuatro tareas del tracker en el desorden en que las trae la hoja, con dos
+# empatadas el 19 de junio para probar el desempate por folio.
+FILAS_TRACKER = [
+    {"FOLIO": "SP-0060", "CONCEPTO": "REVISAR PLANOS", "FECHA": "03/07/26"},
+    {"FOLIO": "SP-1190", "CONCEPTO": "VISITA OBRA", "FECHA": "28/05/26"},
+    {"FOLIO": "SP-1245", "CONCEPTO": "COTIZAR MATERIAL", "FECHA": "19/06/26"},
+    {"FOLIO": "SP-0009", "CONCEPTO": "ENTREGA", "FECHA": "19/06/26"},
+]
 
-    Ahí la columna de fecha se llama `FECHA` y el orden sigue siendo el de la
-    hoja invertido: este cambio es de la vista de cotizaciones.
+
+def test_el_tracker_abre_de_la_tarea_mas_vieja_a_la_mas_nueva() -> None:
+    """
+    `ANTONIA PINEDA LOPEZ` es su tracker, no su hoja de ventas: ahí la columna
+    de alta se llama `FECHA`.
+
+    Antes de este cambio el tracker conservaba el orden de la hoja invertido.
+    El dueño pidió (2026-08-11) la misma lectura por antigüedad que ya tenía
+    la tabla de ventas.
+    """
+    resultado = _orden("ANTONIA PINEDA LOPEZ", FILAS_TRACKER)
+    assert resultado["folios"] == ["SP-1190", "SP-0009", "SP-1245", "SP-0060"], (
+        "las tareas deben abrir por FECHA ascendente: mayo, junio, junio, julio"
+    )
+    assert resultado["asc"] is True, "el icono debe indicar orden ascendente"
+
+
+def test_invertir_orden_en_el_tracker_pone_la_tarea_mas_nueva_al_principio() -> None:
+    resultado = _orden("ANTONIA PINEDA LOPEZ", FILAS_TRACKER, invertir=1)
+    assert resultado["folios"] == ["SP-0060", "SP-0009", "SP-1245", "SP-1190"]
+    assert resultado["asc"] is False
+
+
+def test_las_tareas_del_mismo_dia_desempatan_por_folio() -> None:
+    """
+    SP-1245 y SP-0009 son del mismo 19 de junio y en la hoja vienen en ese
+    orden. Desempata el folio, así que SP-0009 va primero, y sigue igual tras
+    invertir: dentro de un día el folio se busca siempre en el mismo lugar.
+    """
+    assert _orden("ANTONIA PINEDA LOPEZ", FILAS_TRACKER)["folios"][1:3] == ["SP-0009", "SP-1245"]
+    assert (_orden("ANTONIA PINEDA LOPEZ", FILAS_TRACKER, invertir=1)["folios"][1:3]
+            == ["SP-0009", "SP-1245"])
+
+
+def test_el_tracker_desempata_por_ID_cuando_la_fila_no_trae_FOLIO() -> None:
+    """Las hojas viejas rotulan la columna `ID`: es el par que ya busca
+    `find_row_object` en el backend."""
+    mismo_dia = [
+        {"ID": "SP-10", "FECHA": "19/06/26"},
+        {"ID": "SP-9", "FECHA": "19/06/26"},
+    ]
+    assert _orden("ANTONIA PINEDA LOPEZ", mismo_dia)["folios"] == ["SP-9", "SP-10"]
+
+
+def test_la_tarea_recien_agregada_se_queda_arriba_en_el_tracker() -> None:
+    filas = [{"FOLIO": "", "FECHA": "", "_isNew": True}] + FILAS_TRACKER
+    assert _orden("ANTONIA PINEDA LOPEZ", filas)["folios"][0] == ""
+    assert _orden("ANTONIA PINEDA LOPEZ", filas, invertir=1)["folios"][0] == ""
+
+
+def test_la_tarea_sin_fecha_va_al_final_pero_no_desaparece() -> None:
+    filas = FILAS_TRACKER + [{"FOLIO": "SP-SIN", "FECHA": ""}]
+    for invertir in (0, 1):
+        folios = _orden("ANTONIA PINEDA LOPEZ", filas, invertir=invertir)["folios"]
+        assert len(folios) == 5
+        assert folios[-1] == "SP-SIN"
+
+
+def test_sin_columna_FECHA_el_tracker_conserva_el_orden_de_la_hoja() -> None:
+    """Es el comportamiento de siempre para las hojas que no tienen por dónde
+    ordenarse: orden de la hoja invertido."""
+    filas = [{"FOLIO": "A"}, {"FOLIO": "B"}, {"FOLIO": "C"}]
+    assert _orden("ANTONIA PINEDA LOPEZ", filas)["folios"] == ["C", "B", "A"]
+    assert _orden("ANTONIA PINEDA LOPEZ", filas, invertir=1)["folios"] == ["A", "B", "C"]
+
+
+def test_el_tracker_no_se_ordena_por_la_fecha_de_compromiso() -> None:
+    """
+    `FECHA_ESTIMADA_FIN` y `FECHA_RESPUESTA` no son la fecha de alta.
+
+    La columna se busca por nombre exacto, no por subcadena: sin `FECHA` la
+    tabla se queda con el orden de la hoja en vez de ordenarse por cuándo se
+    prometió la entrega.
     """
     filas = [
-        {"FOLIO": "JO-1", "FECHA": "03/07/26"},
-        {"FOLIO": "JO-2", "FECHA": "28/05/26"},
-        {"FOLIO": "JO-3", "FECHA": "19/06/26"},
+        {"FOLIO": "SP-1", "FECHA_ESTIMADA_FIN": "03/07/26"},
+        {"FOLIO": "SP-2", "FECHA_ESTIMADA_FIN": "28/05/26"},
     ]
-    assert _orden("ANTONIA PINEDA LOPEZ", filas)["folios"] == ["JO-3", "JO-2", "JO-1"]
-    assert _orden("ANTONIA PINEDA LOPEZ", filas, invertir=1)["folios"] == ["JO-1", "JO-2", "JO-3"]
+    assert _orden("ANTONIA PINEDA LOPEZ", filas)["folios"] == ["SP-2", "SP-1"]
+
+
+# ---------------------------------------------------------------------------
+# Cada tabla mira solo su columna
+# ---------------------------------------------------------------------------
+
+def test_la_hoja_de_ventas_no_se_ordena_por_la_columna_FECHA() -> None:
+    """
+    En las hojas de ventas `FECHA` es una columna heredada que la tabla oculta
+    (`COLUMNAS_OCULTAS_VENTAS`) y que no trae la fecha de inicio. Ordenar por
+    ella dejaría las cotizaciones en un orden que no se ve por ningún lado.
+    """
+    filas = [
+        {"FOLIO": "AV-1", "FECHA": "03/07/26"},
+        {"FOLIO": "AV-2", "FECHA": "28/05/26"},
+        {"FOLIO": "AV-3", "FECHA": "19/06/26"},
+    ]
+    assert _orden("ANTONIA_VENTAS", filas)["folios"] == ["AV-3", "AV-2", "AV-1"], (
+        "sin F. INICIO la hoja de ventas conserva el orden de la hoja invertido"
+    )
+
+
+def test_el_tracker_no_se_ordena_por_la_columna_F_INICIO() -> None:
+    """Simétrico: `F. INICIO` es de la vista de cotizaciones."""
+    filas = [
+        {"FOLIO": "SP-1", "F. INICIO": "03/07/26"},
+        {"FOLIO": "SP-2", "F. INICIO": "28/05/26"},
+    ]
+    assert _orden("ANTONIA PINEDA LOPEZ", filas)["folios"] == ["SP-2", "SP-1"]
 
 
 # ---------------------------------------------------------------------------
