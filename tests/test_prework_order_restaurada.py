@@ -167,7 +167,10 @@ class TestBotonesDeIA(BaseIndexHtml):
         Una ref declarada pero no devuelta hace que el `v-if` la lea como
         `undefined`: el modal nunca abre y no hay error en consola.
         """
-        for nombre in ("showBlueprintModal", "isGeneratingBlueprint", "blueprintImageUrl",
+        # `blueprintImageUrl` era la URL del generador de imágenes externo. El
+        # plano ahora es un SVG calculado por `/api/plano_2d`, así que la ref
+        # que la plantilla lee es `blueprintSvg` (ver `tests/test_plano_2d.py`).
+        for nombre in ("showBlueprintModal", "isGeneratingBlueprint", "blueprintSvg",
                        "generateBlueprintFromDescription"):
             self._presente(
                 r"return\s*\{[^}]*\b" + nombre + r"\b",
@@ -177,9 +180,20 @@ class TestBotonesDeIA(BaseIndexHtml):
 
 class TestEditorPascal(BaseIndexHtml):
     def test_existe_la_vista_y_el_boton_que_lleva_a_ella(self):
+        """
+        El botón ya no cambia `currentView` a pelo: pasa por `abrirEditor3D()`,
+        que además levanta el modelo desde la descripción si todavía no hay
+        ninguno. Antes abría el editor vacío cuando nadie había pulsado la
+        Agencia Paperclip. Lo que se sigue exigiendo es lo mismo: que haya un
+        botón que lleve al editor, y que la vista exista.
+        """
         self._presente(
-            r"""@click="currentView\s*=\s*'PASCAL_DESIGNER'""",
+            r"""@click="abrirEditor3D""",
             "Ningún botón lleva al editor 3D Pascal",
+        )
+        self._presente(
+            r"""currentView\.value\s*=\s*'PASCAL_DESIGNER'""",
+            "`abrirEditor3D()` no lleva a la vista del editor",
         )
         self._presente(
             r"""v-if="currentView\s*===\s*'PASCAL_DESIGNER'""",

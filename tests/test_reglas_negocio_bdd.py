@@ -14,7 +14,8 @@ import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from api.services import tracker_store
-from api.services.asignacion import destinos_espejo
+from api.services import work_order
+from api.services.asignacion import destinos_espejo, es_delegacion_de_fase
 from api.services.sheets import SEPARADOR_ARCHIVO, _valores_de_tareas
 from api.services.tracker_rules import (
     Gatekeeper,
@@ -22,6 +23,7 @@ from api.services.tracker_rules import (
     build_notification_payload,
     build_reverse_sync_payload,
     is_progress_complete,
+    is_sales_sheet,
     SALES_MASTER_SHEET,
     resolve_tracker_target,
 )
@@ -459,3 +461,90 @@ def _queda_archivada(contexto: Dict[str, Any]) -> None:
     assert any(SEPARADOR_ARCHIVO in celda for celda in valores[1]), (
         f"la tarea al 100 % no quedó bajo {SEPARADOR_ARCHIVO}: {valores}"
     )
+
+
+# ----------------------------------------------------------------------
+# La Pre Work Order reparte su programa en el Tracker
+# ----------------------------------------------------------------------
+
+@given("un programa de Pre Work Order con los renglones:")
+def _programa_de_pwo(contexto: Dict[str, Any], datatable: List[List[str]]) -> None:
+    """La tabla del escenario, tal como la manda el formulario."""
+    encabezados, *filas = datatable
+    contexto["programa"] = [
+        {
+            "description": celda[encabezados.index("descripcion")].strip(),
+            "seccion": celda[encabezados.index("seccion")].strip(),
+            "responsable": celda[encabezados.index("responsable")].strip(),
+        }
+        for celda in filas
+    ]
+
+
+@when("la orden se reparte en el Tracker")
+def _reparte_el_programa(contexto: Dict[str, Any]) -> None:
+    contexto["reparto"] = work_order.tareas_de_programa(
+        contexto["programa"],
+        {"FOLIO": "1001AC Electro 060826", "AREA": "ELECTROMECANICA",
+         "CLASIFICACION": "AA", "FECHA": "06/08/26"},
+    )
+
+
+@then(parsers.parse('"{persona}" recibe la tarea "{descripcion}" en su tracker'))
+def _recibe_la_tarea(contexto: Dict[str, Any], persona: str, descripcion: str) -> None:
+    suyas = [fila for hoja, fila in contexto["reparto"] if hoja == persona]
+    assert suyas, f"{persona} no recibió ninguna tarea: {contexto['reparto']}"
+    assert any(fila["CONCEPTO"].startswith(descripcion) for fila in suyas), (
+        f"{persona} no recibió «{descripcion}»: {[f['CONCEPTO'] for f in suyas]}")
+
+
+@then(parsers.parse("el reparto produce {cuantas:d} tareas"))
+def _cuantas_tareas(contexto: Dict[str, Any], cuantas: int) -> None:
+    assert len(contexto["reparto"]) == cuantas, contexto["reparto"]
+
+
+@then("ninguna tarea del reparto cae en una tabla de ventas")
+def _ninguna_en_ventas(contexto: Dict[str, Any]) -> None:
+    for hoja, _ in contexto["reparto"]:
+        assert not is_sales_sheet(hoja), f"la línea se filtró a {hoja}"
+
+
+@then("ninguna tarea del reparto se toma por una fase de papa caliente")
+def _ninguna_es_fase(contexto: Dict[str, Any]) -> None:
+    for _, fila in contexto["reparto"]:
+        assert es_delegacion_de_fase(fila) is False, fila["CONCEPTO"]
+
+
+@given(parsers.parse('una Pre Work Order con clasificación "{clase}"'))
+def _pwo_con_clasificacion(contexto: Dict[str, Any], clase: str) -> None:
+    contexto["motor"] = MemoryEngine({
+        "tasks": [], "quotes": [], "people": [], "plan_semanal": [],
+        "task_involucrados": [], "system_log": [], "work_orders": [],
+    })
+    contexto["orden"] = {
+        "cliente": "ACME CORP", "especialidad": "ELECTROMECANICA",
+        "concepto": "LEVANTAMIENTO DE NAVE", "clasificacion": clase,
+        "responsable": "TERESA GARZA",
+    }
+
+
+@when("se guarda la orden")
+def _guarda_la_orden(contexto: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(work_order, "_persistencia",
+                        lambda: PersistenciaTracker(contexto["motor"]))
+    monkeypatch.setattr(work_order, "_engine", lambda: contexto["motor"])
+    monkeypatch.setattr(work_order, "save_to_obsidian", lambda *a, **k: None)
+    monkeypatch.setattr(work_order, "get_next_sequence", lambda *a, **k: "1001")
+    contexto["respuesta"] = work_order.process_and_save_work_order(
+        [contexto["orden"]], "PREWORK_ORDER")
+
+
+@then("el guardado falla avisando de la clasificación")
+def _falla_por_clasificacion(contexto: Dict[str, Any]) -> None:
+    assert contexto["respuesta"]["success"] is False
+    assert "CLASIFICACION" in contexto["respuesta"]["message"].upper()
+
+
+@then("no queda ninguna tarea guardada")
+def _sin_tareas(contexto: Dict[str, Any]) -> None:
+    assert contexto["motor"].select("tasks") == []

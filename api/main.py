@@ -111,6 +111,29 @@ async def api_run_paperclip_agency(req: PaperclipRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class Plano2DRequest(BaseModel):
+    descripcion: str
+
+
+@app.post("/api/plano_2d")
+def api_generar_plano_2d(req: Plano2DRequest):
+    """
+    Plano 2D y escena 3D de una descripción, desde una sola geometría.
+
+    Sustituye la llamada que el frontend hacía a `image.pollinations.ai`: aquel
+    servicio devolvía una ilustración con medidas inventadas y sin relación con
+    el modelo del editor 3D. Aquí las dos vistas salen del mismo cálculo.
+
+    No lanza 500 cuando no se puede: devuelve `success: false` con el motivo,
+    porque "escribe las medidas como 8 x 5 m" es una instrucción accionable y un
+    error genérico no lo es.
+    """
+    from api.services import plano as servicio_plano
+
+    return servicio_plano.generar_plano(
+        req.descripcion, llm=servicio_plano.llm_disponible())
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
