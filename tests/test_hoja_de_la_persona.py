@@ -300,3 +300,62 @@ def test_una_hoja_de_una_sola_persona_se_lee_igual_que_antes(lectura) -> None:
     """Regresión: quien tiene un solo nombre no cambia de comportamiento."""
     lectura([tarea_guardada("SG-1", "SONIA GARCIA PEREZ", "REVISAR OC")])
     assert _conceptos(sheets.gs_manager.get_sheet_values("SONIA GARCIA PEREZ")) == ["REVISAR OC"]
+
+
+def test_un_nombre_vacio_no_resuelve_a_nada() -> None:
+    assert organigrama.hojas_de_persona("") == ()
+    assert organigrama.hojas_de_persona(None) == ()
+
+
+# ---------------------------------------------------------------------------
+# 4. El otro camino de lectura (`/api/v2`) aplica la misma regla
+# ---------------------------------------------------------------------------
+
+def _repositorio(filas):
+    from backend.core.config import Settings
+    from backend.repositories.tasks import TaskRepository
+
+    engine = MemoryEngine({"tasks": list(filas), "people": [], "quotes": [],
+                           "plan_semanal": [], "task_involucrados": [],
+                           "system_log": []})
+    return TaskRepository(engine, Settings(
+        database_url=None, supabase_url=None, supabase_key=None,
+        motor_forzado="memoria", escritura_habilitada=True))
+
+
+def test_la_lectura_de_la_api_v2_junta_los_dos_nombres() -> None:
+    """
+    `/api/v2/tasks` lee por `TaskRepository.listar`, no por `sheets`.
+
+    Si la regla viviera solo en el camino legacy, los dos lectores del mismo
+    dato darían respuestas distintas según por dónde entre la petición.
+    """
+    repo = _repositorio([
+        tarea_guardada("PPC-1", NOMBRE_DEL_DIRECTORIO, "PEDIR COTIZACION"),
+        tarea_guardada("VL-1", HOJA_DEL_TRACKER, "SEGUIMIENTO A ORDEN DE COMPRA"),
+        tarea_guardada("SG-1", "SONIA GARCIA PEREZ", "TAREA DE OTRA PERSONA"),
+    ])
+
+    assert repo.hojas_del_tracker(HOJA_DEL_TRACKER) == [HOJA_DEL_TRACKER, NOMBRE_DEL_DIRECTORIO]
+    conceptos = sorted(t.concepto for t in repo.listar(HOJA_DEL_TRACKER))
+    assert conceptos == ["PEDIR COTIZACION", "SEGUIMIENTO A ORDEN DE COMPRA"]
+
+
+def test_la_api_v2_no_junta_nada_cuando_hay_una_sola_particion() -> None:
+    repo = _repositorio([tarea_guardada("SG-1", "SONIA GARCIA PEREZ", "REVISAR OC")])
+    assert repo.hojas_del_tracker("SONIA GARCIA PEREZ") == ["SONIA GARCIA PEREZ"]
+    assert [t.concepto for t in repo.listar("SONIA GARCIA PEREZ")] == ["REVISAR OC"]
+
+
+def test_una_persona_fuera_del_organigrama_conserva_su_particion(motor) -> None:
+    """
+    Sin traducción posible manda la partición que ya existe, como antes.
+
+    Es la rama que cubre a quien no está en `PERFILES`: no se le inventa una
+    hoja nueva ni se le mueve la que ya tiene.
+    """
+    motor.datos["tasks"].append(
+        tarea_guardada("XX-1", "PERSONA NUEVA DEL EQUIPO", "TAREA VIEJA"))
+    persistencia = PersistenciaTracker(motor)
+
+    assert persistencia.hoja_del_responsable("PERSONA NUEVA DEL EQUIPO") == "PERSONA NUEVA DEL EQUIPO"
