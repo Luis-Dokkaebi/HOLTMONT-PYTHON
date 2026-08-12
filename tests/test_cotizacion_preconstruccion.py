@@ -28,7 +28,7 @@ def test_cotizacion_preconstruccion_ui():
         initial_cards = page.locator("text=3. Cotización Preconstrucción").locator("..").locator("..").locator("..").locator(".card").count()
 
         # Find the Add button inside the section header
-        add_btn = page.locator("text=3. Cotización Preconstrucción").locator("..").locator("button[title='Agregar Fila']")
+        add_btn = page.locator("text=3. Cotización Preconstrucción").locator("..").locator("button[title='Agregar NUEVA ACTIVIDAD']")
         add_btn.first.click()
 
         # The number of cards should have increased
