@@ -1044,6 +1044,13 @@ try:
 except Exception as exc:  # pragma: no cover - depende del entorno
     print(f"Capa relacional /api/v2 no disponible: {exc}")
 
+try:
+    from backend.routers.tickets import router as tickets_v2_router
+
+    app.include_router(tickets_v2_router)
+except Exception as exc:  # pragma: no cover - depende del entorno
+    print(f"Capa de tickets /api/v2 no disponible: {exc}")
+
 
 # Estáticos del front.
 #

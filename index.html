@@ -11223,5 +11223,241 @@ function iniciarDictadoNativo(campoDestinoId) {
     recognition.start();
 }
 </script>
+
+<!-- ============================================================ -->
+<!-- Ticket de bugs: widget aislado, fuera de #app.                -->
+<!-- No toca la reactividad de Vue ni el `return` de setup(); lee   -->
+<!-- currentUsername/currentModuleId desde `window.app` (ya         -->
+<!-- expuesto arriba para Playwright) y habla directo con           -->
+<!-- /api/v2/tickets. Ver docs/DDL_PENDIENTE.sql §5 para la tabla.   -->
+<!-- ============================================================ -->
+<style>
+  #bug-ticket-fab {
+    /* Por encima de .login-overlay (z-index 2000 en esta misma hoja), para
+       poder reportar un bug también desde la pantalla de login. */
+    position: fixed; right: 18px; bottom: 18px; z-index: 2500;
+    background: #b23b3b; color: #fff; border: none; border-radius: 999px;
+    padding: 10px 16px; font-weight: 700; font-size: 13px; cursor: pointer;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+  }
+  #bug-ticket-fab:hover { filter: brightness(1.08); }
+  #bug-ticket-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 2500; align-items: center; justify-content: center;
+  }
+  #bug-ticket-overlay.open { display: flex; }
+  #bug-ticket-modal {
+    background: #fff; color: #222; border-radius: 8px; width: 92%; max-width: 440px;
+    max-height: 90vh; overflow-y: auto; padding: 18px 20px;
+    font-family: Arial, sans-serif; font-size: 13px;
+  }
+  #bug-ticket-modal h3 { margin: 0 0 4px; font-size: 16px; }
+  #bug-ticket-modal .bt-field { margin-top: 12px; }
+  #bug-ticket-modal label { display: block; font-weight: 700; font-size: 11px; text-transform: uppercase; margin-bottom: 4px; color: #555; }
+  #bug-ticket-modal select, #bug-ticket-modal textarea { width: 100%; border: 1px solid #ccc; border-radius: 4px; padding: 6px 8px; font-size: 13px; font-family: inherit; }
+  #bug-ticket-modal textarea { min-height: 60px; resize: vertical; }
+  .bt-sev-row { display: flex; gap: 6px; }
+  .bt-sev-row button { flex: 1; padding: 6px 4px; border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .bt-sev-row button.picked { background: #b23b3b; color: #fff; border-color: #b23b3b; }
+  #bug-ticket-modal .bt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  #bug-ticket-modal button.bt-primary { background: #1f6f68; color: #fff; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 700; }
+  #bug-ticket-modal button.bt-secondary { background: transparent; border: 1px solid #ccc; padding: 8px 14px; border-radius: 4px; cursor: pointer; }
+  #bug-ticket-modal button:disabled { opacity: 0.6; cursor: not-allowed; }
+  #bug-ticket-modal .bt-hint { color: #777; font-size: 11px; margin-top: 4px; }
+  #bt-error { display: none; color: #b23b3b; font-weight: 700; font-size: 12px; margin-top: 10px; }
+</style>
+
+<button id="bug-ticket-fab" type="button">🐞 Reportar bug</button>
+
+<div id="bug-ticket-overlay">
+  <div id="bug-ticket-modal">
+    <h3>Reportar un problema</h3>
+    <div class="bt-hint">Se guarda con tu usuario y la vista actual.</div>
+
+    <div class="bt-field">
+      <label>Módulo</label>
+      <select id="bt-modulo">
+        <option>Tracker</option>
+        <option>PPC</option>
+        <option>Ventas</option>
+        <option>Proyectos</option>
+        <option>Cotizador</option>
+        <option>Banco de información</option>
+        <option>Otro</option>
+      </select>
+    </div>
+
+    <div class="bt-field">
+      <label>Qué pasó</label>
+      <textarea id="bt-descripcion" placeholder="Describe el problema..."></textarea>
+    </div>
+
+    <div class="bt-field">
+      <label>Pasos para reproducirlo (opcional)</label>
+      <textarea id="bt-pasos" placeholder="1. Entré a...&#10;2. Hice clic en..."></textarea>
+    </div>
+
+    <div class="bt-field">
+      <label>Severidad</label>
+      <div class="bt-sev-row" id="bt-severidad">
+        <button type="button" data-valor="BAJA">Baja</button>
+        <button type="button" data-valor="MEDIA" class="picked">Media</button>
+        <button type="button" data-valor="ALTA">Alta</button>
+        <button type="button" data-valor="CRITICA">Crítica</button>
+      </div>
+    </div>
+
+    <div class="bt-field">
+      <label>Evidencia (opcional)</label>
+      <input type="file" id="bt-archivo" accept="video/mp4,video/webm,image/png,image/jpeg">
+      <div class="bt-hint">Video o imagen, máximo 50&nbsp;MB. Se sube tal cual: no hay edición ni recorte aquí.</div>
+    </div>
+
+    <div id="bt-error"></div>
+
+    <div class="bt-actions">
+      <button type="button" class="bt-secondary" id="bt-cancelar">Cancelar</button>
+      <button type="button" class="bt-primary" id="bt-enviar">Enviar ticket</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var MAX_TICKET_EVIDENCE_BYTES = 50 * 1024 * 1024;
+  var fab = document.getElementById('bug-ticket-fab');
+  var overlay = document.getElementById('bug-ticket-overlay');
+  var btnCancelar = document.getElementById('bt-cancelar');
+  var btnEnviar = document.getElementById('bt-enviar');
+  var sevRow = document.getElementById('bt-severidad');
+  var severidadElegida = 'MEDIA';
+
+  function usuarioActual() {
+    try { return (window.app && window.app.currentUsername) || 'DESCONOCIDO'; }
+    catch (e) { return 'DESCONOCIDO'; }
+  }
+
+  function moduloActual() {
+    try { return (window.app && window.app.currentModuleId) || ''; }
+    catch (e) { return ''; }
+  }
+
+  fab.addEventListener('click', function () {
+    document.getElementById('bt-descripcion').value = '';
+    document.getElementById('bt-pasos').value = '';
+    document.getElementById('bt-archivo').value = '';
+    document.getElementById('bt-error').style.display = 'none';
+    var sel = document.getElementById('bt-modulo');
+    var actual = moduloActual();
+    if (actual) {
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value.toUpperCase() === String(actual).toUpperCase()) { sel.selectedIndex = i; break; }
+      }
+    }
+    overlay.classList.add('open');
+  });
+
+  btnCancelar.addEventListener('click', function () { overlay.classList.remove('open'); });
+  overlay.addEventListener('click', function (ev) { if (ev.target === overlay) overlay.classList.remove('open'); });
+
+  sevRow.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('button');
+    if (!btn) return;
+    severidadElegida = btn.getAttribute('data-valor');
+    Array.prototype.forEach.call(sevRow.querySelectorAll('button'), function (b) {
+      b.classList.toggle('picked', b === btn);
+    });
+  });
+
+  function leerArchivoComoDataUrl(file) {
+    return new Promise(function (resolve, reject) {
+      var lector = new FileReader();
+      lector.onload = function () { resolve(lector.result); };
+      lector.onerror = function () { reject(lector.error); };
+      lector.readAsDataURL(file);
+    });
+  }
+
+  var errorBox = document.getElementById('bt-error');
+
+  function mostrarErrorEnModal(texto) {
+    // Inline, no Swal: una alerta de SweetAlert sobre este modal (que ya está
+    // abierto) deja su botón "OK" inalcanzable — el overlay del modal se
+    // dibuja por encima. Comprobado en el navegador antes de este cambio.
+    errorBox.textContent = texto;
+    errorBox.style.display = 'block';
+  }
+
+  btnEnviar.addEventListener('click', function () {
+    errorBox.style.display = 'none';
+    var descripcion = document.getElementById('bt-descripcion').value.trim();
+    if (!descripcion) {
+      mostrarErrorEnModal('Cuenta qué pasó antes de enviar el ticket.');
+      return;
+    }
+    var archivo = document.getElementById('bt-archivo').files[0];
+    if (archivo && archivo.size > MAX_TICKET_EVIDENCE_BYTES) {
+      mostrarErrorEnModal('El archivo pesa más de 50 MB.');
+      return;
+    }
+
+    var payload = {
+      ticket: {
+        modulo: document.getElementById('bt-modulo').value,
+        descripcion: descripcion,
+        pasos_reproducir: document.getElementById('bt-pasos').value.trim() || null,
+        severidad: severidadElegida
+      },
+      reportado_por: usuarioActual(),
+      contexto: {
+        user_agent: navigator.userAgent,
+        url: window.location.href,
+        modulo_activo: moduloActual()
+      }
+    };
+
+    btnEnviar.disabled = true;
+    btnEnviar.textContent = 'Enviando...';
+
+    fetch(window.API_BASE_URL + '/api/v2/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+      .then(function (r) {
+        if (!r.ok) throw new Error((r.body && r.body.detail) || 'No se pudo crear el ticket.');
+        var folio = r.body.data.folio;
+        if (!archivo) return { folio: folio, evidenciaSubida: true };
+        return leerArchivoComoDataUrl(archivo).then(function (dataUrl) {
+          return fetch(window.API_BASE_URL + '/api/v2/tickets/' + encodeURIComponent(folio) + '/evidencia', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: dataUrl, type: archivo.type, name: archivo.name })
+          }).then(function (res2) {
+            return res2.json().then(function (body2) {
+              return { folio: folio, evidenciaSubida: res2.ok, mensajeEvidencia: body2 && body2.detail };
+            });
+          });
+        });
+      })
+      .then(function (resultado) {
+        overlay.classList.remove('open');
+        if (resultado.evidenciaSubida) {
+          Swal.fire('Ticket enviado', 'Se guardó como ' + resultado.folio + '.', 'success');
+        } else {
+          Swal.fire('Ticket enviado, evidencia no', 'Se guardó como ' + resultado.folio + ', pero el archivo no se pudo subir: ' + (resultado.mensajeEvidencia || 'error desconocido'), 'warning');
+        }
+      })
+      .catch(function (err) {
+        Swal.fire('Error', err.message || 'No se pudo enviar el ticket.', 'error');
+      })
+      .finally(function () {
+        btnEnviar.disabled = false;
+        btnEnviar.textContent = 'Enviar ticket';
+      });
+  });
+})();
+</script>
 </body>
 </html>
