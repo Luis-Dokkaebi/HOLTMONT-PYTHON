@@ -33,6 +33,10 @@ NO_NULOS: Dict[str, tuple] = {
         "avance", "status", "source_sheet", "created_at",
     ),
     "quotes": ("folio",),
+    "bug_tickets": (
+        "id", "folio", "reportado_por", "modulo", "descripcion",
+        "severidad", "estatus", "evidencia", "created_at", "updated_at",
+    ),
 }
 
 # Valores por defecto reales. Importan porque una columna NOT NULL **con**
@@ -44,6 +48,14 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "avance": 0,
         "status": "PENDIENTE",
         "created_at": "1970-01-01T00:00:00Z",
+    },
+    "bug_tickets": {
+        "id": "00000000-0000-0000-0000-000000000000",
+        "severidad": "MEDIA",
+        "estatus": "ABIERTO",
+        "evidencia": [],
+        "created_at": "1970-01-01T00:00:00Z",
+        "updated_at": "1970-01-01T00:00:00Z",
     },
 }
 
@@ -146,6 +158,14 @@ class MemoryEngine:
         if not filas:
             return []
         self._validar_no_nulos(tabla, filas)
+        # Toda fila de un `insertar()` es, por definición, un alta: a
+        # diferencia de `upsert`, aquí no hay "ya existía" que la exima de
+        # traer las columnas NOT NULL sin default. Antes solo `upsert`
+        # llamaba a `_validar_alta`, así que una tabla que solo usara
+        # `insertar` (como `bug_tickets`) nunca veía este 23502 en pruebas
+        # aunque la base real sí lo hubiera lanzado.
+        for fila in filas:
+            self._validar_alta(tabla, fila)
         destino = self.datos.setdefault(tabla, [])
         nuevas = []
         for fila in filas:

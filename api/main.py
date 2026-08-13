@@ -168,6 +168,15 @@ def api_get_system_config(
     ]
     cuenta = organigrama.clave_usuario(username)
 
+    # `soporte` es una bandera aditiva, igual que `seller`: no reemplaza el
+    # rol de nadie, solo agrega la vista de tickets encima del que ya tenga.
+    # ADMIN/ADMIN_CONTROL la ven sin necesitar la bandera explícita (decisión
+    # del dueño, 2026-08-13): quien ya administra el directorio no debería
+    # tener que pedir un permiso aparte para ver los bugs reportados.
+    puede_gestionar_tickets = bool(organigrama.perfil(cuenta).get("soporte")) or role in (
+        "ADMIN", "ADMIN_CONTROL",
+    )
+
     ppc_module_master = { "id": "PPC_MASTER", "label": "PPC Maestro", "icon": "fa-tasks", "color": "#fd7e14", "type": "ppc_native" }
     # JESUS_CANTU ve el módulo PPC con otro nombre. Es una etiqueta, no un
     # permiso, y por eso se resuelve aquí y no en la rama de rol.
@@ -197,6 +206,7 @@ def api_get_system_config(
             ],
             "accessProjects": False,
             "canSeeBancoJuntas": False,
+            "canManageTickets": puede_gestionar_tickets,
         }
 
     # Rama por cuenta: JUANY_RODRIGUEZ es STAFF_USER pero con vista ampliada a
@@ -211,6 +221,7 @@ def api_get_system_config(
             "specialModules": ppc_modules,
             "accessProjects": False,
             "canSeeBancoJuntas": False,
+            "canManageTickets": puede_gestionar_tickets,
         }
 
     if role == 'STAFF_USER':
@@ -237,6 +248,7 @@ def api_get_system_config(
             "specialModules": modulos,
             "accessProjects": False,
             "canSeeBancoJuntas": False,
+            "canManageTickets": puede_gestionar_tickets,
         }
 
     if role == 'WORKORDER_USER':
@@ -248,6 +260,7 @@ def api_get_system_config(
             "specialModules": [ wo_module ],
             "accessProjects": False,
             "canSeeBancoJuntas": False,
+            "canManageTickets": puede_gestionar_tickets,
         }
 
     if role == 'PPC_ADMIN':
@@ -259,6 +272,7 @@ def api_get_system_config(
             "specialModules": ppc_modules,
             "accessProjects": True,
             "canSeeBancoJuntas": True,
+            "canManageTickets": puede_gestionar_tickets,
         }
 
     if role == 'ADMIN_CONTROL':
@@ -275,6 +289,7 @@ def api_get_system_config(
             ],
             "accessProjects": True,
             "canSeeBancoJuntas": True,
+            "canManageTickets": puede_gestionar_tickets,
         }
 
     # ADMIN y cualquier rol no reconocido. El original también cae aquí, pero
@@ -296,6 +311,7 @@ def api_get_system_config(
         "specialModules": default_modules,
         "accessProjects": True,
         "canSeeBancoJuntas": True,
+        "canManageTickets": puede_gestionar_tickets,
     }
 
 @app.get("/api/nextSeq")
@@ -1043,6 +1059,13 @@ try:
     app.include_router(tasks_v2_router)
 except Exception as exc:  # pragma: no cover - depende del entorno
     print(f"Capa relacional /api/v2 no disponible: {exc}")
+
+try:
+    from backend.routers.tickets import router as tickets_v2_router
+
+    app.include_router(tickets_v2_router)
+except Exception as exc:
+    print(f"Capa de tickets /api/v2 no disponible: {exc}")
 
 
 # Estáticos del front.

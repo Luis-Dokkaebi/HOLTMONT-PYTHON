@@ -109,7 +109,7 @@ PERFILES: Dict[str, Dict[str, Any]] = {
     "DANIELA_CASTRO": {"role": "STAFF_USER", "label": "Daniela Castro", "email": "", "staff_name": "DANIELA CASTRO", "dept": "GENERAL", "seller": False},
     "ANGEL_SALINAS": {"role": "STAFF_USER", "label": "Jose Angel Salinas Ramirez", "email": "", "staff_name": "ANGEL SALINAS", "dept": "DISEÑO", "seller": True},
     "JUAN_JOSE_SANCHEZ": {"role": "STAFF_USER", "label": "Juan Jose Sanchez Muñiz", "email": "", "staff_name": "JUAN JOSE SANCHEZ", "dept": "CEO", "seller": True},
-    "LUIS_CARLOS": {"role": "ADMIN", "label": "Luis Carlos Holt Montero", "email": "luiscarlos@empresa.com", "staff_name": "LUIS CARLOS", "dept": "CEO", "seller": False},
+    "LUIS_CARLOS": {"role": "ADMIN", "label": "Luis Carlos Holt Montero", "email": "luiscarlos@empresa.com", "staff_name": "LUIS CARLOS", "dept": "CEO", "seller": False, "soporte": True},
     "ANTONIA_PINEDA": {"role": "STAFF_USER", "label": "Antonia Pineda Lopez", "email": "", "staff_name": "ANTONIA PINEDA LOPEZ", "dept": "PRESUPUESTOS", "seller": False},
     "DANIA_GONZALEZ": {"role": "STAFF_USER", "label": "Dania Lizbeth Gonzalez Lores", "email": "", "staff_name": "DANIA LIZBETH GONZALEZ LORES", "dept": "FINANZAS", "seller": False},
     "JUANY_RODRIGUEZ": {"role": "STAFF_USER", "label": "Juana Maria Rodriguez Juarez", "email": "", "staff_name": "JUANA MARIA RODRIGUEZ JUAREZ", "dept": "FINANZAS", "seller": False},

@@ -11,6 +11,7 @@ Ejecucion:  python -m pytest tests/test_reglas_negocio_bdd.py -v
 from typing import Any, Dict, List, Optional
 
 import pytest
+from pydantic import ValidationError
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from api.services import tracker_store
@@ -30,6 +31,7 @@ from api.services.tracker_rules import (
 from backend.core.engines.memoria import MemoryEngine
 from backend.schemas.quote import QuoteWrite
 from backend.schemas.task import TaskWrite
+from backend.schemas.ticket import TicketUpdate, TicketWrite
 from backend.services.persistencia import PersistenciaTracker
 
 scenarios("features")
@@ -594,3 +596,115 @@ def _actividad_en_la_hoja(contexto: Dict[str, Any], hoja: str) -> None:
 def _captura_actividad_sin_responsable(contexto: Dict[str, Any], concepto: str,
                                        monkeypatch: pytest.MonkeyPatch) -> None:
     _captura_actividad(contexto, concepto, "", monkeypatch)
+
+
+# ----------------------------------------------------------------------
+# Tickets de bugs — la evidencia no se altera
+# ----------------------------------------------------------------------
+#
+# Estos pasos ejercen `TicketRepository` de verdad, sobre `MemoryEngine`. Lo
+# que se protege aquí es la razón por la que el dueño pidió el sistema: que el
+# video de un reporte quede como se subió. Por eso el escenario del rechazo
+# comprueba el modelo de escritura (`TicketUpdate`), que es el único camino que
+# tiene quien resuelve, y no un mensaje de error de la vista.
+
+@given(parsers.parse('que {quien} reporta el problema "{descripcion}" en el módulo "{modulo}"'))
+def _reporta_un_bug(contexto: Dict[str, Any], quien: str, descripcion: str, modulo: str) -> None:
+    from backend.repositories.tickets import TicketRepository
+
+    contexto["motor"] = MemoryEngine({"bug_tickets": []})
+    contexto["tickets"] = TicketRepository(contexto["motor"])
+    contexto["reportante"] = quien
+    contexto["descripcion"] = descripcion
+    contexto["modulo"] = modulo
+
+
+@when("el reporte se envía")
+def _envia_el_reporte(contexto: Dict[str, Any]) -> None:
+    contexto["ticket"] = contexto["tickets"].crear(
+        TicketWrite(modulo=contexto["modulo"], descripcion=contexto["descripcion"]),
+        reportado_por=contexto["reportante"],
+    )
+
+
+def _asegurar_ticket(contexto: Dict[str, Any]) -> None:
+    """Los escenarios que no dicen "se envía" igual necesitan el ticket creado."""
+    if "ticket" not in contexto:
+        _envia_el_reporte(contexto)
+
+
+@then(parsers.parse('el ticket queda con estatus "{estatus}"'))
+def _ticket_con_estatus(contexto: Dict[str, Any], estatus: str) -> None:
+    _asegurar_ticket(contexto)
+    assert contexto["ticket"].estatus == estatus
+
+
+@then(parsers.parse('el ticket queda a nombre de "{quien}"'))
+def _ticket_a_nombre_de(contexto: Dict[str, Any], quien: str) -> None:
+    assert contexto["ticket"].reportado_por == quien
+
+
+@when("quien resuelve intenta cambiar la descripción del ticket")
+def _intenta_reescribir_la_descripcion(contexto: Dict[str, Any]) -> None:
+    _asegurar_ticket(contexto)
+    try:
+        TicketUpdate(estatus="EN_REVISION", descripcion="otra cosa")
+        contexto["rechazado"] = False
+    except ValidationError:
+        contexto["rechazado"] = True
+
+
+@then("el sistema rechaza el cambio")
+def _el_sistema_rechaza(contexto: Dict[str, Any]) -> None:
+    assert contexto["rechazado"] is True, "se aceptó reescribir la descripción del reporte"
+
+
+@then(parsers.parse('la descripción sigue siendo "{descripcion}"'))
+def _descripcion_intacta(contexto: Dict[str, Any], descripcion: str) -> None:
+    almacenado = contexto["tickets"].obtener(contexto["ticket"].folio)
+    assert almacenado.descripcion == descripcion
+
+
+@given(parsers.parse('que al ticket se le adjunta la evidencia "{archivo}"'))
+def _adjunta_evidencia(contexto: Dict[str, Any], archivo: str) -> None:
+    _asegurar_ticket(contexto)
+    contexto["tickets"].agregar_evidencia(
+        contexto["ticket"].folio,
+        {"url": f"https://storage.local/{archivo}", "tipo": "video/mp4", "sha256": "abc"},
+    )
+
+
+@when(parsers.parse('se adjunta al ticket una segunda evidencia "{archivo}"'))
+def _adjunta_segunda_evidencia(contexto: Dict[str, Any], archivo: str) -> None:
+    contexto["ticket"] = contexto["tickets"].agregar_evidencia(
+        contexto["ticket"].folio,
+        {"url": f"https://storage.local/{archivo}", "tipo": "image/png", "sha256": "def"},
+    )
+
+
+@then("el ticket conserva las dos evidencias en el orden en que se subieron")
+def _dos_evidencias_en_orden(contexto: Dict[str, Any]) -> None:
+    almacenado = contexto["tickets"].obtener(contexto["ticket"].folio)
+    assert len(almacenado.evidencia) == 2, f"quedaron {len(almacenado.evidencia)} evidencias"
+    assert almacenado.evidencia[0]["url"].endswith("video-original.mp4")
+    assert almacenado.evidencia[1]["url"].endswith("captura-extra.png")
+
+
+@then(parsers.parse('la evidencia "{archivo}" sigue estando'))
+def _la_evidencia_sigue(contexto: Dict[str, Any], archivo: str) -> None:
+    almacenado = contexto["tickets"].obtener(contexto["ticket"].folio)
+    urls = [e["url"] for e in almacenado.evidencia]
+    assert any(u.endswith(archivo) for u in urls), f"{archivo} ya no está en {urls}"
+
+
+@when(parsers.parse('{quien} marca el ticket como "{estatus}"'))
+def _marca_el_ticket(contexto: Dict[str, Any], quien: str, estatus: str) -> None:
+    _asegurar_ticket(contexto)
+    contexto["ticket"] = contexto["tickets"].actualizar_estatus(
+        contexto["ticket"].folio, TicketUpdate(estatus=estatus, resuelto_por=quien))
+
+
+@then(parsers.parse('el ticket queda a cargo de "{quien}" con su fecha de resolución'))
+def _ticket_resuelto_por(contexto: Dict[str, Any], quien: str) -> None:
+    assert contexto["ticket"].resuelto_por == quien
+    assert contexto["ticket"].resuelto_en is not None

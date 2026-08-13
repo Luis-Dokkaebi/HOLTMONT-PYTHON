@@ -114,3 +114,68 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
 -- CREATE INDEX IF NOT EXISTS tasks_project_id_idx
 --     ON public.tasks (project_id);
+
+
+-- ===========================================================================
+-- 5. bug_tickets  — REQUERIDA por /api/v2/tickets
+-- ===========================================================================
+-- Tabla nueva, separada de `tasks` a propósito: un ticket de bug no es una
+-- actividad del tracker, no hereda sus fallbacks (PENDIENTE, NO) y su regla
+-- central es distinta — `descripcion` y `evidencia` son de solo lectura
+-- después del alta. Ver `backend/schemas/ticket.py` para el contrato exacto
+-- que ya corre en pruebas contra `MemoryEngine`.
+--
+-- `folio` es UNIQUE porque `backend/repositories/tickets.py::crear` usa un
+-- INSERT liso (no upsert): sin candado para generarlo, dos altas simultáneas
+-- podrían calcular el mismo folio, y la UNIQUE convierte esa colisión en un
+-- error visible en el segundo insert en vez de una fusión silenciosa de dos
+-- tickets distintos en una sola fila.
+
+CREATE TABLE IF NOT EXISTS public.bug_tickets (
+    id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    folio             text UNIQUE NOT NULL,
+    reportado_por     text NOT NULL,
+    modulo            text NOT NULL,
+    descripcion       text NOT NULL,
+    pasos_reproducir  text,
+    severidad         text NOT NULL DEFAULT 'MEDIA',
+    estatus           text NOT NULL DEFAULT 'ABIERTO',
+    evidencia         jsonb NOT NULL DEFAULT '[]'::jsonb,
+    contexto          jsonb,
+    resuelto_por      text,
+    resuelto_en       timestamptz,
+    resolucion_notas  text,
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    updated_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS bug_tickets_estatus_idx ON public.bug_tickets (estatus);
+CREATE INDEX IF NOT EXISTS bug_tickets_reportado_por_idx ON public.bug_tickets (reportado_por);
+
+-- Bucket de Storage para la evidencia. Se crea desde el dashboard (no hay DDL
+-- para el bucket en sí, solo para sus políticas): nombre `ticket-evidencia`,
+-- **privado** (a diferencia del bucket `archivos` que usa el resto de la
+-- plataforma), límite de archivo 52428800 (50 MB), MIME permitidos
+-- video/mp4, video/webm, image/png, image/jpeg — los mismos que valida
+-- `api/services/storage.py::MIME_EVIDENCIA_PERMITIDOS`, así que un cambio en
+-- uno de los dos lados hay que reflejarlo en el otro.
+--
+-- Solo dos políticas. La ausencia de las otras dos ES la restricción: sin una
+-- política de UPDATE o DELETE, PostgREST y el cliente de Storage deniegan por
+-- default. Nadie —ni quien subió el video, ni un admin desde la app, ni un
+-- bug en el propio backend— puede reemplazarlo o borrarlo por este camino.
+
+CREATE POLICY IF NOT EXISTS ticket_evidencia_insert
+    ON storage.objects FOR INSERT
+    WITH CHECK (bucket_id = 'ticket-evidencia');
+
+CREATE POLICY IF NOT EXISTS ticket_evidencia_select
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'ticket-evidencia');
+
+-- Nota de honestidad, no solo técnica: esto da integridad *verificable dentro
+-- de la plataforma* (nadie la reescribe, y `bug_tickets.evidencia[].sha256`
+-- permite comprobar después que el archivo es el mismo). No es una cadena de
+-- custodia legal certificada ante un tercero (sellado de tiempo con autoridad
+-- certificadora, notariado). Si el uso que se le va a dar es ese, falta un
+-- paso aparte — confirmarlo con quien lleve el tema legal antes de prometerlo.

@@ -11223,5 +11223,430 @@ function iniciarDictadoNativo(campoDestinoId) {
     recognition.start();
 }
 </script>
+
+<!-- ============================================================ -->
+<!-- Ticket de bugs: widget aislado, fuera de #app.                -->
+<!-- No toca la reactividad de Vue ni el `return` de setup(); lee   -->
+<!-- currentUsername/currentModuleId desde `window.app` (ya         -->
+<!-- expuesto arriba para Playwright) y habla directo con           -->
+<!-- /api/v2/tickets. Ver docs/DDL_PENDIENTE.sql §5 para la tabla.   -->
+<!-- ============================================================ -->
+<style>
+  #bug-ticket-fab {
+    /* Por encima de .login-overlay (z-index 2000 en esta misma hoja), para
+       poder reportar un bug también desde la pantalla de login. */
+    position: fixed; right: 18px; bottom: 18px; z-index: 2500;
+    background: #b23b3b; color: #fff; border: none; border-radius: 999px;
+    padding: 10px 16px; font-weight: 700; font-size: 13px; cursor: pointer;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+  }
+  #bug-ticket-fab:hover { filter: brightness(1.08); }
+  #bug-ticket-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 2500; align-items: center; justify-content: center;
+  }
+  #bug-ticket-overlay.open { display: flex; }
+  #bug-ticket-modal {
+    background: #fff; color: #222; border-radius: 8px; width: 92%; max-width: 440px;
+    max-height: 90vh; overflow-y: auto; padding: 18px 20px;
+    font-family: Arial, sans-serif; font-size: 13px;
+  }
+  #bug-ticket-modal h3 { margin: 0 0 4px; font-size: 16px; }
+  #bug-ticket-modal .bt-field { margin-top: 12px; }
+  #bug-ticket-modal label { display: block; font-weight: 700; font-size: 11px; text-transform: uppercase; margin-bottom: 4px; color: #555; }
+  #bug-ticket-modal select, #bug-ticket-modal textarea { width: 100%; border: 1px solid #ccc; border-radius: 4px; padding: 6px 8px; font-size: 13px; font-family: inherit; }
+  #bug-ticket-modal textarea { min-height: 60px; resize: vertical; }
+  .bt-sev-row { display: flex; gap: 6px; }
+  .bt-sev-row button { flex: 1; padding: 6px 4px; border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .bt-sev-row button.picked { background: #b23b3b; color: #fff; border-color: #b23b3b; }
+  #bug-ticket-modal .bt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  #bug-ticket-modal button.bt-primary { background: #1f6f68; color: #fff; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 700; }
+  #bug-ticket-modal button.bt-secondary { background: transparent; border: 1px solid #ccc; padding: 8px 14px; border-radius: 4px; cursor: pointer; }
+  #bug-ticket-modal button:disabled { opacity: 0.6; cursor: not-allowed; }
+  #bug-ticket-modal .bt-hint { color: #777; font-size: 11px; margin-top: 4px; }
+  #bt-error { display: none; color: #b23b3b; font-weight: 700; font-size: 12px; margin-top: 10px; }
+</style>
+
+<button id="bug-ticket-fab" type="button">🐞 Reportar bug</button>
+
+<div id="bug-ticket-overlay">
+  <div id="bug-ticket-modal">
+    <h3>Reportar un problema</h3>
+    <div class="bt-hint">Se guarda con tu usuario y la vista actual.</div>
+
+    <div class="bt-field">
+      <label>Módulo</label>
+      <select id="bt-modulo">
+        <option>Tracker</option>
+        <option>PPC</option>
+        <option>Ventas</option>
+        <option>Proyectos</option>
+        <option>Cotizador</option>
+        <option>Banco de información</option>
+        <option>Otro</option>
+      </select>
+    </div>
+
+    <div class="bt-field">
+      <label>Qué pasó</label>
+      <textarea id="bt-descripcion" placeholder="Describe el problema..."></textarea>
+    </div>
+
+    <div class="bt-field">
+      <label>Pasos para reproducirlo (opcional)</label>
+      <textarea id="bt-pasos" placeholder="1. Entré a...&#10;2. Hice clic en..."></textarea>
+    </div>
+
+    <div class="bt-field">
+      <label>Severidad</label>
+      <div class="bt-sev-row" id="bt-severidad">
+        <button type="button" data-valor="BAJA">Baja</button>
+        <button type="button" data-valor="MEDIA" class="picked">Media</button>
+        <button type="button" data-valor="ALTA">Alta</button>
+        <button type="button" data-valor="CRITICA">Crítica</button>
+      </div>
+    </div>
+
+    <div class="bt-field">
+      <label>Evidencia (opcional)</label>
+      <input type="file" id="bt-archivo" accept="video/mp4,video/webm,image/png,image/jpeg">
+      <div class="bt-hint">Video o imagen, máximo 50&nbsp;MB. Se sube tal cual: no hay edición ni recorte aquí.</div>
+    </div>
+
+    <div id="bt-error"></div>
+
+    <div class="bt-actions">
+      <button type="button" class="bt-secondary" id="bt-cancelar">Cancelar</button>
+      <button type="button" class="bt-primary" id="bt-enviar">Enviar ticket</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var MAX_TICKET_EVIDENCE_BYTES = 50 * 1024 * 1024;
+  var fab = document.getElementById('bug-ticket-fab');
+  var overlay = document.getElementById('bug-ticket-overlay');
+  var btnCancelar = document.getElementById('bt-cancelar');
+  var btnEnviar = document.getElementById('bt-enviar');
+  var sevRow = document.getElementById('bt-severidad');
+  var severidadElegida = 'MEDIA';
+
+  function usuarioActual() {
+    try { return (window.app && window.app.currentUsername) || 'DESCONOCIDO'; }
+    catch (e) { return 'DESCONOCIDO'; }
+  }
+
+  function moduloActual() {
+    try { return (window.app && window.app.currentModuleId) || ''; }
+    catch (e) { return ''; }
+  }
+
+  fab.addEventListener('click', function () {
+    document.getElementById('bt-descripcion').value = '';
+    document.getElementById('bt-pasos').value = '';
+    document.getElementById('bt-archivo').value = '';
+    document.getElementById('bt-error').style.display = 'none';
+    var sel = document.getElementById('bt-modulo');
+    var actual = moduloActual();
+    if (actual) {
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value.toUpperCase() === String(actual).toUpperCase()) { sel.selectedIndex = i; break; }
+      }
+    }
+    overlay.classList.add('open');
+  });
+
+  btnCancelar.addEventListener('click', function () { overlay.classList.remove('open'); });
+  overlay.addEventListener('click', function (ev) { if (ev.target === overlay) overlay.classList.remove('open'); });
+
+  sevRow.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('button');
+    if (!btn) return;
+    severidadElegida = btn.getAttribute('data-valor');
+    Array.prototype.forEach.call(sevRow.querySelectorAll('button'), function (b) {
+      b.classList.toggle('picked', b === btn);
+    });
+  });
+
+  function leerArchivoComoDataUrl(file) {
+    return new Promise(function (resolve, reject) {
+      var lector = new FileReader();
+      lector.onload = function () { resolve(lector.result); };
+      lector.onerror = function () { reject(lector.error); };
+      lector.readAsDataURL(file);
+    });
+  }
+
+  var errorBox = document.getElementById('bt-error');
+
+  function mostrarErrorEnModal(texto) {
+    // Inline, no Swal: una alerta de SweetAlert sobre este modal (que ya está
+    // abierto) deja su botón "OK" inalcanzable — el overlay del modal se
+    // dibuja por encima. Comprobado en el navegador antes de este cambio.
+    errorBox.textContent = texto;
+    errorBox.style.display = 'block';
+  }
+
+  btnEnviar.addEventListener('click', function () {
+    errorBox.style.display = 'none';
+    var descripcion = document.getElementById('bt-descripcion').value.trim();
+    if (!descripcion) {
+      mostrarErrorEnModal('Cuenta qué pasó antes de enviar el ticket.');
+      return;
+    }
+    var archivo = document.getElementById('bt-archivo').files[0];
+    if (archivo && archivo.size > MAX_TICKET_EVIDENCE_BYTES) {
+      mostrarErrorEnModal('El archivo pesa más de 50 MB.');
+      return;
+    }
+
+    var payload = {
+      ticket: {
+        modulo: document.getElementById('bt-modulo').value,
+        descripcion: descripcion,
+        pasos_reproducir: document.getElementById('bt-pasos').value.trim() || null,
+        severidad: severidadElegida
+      },
+      reportado_por: usuarioActual(),
+      contexto: {
+        user_agent: navigator.userAgent,
+        url: window.location.href,
+        modulo_activo: moduloActual()
+      }
+    };
+
+    btnEnviar.disabled = true;
+    btnEnviar.textContent = 'Enviando...';
+
+    fetch(window.API_BASE_URL + '/api/v2/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+      .then(function (r) {
+        if (!r.ok) throw new Error((r.body && r.body.detail) || 'No se pudo crear el ticket.');
+        var folio = r.body.data.folio;
+        if (!archivo) return { folio: folio, evidenciaSubida: true };
+        return leerArchivoComoDataUrl(archivo).then(function (dataUrl) {
+          return fetch(window.API_BASE_URL + '/api/v2/tickets/' + encodeURIComponent(folio) + '/evidencia', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: dataUrl, type: archivo.type, name: archivo.name })
+          }).then(function (res2) {
+            return res2.json().then(function (body2) {
+              return { folio: folio, evidenciaSubida: res2.ok, mensajeEvidencia: body2 && body2.detail };
+            });
+          });
+        });
+      })
+      .then(function (resultado) {
+        overlay.classList.remove('open');
+        if (resultado.evidenciaSubida) {
+          Swal.fire('Ticket enviado', 'Se guardó como ' + resultado.folio + '.', 'success');
+        } else {
+          Swal.fire('Ticket enviado, evidencia no', 'Se guardó como ' + resultado.folio + ', pero el archivo no se pudo subir: ' + (resultado.mensajeEvidencia || 'error desconocido'), 'warning');
+        }
+      })
+      .catch(function (err) {
+        Swal.fire('Error', err.message || 'No se pudo enviar el ticket.', 'error');
+      })
+      .finally(function () {
+        btnEnviar.disabled = false;
+        btnEnviar.textContent = 'Enviar ticket';
+      });
+  });
+})();
+</script>
+
+<!-- ============================================================ -->
+<!-- Vista de soporte: lista y resuelve tickets.                   -->
+<!-- Gateada por window.app.config.canManageTickets (/api/config,  -->
+<!-- bandera aditiva "soporte" — ver api/services/organigrama.py y -->
+<!-- tests/test_rbac_config.py). Igual que el widget de arriba, no  -->
+<!-- toca la reactividad de Vue: solo lee `window.app`.             -->
+<!-- ============================================================ -->
+<style>
+  #tickets-soporte-fab {
+    display: none; position: fixed; right: 18px; bottom: 78px; z-index: 2500;
+    background: #1f6f68; color: #fff; border: none; border-radius: 999px;
+    padding: 10px 16px; font-weight: 700; font-size: 13px; cursor: pointer;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+  }
+  #tickets-soporte-fab:hover { filter: brightness(1.08); }
+  #tickets-soporte-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 2500; align-items: flex-start; justify-content: center; overflow-y: auto;
+  }
+  #tickets-soporte-overlay.open { display: flex; }
+  #tickets-soporte-panel {
+    background: #fff; color: #222; border-radius: 8px; width: 94%; max-width: 760px;
+    margin: 30px 0 30px; font-family: Arial, sans-serif; font-size: 13px;
+  }
+  #tickets-soporte-panel .ts-head {
+    padding: 14px 18px; border-bottom: 1px solid #ddd; display: flex;
+    justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  #tickets-soporte-panel .ts-head h3 { margin: 0; font-size: 16px; }
+  #tickets-soporte-panel select#ts-filtro { border: 1px solid #ccc; border-radius: 4px; padding: 5px 8px; }
+  #ts-lista { padding: 10px 18px 18px; display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow-y: auto; }
+  .ts-card { border: 1px solid #ddd; border-radius: 6px; padding: 12px 14px; }
+  .ts-card .ts-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ts-card .ts-folio { font-weight: 700; }
+  .ts-pill { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+  .ts-pill.sev-BAJA { background: #e2e2e2; color: #555; }
+  .ts-pill.sev-MEDIA { background: #fde3b8; color: #8a5a00; }
+  .ts-pill.sev-ALTA { background: #ffd3c2; color: #a13f00; }
+  .ts-pill.sev-CRITICA { background: #f3dcd7; color: #a13f34; }
+  .ts-pill.est-ABIERTO { background: #e2e2e2; color: #555; }
+  .ts-pill.est-EN_REVISION { background: #d6ece9; color: #1f6f68; }
+  .ts-pill.est-RESUELTO { background: #dcead9; color: #3f7a4f; }
+  .ts-pill.est-CERRADO { background: #e2e2e2; color: #555; }
+  .ts-pill.est-NO_ES_BUG { background: #e2e2e2; color: #555; }
+  .ts-card .ts-desc { margin: 8px 0 4px; white-space: pre-wrap; }
+  .ts-card .ts-meta { color: #777; font-size: 11px; }
+  .ts-card .ts-evidencia a { display: inline-block; margin: 4px 6px 0 0; font-size: 11px; }
+  .ts-card .ts-resolver { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .ts-card .ts-resolver select { border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
+  .ts-card .ts-resolver input[type=text] { flex: 1; min-width: 160px; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
+  .ts-card .ts-resolver button { background: #1f6f68; color: #fff; border: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-weight: 700; }
+  .ts-card .ts-resolver button:disabled { opacity: 0.6; cursor: not-allowed; }
+  #ts-vacio { color: #777; padding: 20px 0; text-align: center; }
+</style>
+
+<button id="tickets-soporte-fab" type="button">🎫 Tickets</button>
+
+<div id="tickets-soporte-overlay">
+  <div id="tickets-soporte-panel">
+    <div class="ts-head">
+      <h3>Tickets reportados</h3>
+      <select id="ts-filtro">
+        <option value="">Todos</option>
+        <option value="ABIERTO">Abierto</option>
+        <option value="EN_REVISION">En revisión</option>
+        <option value="RESUELTO">Resuelto</option>
+        <option value="CERRADO">Cerrado</option>
+        <option value="NO_ES_BUG">No es bug</option>
+      </select>
+      <button type="button" class="bt-secondary" id="ts-cerrar" style="border:1px solid #ccc;background:transparent;padding:6px 12px;border-radius:4px;cursor:pointer;">Cerrar</button>
+    </div>
+    <div id="ts-lista"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var fab = document.getElementById('tickets-soporte-fab');
+  var overlay = document.getElementById('tickets-soporte-overlay');
+  var filtro = document.getElementById('ts-filtro');
+  var lista = document.getElementById('ts-lista');
+  var ESTATUS = ['ABIERTO', 'EN_REVISION', 'RESUELTO', 'CERRADO', 'NO_ES_BUG'];
+
+  function tieneAcceso() {
+    try { return !!(window.app && window.app.config && window.app.config.canManageTickets); }
+    catch (e) { return false; }
+  }
+
+  // `config` se resuelve después del login (llamada async a /api/config), así
+  // que no hay un solo momento fijo en el que el botón deba aparecer: se
+  // revisa cada segundo. Costoso no es -- es una lectura de una propiedad ya
+  // en memoria, no una petición de red.
+  setInterval(function () {
+    fab.style.display = tieneAcceso() ? 'block' : 'none';
+  }, 1000);
+
+  function escaparHtml(texto) {
+    var d = document.createElement('div');
+    d.textContent = texto == null ? '' : String(texto);
+    return d.innerHTML;
+  }
+
+  function tarjetaDeTicket(t) {
+    var evidenciaHtml = (t.evidencia || []).map(function (e, i) {
+      return '<a href="' + escaparHtml(e.url) + '" target="_blank" rel="noopener">Evidencia ' + (i + 1) + '</a>';
+    }).join('');
+
+    var opciones = ESTATUS.map(function (e) {
+      return '<option value="' + e + '"' + (e === t.estatus ? ' selected' : '') + '>' + e + '</option>';
+    }).join('');
+
+    var div = document.createElement('div');
+    div.className = 'ts-card';
+    div.setAttribute('data-folio', t.folio);
+    div.innerHTML =
+      '<div class="ts-top">' +
+        '<span class="ts-folio">' + escaparHtml(t.folio) + ' · ' + escaparHtml(t.modulo) + '</span>' +
+        '<span><span class="ts-pill sev-' + t.severidad + '">' + escaparHtml(t.severidad) + '</span> ' +
+        '<span class="ts-pill est-' + t.estatus + '">' + escaparHtml(t.estatus) + '</span></span>' +
+      '</div>' +
+      '<div class="ts-desc">' + escaparHtml(t.descripcion) + '</div>' +
+      (t.pasos_reproducir ? '<div class="ts-meta">Pasos: ' + escaparHtml(t.pasos_reproducir) + '</div>' : '') +
+      '<div class="ts-meta">Reportó ' + escaparHtml(t.reportado_por) + ' · ' + escaparHtml((t.created_at || '').slice(0, 16).replace('T', ' ')) + '</div>' +
+      (evidenciaHtml ? '<div class="ts-evidencia">' + evidenciaHtml + '</div>' : '') +
+      '<div class="ts-resolver">' +
+        '<select class="ts-estatus">' + opciones + '</select>' +
+        '<input type="text" class="ts-notas" placeholder="Nota de resolución (opcional)" value="' + escaparHtml(t.resolucion_notas || '') + '">' +
+        '<button type="button" class="ts-guardar">Guardar</button>' +
+      '</div>';
+
+    div.querySelector('.ts-guardar').addEventListener('click', function () {
+      var boton = div.querySelector('.ts-guardar');
+      var estatusNuevo = div.querySelector('.ts-estatus').value;
+      var notas = div.querySelector('.ts-notas').value;
+      boton.disabled = true;
+      boton.textContent = 'Guardando...';
+      fetch(window.API_BASE_URL + '/api/v2/tickets/' + encodeURIComponent(t.folio), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          estatus: estatusNuevo,
+          resolucion_notas: notas || null,
+          resuelto_por: (window.app && window.app.currentUsername) || 'DESCONOCIDO'
+        })
+      })
+        .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+        .then(function (r) {
+          if (!r.ok) throw new Error((r.body && r.body.detail) || 'No se pudo actualizar el ticket.');
+          cargarTickets();
+        })
+        .catch(function (err) {
+          Swal.fire('Error', err.message || 'No se pudo actualizar el ticket.', 'error');
+          boton.disabled = false;
+          boton.textContent = 'Guardar';
+        });
+    });
+
+    return div;
+  }
+
+  function cargarTickets() {
+    lista.innerHTML = '<div id="ts-vacio">Cargando...</div>';
+    var qs = filtro.value ? ('?estatus=' + encodeURIComponent(filtro.value)) : '';
+    fetch(window.API_BASE_URL + '/api/v2/tickets' + qs)
+      .then(function (res) { return res.json(); })
+      .then(function (body) {
+        var tickets = (body && body.data) || [];
+        lista.innerHTML = '';
+        if (!tickets.length) {
+          lista.innerHTML = '<div id="ts-vacio">No hay tickets con ese filtro.</div>';
+          return;
+        }
+        tickets.forEach(function (t) { lista.appendChild(tarjetaDeTicket(t)); });
+      })
+      .catch(function () {
+        lista.innerHTML = '<div id="ts-vacio">No se pudo cargar la lista de tickets.</div>';
+      });
+  }
+
+  fab.addEventListener('click', function () {
+    overlay.classList.add('open');
+    cargarTickets();
+  });
+  document.getElementById('ts-cerrar').addEventListener('click', function () { overlay.classList.remove('open'); });
+  overlay.addEventListener('click', function (ev) { if (ev.target === overlay) overlay.classList.remove('open'); });
+  filtro.addEventListener('change', cargarTickets);
+})();
+</script>
 </body>
 </html>

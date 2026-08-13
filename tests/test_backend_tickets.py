@@ -1,0 +1,476 @@
+"""
+`bug_tickets`: alta, listado, cambio de estatus y evidencia — sobre
+`MemoryEngine`, igual que `tests/test_backend_tasks.py` prueba `tasks`.
+
+La regla que más importa de este módulo, y la que motivó la tabla separada de
+`tasks`, es que después del alta solo hay dos mutaciones posibles y ninguna
+de las dos toca `descripcion` ni reemplaza `evidencia`. Eso se prueba
+directo contra el repositorio (sin mocks en el núcleo) y otra vez contra el
+router, para que un cambio futuro en cualquiera de las dos capas lo note.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+
+import pytest
+from pydantic import ValidationError
+
+from api.services import storage
+from backend.core.engines.memoria import MemoryEngine
+from backend.core.errors import ErrorDeMotor
+from backend.repositories.tickets import TicketNoEncontrado, TicketRepository
+from backend.schemas.ticket import (
+    COLUMNAS_BUG_TICKETS,
+    ESTATUS_TERMINALES,
+    OBLIGATORIAS_AL_INSERTAR,
+    TicketRead,
+    TicketUpdate,
+    TicketWrite,
+)
+
+
+@pytest.fixture
+def repo() -> TicketRepository:
+    return TicketRepository(MemoryEngine({"bug_tickets": []}))
+
+
+# --- Contrato del esquema -------------------------------------------------
+
+
+def test_el_modelo_de_lectura_cubre_todas_las_columnas():
+    faltan = set(COLUMNAS_BUG_TICKETS) - set(TicketRead.model_fields)
+    assert not faltan, f"TicketRead no expone: {sorted(faltan)}"
+
+
+def test_el_alta_no_acepta_columnas_tecnicas():
+    """`estatus` y `evidencia` no son campos de TicketWrite: si el cliente los
+    manda, la petición falla con 422 en vez de descartarlos en silencio."""
+    with pytest.raises(ValidationError):
+        TicketWrite(modulo="Tracker", descripcion="X", estatus="RESUELTO")
+    with pytest.raises(ValidationError):
+        TicketWrite(modulo="Tracker", descripcion="X", evidencia=[{"url": "y"}])
+
+
+def test_el_patch_no_acepta_descripcion_ni_evidencia():
+    """La garantía central: un PATCH no tiene por dónde reescribir lo reportado."""
+    with pytest.raises(ValidationError):
+        TicketUpdate(estatus="RESUELTO", descripcion="otra cosa")
+    with pytest.raises(ValidationError):
+        TicketUpdate(estatus="RESUELTO", evidencia=[])
+
+
+def test_la_severidad_desconocida_se_rechaza():
+    with pytest.raises(ValidationError):
+        TicketWrite(modulo="Tracker", descripcion="X", severidad="URGENTISIMA")
+
+
+def test_el_estatus_desconocido_se_rechaza():
+    with pytest.raises(ValidationError):
+        TicketUpdate(estatus="EN_LIMBO")
+
+
+def test_severidad_por_defecto_es_media():
+    assert TicketWrite(modulo="Tracker", descripcion="X").severidad == "MEDIA"
+
+
+# --- Alta ------------------------------------------------------------------
+
+
+def test_crear_asigna_folio_reportado_por_y_estatus_abierto(repo):
+    ticket = repo.crear(
+        TicketWrite(modulo="Tracker", descripcion="El avance no se guarda"),
+        reportado_por="JAIME OLIVO",
+    )
+    assert ticket.folio == "BUG-0001"
+    assert ticket.reportado_por == "JAIME OLIVO"
+    assert ticket.estatus == "ABIERTO"
+    assert ticket.evidencia == []
+
+
+def test_los_folios_son_consecutivos(repo):
+    primero = repo.crear(TicketWrite(modulo="Tracker", descripcion="A"), reportado_por="X")
+    segundo = repo.crear(TicketWrite(modulo="PPC", descripcion="B"), reportado_por="X")
+    assert primero.folio == "BUG-0001"
+    assert segundo.folio == "BUG-0002"
+
+
+def test_reportado_por_lo_pone_el_servidor_no_el_cliente(repo):
+    """`TicketWrite` ni siquiera tiene el campo: no hay forma de que el
+    cliente se haga pasar por otra persona al reportar."""
+    assert "reportado_por" not in TicketWrite.model_fields
+
+
+def test_no_se_puede_crear_un_ticket_sin_usuario_en_sesion(repo):
+    from backend.core.errors import BackendError
+
+    with pytest.raises(BackendError):
+        repo.crear(TicketWrite(modulo="Tracker", descripcion="X"), reportado_por="")
+
+
+def test_el_contexto_se_guarda_tal_cual(repo):
+    ticket = repo.crear(
+        TicketWrite(modulo="Tracker", descripcion="X"),
+        reportado_por="JAIME OLIVO",
+        contexto={"user_agent": "Chrome", "url": "/tracker"},
+    )
+    assert ticket.contexto == {"user_agent": "Chrome", "url": "/tracker"}
+
+
+# --- Listado -----------------------------------------------------------
+
+
+def test_listar_filtra_por_estatus_modulo_y_reportado_por(repo):
+    repo.crear(TicketWrite(modulo="Tracker", descripcion="A"), reportado_por="JAIME OLIVO")
+    repo.crear(TicketWrite(modulo="PPC", descripcion="B"), reportado_por="TERESA GARZA")
+    repo.actualizar_estatus("BUG-0002", TicketUpdate(estatus="EN_REVISION"))
+
+    assert [t.folio for t in repo.listar(modulo="PPC")] == ["BUG-0002"]
+    assert [t.folio for t in repo.listar(reportado_por="JAIME OLIVO")] == ["BUG-0001"]
+    assert [t.folio for t in repo.listar(estatus="EN_REVISION")] == ["BUG-0002"]
+    assert len(repo.listar()) == 2
+
+
+def test_obtener_un_folio_inexistente_lanza(repo):
+    with pytest.raises(TicketNoEncontrado):
+        repo.obtener("BUG-9999")
+
+
+# --- Cambio de estatus ---------------------------------------------------
+
+
+def test_actualizar_estatus_no_toca_la_descripcion_original(repo):
+    repo.crear(TicketWrite(modulo="Tracker", descripcion="El avance no se guarda"), reportado_por="X")
+    actualizado = repo.actualizar_estatus(
+        "BUG-0001", TicketUpdate(estatus="EN_REVISION")
+    )
+    assert actualizado.descripcion == "El avance no se guarda"
+    assert actualizado.estatus == "EN_REVISION"
+
+
+@pytest.mark.parametrize("estatus", sorted(ESTATUS_TERMINALES))
+def test_los_estatus_terminales_registran_quien_y_cuando_resolvio(repo, estatus):
+    repo.crear(TicketWrite(modulo="Tracker", descripcion="X"), reportado_por="X")
+    actualizado = repo.actualizar_estatus(
+        "BUG-0001", TicketUpdate(estatus=estatus, resuelto_por="SOPORTE")
+    )
+    assert actualizado.resuelto_por == "SOPORTE"
+    assert actualizado.resuelto_en is not None
+
+
+def test_un_estatus_no_terminal_no_registra_resolucion(repo):
+    repo.crear(TicketWrite(modulo="Tracker", descripcion="X"), reportado_por="X")
+    actualizado = repo.actualizar_estatus("BUG-0001", TicketUpdate(estatus="EN_REVISION"))
+    assert actualizado.resuelto_por is None
+    assert actualizado.resuelto_en is None
+
+
+def test_actualizar_un_folio_inexistente_lanza(repo):
+    with pytest.raises(TicketNoEncontrado):
+        repo.actualizar_estatus("BUG-9999", TicketUpdate(estatus="RESUELTO"))
+
+
+# --- Evidencia: la regla central -----------------------------------------
+
+
+def test_agregar_evidencia_extiende_el_arreglo_sin_perder_lo_anterior(repo):
+    repo.crear(TicketWrite(modulo="Tracker", descripcion="X"), reportado_por="X")
+    repo.agregar_evidencia("BUG-0001", {"url": "https://.../video1.mp4", "tipo": "video/mp4"})
+    actualizado = repo.agregar_evidencia(
+        "BUG-0001", {"url": "https://.../captura.png", "tipo": "image/png"}
+    )
+    assert [e["url"] for e in actualizado.evidencia] == [
+        "https://.../video1.mp4",
+        "https://.../captura.png",
+    ]
+
+
+def test_no_existe_ninguna_operacion_que_reemplace_la_evidencia(repo):
+    """
+    No es una prueba de comportamiento por omisión: documenta la superficie
+    completa del repositorio para que agregar un `reemplazar_evidencia` en el
+    futuro reviente esta prueba y obligue a justificarlo explícitamente.
+    """
+    metodos_publicos = {n for n in dir(TicketRepository) if not n.startswith("_")}
+    assert metodos_publicos == {"obtener", "listar", "crear", "actualizar_estatus", "agregar_evidencia"}
+
+
+def test_agregar_evidencia_a_un_folio_inexistente_lanza(repo):
+    with pytest.raises(TicketNoEncontrado):
+        repo.agregar_evidencia("BUG-9999", {"url": "x", "tipo": "video/mp4"})
+
+
+# --- El motor reproduce el NOT NULL real ----------------------------------
+
+
+def test_las_obligatorias_al_insertar_son_las_que_no_tienen_default():
+    assert OBLIGATORIAS_AL_INSERTAR == {"folio", "reportado_por", "modulo", "descripcion"}
+
+
+def test_el_motor_rechaza_un_alta_sin_columna_obligatoria():
+    engine = MemoryEngine({"bug_tickets": []})
+    with pytest.raises(ErrorDeMotor) as exc:
+        engine.insertar("bug_tickets", [{"folio": "BUG-0001", "reportado_por": "X"}])  # sin modulo/descripcion
+    assert exc.value.codigo == "23502"
+
+
+# --- Router /api/v2/tickets ------------------------------------------------
+
+
+@pytest.fixture
+def cliente(repo):
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from backend.routers.tickets import obtener_repositorio
+
+    app.dependency_overrides[obtener_repositorio] = lambda: repo
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_el_endpoint_crea_y_devuelve_el_folio(cliente):
+    respuesta = cliente.post(
+        "/api/v2/tickets",
+        json={
+            "ticket": {"modulo": "Tracker", "descripcion": "El avance no se guarda"},
+            "reportado_por": "JAIME OLIVO",
+        },
+    )
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["success"] is True
+    assert cuerpo["data"]["folio"] == "BUG-0001"
+    assert cuerpo["data"]["estatus"] == "ABIERTO"
+
+
+def test_el_endpoint_rechaza_evidencia_en_el_alta(cliente):
+    respuesta = cliente.post(
+        "/api/v2/tickets",
+        json={
+            "ticket": {"modulo": "Tracker", "descripcion": "X", "evidencia": [{"url": "y"}]},
+            "reportado_por": "JAIME OLIVO",
+        },
+    )
+    assert respuesta.status_code == 422
+
+
+def test_el_endpoint_lista_y_filtra(cliente):
+    cliente.post("/api/v2/tickets", json={"ticket": {"modulo": "Tracker", "descripcion": "A"}, "reportado_por": "X"})
+    cliente.post("/api/v2/tickets", json={"ticket": {"modulo": "PPC", "descripcion": "B"}, "reportado_por": "X"})
+    respuesta = cliente.get("/api/v2/tickets", params={"modulo": "PPC"})
+    assert [t["folio"] for t in respuesta.json()["data"]] == ["BUG-0002"]
+
+
+def test_el_endpoint_de_patch_no_acepta_descripcion(cliente):
+    cliente.post("/api/v2/tickets", json={"ticket": {"modulo": "Tracker", "descripcion": "X"}, "reportado_por": "X"})
+    respuesta = cliente.patch(
+        "/api/v2/tickets/BUG-0001",
+        json={"estatus": "RESUELTO", "descripcion": "otra cosa"},
+    )
+    assert respuesta.status_code == 422
+
+
+def test_el_endpoint_de_patch_devuelve_404_si_no_existe(cliente):
+    respuesta = cliente.patch("/api/v2/tickets/BUG-9999", json={"estatus": "RESUELTO"})
+    assert respuesta.status_code == 404
+
+
+def test_el_endpoint_rechaza_reportado_por_en_blanco(cliente):
+    """`min_length=1` deja pasar un string de solo espacios; la validación
+    real de "hay usuario" vive en el repositorio, no en Pydantic."""
+    respuesta = cliente.post(
+        "/api/v2/tickets",
+        json={"ticket": {"modulo": "Tracker", "descripcion": "X"}, "reportado_por": "   "},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_el_endpoint_de_patch_actualiza_con_exito(cliente):
+    cliente.post("/api/v2/tickets", json={"ticket": {"modulo": "Tracker", "descripcion": "X"}, "reportado_por": "X"})
+    respuesta = cliente.patch("/api/v2/tickets/BUG-0001", json={"estatus": "EN_REVISION"})
+    assert respuesta.status_code == 200
+    assert respuesta.json()["data"]["estatus"] == "EN_REVISION"
+
+
+def test_obtener_repositorio_construye_uno_de_verdad_con_memoria(monkeypatch):
+    """Sin override: la dependencia real arma un `TicketRepository` sobre el
+    motor que diga el entorno. `tests/conftest.py` ya fuerza
+    `BACKEND_ENGINE=memoria` para toda la sesión (R7)."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    respuesta = TestClient(app).get("/api/v2/tickets")
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"success": True, "data": [], "count": 0}
+
+
+def test_obtener_repositorio_devuelve_503_si_no_hay_motor(monkeypatch):
+    """La dependencia real (sin override), con el motor apagado a propósito."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from backend.core.errors import SinMotorConfigurado
+    import backend.routers.tickets as tickets_router
+
+    def _sin_motor():
+        raise SinMotorConfigurado("sin motor, a propósito para la prueba")
+
+    monkeypatch.setattr(tickets_router, "construir_engine", _sin_motor)
+    respuesta = TestClient(app).get("/api/v2/tickets")
+    assert respuesta.status_code == 503
+
+
+def test_el_endpoint_de_evidencia_agrega_con_exito(cliente, monkeypatch):
+    monkeypatch.setattr(
+        storage,
+        "subir_evidencia_ticket",
+        lambda folio, data, tipo, nombre: {
+            "success": True, "fileUrl": "https://x/clip.mp4", "mime": "video/mp4", "sha256": "abc123",
+        },
+    )
+    cliente.post("/api/v2/tickets", json={"ticket": {"modulo": "Tracker", "descripcion": "X"}, "reportado_por": "X"})
+    respuesta = cliente.post(
+        "/api/v2/tickets/BUG-0001/evidencia",
+        json={"data": "data:video/mp4;base64,AAAA", "type": "video/mp4", "name": "clip.mp4"},
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json()["data"]["evidencia"][0]["url"] == "https://x/clip.mp4"
+
+
+def test_el_endpoint_de_evidencia_404_si_el_ticket_no_existe(cliente, monkeypatch):
+    monkeypatch.setattr(
+        storage,
+        "subir_evidencia_ticket",
+        lambda folio, data, tipo, nombre: {
+            "success": True, "fileUrl": "https://x/clip.mp4", "mime": "video/mp4", "sha256": "abc123",
+        },
+    )
+    respuesta = cliente.post(
+        "/api/v2/tickets/BUG-9999/evidencia",
+        json={"data": "data:video/mp4;base64,AAAA", "type": "video/mp4", "name": "clip.mp4"},
+    )
+    assert respuesta.status_code == 404
+
+
+def test_el_endpoint_de_evidencia_falla_sin_supabase_configurado(cliente):
+    """
+    `tests/conftest.py` desconecta SUPABASE_URL/KEY para toda la sesión
+    (R7): sin credenciales, el endpoint tiene que fallar de forma visible en
+    vez de fingir que subió el archivo — la misma regla que ya protege
+    `/api/legacy/upload`.
+    """
+    cliente.post("/api/v2/tickets", json={"ticket": {"modulo": "Tracker", "descripcion": "X"}, "reportado_por": "X"})
+    respuesta = cliente.post(
+        "/api/v2/tickets/BUG-0001/evidencia",
+        json={"data": "data:video/mp4;base64,AAAA", "type": "video/mp4", "name": "clip.mp4"},
+    )
+    assert respuesta.status_code == 400
+    assert "no está configurado" in respuesta.json()["detail"]
+
+
+# --- Storage: subir_evidencia_ticket ---------------------------------------
+
+
+class _AlmacenFalso:
+    def __init__(self):
+        self.subidas = []
+
+    def from_(self, nombre_bucket):
+        self._bucket = nombre_bucket
+        return self
+
+    def upload(self, ruta, contenido, opciones):
+        assert opciones["upsert"] == "false", "La evidencia nunca debe subir con upsert habilitado"
+        self.subidas.append((self._bucket, ruta, contenido, opciones))
+
+    def get_public_url(self, ruta):
+        return f"https://supabase.local/storage/v1/object/public/{self._bucket}/{ruta}"
+
+
+class _ClienteFalso:
+    def __init__(self):
+        self.storage = _AlmacenFalso()
+
+
+class _ManagerFalso:
+    is_configured = True
+
+    def __init__(self):
+        self.client = _ClienteFalso()
+
+
+def _data_url(contenido: bytes, mime: str = "video/mp4") -> str:
+    return f"data:{mime};base64,{base64.b64encode(contenido).decode()}"
+
+
+def test_subir_evidencia_devuelve_url_y_hash_del_contenido(monkeypatch):
+    falso = _ManagerFalso()
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", falso)
+
+    contenido = b"contenido de prueba del video"
+    resultado = storage.subir_evidencia_ticket("BUG-0001", _data_url(contenido), "video/mp4", "clip.mp4")
+
+    assert resultado["success"] is True
+    assert resultado["sha256"] == hashlib.sha256(contenido).hexdigest()
+    assert "ticket-evidencia" in resultado["fileUrl"]
+    assert falso.client.storage.subidas[0][3]["upsert"] == "false"
+
+
+def test_subir_evidencia_rechaza_mime_no_permitido(monkeypatch):
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _ManagerFalso())
+    resultado = storage.subir_evidencia_ticket("BUG-0001", _data_url(b"x", "application/zip"), "application/zip", "a.zip")
+    assert resultado["success"] is False
+    assert "no permitido" in resultado["message"]
+
+
+def test_subir_evidencia_rechaza_archivos_mas_grandes_que_el_tope(monkeypatch):
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _ManagerFalso())
+    monkeypatch.setattr(storage, "MAX_BYTES_EVIDENCIA", 10)
+    resultado = storage.subir_evidencia_ticket("BUG-0001", _data_url(b"x" * 100), "video/mp4", "clip.mp4")
+    assert resultado["success"] is False
+    assert "máximo" in resultado["message"]
+
+
+def test_subir_evidencia_rechaza_contenido_vacio(monkeypatch):
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _ManagerFalso())
+    resultado = storage.subir_evidencia_ticket("BUG-0001", " ", "video/mp4", "clip.mp4")
+    assert resultado["success"] is False
+    assert "vacío" in resultado["message"]
+
+
+def test_subir_evidencia_rechaza_un_data_url_corrupto(monkeypatch):
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _ManagerFalso())
+    resultado = storage.subir_evidencia_ticket("BUG-0001", "data:video/mp4;base64,***no-es-base64***", "video/mp4", "clip.mp4")
+    assert resultado["success"] is False
+
+
+def test_subir_evidencia_reporta_si_storage_rechaza_la_subida(monkeypatch):
+    class _AlmacenQueFalla(_AlmacenFalso):
+        def upload(self, ruta, contenido, opciones):
+            raise RuntimeError("bucket no existe")
+
+    class _ClienteQueFalla:
+        def __init__(self):
+            self.storage = _AlmacenQueFalla()
+
+    falso = _ManagerFalso()
+    falso.client = _ClienteQueFalla()
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", falso)
+
+    resultado = storage.subir_evidencia_ticket("BUG-0001", _data_url(b"x"), "video/mp4", "clip.mp4")
+    assert resultado["success"] is False
+    assert "No se pudo subir" in resultado["message"]
+
+
+def test_ruta_de_evidencia_incluye_el_folio_y_es_unica():
+    from datetime import datetime
+
+    a = storage.ruta_de_evidencia("BUG-0001", "clip.mp4", fecha=datetime(2026, 8, 12, 10, 0, 0))
+    b = storage.ruta_de_evidencia("BUG-0001", "clip.mp4", fecha=datetime(2026, 8, 12, 10, 0, 1))
+    assert "BUG-0001" in a
+    assert a != b, "Dos momentos distintos no deben compartir ruta"

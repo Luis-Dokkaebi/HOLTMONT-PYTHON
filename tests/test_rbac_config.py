@@ -197,3 +197,42 @@ def test_sin_username_no_se_conceden_permisos_de_mas():
     cfg = config("STAFF_USER")
     assert cfg["departments"] == {}
     assert cfg["accessProjects"] is False
+
+
+# --- canManageTickets: bandera aditiva, igual que `seller` --------------
+#
+# Quien resuelve tickets de bug (docs/DDL_PENDIENTE.sql §5) necesita ver una
+# vista nueva en index.html. La bandera no reemplaza el rol de nadie -- por
+# eso se prueba en las siete ramas del endpoint, no solo en una.
+
+
+def test_admin_y_admin_control_ven_tickets_sin_necesitar_la_bandera():
+    assert config("ADMIN", "LUIS_CARLOS")["canManageTickets"] is True
+    assert config("ADMIN_CONTROL", "JAIME_OLIVO")["canManageTickets"] is True
+    assert config("ADMIN_CONTROL", "DIMAS_RAMOS")["canManageTickets"] is True
+
+
+def test_luis_carlos_tiene_ademas_la_bandera_explicita():
+    """No es solo que ADMIN lo cubra: el perfil real trae `soporte: True`."""
+    assert organigrama.perfil("LUIS_CARLOS").get("soporte") is True
+
+
+@pytest.mark.parametrize("rol,cuenta", [
+    ("STAFF_USER", "MIGUEL_GALLARDO"),
+    ("PPC_ADMIN", "JESUS_CANTU"),
+    ("WORKORDER_USER", "PREWORK_ORDER"),
+    ("TONITA", "ANTONIA_VENTAS"),
+])
+def test_sin_bandera_ni_rol_admin_no_se_ve_la_vista_de_tickets(rol, cuenta):
+    assert config(rol, cuenta)["canManageTickets"] is False
+
+
+def test_la_bandera_explicita_alcanza_aunque_el_rol_no_sea_admin(monkeypatch):
+    """
+    `soporte: True` en un STAFF_USER cualquiera también debe encender
+    `canManageTickets` -- no es un privilegio exclusivo de ADMIN/ADMIN_CONTROL,
+    es aditivo como `seller`. Hoy nadie fuera de LUIS_CARLOS trae la bandera,
+    así que se simula con un perfil de prueba.
+    """
+    monkeypatch.setattr(organigrama, "perfil", lambda cuenta: {"role": "STAFF_USER", "soporte": True})
+    assert config("STAFF_USER", "QUIEN_SEA")["canManageTickets"] is True

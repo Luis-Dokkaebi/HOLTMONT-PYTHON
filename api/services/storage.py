@@ -20,6 +20,7 @@ crear nada antes de subir.
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 import re
 import unicodedata
@@ -28,6 +29,21 @@ from typing import Any, Dict, Optional, Tuple
 
 BUCKET_ENV = "SUPABASE_BUCKET"
 BUCKET_POR_DEFECTO = "archivos"
+
+# Bucket dedicado a evidencia de tickets de bug. Deliberadamente distinto de
+# `BUCKET_ENV`: ese es público y admite `upsert`; este es privado y no admite
+# ninguna de las dos cosas (docs/DDL_PENDIENTE.sql §5 — sin política de
+# UPDATE/DELETE, Postgres deniega por default).
+BUCKET_EVIDENCIA_ENV = "SUPABASE_BUCKET_TICKETS"
+BUCKET_EVIDENCIA_POR_DEFECTO = "ticket-evidencia"
+
+# Mismo orden de magnitud que `MAX_UPLOAD_BYTES` de `index.html` (35 MB) para
+# los adjuntos del tracker; el video de un bug suele pesar más que una foto.
+MAX_BYTES_EVIDENCIA = 50 * 1024 * 1024
+
+MIME_EVIDENCIA_PERMITIDOS = frozenset(
+    {"video/mp4", "video/webm", "image/png", "image/jpeg"}
+)
 
 # Igual que el original: sin tipo declarado, octet-stream. Pasa con .dwg y .zip,
 # que el navegador no sabe etiquetar.
@@ -39,6 +55,10 @@ MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO",
 
 def bucket() -> str:
     return os.environ.get(BUCKET_ENV, "").strip() or BUCKET_POR_DEFECTO
+
+
+def bucket_evidencia() -> str:
+    return os.environ.get(BUCKET_EVIDENCIA_ENV, "").strip() or BUCKET_EVIDENCIA_POR_DEFECTO
 
 
 def decodificar_data_url(data: Any) -> Tuple[bytes, Optional[str]]:
@@ -108,6 +128,81 @@ def ruta_de_archivo(nombre: Any, cliente: Any = None, fecha: Any = None) -> str:
     raiz, extension = os.path.splitext(limpio)
     partes.append(f"{raiz}-{sello}{extension}")
     return "/".join(partes)
+
+
+def ruta_de_evidencia(folio: Any, nombre: Any, fecha: Any = None) -> str:
+    """
+    `AÑO/MES/<folio>/archivo-<timestamp>`, mismo patrón que `ruta_de_archivo`
+    con el folio del ticket en vez del cliente: aquí no hay banco de
+    cotizaciones, hay un caso. El timestamp en el nombre es lo que hace que
+    dos subidas nunca compartan ruta, aun para el mismo ticket.
+    """
+    momento = fecha if isinstance(fecha, datetime) else datetime.now()
+    partes = [str(momento.year), MESES[momento.month - 1], limpiar_segmento(folio, "SIN_FOLIO")]
+    limpio = limpiar_segmento(nombre, "evidencia")
+    sello = int(momento.timestamp() * 1000)
+    raiz, extension = os.path.splitext(limpio)
+    partes.append(f"{raiz}-{sello}{extension}")
+    return "/".join(partes)
+
+
+def subir_evidencia_ticket(folio: Any, data: Any, tipo: Any = None, nombre: Any = None) -> Dict[str, Any]:
+    """
+    Sube un adjunto de un ticket de bug y devuelve
+    `{success, fileUrl, path, sha256, mime}`.
+
+    Tres diferencias deliberadas frente a `subir()`:
+
+    * bucket propio y privado (`bucket_evidencia()`), no el `archivos`
+      público que ya usan el tracker y el banco;
+    * whitelist de MIME y tope de tamaño, porque esto es evidencia de un
+      reporte, no cualquier documento;
+    * `upsert: "false"` explícito y el hash del contenido devuelto: la
+      inmutabilidad que promete el ticket depende de que esta función jamás
+      pise un objeto existente, y el `sha256` es lo que permite verificar
+      después que nadie lo hizo por otra vía.
+
+    La otra mitad de esa garantía —que nadie pueda editar ni borrar el
+    objeto una vez subido— la da la política de Storage
+    (docs/DDL_PENDIENTE.sql §5), no este código: aquí solo se asegura que la
+    propia plataforma nunca ofrezca el camino para intentarlo.
+    """
+    from api.services.supabase_manager import sb_manager
+
+    if not sb_manager.is_configured:
+        return {"success": False,
+                "message": "Supabase no está configurado: la evidencia NO se subió."}
+
+    try:
+        contenido, mime_detectado = decodificar_data_url(data)
+    except ValueError as exc:
+        return {"success": False, "message": str(exc)}
+
+    if not contenido:
+        return {"success": False, "message": "El archivo llegó vacío."}
+
+    if len(contenido) > MAX_BYTES_EVIDENCIA:
+        return {"success": False,
+                "message": f"El archivo pesa {len(contenido)} bytes; "
+                           f"el máximo permitido es {MAX_BYTES_EVIDENCIA}."}
+
+    mime = str(tipo or "").strip() or mime_detectado or MIME_POR_DEFECTO
+    if mime not in MIME_EVIDENCIA_PERMITIDOS:
+        permitidos = ", ".join(sorted(MIME_EVIDENCIA_PERMITIDOS))
+        return {"success": False,
+                "message": f"Tipo {mime!r} no permitido para evidencia. Solo: {permitidos}."}
+
+    ruta = ruta_de_evidencia(folio, nombre)
+    sha256 = hashlib.sha256(contenido).hexdigest()
+
+    try:
+        almacen = sb_manager.client.storage.from_(bucket_evidencia())
+        almacen.upload(ruta, contenido, {"content-type": mime, "upsert": "false"})
+        url = almacen.get_public_url(ruta)
+    except Exception as exc:
+        return {"success": False, "message": f"No se pudo subir la evidencia: {exc}"}
+
+    return {"success": True, "fileUrl": url, "path": ruta, "sha256": sha256, "mime": mime}
 
 
 def subir(data: Any, tipo: Any = None, nombre: Any = None,
