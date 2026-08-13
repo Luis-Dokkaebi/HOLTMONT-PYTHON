@@ -152,6 +152,26 @@ CREATE TABLE IF NOT EXISTS public.bug_tickets (
 CREATE INDEX IF NOT EXISTS bug_tickets_estatus_idx ON public.bug_tickets (estatus);
 CREATE INDEX IF NOT EXISTS bug_tickets_reportado_por_idx ON public.bug_tickets (reportado_por);
 
+-- RLS encendida y SIN políticas, a propósito. No es un descuido: `service_role`
+-- —la clave que usa el backend— ignora RLS, así que la aplicación sigue
+-- funcionando igual, y cualquier otra clave (la `anon` que se publica en el
+-- navegador, la `authenticated`) queda sin acceso a la tabla.
+--
+-- Sin esta línea PostgREST expondría `bug_tickets` a la clave pública: se
+-- podrían leer todos los reportes y, peor, reescribir `descripcion` y
+-- `evidencia` por debajo del backend, que es justo lo que este diseño existe
+-- para impedir.
+ALTER TABLE public.bug_tickets ENABLE ROW LEVEL SECURITY;
+
+-- Permisos explícitos para el backend. Supabase concede por defecto las tablas
+-- nuevas de `public` a `anon`, `authenticated` y `service_role`, así que esto
+-- suele ser redundante — pero si esos privilegios por defecto se hubieran
+-- tocado, la aplicación se quedaría sin poder leer su propia tabla y el fallo
+-- aparecería como un 502 en la pantalla, no como algo obvio. Se declara.
+--
+-- A `anon` no se le concede nada: ni GRANT ni política. Dos cerrojos, no uno.
+GRANT SELECT, INSERT, UPDATE ON public.bug_tickets TO service_role;
+
 -- Bucket de Storage para la evidencia. Se crea desde el dashboard (no hay DDL
 -- para el bucket en sí, solo para sus políticas): nombre `ticket-evidencia`,
 -- **privado** (a diferencia del bucket `archivos` que usa el resto de la
@@ -165,11 +185,18 @@ CREATE INDEX IF NOT EXISTS bug_tickets_reportado_por_idx ON public.bug_tickets (
 -- default. Nadie —ni quien subió el video, ni un admin desde la app, ni un
 -- bug en el propio backend— puede reemplazarlo o borrarlo por este camino.
 
-CREATE POLICY IF NOT EXISTS ticket_evidencia_insert
+-- `DROP ... IF EXISTS` + `CREATE` en vez de `CREATE POLICY IF NOT EXISTS`:
+-- Postgres **no** admite `IF NOT EXISTS` en `CREATE POLICY` (comprobado contra
+-- PostgreSQL 16.13: `ERROR: syntax error at or near "NOT"`). Escrito así, el
+-- script se puede volver a correr sin fallar, que era la intención original.
+
+DROP POLICY IF EXISTS ticket_evidencia_insert ON storage.objects;
+CREATE POLICY ticket_evidencia_insert
     ON storage.objects FOR INSERT
     WITH CHECK (bucket_id = 'ticket-evidencia');
 
-CREATE POLICY IF NOT EXISTS ticket_evidencia_select
+DROP POLICY IF EXISTS ticket_evidencia_select ON storage.objects;
+CREATE POLICY ticket_evidencia_select
     ON storage.objects FOR SELECT
     USING (bucket_id = 'ticket-evidencia');
 

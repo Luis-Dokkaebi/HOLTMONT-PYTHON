@@ -131,7 +131,7 @@
 | | _Nunca guardar el string compuesto como si fuera una persona_ | | | |
 | 8.8 | Con la red caída la tarea se guarda igual | success=true y 1 fila en la hoja | success=true, filas=1 | ✅ PASA |
 | | _INVARIANTE: mejor perder una réplica que una tarea_ | | | |
-| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-08-13T18:50:45.963Z | ✅ PASA |
+| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-08-13T18:56:19.874Z | ✅ PASA |
 | 8.11 | Estatus canónico en la escritura | 0 fallos | 0 fallos | ✅ PASA |
 | | _Sin esto la columna vuelve a acumular variantes en cada captura_ | | | |
 | 8.12 | Un valor no reconocido pasa tal cual | se conserva | 'EN LICITACION'->"EN LICITACION", 'RAM'->"RAM" | ✅ PASA |
