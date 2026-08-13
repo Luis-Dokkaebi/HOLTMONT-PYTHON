@@ -16,11 +16,27 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.core.engine import DataEngine, construir_engine
-from backend.core.errors import BackendError, SinMotorConfigurado
+from backend.core.errors import BackendError, ErrorDeMotor, SinMotorConfigurado
 from backend.repositories.tickets import TicketNoEncontrado, TicketRepository
 from backend.schemas.ticket import TicketUpdate, TicketWrite
 
 router = APIRouter(prefix="/api/v2", tags=["tickets"])
+
+# PostgREST no encuentra la tabla. `PGRST205` es el código actual ("Could not
+# find the table in the schema cache"); `42P01` es el `undefined_table` de
+# Postgres, que asoma cuando el error viene de la base y no del router de
+# PostgREST.
+CODIGOS_TABLA_FALTANTE = frozenset({"PGRST205", "PGRST202", "42P01"})
+
+MENSAJE_TABLA_FALTANTE = (
+    "El sistema de tickets todavía no está instalado en la base de datos: falta "
+    "crear la tabla `bug_tickets`. Aplicar el DDL de docs/DDL_PENDIENTE.sql §5."
+)
+
+MENSAJE_MOTOR_CAIDO = (
+    "No se pudo consultar el sistema de tickets. Vuelve a intentarlo; si sigue "
+    "fallando, avisa al equipo."
+)
 
 
 def obtener_repositorio() -> TicketRepository:
@@ -30,6 +46,34 @@ def obtener_repositorio() -> TicketRepository:
     except SinMotorConfigurado as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return TicketRepository(engine)
+
+
+def _es_tabla_faltante(exc: BackendError) -> bool:
+    if not isinstance(exc, ErrorDeMotor):
+        return False
+    if exc.codigo in CODIGOS_TABLA_FALTANTE:
+        return True
+    # PostgREST no siempre manda `code` en el cuerpo. El 404 basta como señal:
+    # la ruta la arma el motor, no el cliente, así que un "no existe" solo
+    # puede ser la tabla.
+    return "respondió 404" in str(exc)
+
+
+def _fallo_de_motor(exc: BackendError) -> HTTPException:
+    """
+    Traduce un fallo del motor a una respuesta que le sirva a quien la lee.
+
+    El detalle interno se registra pero **no viaja al cliente**: el 2026-08-13
+    el dueño intentó reportar un bug y recibió en pantalla
+    `PostgREST GET bug_tickets?select=folio&offset=0&limit=1000 respondió 404`,
+    que no le dice qué hacer y además expone la consulta. Se separan las dos
+    causas porque piden acciones distintas: falta el DDL (503, accionable) o
+    la base no responde (502, reintentar).
+    """
+    print(f"[tickets] fallo del motor: {exc}")
+    if _es_tabla_faltante(exc):
+        return HTTPException(status_code=503, detail=MENSAJE_TABLA_FALTANTE)
+    return HTTPException(status_code=502, detail=MENSAJE_MOTOR_CAIDO)
 
 
 class SolicitudTicket(BaseModel):
@@ -53,7 +97,10 @@ def crear_ticket(
 ) -> Dict[str, Any]:
     try:
         creado = repo.crear(solicitud.ticket, solicitud.reportado_por, solicitud.contexto)
+    except ErrorDeMotor as exc:
+        raise _fallo_de_motor(exc) from exc
     except BackendError as exc:
+        # Lo que sí es culpa de la petición: p. ej. sin usuario en sesión.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, "data": creado.model_dump(mode="json")}
 
@@ -65,7 +112,10 @@ def listar_tickets(
     reportado_por: Optional[str] = Query(None),
     repo: TicketRepository = Depends(obtener_repositorio),
 ) -> Dict[str, Any]:
-    tickets = repo.listar(estatus=estatus, modulo=modulo, reportado_por=reportado_por)
+    try:
+        tickets = repo.listar(estatus=estatus, modulo=modulo, reportado_por=reportado_por)
+    except BackendError as exc:
+        raise _fallo_de_motor(exc) from exc
     return {
         "success": True,
         "data": [t.model_dump(mode="json") for t in tickets],
@@ -83,6 +133,8 @@ def actualizar_ticket(
         actualizado = repo.actualizar_estatus(folio, cambios)
     except TicketNoEncontrado as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BackendError as exc:
+        raise _fallo_de_motor(exc) from exc
     return {"success": True, "data": actualizado.model_dump(mode="json")}
 
 
@@ -114,4 +166,6 @@ def agregar_evidencia(
         actualizado = repo.agregar_evidencia(folio, item)
     except TicketNoEncontrado as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BackendError as exc:
+        raise _fallo_de_motor(exc) from exc
     return {"success": True, "data": actualizado.model_dump(mode="json")}

@@ -474,3 +474,128 @@ def test_ruta_de_evidencia_incluye_el_folio_y_es_unica():
     b = storage.ruta_de_evidencia("BUG-0001", "clip.mp4", fecha=datetime(2026, 8, 12, 10, 0, 1))
     assert "BUG-0001" in a
     assert a != b, "Dos momentos distintos no deben compartir ruta"
+
+
+# --- Fallos del motor: lo que vio el dueño el 2026-08-13 -----------------
+#
+# Reportar un bug con la tabla `bug_tickets` sin crear devolvía a la pantalla
+# el texto crudo de PostgREST:
+#
+#   "PostgREST GET bug_tickets?select=folio&offset=0&limit=1000 respondió 404"
+#
+# Tres defectos en una sola pantalla: el listado no manejaba ningún fallo del
+# motor (500 sin controlar), el alta lo mapeaba a 400 —como si el cliente
+# hubiera mandado algo mal, cuando la tabla no existe— y el mensaje interno
+# viajaba tal cual al usuario. Quien reporta un bug no puede hacer nada con
+# una cadena de consulta de PostgREST.
+
+
+def _motor_que_falla(mensaje="PostgREST GET bug_tickets?select=folio&offset=0&limit=1000 respondió 404",
+                     codigo="PGRST205"):
+    """Motor cuyo `select` revienta como lo hace PostgREST sin la tabla."""
+    engine = MemoryEngine({"bug_tickets": []})
+
+    def _revienta(*args, **kwargs):
+        raise ErrorDeMotor(mensaje, codigo=codigo, detalle="{}")
+
+    engine.select = _revienta
+    return engine
+
+
+@pytest.fixture
+def cliente_motor_roto():
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from backend.routers.tickets import obtener_repositorio
+
+    repo = TicketRepository(_motor_que_falla())
+    app.dependency_overrides[obtener_repositorio] = lambda: repo
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+CRUDO = ["PostgREST", "select=folio", "offset=", "limit=1000"]
+
+
+def test_el_alta_con_la_tabla_sin_crear_avisa_que_falta_el_ddl(cliente_motor_roto):
+    respuesta = cliente_motor_roto.post(
+        "/api/v2/tickets",
+        json={"ticket": {"modulo": "Tracker", "descripcion": "X"}, "reportado_por": "X"},
+    )
+    assert respuesta.status_code == 503, "la tabla ausente no es culpa de quien reporta"
+    detalle = respuesta.json()["detail"]
+    assert "bug_tickets" in detalle and "DDL" in detalle, f"mensaje poco accionable: {detalle}"
+
+
+@pytest.mark.parametrize("metodo,ruta,cuerpo", [
+    ("get", "/api/v2/tickets", None),
+    ("post", "/api/v2/tickets", {"ticket": {"modulo": "T", "descripcion": "X"}, "reportado_por": "X"}),
+    ("patch", "/api/v2/tickets/BUG-0001", {"estatus": "RESUELTO"}),
+])
+def test_ningun_endpoint_devuelve_500_ni_filtra_el_error_del_motor(
+    cliente_motor_roto, metodo, ruta, cuerpo
+):
+    respuesta = getattr(cliente_motor_roto, metodo)(ruta, **({"json": cuerpo} if cuerpo else {}))
+    assert respuesta.status_code != 500, "el fallo del motor quedó sin manejar"
+    assert respuesta.status_code in (502, 503)
+    detalle = respuesta.json()["detail"]
+    for fragmento in CRUDO:
+        assert fragmento not in detalle, f"se filtró {fragmento!r} al usuario: {detalle}"
+
+
+def test_un_fallo_de_motor_que_no_es_tabla_faltante_es_502(cliente_motor_roto):
+    """Un corte de red no debe decir "falta el DDL": son causas distintas."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from backend.routers.tickets import obtener_repositorio
+
+    repo = TicketRepository(_motor_que_falla("Fallo de red hacia PostgREST: timeout", codigo=""))
+    app.dependency_overrides[obtener_repositorio] = lambda: repo
+    try:
+        respuesta = TestClient(app).get("/api/v2/tickets")
+    finally:
+        app.dependency_overrides.clear()
+    assert respuesta.status_code == 502
+    assert "DDL" not in respuesta.json()["detail"]
+
+
+def test_el_endpoint_de_evidencia_tambien_traduce_el_fallo_del_motor(monkeypatch):
+    """La subida a Storage sale bien, pero guardar la referencia falla."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from backend.routers.tickets import obtener_repositorio
+
+    monkeypatch.setattr(
+        storage, "subir_evidencia_ticket",
+        lambda folio, data, tipo, nombre: {
+            "success": True, "fileUrl": "https://x/clip.mp4", "mime": "video/mp4", "sha256": "abc",
+        },
+    )
+    repo = TicketRepository(_motor_que_falla())
+    app.dependency_overrides[obtener_repositorio] = lambda: repo
+    try:
+        respuesta = TestClient(app).post(
+            "/api/v2/tickets/BUG-0001/evidencia",
+            json={"data": "data:video/mp4;base64,AAAA", "type": "video/mp4", "name": "clip.mp4"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert respuesta.status_code == 503
+    assert "PostgREST" not in respuesta.json()["detail"]
+
+
+def test_un_error_de_negocio_no_se_confunde_con_un_fallo_de_motor():
+    """
+    `_es_tabla_faltante` solo mira los `ErrorDeMotor`. Un `BackendError` de
+    otra clase —"sin usuario en sesión"— tiene que seguir siendo un 400 con
+    su mensaje propio, no un 502 genérico.
+    """
+    from backend.routers.tickets import _es_tabla_faltante
+    from backend.core.errors import BackendError
+
+    assert _es_tabla_faltante(BackendError("sin usuario en sesión")) is False
