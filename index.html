@@ -11450,7 +11450,12 @@ function iniciarDictadoNativo(campoDestinoId) {
         }
       })
       .catch(function (err) {
-        Swal.fire('Error', err.message || 'No se pudo enviar el ticket.', 'error');
+        // Inline, NO Swal: el overlay de este modal está en z-index 2500 y
+        // SweetAlert2 se dibuja en 1060, así que una alerta lanzada con el
+        // modal abierto queda detrás y su botón "OK" es inalcanzable — el
+        // usuario se queda con un diálogo trabado. Comprobado en el navegador
+        // el 2026-08-13, cuando el backend devolvió 503 por falta del DDL.
+        mostrarErrorEnModal(err.message || 'No se pudo enviar el ticket.');
       })
       .finally(function () {
         btnEnviar.disabled = false;
@@ -11513,6 +11518,7 @@ function iniciarDictadoNativo(campoDestinoId) {
   .ts-card .ts-resolver button { background: #1f6f68; color: #fff; border: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-weight: 700; }
   .ts-card .ts-resolver button:disabled { opacity: 0.6; cursor: not-allowed; }
   #ts-vacio { color: #777; padding: 20px 0; text-align: center; }
+  .ts-error { display: none; color: #b23b3b; font-weight: 700; font-size: 11px; margin-top: 6px; }
 </style>
 
 <button id="tickets-soporte-fab" type="button">🎫 Tickets</button>
@@ -11588,12 +11594,15 @@ function iniciarDictadoNativo(campoDestinoId) {
         '<select class="ts-estatus">' + opciones + '</select>' +
         '<input type="text" class="ts-notas" placeholder="Nota de resolución (opcional)" value="' + escaparHtml(t.resolucion_notas || '') + '">' +
         '<button type="button" class="ts-guardar">Guardar</button>' +
-      '</div>';
+      '</div>' +
+      '<div class="ts-error"></div>';
 
     div.querySelector('.ts-guardar').addEventListener('click', function () {
       var boton = div.querySelector('.ts-guardar');
+      var cajaError = div.querySelector('.ts-error');
       var estatusNuevo = div.querySelector('.ts-estatus').value;
       var notas = div.querySelector('.ts-notas').value;
+      cajaError.style.display = 'none';
       boton.disabled = true;
       boton.textContent = 'Guardando...';
       fetch(window.API_BASE_URL + '/api/v2/tickets/' + encodeURIComponent(t.folio), {
@@ -11611,7 +11620,11 @@ function iniciarDictadoNativo(campoDestinoId) {
           cargarTickets();
         })
         .catch(function (err) {
-          Swal.fire('Error', err.message || 'No se pudo actualizar el ticket.', 'error');
+          // Inline por la misma razón que en el modal de reportar: este panel
+          // vive en z-index 2500 y SweetAlert2 en 1060, así que una alerta
+          // lanzada con el panel abierto queda detrás y no se puede cerrar.
+          cajaError.textContent = err.message || 'No se pudo actualizar el ticket.';
+          cajaError.style.display = 'block';
           boton.disabled = false;
           boton.textContent = 'Guardar';
         });
