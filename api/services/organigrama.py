@@ -135,7 +135,7 @@ PERFILES: Dict[str, Dict[str, Any]] = {
     "ROCIO_CASTRO": {"role": "STAFF_USER", "label": "Rocio Castro Covarrubias", "email": "", "staff_name": "ROCIO ABIGAIL CASTRO COVARRUBIAS", "dept": "FINANZAS", "seller": False},
     "GERALDINE_MARTINEZ": {"role": "STAFF_USER", "label": "Geraldine Marie Martinez Hernandez", "email": "", "staff_name": "GERALDINE MARTINEZ HERNANDEZ", "dept": "PRECIOS UNITARIOS", "seller": False},
     "CESAR_EDUARDO_GARCIA": {"role": "STAFF_USER", "label": "Cesar Eduardo Garcia Avalos", "email": "", "staff_name": "CESAR EDUARDO GARCIA AVALOS", "dept": "CONSTRUCCION", "seller": False},
-    "ANTONIO_SALAZAR": {"role": "STAFF_USER", "label": "Antonio Salazar", "email": "", "staff_name": "ANTONIO SALAZAR", "dept": "GENERAL", "seller": False},
+    "ANTONIO_SALAZAR": {"role": "STAFF_USER", "label": "Antonio Salazar", "email": "", "staff_name": "ANTONIO SALAZAR", "dept": "GENERAL", "seller": False, "soporte": True},
     # Baja (2026-08): se retiró de `USER_DB` en Apps Script y no se migra a
     # `profiles`, así que no puede entrar a ninguna de las dos plataformas. Su
     # casilla se conserva aquí porque el organigrama lo registra en GENERAL y
@@ -216,6 +216,19 @@ def _perfil_desde_base(clave: str) -> Optional[Dict[str, Any]]:
             "staff_name": fila.get("staff_name") or base.get("staff_name", ""),
             "dept": fila.get("dept") or base.get("dept", ""),
             "seller": bool(fila.get("seller", base.get("seller", False))),
+            # `soporte` habilita la vista de tickets de bug. Faltaba aquí, y
+            # como este diccionario se reconstruye clave por clave, la bandera
+            # se perdía en cuanto la cuenta existía en `profiles`: quedaba
+            # encendida en la semilla y apagada en producción, sin aviso.
+            # Medido contra el proyecto real el 2026-08-13 con ANTONIO_SALAZAR.
+            #
+            # `is None` en vez de `.get(k, default)`: hoy la tabla no tiene la
+            # columna y hay que caer a la semilla, pero si mañana se agrega y
+            # llega en nulo, también debe caer — un nulo no es "revocada".
+            "soporte": bool(
+                fila["soporte"] if fila.get("soporte") is not None
+                else base.get("soporte", False)
+            ),
         }
     return None
 

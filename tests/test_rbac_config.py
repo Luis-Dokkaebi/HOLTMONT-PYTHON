@@ -217,6 +217,30 @@ def test_luis_carlos_tiene_ademas_la_bandera_explicita():
     assert organigrama.perfil("LUIS_CARLOS").get("soporte") is True
 
 
+def test_antonio_salazar_ve_los_tickets_sin_ser_admin():
+    """
+    El primer caso real de la bandera haciendo su trabajo: `ANTONIO_SALAZAR`
+    es STAFF_USER —no lo cubre ninguna rama de rol— y aun así entra al panel
+    de tickets. Si alguien le quita `soporte` del perfil, esta prueba lo dice.
+    """
+    assert organigrama.perfil("ANTONIO_SALAZAR").get("role") == "STAFF_USER"
+    assert config("STAFF_USER", "ANTONIO_SALAZAR")["canManageTickets"] is True
+
+
+def test_la_bandera_no_le_da_nada_mas_que_los_tickets():
+    """
+    `soporte` es aditiva y acotada: enciende `canManageTickets` y **nada
+    más**. Un STAFF_USER con la bandera sigue sin departamentos, sin
+    proyectos y viendo solo su propia hoja.
+    """
+    antonio = config("STAFF_USER", "ANTONIO_SALAZAR")
+    otro = config("STAFF_USER", "MIGUEL_GALLARDO")
+    assert antonio["departments"] == {} == otro["departments"]
+    assert antonio["accessProjects"] is False
+    assert antonio["canSeeBancoJuntas"] is False
+    assert [p["name"] for p in antonio["staff"]] == ["ANTONIO SALAZAR"]
+
+
 @pytest.mark.parametrize("rol,cuenta", [
     ("STAFF_USER", "MIGUEL_GALLARDO"),
     ("PPC_ADMIN", "JESUS_CANTU"),
@@ -231,8 +255,51 @@ def test_la_bandera_explicita_alcanza_aunque_el_rol_no_sea_admin(monkeypatch):
     """
     `soporte: True` en un STAFF_USER cualquiera también debe encender
     `canManageTickets` -- no es un privilegio exclusivo de ADMIN/ADMIN_CONTROL,
-    es aditivo como `seller`. Hoy nadie fuera de LUIS_CARLOS trae la bandera,
-    así que se simula con un perfil de prueba.
+    es aditivo como `seller`. Se simula con un perfil de prueba para fijar la
+    regla con independencia de quién la traiga hoy en el organigrama.
     """
     monkeypatch.setattr(organigrama, "perfil", lambda cuenta: {"role": "STAFF_USER", "soporte": True})
     assert config("STAFF_USER", "QUIEN_SEA")["canManageTickets"] is True
+
+
+# --- La bandera tiene que sobrevivir a la tabla `profiles` ---------------
+#
+# `perfil()` prefiere la fila de `profiles` sobre la semilla del código, y
+# `_perfil_desde_base` reconstruye el diccionario clave por clave. `soporte`
+# no estaba en esa lista, así que se descartaba en silencio: en cuanto la
+# cuenta existía en la tabla, la bandera dejaba de existir.
+#
+# Medido contra el proyecto real el 2026-08-13: ANTONIO_SALAZAR salía con
+# `canManageTickets: False` pese a tener `soporte: True` en la semilla.
+# LUIS_CARLOS lo tapaba porque su rol ADMIN se lo concede igual.
+
+
+def _con_fila_en_profiles(monkeypatch, **columnas):
+    """Simula que la cuenta ya existe en la tabla `profiles`."""
+    fila = {"username": "ANTONIO_SALAZAR", "role": "STAFF_USER", **columnas}
+    organigrama.reset_cache_perfiles()
+    monkeypatch.setattr(organigrama, "_filas_profiles", lambda: [fila])
+
+
+def test_la_bandera_sobrevive_a_una_fila_en_profiles(monkeypatch):
+    """La tabla no trae columna `soporte`: debe mandar la semilla, no perderse."""
+    _con_fila_en_profiles(monkeypatch)
+    assert organigrama.perfil("ANTONIO_SALAZAR").get("soporte") is True
+    assert config("STAFF_USER", "ANTONIO_SALAZAR")["canManageTickets"] is True
+
+
+def test_la_base_puede_revocar_la_bandera(monkeypatch):
+    """
+    Si algún día la tabla sí trae la columna, manda la tabla: es el punto de
+    la migración a `profiles` — cambiar permisos sin desplegar código.
+    """
+    _con_fila_en_profiles(monkeypatch, soporte=False)
+    assert organigrama.perfil("ANTONIO_SALAZAR").get("soporte") is False
+    assert config("STAFF_USER", "ANTONIO_SALAZAR")["canManageTickets"] is False
+
+
+def test_la_base_puede_conceder_la_bandera_a_quien_no_la_trae(monkeypatch):
+    fila = {"username": "MIGUEL_GALLARDO", "role": "STAFF_USER", "soporte": True}
+    organigrama.reset_cache_perfiles()
+    monkeypatch.setattr(organigrama, "_filas_profiles", lambda: [fila])
+    assert config("STAFF_USER", "MIGUEL_GALLARDO")["canManageTickets"] is True
