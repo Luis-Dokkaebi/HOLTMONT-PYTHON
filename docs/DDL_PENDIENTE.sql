@@ -231,3 +231,46 @@ CREATE POLICY ticket_evidencia_select
 -- custodia legal certificada ante un tercero (sellado de tiempo con autoridad
 -- certificadora, notariado). Si el uso que se le va a dar es ese, falta un
 -- paso aparte — confirmarlo con quien lleve el tema legal antes de prometerlo.
+
+
+-- ===========================================================================
+-- 6. ticket_notificaciones  — REQUERIDA por /api/v2/notificaciones
+-- ===========================================================================
+-- Los avisos que ve quien reportó un bug cuando su ticket cambia de estatus.
+--
+-- Tabla aparte y no columnas dentro de `bug_tickets` porque un aviso es un
+-- **evento**, no un estado: un ticket que pasa por ABIERTO, EN_REVISION y
+-- RESUELTO produce tres avisos, y cada uno se marca como leído por separado.
+--
+-- El canal es dentro de la plataforma, no correo. La razón está medida: de
+-- las 41 cuentas del organigrama solo 6 tienen correo registrado, así que un
+-- aviso por correo no le llegaría a 35 personas — y fallaría en silencio.
+-- Ver `backend/schemas/notificacion.py` para los textos, que son fijos.
+--
+-- Sin clave foránea a `bug_tickets`: el aviso ya emitido es historia y no
+-- debe desaparecer si algún día se depura un ticket viejo. El `folio` queda
+-- como referencia legible, que es para lo que lo usa la campanita.
+
+CREATE TABLE IF NOT EXISTS public.ticket_notificaciones (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    folio         text NOT NULL,
+    destinatario  text NOT NULL,
+    estatus       text NOT NULL,
+    mensaje       text NOT NULL,
+    leida         boolean NOT NULL DEFAULT false,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- El índice que importa: la campanita pregunta "cuántas no leídas tengo" en
+-- cada carga, y esa consulta filtra por las dos columnas a la vez.
+CREATE INDEX IF NOT EXISTS ticket_notificaciones_bandeja_idx
+    ON public.ticket_notificaciones (destinatario, leida);
+CREATE INDEX IF NOT EXISTS ticket_notificaciones_folio_idx
+    ON public.ticket_notificaciones (folio);
+
+-- Mismo cerrojo doble que `bug_tickets`: RLS encendida y sin políticas deja
+-- la tabla accesible solo a `service_role`, que es quien la usa desde el
+-- backend. Sin esto, la clave `anon` —la que se publica en el navegador—
+-- podría leer los avisos de cualquier persona y marcárselos como leídos.
+ALTER TABLE public.ticket_notificaciones ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE ON public.ticket_notificaciones TO service_role;

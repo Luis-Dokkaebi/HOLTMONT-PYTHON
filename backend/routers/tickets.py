@@ -1,10 +1,12 @@
 """
 Router de `bug_tickets`, bajo `/api/v2` igual que `tasks`.
 
-Cuatro rutas, un verbo cada una: crear, listar, mover de estatus, agregar
-evidencia. A propósito no existe una quinta que reciba `descripcion` o
-`evidencia` en un PATCH — es la garantía, a nivel de superficie de API, de
-que ningún camino reescribe lo que ya se reportó.
+Un verbo por ruta: crear, listar, mover de estatus, agregar evidencia,
+verificar su integridad, y los dos de avisos al reportante.
+
+A propósito **no** existe ninguna que reciba `descripcion` o `evidencia` en
+un PATCH — es la garantía, a nivel de superficie de API, de que ningún
+camino reescribe lo que ya se reportó.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from pydantic import BaseModel, Field
 from backend.core.engine import DataEngine, construir_engine
 from backend.core.errors import BackendError, ErrorDeMotor, SinMotorConfigurado
 from backend.repositories.tickets import TicketNoEncontrado, TicketRepository
+from backend.schemas.notificacion import MarcarLeidas
 from backend.schemas.ticket import TicketUpdate, TicketWrite
 
 router = APIRouter(prefix="/api/v2", tags=["tickets"])
@@ -207,3 +210,51 @@ def agregar_evidencia(
     except BackendError as exc:
         raise _fallo_de_motor(exc) from exc
     return {"success": True, "data": actualizado.model_dump(mode="json")}
+
+
+# ======================================================================
+# Avisos a quien reportó
+# ======================================================================
+# Van en este router y no en uno propio porque su ciclo de vida es el del
+# ticket: no existen avisos que no vengan de un cambio de estatus.
+#
+# El canal es dentro de la plataforma, no correo. Medido sobre el
+# organigrama: de 41 cuentas, solo 6 tienen correo registrado, así que un
+# aviso por correo no le llegaría a 35 personas y fallaría en silencio.
+
+
+@router.get("/notificaciones")
+def listar_notificaciones(
+    usuario: str = Query(..., min_length=1, description="Cuenta destinataria"),
+    solo_no_leidas: bool = Query(False),
+    repo: TicketRepository = Depends(obtener_repositorio),
+) -> Dict[str, Any]:
+    try:
+        avisos = repo.notificaciones.listar(usuario, solo_no_leidas=solo_no_leidas)
+        no_leidas = repo.notificaciones.contar_no_leidas(usuario)
+    except BackendError as exc:
+        raise _fallo_de_motor(exc) from exc
+    return {
+        "success": True,
+        "data": [a.model_dump(mode="json") for a in avisos],
+        "no_leidas": no_leidas,
+    }
+
+
+@router.post("/notificaciones/marcar-leidas")
+def marcar_notificaciones_leidas(
+    peticion: MarcarLeidas = Body(...),
+    repo: TicketRepository = Depends(obtener_repositorio),
+) -> Dict[str, Any]:
+    """
+    Marca avisos como leídos. Sin `ids`, marca todos los de esa persona.
+
+    El destinatario se filtra siempre, también cuando vienen `ids`: una
+    petición con el id de otra persona no puede marcarle sus avisos.
+    """
+    try:
+        cuantas = repo.notificaciones.marcar_leidas(peticion.destinatario, peticion.ids)
+        no_leidas = repo.notificaciones.contar_no_leidas(peticion.destinatario)
+    except BackendError as exc:
+        raise _fallo_de_motor(exc) from exc
+    return {"success": True, "marcadas": cuantas, "no_leidas": no_leidas}

@@ -17,6 +17,7 @@ la lógica y que un `dict` ingenuo se saltaría:
 from __future__ import annotations
 
 import copy
+import uuid
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional, Sequence
 
@@ -37,25 +38,40 @@ NO_NULOS: Dict[str, tuple] = {
         "id", "folio", "reportado_por", "modulo", "descripcion",
         "severidad", "estatus", "evidencia", "created_at", "updated_at",
     ),
+    "ticket_notificaciones": (
+        "id", "folio", "destinatario", "estatus", "mensaje", "leida", "created_at",
+    ),
 }
 
 # Valores por defecto reales. Importan porque una columna NOT NULL **con**
 # default se puede omitir en un alta y una **sin** default no.
+#
+# Un valor invocable se llama en cada alta, que es lo que hace falta para
+# imitar a `gen_random_uuid()`. Con un UUID fijo, todas las filas de una tabla
+# compartían `id`: inofensivo mientras el upsert use otra clave (`tasks` usa
+# `dedupe_key`), pero `ticket_notificaciones` upserta por `id` y marcar un
+# aviso como leído marcaba los de todo el mundo. El doble tiene que fallar
+# donde falla la base, no donde no.
 DEFAULTS: Dict[str, Dict[str, Any]] = {
     "tasks": {
-        "id": "00000000-0000-0000-0000-000000000000",
+        "id": lambda: str(uuid.uuid4()),
         "folio_sintetico": False,
         "avance": 0,
         "status": "PENDIENTE",
         "created_at": "1970-01-01T00:00:00Z",
     },
     "bug_tickets": {
-        "id": "00000000-0000-0000-0000-000000000000",
+        "id": lambda: str(uuid.uuid4()),
         "severidad": "MEDIA",
         "estatus": "ABIERTO",
         "evidencia": [],
         "created_at": "1970-01-01T00:00:00Z",
         "updated_at": "1970-01-01T00:00:00Z",
+    },
+    "ticket_notificaciones": {
+        "id": lambda: str(uuid.uuid4()),
+        "leida": False,
+        "created_at": "1970-01-01T00:00:00Z",
     },
 }
 
@@ -64,6 +80,11 @@ SIN_DEFAULT: Dict[str, tuple] = {
     tabla: tuple(c for c in columnas if c not in DEFAULTS.get(tabla, {}))
     for tabla, columnas in NO_NULOS.items()
 }
+
+
+def _con_defaults(tabla: str) -> Dict[str, Any]:
+    """Defaults de una tabla, resolviendo los invocables (ver DEFAULTS)."""
+    return {c: (v() if callable(v) else v) for c, v in DEFAULTS.get(tabla, {}).items()}
 
 
 class MemoryEngine:
@@ -143,7 +164,7 @@ class MemoryEngine:
             existente = indice.get(clave)
             if existente is None:
                 self._validar_alta(tabla, fila)
-                nueva = dict(DEFAULTS.get(tabla, {}))
+                nueva = _con_defaults(tabla)
                 nueva.update(copy.deepcopy(dict(fila)))
                 destino.append(nueva)
                 indice[clave] = nueva
@@ -169,7 +190,7 @@ class MemoryEngine:
         destino = self.datos.setdefault(tabla, [])
         nuevas = []
         for fila in filas:
-            nueva = dict(DEFAULTS.get(tabla, {}))
+            nueva = _con_defaults(tabla)
             nueva.update(copy.deepcopy(dict(fila)))
             destino.append(nueva)
             nuevas.append(copy.deepcopy(nueva))
