@@ -47,6 +47,13 @@ class TicketRepository:
 
     def __init__(self, engine: DataEngine):
         self.engine = engine
+        # Los avisos a quien reportó viven en otra tabla y en otro
+        # repositorio. Se compone aquí, y no se inyecta por el constructor,
+        # porque avisar no es opcional para el negocio: un ticket que cambia
+        # de estatus sin avisar es la queja que originó esta funcionalidad.
+        from backend.repositories.notificaciones import NotificacionRepository
+
+        self.notificaciones = NotificacionRepository(engine)
 
     # --- identidad --------------------------------------------------------
 
@@ -123,7 +130,12 @@ class TicketRepository:
             "updated_at": ahora,
         }
         guardadas = self.engine.insertar(TABLA, [fila])
-        return TicketRead.model_validate(guardadas[0])
+        creado = TicketRead.model_validate(guardadas[0])
+        # Acuse de recibo: que quien reportó sepa que llegó y con qué folio
+        # referirse a él. Sin `actor`, porque aquí el reportante SÍ debe
+        # recibirlo aunque sea quien lo creó.
+        self.notificaciones.crear_para_ticket(creado.folio, creado.reportado_por, "ABIERTO")
+        return creado
 
     def actualizar_estatus(self, folio: str, cambios: TicketUpdate) -> TicketRead:
         """
@@ -141,7 +153,14 @@ class TicketRepository:
         fila["updated_at"] = _ahora()
 
         guardadas = self.engine.upsert(TABLA, [fila], en_conflicto=CLAVE_UPSERT)
-        return TicketRead.model_validate(guardadas[0])
+        actualizado = TicketRead.model_validate(guardadas[0])
+        # Avisar a quien reportó, no a quien resolvió: `actor` evita que
+        # soporte se notifique a sí mismo al mover un ticket propio.
+        self.notificaciones.crear_para_ticket(
+            actualizado.folio, actualizado.reportado_por, cambios.estatus,
+            actor=cambios.resuelto_por,
+        )
+        return actualizado
 
     def agregar_evidencia(self, folio: str, item: Dict[str, Any]) -> TicketRead:
         """

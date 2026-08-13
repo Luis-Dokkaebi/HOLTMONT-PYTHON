@@ -612,7 +612,7 @@ def _captura_actividad_sin_responsable(contexto: Dict[str, Any], concepto: str,
 def _reporta_un_bug(contexto: Dict[str, Any], quien: str, descripcion: str, modulo: str) -> None:
     from backend.repositories.tickets import TicketRepository
 
-    contexto["motor"] = MemoryEngine({"bug_tickets": []})
+    contexto["motor"] = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
     contexto["tickets"] = TicketRepository(contexto["motor"])
     contexto["reportante"] = quien
     contexto["descripcion"] = descripcion
@@ -708,3 +708,49 @@ def _marca_el_ticket(contexto: Dict[str, Any], quien: str, estatus: str) -> None
 def _ticket_resuelto_por(contexto: Dict[str, Any], quien: str) -> None:
     assert contexto["ticket"].resuelto_por == quien
     assert contexto["ticket"].resuelto_en is not None
+
+
+# ----------------------------------------------------------------------
+# Avisos a quien reporta un bug
+# ----------------------------------------------------------------------
+#
+# El canal es dentro de la plataforma, no correo: de las 41 cuentas del
+# organigrama solo 6 tienen correo registrado, así que un aviso por correo no
+# le llegaría a 35 personas y fallaría en silencio.
+
+@given("que el sistema de avisos está caído")
+def _avisos_caidos(contexto: Dict[str, Any]) -> None:
+    """La tabla de avisos no existe o la base no responde."""
+    from backend.core.errors import ErrorDeMotor
+
+    motor = contexto["motor"]
+    original = motor.insertar
+
+    def falla_solo_en_avisos(tabla, filas):
+        if tabla == "ticket_notificaciones":
+            raise ErrorDeMotor("la tabla de avisos no existe", codigo="PGRST205")
+        return original(tabla, filas)
+
+    motor.insertar = falla_solo_en_avisos
+
+
+@when(parsers.parse("{quien} lee sus avisos"))
+def _lee_sus_avisos(contexto: Dict[str, Any], quien: str) -> None:
+    _asegurar_ticket(contexto)
+    contexto["tickets"].notificaciones.marcar_leidas(quien)
+
+
+@then(parsers.parse("{quien} tiene {cuantos:d} aviso sin leer"))
+@then(parsers.parse("{quien} tiene {cuantos:d} avisos sin leer"))
+def _avisos_sin_leer(contexto: Dict[str, Any], quien: str, cuantos: int) -> None:
+    _asegurar_ticket(contexto)
+    reales = contexto["tickets"].notificaciones.contar_no_leidas(quien)
+    assert reales == cuantos, f"{quien} tiene {reales} avisos sin leer, se esperaban {cuantos}"
+
+
+@then(parsers.parse('su aviso más reciente dice "{fragmento}"'))
+def _aviso_reciente_dice(contexto: Dict[str, Any], fragmento: str) -> None:
+    bandeja = contexto["tickets"].notificaciones.listar(contexto["reportante"])
+    assert bandeja, "no hay ningún aviso en la bandeja"
+    assert fragmento in bandeja[0].mensaje, (
+        f"el aviso dice {bandeja[0].mensaje!r} y se esperaba que incluyera {fragmento!r}")

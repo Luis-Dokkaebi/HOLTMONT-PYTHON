@@ -11661,5 +11661,153 @@ function iniciarDictadoNativo(campoDestinoId) {
   filtro.addEventListener('change', cargarTickets);
 })();
 </script>
+
+<!-- ============================================================ -->
+<!-- Campanita: avisos a quien reportó un bug.                     -->
+<!-- Canal dentro de la plataforma y no correo porque de las 41    -->
+<!-- cuentas del organigrama solo 6 tienen correo registrado; un   -->
+<!-- aviso por correo no le llegaría a 35 personas.                -->
+<!-- Aislada fuera de #app, igual que las otras dos piezas.        -->
+<!-- ============================================================ -->
+<style>
+  #avisos-fab {
+    display: none; position: fixed; right: 18px; bottom: 138px; z-index: 2500;
+    background: #fff; color: #333; border: 1px solid #ccc; border-radius: 999px;
+    width: 44px; height: 44px; font-size: 19px; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  }
+  #avisos-fab:hover { filter: brightness(0.96); }
+  #avisos-badge {
+    position: absolute; top: -5px; right: -5px; min-width: 19px; height: 19px;
+    background: #b23b3b; color: #fff; border-radius: 999px; font-size: 11px;
+    font-weight: 700; line-height: 19px; padding: 0 5px; font-family: Arial, sans-serif;
+  }
+  #avisos-panel {
+    display: none; position: fixed; right: 18px; bottom: 190px; z-index: 2500;
+    width: 92%; max-width: 360px; max-height: 60vh; overflow-y: auto;
+    background: #fff; color: #222; border: 1px solid #ddd; border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.3); font-family: Arial, sans-serif; font-size: 13px;
+  }
+  #avisos-panel.open { display: block; }
+  #avisos-panel .av-head {
+    padding: 11px 14px; border-bottom: 1px solid #eee; display: flex;
+    justify-content: space-between; align-items: center; gap: 8px;
+  }
+  #avisos-panel .av-head b { font-size: 14px; }
+  #avisos-marcar {
+    background: transparent; border: none; color: #1f6f68; cursor: pointer;
+    font-size: 11px; font-weight: 700; text-decoration: underline; padding: 0;
+  }
+  #avisos-marcar:disabled { opacity: 0.45; cursor: default; text-decoration: none; }
+  .av-item { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
+  .av-item:last-child { border-bottom: none; }
+  .av-item.no-leida { background: #f2f8f7; border-left: 3px solid #1f6f68; }
+  .av-item .av-folio { font-weight: 700; font-size: 11px; color: #666; }
+  .av-item .av-msg { margin-top: 3px; }
+  .av-item .av-fecha { color: #999; font-size: 10px; margin-top: 3px; }
+  #avisos-vacio { padding: 22px 14px; text-align: center; color: #888; }
+</style>
+
+<button id="avisos-fab" type="button" title="Mis avisos">🔔<span id="avisos-badge" style="display:none">0</span></button>
+
+<div id="avisos-panel">
+  <div class="av-head">
+    <b>Mis avisos</b>
+    <button type="button" id="avisos-marcar">marcar todas como leídas</button>
+  </div>
+  <div id="avisos-lista"></div>
+</div>
+
+<script>
+(function () {
+  var fab = document.getElementById('avisos-fab');
+  var badge = document.getElementById('avisos-badge');
+  var panel = document.getElementById('avisos-panel');
+  var lista = document.getElementById('avisos-lista');
+  var btnMarcar = document.getElementById('avisos-marcar');
+
+  function usuarioActual() {
+    try { return (window.app && window.app.currentUsername) || ''; }
+    catch (e) { return ''; }
+  }
+
+  function escaparHtml(t) {
+    var d = document.createElement('div');
+    d.textContent = t == null ? '' : String(t);
+    return d.innerHTML;
+  }
+
+  function pintarContador(n) {
+    fab.style.display = usuarioActual() ? 'block' : 'none';
+    if (n > 0) {
+      badge.textContent = n > 99 ? '99+' : n;
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+    btnMarcar.disabled = n === 0;
+  }
+
+  function consultar(pintarLista) {
+    var quien = usuarioActual();
+    if (!quien) { fab.style.display = 'none'; return; }
+    fetch(window.API_BASE_URL + '/api/v2/notificaciones?usuario=' + encodeURIComponent(quien))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (body) {
+        if (!body) return;
+        pintarContador(body.no_leidas || 0);
+        if (!pintarLista) return;
+        var avisos = body.data || [];
+        if (!avisos.length) {
+          lista.innerHTML = '<div id="avisos-vacio">No tienes avisos.</div>';
+          return;
+        }
+        lista.innerHTML = avisos.map(function (a) {
+          return '<div class="av-item' + (a.leida ? '' : ' no-leida') + '">' +
+            '<div class="av-folio">' + escaparHtml(a.folio) + '</div>' +
+            '<div class="av-msg">' + escaparHtml(a.mensaje) + '</div>' +
+            '<div class="av-fecha">' + escaparHtml((a.created_at || '').slice(0, 16).replace('T', ' ')) + '</div>' +
+          '</div>';
+        }).join('');
+      })
+      .catch(function () { /* la campanita nunca estorba: si falla, se calla */ });
+  }
+
+  // El usuario se resuelve después del login, así que no hay un momento fijo
+  // en el que la campanita deba aparecer. Se revisa cada 30 s, que además
+  // sirve para traer avisos nuevos sin recargar la página.
+  consultar(false);
+  setInterval(function () { consultar(panel.classList.contains('open')); }, 30000);
+
+  fab.addEventListener('click', function () {
+    var abriendo = !panel.classList.contains('open');
+    panel.classList.toggle('open', abriendo);
+    if (abriendo) {
+      lista.innerHTML = '<div id="avisos-vacio">Cargando...</div>';
+      consultar(true);
+    }
+  });
+
+  btnMarcar.addEventListener('click', function () {
+    var quien = usuarioActual();
+    if (!quien) return;
+    btnMarcar.disabled = true;
+    fetch(window.API_BASE_URL + '/api/v2/notificaciones/marcar-leidas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destinatario: quien })
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function () { consultar(true); })
+      .catch(function () { btnMarcar.disabled = false; });
+  });
+
+  document.addEventListener('click', function (ev) {
+    if (!panel.contains(ev.target) && ev.target !== fab && !fab.contains(ev.target)) {
+      panel.classList.remove('open');
+    }
+  });
+})();
+</script>
 </body>
 </html>
