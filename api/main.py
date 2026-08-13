@@ -1064,7 +1064,7 @@ try:
     from backend.routers.tickets import router as tickets_v2_router
 
     app.include_router(tickets_v2_router)
-except Exception as exc:  # pragma: no cover - depende del entorno
+except Exception as exc:
     print(f"Capa de tickets /api/v2 no disponible: {exc}")
 
 

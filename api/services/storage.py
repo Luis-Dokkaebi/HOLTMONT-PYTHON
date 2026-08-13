@@ -199,7 +199,7 @@ def subir_evidencia_ticket(folio: Any, data: Any, tipo: Any = None, nombre: Any 
         almacen = sb_manager.client.storage.from_(bucket_evidencia())
         almacen.upload(ruta, contenido, {"content-type": mime, "upsert": "false"})
         url = almacen.get_public_url(ruta)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"success": False, "message": f"No se pudo subir la evidencia: {exc}"}
 
     return {"success": True, "fileUrl": url, "path": ruta, "sha256": sha256, "mime": mime}
