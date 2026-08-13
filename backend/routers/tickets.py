@@ -138,6 +138,44 @@ def actualizar_ticket(
     return {"success": True, "data": actualizado.model_dump(mode="json")}
 
 
+@router.get("/tickets/{folio}/evidencia/verificacion")
+def verificar_evidencia_del_ticket(
+    folio: str,
+    repo: TicketRepository = Depends(obtener_repositorio),
+) -> Dict[str, Any]:
+    """
+    Comprueba que cada adjunto siga siendo el que se subió.
+
+    Descarga el objeto y compara su hash con el `sha256` guardado al momento
+    de subirlo. Existe porque la evidencia **no es inmutable** frente a la
+    clave de servicio —medido el 2026-08-13: `PUT` con `x-upsert` y `DELETE`
+    pasan pese a las políticas, porque `service_role` tiene BYPASSRLS, y
+    Storage no ofrece object-lock—. No pudiendo impedir la alteración, esto
+    es lo que permite demostrarla.
+
+    `integra` es `true` solo si **todos** los adjuntos están intactos.
+    """
+    from api.services import storage
+
+    try:
+        ticket = repo.obtener(folio)
+    except TicketNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BackendError as exc:
+        raise _fallo_de_motor(exc) from exc
+
+    resultados = [
+        {"url": e.get("url"), **storage.verificar_evidencia(e.get("url"), e.get("sha256"))}
+        for e in (ticket.evidencia or [])
+    ]
+    return {
+        "success": True,
+        "folio": ticket.folio,
+        "integra": all(r.get("estado") == "intacta" for r in resultados),
+        "evidencia": resultados,
+    }
+
+
 @router.post("/tickets/{folio}/evidencia")
 def agregar_evidencia(
     folio: str,

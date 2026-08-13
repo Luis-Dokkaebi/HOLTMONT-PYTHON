@@ -4,9 +4,16 @@ existen después de creado un ticket — mover de estatus y agregar evidencia.
 
 No hay un tercer camino. `actualizar_estatus` nunca acepta `descripcion` ni
 `evidencia`; `agregar_evidencia` nunca acepta reemplazar el arreglo, solo
-extenderlo. La inmutabilidad de la evidencia no depende solo de la política
-de Storage (fuera del alcance de este módulo) — depende también de que el
-código nunca ofrezca el verbo para pisarla.
+extenderlo.
+
+Eso cubre a la aplicación, que es lo que este módulo controla. **No cubre a
+quien tenga la clave de servicio**: se midió contra el proyecto real el
+2026-08-13 que `service_role` sobrescribe (`PUT` con `x-upsert`) y borra
+objetos del bucket pese a las políticas, porque tiene BYPASSRLS. Storage no
+ofrece object-lock, así que no hay forma de impedirlo.
+
+Por eso `evidencia[].sha256` no es un adorno: es el mecanismo que convierte
+una alteración en algo **detectable**. Ver `verificar_evidencia`.
 """
 
 from __future__ import annotations

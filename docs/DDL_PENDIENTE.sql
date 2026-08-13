@@ -180,10 +180,35 @@ GRANT SELECT, INSERT, UPDATE ON public.bug_tickets TO service_role;
 -- `api/services/storage.py::MIME_EVIDENCIA_PERMITIDOS`, así que un cambio en
 -- uno de los dos lados hay que reflejarlo en el otro.
 --
--- Solo dos políticas. La ausencia de las otras dos ES la restricción: sin una
--- política de UPDATE o DELETE, PostgREST y el cliente de Storage deniegan por
--- default. Nadie —ni quien subió el video, ni un admin desde la app, ni un
--- bug en el propio backend— puede reemplazarlo o borrarlo por este camino.
+-- Solo dos políticas. La ausencia de las otras dos ES la restricción para las
+-- claves `anon` y `authenticated`: sin política de UPDATE o DELETE, Storage
+-- deniega por default.
+--
+-- ⚠️ ALCANCE REAL, medido contra este proyecto el 2026-08-13. `service_role`
+-- tiene BYPASSRLS, así que estas políticas **no lo limitan**. Comprobado con
+-- la clave de servicio sobre un objeto ya subido:
+--
+--   POST al mismo path            -> 409 Duplicate            (bloqueado)
+--   PUT con cabecera x-upsert     -> 200, archivo SOBRESCRITO (NO bloqueado)
+--   DELETE                        -> 200 Successfully deleted (NO bloqueado)
+--
+-- Es decir: quien tenga la clave de servicio puede alterar o borrar la
+-- evidencia. Storage no ofrece object-lock ni WORM, así que **no existe** una
+-- configuración que lo impida. Lo que sí hay, y es lo que se debe prometer:
+--
+--   1. Prevención frente al navegador: con la clave `anon` —la única que se
+--      publica— la evidencia no se puede tocar. Eso sí lo garantizan estas
+--      políticas.
+--   2. Prevención frente a la propia aplicación: ningún camino del código
+--      ofrece el verbo (no hay `reemplazar_evidencia`, y la subida va con
+--      `upsert: "false"`).
+--   3. Detección frente a todo lo demás: `bug_tickets.evidencia[].sha256`
+--      guarda el hash del contenido en el momento de subirlo, así que una
+--      alteración posterior es *detectable* aunque no sea *impedible*.
+--
+-- La frase correcta es "la evidencia no se puede alterar sin que se note", no
+-- "no se puede alterar". Custodiar la clave de servicio es parte del control,
+-- no un detalle operativo.
 
 -- `DROP ... IF EXISTS` + `CREATE` en vez de `CREATE POLICY IF NOT EXISTS`:
 -- Postgres **no** admite `IF NOT EXISTS` en `CREATE POLICY` (comprobado contra

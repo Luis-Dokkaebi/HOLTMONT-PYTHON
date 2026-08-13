@@ -157,15 +157,17 @@ def subir_evidencia_ticket(folio: Any, data: Any, tipo: Any = None, nombre: Any 
       público que ya usan el tracker y el banco;
     * whitelist de MIME y tope de tamaño, porque esto es evidencia de un
       reporte, no cualquier documento;
-    * `upsert: "false"` explícito y el hash del contenido devuelto: la
-      inmutabilidad que promete el ticket depende de que esta función jamás
-      pise un objeto existente, y el `sha256` es lo que permite verificar
-      después que nadie lo hizo por otra vía.
+    * `upsert: "false"` explícito y el hash del contenido devuelto.
 
-    La otra mitad de esa garantía —que nadie pueda editar ni borrar el
-    objeto una vez subido— la da la política de Storage
-    (docs/DDL_PENDIENTE.sql §5), no este código: aquí solo se asegura que la
-    propia plataforma nunca ofrezca el camino para intentarlo.
+    Sobre el alcance real, medido contra el proyecto el 2026-08-13: las
+    políticas de Storage impiden alterar la evidencia con la clave `anon`
+    —la única que se publica en el navegador— pero **no** con la de servicio,
+    que tiene BYPASSRLS y sobrescribe (`PUT` con `x-upsert`) y borra sin
+    problema. Storage no ofrece object-lock, así que no existe configuración
+    que lo impida.
+
+    De ahí que el `sha256` sea la pieza que importa: no impide la alteración,
+    la vuelve **detectable**. Ver `verificar_evidencia`.
     """
     from api.services.supabase_manager import sb_manager
 
@@ -203,6 +205,53 @@ def subir_evidencia_ticket(folio: Any, data: Any, tipo: Any = None, nombre: Any 
         return {"success": False, "message": f"No se pudo subir la evidencia: {exc}"}
 
     return {"success": True, "fileUrl": url, "path": ruta, "sha256": sha256, "mime": mime}
+
+
+def verificar_evidencia(file_url: Any, sha256_esperado: Any) -> Dict[str, Any]:
+    """
+    ¿El archivo que hay hoy en Storage es el que se subió?
+
+    Descarga el objeto y compara su hash con el que se guardó en
+    `bug_tickets.evidencia[].sha256` al momento de subirlo. Devuelve
+    `{estado, ...}` con uno de tres veredictos:
+
+    * `intacta`     — el hash coincide;
+    * `alterada`    — el archivo existe pero su hash cambió;
+    * `desaparecida`— el objeto ya no está.
+
+    Esto es lo que hace útil al `sha256`. Las políticas de Storage impiden que
+    la evidencia se toque desde el navegador, pero no desde la clave de
+    servicio (medido: `PUT` con `x-upsert` y `DELETE` pasan). No pudiendo
+    impedir la alteración, lo que queda es poder demostrarla — y una promesa
+    de integridad que nadie puede comprobar no vale nada.
+    """
+    from api.services.supabase_manager import sb_manager
+
+    esperado = str(sha256_esperado or "").strip().lower()
+    if not esperado:
+        return {"estado": "sin_hash",
+                "mensaje": "La evidencia se guardó sin sha256: no hay contra qué comparar."}
+
+    if not sb_manager.is_configured:
+        return {"estado": "indeterminado", "mensaje": "Supabase no está configurado."}
+
+    ruta = _ruta_desde_url(file_url, bucket_evidencia())
+    if not ruta:
+        return {"estado": "indeterminado",
+                "mensaje": "La URL no corresponde al bucket de evidencia."}
+
+    try:
+        contenido = sb_manager.client.storage.from_(bucket_evidencia()).download(ruta)
+    except Exception as exc:  # noqa: BLE001
+        return {"estado": "desaparecida", "ruta": ruta,
+                "mensaje": f"El archivo ya no está en Storage: {exc}"}
+
+    actual = hashlib.sha256(contenido).hexdigest()
+    if actual == esperado:
+        return {"estado": "intacta", "ruta": ruta, "sha256": actual}
+    return {"estado": "alterada", "ruta": ruta,
+            "sha256_esperado": esperado, "sha256_actual": actual,
+            "mensaje": "El contenido cambió desde que se subió."}
 
 
 def subir(data: Any, tipo: Any = None, nombre: Any = None,
@@ -277,14 +326,18 @@ def archivar_cotizacion(file_url: Any, cliente: Any, fecha: Any = None) -> Dict[
     return {"success": True, "fileUrl": url, "path": destino, "message": "Archivado."}
 
 
-def _ruta_desde_url(file_url: Any) -> Optional[str]:
+def _ruta_desde_url(file_url: Any, nombre_bucket: Optional[str] = None) -> Optional[str]:
     """
     Clave del objeto a partir de su URL pública.
 
     Formato de Supabase: `.../storage/v1/object/public/<bucket>/<ruta>`.
+
+    `nombre_bucket` por defecto es el bucket general (`bucket()`), que es lo
+    que necesitan `archivar_cotizacion` y los adjuntos del tracker. La
+    evidencia de tickets vive en otro bucket y lo pasa explícito.
     """
     texto = str(file_url or "")
-    marca = f"/object/public/{bucket()}/"
+    marca = f"/object/public/{nombre_bucket or bucket()}/"
     if marca not in texto:
         return None
     ruta = texto.split(marca, 1)[1].split("?")[0]

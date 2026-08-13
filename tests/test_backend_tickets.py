@@ -599,3 +599,125 @@ def test_un_error_de_negocio_no_se_confunde_con_un_fallo_de_motor():
     from backend.core.errors import BackendError
 
     assert _es_tabla_faltante(BackendError("sin usuario en sesión")) is False
+
+
+# --- Verificación de integridad ------------------------------------------
+#
+# La evidencia NO es inmutable frente a la clave de servicio. Medido contra el
+# proyecto real el 2026-08-13, con `service_role` sobre un objeto ya subido:
+#
+#   POST al mismo path        -> 409 Duplicate            (bloqueado)
+#   PUT con x-upsert: true    -> 200, archivo sobrescrito (NO bloqueado)
+#   DELETE                    -> 200 Successfully deleted (NO bloqueado)
+#
+# `service_role` tiene BYPASSRLS, así que las políticas no lo alcanzan, y
+# Storage no ofrece object-lock. No pudiendo impedirlo, lo que queda es
+# detectarlo: eso es `verificar_evidencia`, y estas pruebas son las que
+# sostienen esa promesa.
+
+
+class _AlmacenConContenido(_AlmacenFalso):
+    def __init__(self, contenido=None, falla=False):
+        super().__init__()
+        self._contenido = contenido
+        self._falla = falla
+
+    def download(self, ruta):
+        if self._falla:
+            raise RuntimeError("Object not found")
+        return self._contenido
+
+
+def _manager_con(contenido=None, falla=False):
+    falso = _ManagerFalso()
+    almacen = _AlmacenConContenido(contenido, falla)
+
+    class _C:
+        storage = almacen
+
+    falso.client = _C()
+    return falso
+
+
+URL_EVIDENCIA = (
+    "https://x.supabase.co/storage/v1/object/public/ticket-evidencia/2026/AGOSTO/BUG-0001/v.png"
+)
+
+
+def test_evidencia_intacta_cuando_el_hash_coincide(monkeypatch):
+    contenido = b"contenido original del video"
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(contenido))
+    r = storage.verificar_evidencia(URL_EVIDENCIA, hashlib.sha256(contenido).hexdigest())
+    assert r["estado"] == "intacta"
+
+
+def test_evidencia_alterada_se_detecta(monkeypatch):
+    """El caso que de verdad importa: alguien sobrescribió el archivo."""
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(b"ALTERADO"))
+    r = storage.verificar_evidencia(URL_EVIDENCIA, hashlib.sha256(b"original").hexdigest())
+    assert r["estado"] == "alterada"
+    assert r["sha256_actual"] != r["sha256_esperado"]
+
+
+def test_evidencia_borrada_se_detecta(monkeypatch):
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(falla=True))
+    r = storage.verificar_evidencia(URL_EVIDENCIA, "a" * 64)
+    assert r["estado"] == "desaparecida"
+
+
+def test_sin_hash_guardado_no_se_finge_una_verificacion(monkeypatch):
+    """Devolver "intacta" sin nada contra qué comparar sería mentir."""
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(b"x"))
+    assert storage.verificar_evidencia(URL_EVIDENCIA, None)["estado"] == "sin_hash"
+
+
+def test_una_url_de_otro_bucket_no_se_da_por_buena(monkeypatch):
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(b"x"))
+    otra = "https://x.supabase.co/storage/v1/object/public/archivos/2026/AGOSTO/cot.pdf"
+    assert storage.verificar_evidencia(otra, "a" * 64)["estado"] == "indeterminado"
+
+
+def test_el_endpoint_de_verificacion_reporta_integridad(cliente, monkeypatch):
+    contenido = b"video original"
+    sha = hashlib.sha256(contenido).hexdigest()
+    monkeypatch.setattr(
+        storage, "subir_evidencia_ticket",
+        lambda folio, data, tipo, nombre: {
+            "success": True, "fileUrl": URL_EVIDENCIA, "mime": "video/mp4", "sha256": sha,
+        },
+    )
+    cliente.post("/api/v2/tickets", json={"ticket": {"modulo": "T", "descripcion": "X"}, "reportado_por": "X"})
+    cliente.post("/api/v2/tickets/BUG-0001/evidencia",
+                 json={"data": "data:video/mp4;base64,AAAA", "type": "video/mp4", "name": "v.mp4"})
+
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(contenido))
+    ok = cliente.get("/api/v2/tickets/BUG-0001/evidencia/verificacion").json()
+    assert ok["integra"] is True
+
+    # Ahora alguien sobrescribe el archivo en Storage.
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(b"ALTERADO"))
+    malo = cliente.get("/api/v2/tickets/BUG-0001/evidencia/verificacion").json()
+    assert malo["integra"] is False
+    assert malo["evidencia"][0]["estado"] == "alterada"
+
+
+def test_verificar_un_ticket_inexistente_es_404(cliente):
+    assert cliente.get("/api/v2/tickets/BUG-9999/evidencia/verificacion").status_code == 404
+
+
+def test_un_ticket_sin_evidencia_es_integro_por_vacuidad(cliente):
+    cliente.post("/api/v2/tickets", json={"ticket": {"modulo": "T", "descripcion": "X"}, "reportado_por": "X"})
+    r = cliente.get("/api/v2/tickets/BUG-0001/evidencia/verificacion").json()
+    assert r["integra"] is True and r["evidencia"] == []
+
+
+def test_la_verificacion_traduce_el_fallo_del_motor(cliente_motor_roto):
+    r = cliente_motor_roto.get("/api/v2/tickets/BUG-0001/evidencia/verificacion")
+    assert r.status_code in (502, 503)
+    assert "PostgREST" not in r.json()["detail"]
+
+
+def test_sin_supabase_la_verificacion_no_finge_un_veredicto():
+    """`tests/conftest.py` desconecta las credenciales (R7): sin Storage no se
+    puede afirmar ni que está intacta ni que la alteraron."""
+    assert storage.verificar_evidencia(URL_EVIDENCIA, "a" * 64)["estado"] == "indeterminado"
