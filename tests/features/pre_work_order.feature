@@ -52,6 +52,18 @@ Característica: La Pre Work Order reparte su programa en el Tracker
     Cuando la orden se reparte en el Tracker
     Entonces ninguna tarea del reparto se toma por una fase de papa caliente
 
+  Escenario: Terminar mi renglón no cierra el de otra persona
+    Dado que la orden repartió "MONTAR TABLERO" a "TERESA GARZA" y "CABLEAR CHAROLA" a "ANGEL SALINAS"
+    Cuando "TERESA GARZA" deja "MONTAR TABLERO" al 100 %
+    Entonces "MONTAR TABLERO" queda terminada
+    Y "CABLEAR CHAROLA" sigue en operativo con su propio avance
+
+  Escenario: Una actividad terminada no regresa a operativo
+    Dado que la orden repartió "MONTAR TABLERO" a "TERESA GARZA" y "CABLEAR CHAROLA" a "ANGEL SALINAS"
+    Cuando "TERESA GARZA" deja "MONTAR TABLERO" al 100 %
+    Y "ANGEL SALINAS" deja "CABLEAR CHAROLA" al 30 %
+    Entonces "MONTAR TABLERO" queda terminada
+
   Escenario: Una orden sin clasificación del Tracker se rechaza entera
     Dado una Pre Work Order con clasificación "Media"
     Cuando se guarda la orden

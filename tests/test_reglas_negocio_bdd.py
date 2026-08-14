@@ -17,7 +17,7 @@ from pytest_bdd import given, parsers, scenarios, then, when
 from api.services import tracker_store
 from api.services import work_order
 from api.services.asignacion import destinos_espejo, es_delegacion_de_fase
-from api.services.sheets import SEPARADOR_ARCHIVO, _valores_de_tareas
+from api.services.sheets import SEPARADOR_ARCHIVO, _esta_archivada, _valores_de_tareas
 from api.services.tracker_rules import (
     Gatekeeper,
     apply_batch_update,
@@ -515,6 +515,90 @@ def _ninguna_en_ventas(contexto: Dict[str, Any]) -> None:
 def _ninguna_es_fase(contexto: Dict[str, Any]) -> None:
     for _, fila in contexto["reparto"]:
         assert es_delegacion_de_fase(fila) is False, fila["CONCEPTO"]
+
+
+# Los renglones de un programa comparten el folio de la orden pero son trabajos
+# distintos, de personas distintas. Confundirlos con copias de una misma
+# actividad hacía que el 100 % de uno cerrara el de otro, y que el avance de otro
+# devolviera a operativo lo ya terminado. Ver `tests/test_actividades_que_regresan.py`.
+
+FOLIO_DE_LA_ORDEN = "1001AC Electro 060826"
+
+
+@given(parsers.parse(
+    'que la orden repartió "{una}" a "{persona_una}" y "{otra}" a "{persona_otra}"'))
+def _orden_repartida(contexto: Dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+                     una: str, persona_una: str, otra: str, persona_otra: str) -> None:
+    from api.services.asignacion import clave_de_copia
+
+    reparto = work_order.tareas_de_programa(
+        [{"description": una, "seccion": "TRABAJO", "responsable": persona_una},
+         {"description": otra, "seccion": "TRABAJO", "responsable": persona_otra}],
+        {"FOLIO": FOLIO_DE_LA_ORDEN, "AREA": "ELECTROMECANICA",
+         "CLASIFICACION": "AA", "FECHA": "06/08/26"},
+    )
+    assert len(reparto) == 2, reparto
+
+    contexto["renglones"] = {}
+    filas = []
+    for n, (hoja, fila) in enumerate(reparto, start=1):
+        contexto["renglones"][fila["CONCEPTO"].split(" [")[0]] = {
+            "hoja": hoja, "concepto": fila["CONCEPTO"],
+            "responsable": fila["INVOLUCRADOS"],
+        }
+        filas.append({
+            "id": f"2222222{n}-2222-2222-2222-22222222222{n}",
+            "dedupe_key": clave_de_copia(FOLIO_DE_LA_ORDEN, hoja),
+            "folio": FOLIO_DE_LA_ORDEN, "source_sheet": hoja,
+            "concepto": fila["CONCEPTO"], "assignee_raw": fila["INVOLUCRADOS"],
+            "avance": 0.0, "status": "ASIGNADO", "folio_sintetico": False,
+            "created_at": f"2026-08-0{n}T00:00:00Z",
+        })
+
+    contexto["motor"] = MemoryEngine({
+        "tasks": filas, "quotes": [], "people": [], "plan_semanal": [],
+        "task_involucrados": [], "system_log": [],
+    })
+    monkeypatch.setattr(tracker_store, "_persistencia",
+                        lambda: PersistenciaTracker(contexto["motor"]))
+    monkeypatch.setattr(
+        tracker_store, "read_values",
+        lambda hoja: [["FOLIO", "CONCEPTO", "INVOLUCRADOS", "AVANCE", "ESTATUS"]])
+
+
+@when(parsers.parse('"{persona}" deja "{descripcion}" al {avance:d} %'))
+def _deja_su_renglon(contexto: Dict[str, Any], persona: str,
+                     descripcion: str, avance: int) -> None:
+    renglon = contexto["renglones"][descripcion]
+    assert renglon["hoja"] == persona, (
+        f"«{descripcion}» es de {renglon['hoja']}, no de {persona}")
+    contexto["respuesta"] = tracker_store.save_tracker_batch(
+        renglon["hoja"],
+        [{"FOLIO": FOLIO_DE_LA_ORDEN, "CONCEPTO": renglon["concepto"],
+          "INVOLUCRADOS": renglon["responsable"], "AVANCE": str(avance)}],
+        username=persona.replace(" ", "_"),
+    )
+    assert contexto["respuesta"]["success"] is True, contexto["respuesta"].get("message")
+
+
+def _fila_del_renglon(contexto: Dict[str, Any], descripcion: str) -> Dict[str, Any]:
+    renglon = contexto["renglones"][descripcion]
+    return next(f for f in contexto["motor"].select("tasks")
+                if f["source_sheet"] == renglon["hoja"])
+
+
+@then(parsers.parse('"{descripcion}" queda terminada'))
+def _renglon_terminado(contexto: Dict[str, Any], descripcion: str) -> None:
+    fila = _fila_del_renglon(contexto, descripcion)
+    assert _esta_archivada(fila) is True, fila
+
+
+@then(parsers.parse('"{descripcion}" sigue en operativo con su propio avance'))
+def _renglon_intacto(contexto: Dict[str, Any], descripcion: str) -> None:
+    fila = _fila_del_renglon(contexto, descripcion)
+    assert _esta_archivada(fila) is False, (
+        f"«{descripcion}» se archivó sin que su responsable la tocara: {fila}")
+    assert fila["avance"] == 0.0, f"su avance se pisó con el de otro renglón: {fila}"
 
 
 @given(parsers.parse('una Pre Work Order con clasificación "{clase}"'))

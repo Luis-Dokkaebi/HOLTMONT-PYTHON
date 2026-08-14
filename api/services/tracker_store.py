@@ -348,6 +348,60 @@ def _copias_de(persistencia, folio: Any, tabla: str = "tasks") -> List[Dict[str,
         return []
 
 
+def _copias_de_la_actividad(persistencia, tarea: Dict[str, Any], folio: Any,
+                            origen: Any, tabla: str = "tasks") -> List[Dict[str, Any]]:
+    """
+    Filas que son **la misma actividad** que `tarea`, no solo el mismo folio.
+
+    El folio dejó de bastar como identidad. Lo que lo rompió es el programa de
+    una orden de trabajo: `work_order.tareas_de_programa` estampa el folio de la
+    **orden** en cada renglón, así que "Memoria de cálculo" de Geraldine y
+    "Montaje de tablero" de Miguel viajan con el mismo folio siendo dos trabajos
+    distintos, de dos personas distintas.
+
+    Tratarlas como copias tenía dos efectos, los dos reportados por los usuarios
+    el 2026-08-14:
+
+    * Geraldine cerraba lo suyo al 100 % y la actividad de Miguel se archivaba
+      sola, sin que él hiciera nada ni subiera evidencia.
+    * Miguel guardaba la suya al 30 % y **la de Geraldine, ya terminada, volvía
+      a operativo** con ese 30 %.
+
+    La discriminación es el CONCEPTO, y no hace falta columna nueva: las copias
+    de verdad lo comparten por construcción —`construir_espejo` lo copia tal
+    cual y `CAMPOS_BILATERALES` lo excluye a propósito para que no diverja
+    (`asignacion.py`)— y los renglones de programa no, porque cada uno describe
+    su propio trabajo.
+
+    La referencia es el CONCEPTO que trae la captura y, si no lo trae, el de la
+    fila almacenada en la hoja de origen. Cuando no hay ninguno de los dos no se
+    puede distinguir una copia de una hermana, y entonces se devuelve el grupo
+    entero: es el comportamiento anterior, que para una actividad asignada —el
+    caso normal, donde el folio sí identifica— sigue siendo el correcto.
+    """
+    copias = _copias_de(persistencia, folio, tabla)
+    if not copias:
+        return []
+
+    referencia = rules.normalize_cell_value(
+        rules.pick_task_value(tarea or {}, rules.COLUMN_ALIASES["CONCEPTO"]))
+    if not referencia:
+        referencia = next(
+            (rules.normalize_cell_value(c.get("concepto")) for c in copias
+             if rules.normalize_staff_name(c.get("source_sheet"))
+             == rules.normalize_staff_name(origen)),
+            "")
+    if not referencia:
+        return copias
+
+    # Una fila sin CONCEPTO tampoco se puede distinguir, y ahí manda lo de
+    # antes: se trata como copia. `concepto` es NOT NULL en el esquema, así que
+    # esto solo alcanza a filas heredadas con la cadena vacía; los renglones de
+    # programa siempre lo traen (`tareas_de_programa` descarta los que no).
+    return [c for c in copias
+            if rules.normalize_cell_value(c.get("concepto")) in (referencia, "")]
+
+
 def _hoja_originadora(copias: Sequence[Dict[str, Any]]) -> Optional[str]:
     """
     Hoja donde nació la actividad: la fila más antigua de las que comparten folio.
@@ -363,12 +417,17 @@ def _hoja_originadora(copias: Sequence[Dict[str, Any]]) -> Optional[str]:
     return min(con_hoja, key=lambda c: str(c.get("created_at") or "9999"))["source_sheet"]
 
 
-def _hojas_con_folio(persistencia, folio: str, excepto: Iterable[str] = (),
-                     tabla: str = "tasks") -> List[str]:
-    """Hojas con una copia de este folio, salvo las indicadas. Sin repetir."""
+def _hojas_con_la_actividad(persistencia, tarea: Dict[str, Any], folio: str,
+                            origen: Any, excepto: Iterable[str] = (),
+                            tabla: str = "tasks") -> List[str]:
+    """
+    Hojas con una copia de **esta actividad**, salvo las indicadas. Sin repetir.
+
+    Compartir folio no basta: ver `_copias_de_la_actividad`.
+    """
     fuera = {rules.normalize_staff_name(h) for h in excepto}
     hojas: List[str] = []
-    for fila in _copias_de(persistencia, folio, tabla):
+    for fila in _copias_de_la_actividad(persistencia, tarea, folio, origen, tabla):
         hoja = fila.get("source_sheet")
         if not hoja or rules.normalize_staff_name(hoja) in fuera:
             continue
@@ -394,7 +453,7 @@ def _motivo_de_bloqueo_por_reasignacion(persistencia, origen: str,
     tabla = _tabla_de(origen)
     for tarea in tareas:
         folio = rules.pick_task_value(tarea, ["FOLIO", "ID"])
-        copias = _copias_de(persistencia, folio, tabla)
+        copias = _copias_de_la_actividad(persistencia, tarea, folio, origen, tabla)
         originadora = _hoja_originadora(copias)
         if not originadora or rules.normalize_staff_name(originadora) == rules.normalize_staff_name(origen):
             continue
@@ -431,7 +490,7 @@ def _folios_reasignados(origen: str, tareas: List[Dict[str, Any]],
         if not folio:
             continue
         propia = next(
-            (c for c in _copias_de(persistencia, folio, tabla)
+            (c for c in _copias_de_la_actividad(persistencia, tarea, folio, origen, tabla)
              if rules.normalize_staff_name(c.get("source_sheet"))
              == rules.normalize_staff_name(origen)),
             None,
@@ -492,7 +551,7 @@ def _retirar_copias_huerfanas(origen: str, tareas: List[Dict[str, Any]], usernam
         if str(folio).strip() not in (reasignados or set()):
             continue
 
-        copias = _copias_de(persistencia, folio, tabla)
+        copias = _copias_de_la_actividad(persistencia, tarea, folio, origen, tabla)
         vigentes = {rules.normalize_staff_name(d)
                     for d in asignacion.destinos_espejo(origen, tarea, username)}
         vigentes.add(rules.normalize_staff_name(origen))
@@ -544,7 +603,11 @@ def _sincronizar_copias(origen: str, tareas: List[Dict[str, Any]], username: str
         # reverse sync, que además cierra la fase en el timeline.
         maestra = _hoja_maestra_de_folio(cambios["FOLIO"])
         excepto = [origen] + ([maestra] if maestra else [])
-        for hoja in _hojas_con_folio(persistencia, cambios["FOLIO"], excepto, tabla):
+        # El CONCEPTO se toma de `tarea`, no de `cambios`: los campos
+        # bilaterales no lo incluyen (no viaja entre copias, a propósito) y sin
+        # él no se distingue una copia de un renglón de programa hermano.
+        for hoja in _hojas_con_la_actividad(persistencia, tarea, cambios["FOLIO"],
+                                            origen, excepto, tabla):
             por_destino.setdefault(hoja, []).append(dict(cambios))
 
     for hoja, filas in por_destino.items():

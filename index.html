@@ -8066,8 +8066,7 @@ const filteredStaffTrackerData = computed(() => {
           row._isSaving = true;
 
           if (event && event.clientX) {
-             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && (parseFloat(String(v).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(v).replace('%', '').replace(',', '.').trim()) === 1 && !String(v).includes('%')))) || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
-             if (isCompleted) triggerConfetti(event.clientX, event.clientY);
+             if (esCierreDeActividad(row)) triggerConfetti(event.clientX, event.clientY);
           }
           const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
           Toast.fire({ icon: 'info', title: 'Guardando...' });
@@ -8866,38 +8865,90 @@ const filteredStaffTrackerData = computed(() => {
       const reloadStaffTracker = () => loadTrackerData();
 
 
+      // ¿El AVANCE de una casilla significa 100 %?
+      //
+      // Es la regla de AGENTS.md §4, la misma que `is_progress_complete()` en
+      // `api/services/tracker_rules.py`: el número nativo `1` viene de una celda
+      // con formato de porcentaje y sí es 100 %, pero el string "1" lo tecleó
+      // una persona y significa 1 %.
+      //
+      // Estaba copiada en cuatro sitios como
+      // `parseFloat(v) === 1 && !v.includes('%')`. El backend serializa toda
+      // celda como texto, así que sobre "1" esa copia daba 100 %: una tarea al
+      // 1 % se pintaba como terminada en la agenda y, al guardarla, la
+      // validación de evidencia la trataba como cierre y la bloqueaba.
+      const esAvanceCompleto = (valor) => {
+          if (valor === null || valor === undefined || valor === '') return false;
+          if (typeof valor === 'number') {
+              return Math.abs(valor - 1) < 0.001 || Math.abs(valor - 100) < 0.01;
+          }
+          const limpio = String(valor).replace('%', '').replace(',', '.').trim();
+          if (!limpio) return false;
+          const num = parseFloat(limpio);
+          if (isNaN(num)) return false;
+          // "1", "1.0" y "1.00" son 1 %, nunca 100 %.
+          if (['1', '1.0', '1.00'].includes(limpio)) return false;
+          return Math.abs(num - 100) < 0.01;
+      };
+
+      // ¿Lo que se está guardando deja la actividad cerrada?
+      //
+      // Nota para quien mantenga esto: la rama de ESTATUS solo dispara en las
+      // tablas de ventas, porque el tracker de tareas rotula esa columna
+      // `STATUS` (`TASK_HEADER_MAP` en `api/services/sheets.py`) y `STATUS` no
+      // contiene la cadena "ESTATUS". Se deja tal cual: ampliarla haría la
+      // validación MÁS estricta de lo que está hoy en producción, y eso es una
+      // decisión del dueño, no un arreglo.
+      const esCierreDeActividad = (row) => Object.entries(row || {}).some(([k, v]) => {
+          const kUp = String(k).toUpperCase().trim();
+          const vStr = String(v === null || v === undefined ? '' : v).toUpperCase().trim();
+          if (kUp.includes('AVANCE') && esAvanceCompleto(v)) return true;
+          if (kUp.includes('ESTATUS') && ['HECHO', 'TERMINADO', 'FINALIZADO', 'REALIZADO', 'COMPLETADO', 'DONE'].includes(vStr)) return true;
+          if (kUp.includes('CUMPLIMIENTO') && vStr === 'SI') return true;
+          return false;
+      });
+
+      // Columnas de archivo genéricas. Son **la misma exigencia**, no varias:
+      // ARCHIVO es el nombre viejo de CARPETA (`ALIAS_DE_HOJA['carpeta']` en
+      // `backend/schemas/task.py`) y CORREO es la segunda nube de la misma fila.
+      const COLUMNAS_DE_EVIDENCIA = ['ARCHIVO', 'CARPETA', 'CARPETAS', 'CORREO', 'CORREOS'];
+
+      // Los cinco entregables de una cotización. Aquí sí se piden uno por uno:
+      // son documentos distintos, no dos nombres del mismo archivo.
+      const DOCUMENTOS_DE_COTIZACION = ['INFO CLIENTE', 'F2', 'COTIZACION', 'TIMELINE', 'LAYOUT'];
+
+      // Evidencia obligatoria para cerrar una actividad.
+      //
+      // Pedía `['ARCHIVO']` en el tracker y además CORREO y CARPETA en toda
+      // tabla. El tracker de tareas **no tiene** columna ARCHIVO —se llama
+      // CARPETA—, así que la exigencia que el código nombra nunca se aplicaba, y
+      // en su lugar quedaba una que nadie definió: subir el documento DOS veces,
+      // una en CARPETA y otra en CORREO. Como CORREO no se persistió hasta el
+      // 2026-08-12, las actividades viejas se quedaban sin poder cerrarse aunque
+      // su dueño volviera a adjuntar todo. Reportado el 2026-08-14.
+      //
+      // Lo que se pide ahora: **evidencia**, una vez, en cualquiera de las
+      // columnas de archivo que tenga la tabla.
       const validateCompletionFiles = (row, headers) => {
-          const isCompleted = Object.entries(row).some(([k, v]) => {
-              const kUp = String(k).toUpperCase().trim();
-              const vStr = String(v).toUpperCase().trim();
-              if (kUp.includes('AVANCE') && (parseFloat(String(vStr).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(vStr).replace('%', '').replace(',', '.').trim()) === 1 && !String(vStr).includes('%')))) return true;
-              if (kUp.includes('ESTATUS') && ['HECHO', 'TERMINADO', 'FINALIZADO', 'REALIZADO', 'COMPLETADO', 'DONE'].includes(vStr)) return true;
-              if (kUp.includes('CUMPLIMIENTO') && vStr === 'SI') return true;
-              return false;
-          });
+          if (!esCierreDeActividad(row)) return { valid: true };
 
-          if (isCompleted) {
-              let requiredFiles = ['INFO CLIENTE', 'F2', 'COTIZACION', 'TIMELINE', 'LAYOUT'];
+          const columnas = (headers || []).map(h => String(h).toUpperCase().trim());
+          const valorDe = (columna) => {
+              const clave = Object.keys(row || {}).find(k => String(k).toUpperCase().trim() === columna);
+              const val = clave ? row[clave] : null;
+              return (val === null || val === undefined) ? '' : String(val).trim();
+          };
 
-              const isSalesTracker = headers.some(h => ['COTIZACION', 'F2', 'LAYOUT'].includes(String(h).toUpperCase().trim()));
-              if (!isSalesTracker) {
-                  requiredFiles = ['ARCHIVO'];
+          const esDeVentas = ['COTIZACION', 'F2', 'LAYOUT'].some(c => columnas.includes(c));
+          if (esDeVentas) {
+              for (const doc of DOCUMENTOS_DE_COTIZACION) {
+                  if (columnas.includes(doc) && !valorDe(doc)) return { valid: false, missing: doc };
               }
+          }
 
-              requiredFiles.push('CORREO', 'CARPETA');
-
-              for (const req of requiredFiles) {
-                  // Check if this requirement is part of the current tracker's columns
-                  const headerExists = headers.some(h => String(h).toUpperCase().trim() === req);
-                  if (headerExists) {
-                      // Find the actual key used in the row object for this header
-                      const rowKey = Object.keys(row).find(k => String(k).toUpperCase().trim() === req);
-                      const val = rowKey ? row[rowKey] : null;
-                      if (!val || String(val).trim() === '') {
-                          return { valid: false, missing: req };
-                      }
-                  }
-              }
+          const evidencia = COLUMNAS_DE_EVIDENCIA.filter(c => columnas.includes(c));
+          if (evidencia.length && !evidencia.some(c => valorDe(c))) {
+              return { valid: false, missing: evidencia.join(' o ') };
           }
           return { valid: true };
       };
@@ -9030,8 +9081,7 @@ const filteredStaffTrackerData = computed(() => {
           }
 
           if (event && event.clientX) {
-             const isCompleted = Object.entries(row).some(([k, v]) => (String(k).toUpperCase().includes('AVANCE') && (parseFloat(String(v).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(v).replace('%', '').replace(',', '.').trim()) === 1 && !String(v).includes('%')))) || (String(k).toUpperCase().includes('CUMPLIMIENTO') && String(v).toUpperCase() === 'SI'));
-             if (isCompleted) triggerConfetti(event.clientX, event.clientY);
+             if (esCierreDeActividad(row)) triggerConfetti(event.clientX, event.clientY);
           }
           Swal.showLoading();
           google.script.run.withSuccessHandler(res => {
@@ -9642,8 +9692,7 @@ const filteredStaffTrackerData = computed(() => {
 
       const isTaskDone = (task) => {
           const status = String(task.ESTATUS || '').toUpperCase();
-          const avance = String(task.AVANCE || '').replace('%','').trim();
-          return status.includes('DONE') || status.includes('REALIZAD') || (parseFloat(String(avance).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(avance).replace('%', '').replace(',', '.').trim()) === 1 && !String(avance).includes('%')));
+          return status.includes('DONE') || status.includes('REALIZAD') || esAvanceCompleto(task.AVANCE);
       };
 
       const getResponsible = (task) => {

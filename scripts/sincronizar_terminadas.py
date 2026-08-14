@@ -356,20 +356,29 @@ def copias_desincronizadas(
     """
     `(copia_abierta, copia_cerrada)` por cada copia que quedó atrás.
 
-    Se agrupa por folio y no por `dedupe_key`, que es justamente lo que difiere
-    entre copias. Solo se propaga cuando existe una hermana cerrada: si todas
-    están abiertas no hay nada que propagar y cerrarlas sería inventar.
+    Se agrupa por folio **y CONCEPTO**, no por `dedupe_key`, que es justamente
+    lo que difiere entre copias. Solo se propaga cuando existe una hermana
+    cerrada: si todas están abiertas no hay nada que propagar y cerrarlas sería
+    inventar.
 
-    Las microtareas de papa caliente se excluyen. No es cautela genérica:
-    comparten folio entre sí y con la cotización, así que propagar pondría el
-    100 % de una fase encima del trabajo pendiente de otra persona. Es la misma
-    frontera que traza `campos_sincronizables`.
+    El CONCEPTO entra en la clave por la misma razón por la que entra en
+    `tracker_store._copias_de_la_actividad`: los renglones del programa de una
+    orden de trabajo llevan el folio de la **orden**
+    (`work_order.tareas_de_programa`), así que comparten folio siendo trabajos
+    distintos de personas distintas. Sin esta parte de la clave, este script
+    cerraría el renglón de Miguel porque Geraldine terminó el suyo — el mismo
+    defecto que se corrigió en el guardado el 2026-08-14.
+
+    Las microtareas de papa caliente se excluyen aparte. No es cautela
+    genérica: comparten folio entre sí y con la cotización, así que propagar
+    pondría el 100 % de una fase encima del trabajo pendiente de otra persona.
+    Es la misma frontera que traza `campos_sincronizables`.
     """
-    por_folio: Dict[str, List[Dict[str, Any]]] = collections.defaultdict(list)
+    por_folio: Dict[tuple, List[Dict[str, Any]]] = collections.defaultdict(list)
     for fila in filas:
         folio = str(fila.get("folio") or "").strip()
         if folio:
-            por_folio[folio].append(fila)
+            por_folio[(folio, _norm(fila.get("concepto")))].append(fila)
 
     pendientes: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
     for hermanas in por_folio.values():

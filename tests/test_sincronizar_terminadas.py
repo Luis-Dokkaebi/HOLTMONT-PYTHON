@@ -219,6 +219,20 @@ class TestCopiasDesincronizadas:
         cerrada = self._fila("B::PPC-1", "B", 100.0)
         assert sync.copias_desincronizadas([abierta, cerrada]) == []
 
+    def test_dos_renglones_de_la_misma_orden_no_son_copias(self):
+        """
+        El programa de una orden estampa el folio de la ORDEN en cada renglón
+        (`work_order.tareas_de_programa`), así que dos trabajos distintos, de
+        dos personas distintas, comparten folio. Cerrar uno porque el otro
+        terminó es el defecto que se corrigió en el guardado el 2026-08-14; este
+        script no puede reintroducirlo por la puerta de atrás.
+        """
+        montaje = self._fila("MIGUEL::PPC-1", "MIGUEL", 0.0,
+                             concepto="Montaje de tablero [PROGRAMA: EJECUCION]")
+        memoria = self._fila("GERALDINE::PPC-1", "GERALDINE", 100.0,
+                             concepto="Memoria de calculo [PROGRAMA: INGENIERIA]")
+        assert sync.copias_desincronizadas([montaje, memoria]) == []
+
 
 class TestFilaDeCierre:
     BASE = {"dedupe_key": "k1", "folio": "GM-1", "concepto": "Algo",

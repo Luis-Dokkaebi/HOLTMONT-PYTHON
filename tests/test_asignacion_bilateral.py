@@ -459,7 +459,13 @@ def test_el_100_de_geraldine_archiva_en_las_dos_tablas(escrituras, copias_en_la_
     """
     from api.services import tracker_store
 
-    copias_en_la_base["AS-0001"] = ["GERALDINE", "ANTONIO SALAZAR"]
+    # Las copias se declaran con su CONCEPTO, que es como están en la base: dos
+    # copias de una actividad asignada lo comparten, y por eso la
+    # sincronización las alcanza. Ver `tests/test_actividades_que_regresan.py`.
+    copias_en_la_base["AS-0001"] = [
+        {"source_sheet": "GERALDINE", "concepto": "Revisar planos"},
+        {"source_sheet": "ANTONIO SALAZAR", "concepto": "Revisar planos"},
+    ]
 
     tracker_store.save_tracker_batch(
         "GERALDINE",
