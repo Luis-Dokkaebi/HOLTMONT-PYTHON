@@ -311,6 +311,28 @@ def hojas_de_persona(nombre: Any) -> tuple:
     return por_etiqueta
 
 
+def hoja_canonica(nombre: Any) -> str:
+    """
+    La **única** hoja de tracker de una persona, a partir de cualquiera de sus
+    nombres. Cadena vacía si el organigrama no la conoce.
+
+    Es `hojas_de_persona()[0]` con nombre propio, y existe porque quien decide
+    *a dónde escribir* necesita un solo destino, no la lista de todos los
+    nombres con los que a alguien se le puede llamar. Usar la lista para leer y
+    el texto crudo para escribir es justo lo que partió en dos el tracker de
+    Carlos Méndez: sus tareas se guardaron mitad en `CARLOS MENDEZ`
+    (`staff_name`) y mitad en `CARLOS MENDEZ URBINA` (`label`, que es lo que
+    ofrece el selector de involucrados), y como la lectura une las dos
+    particiones, cada tarea aparecía **dos veces** en su tabla.
+
+    Devolver "" y no el nombre recibido es deliberado: quien llama tiene que
+    poder distinguir "el organigrama dice que su hoja es esta" de "no sé quién
+    es", que son decisiones distintas.
+    """
+    hojas = hojas_de_persona(nombre)
+    return hojas[0] if hojas else ""
+
+
 def es_vendedor(username: Any) -> bool:
     return bool(perfil(username).get("seller"))
 
