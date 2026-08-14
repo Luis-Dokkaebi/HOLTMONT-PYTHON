@@ -386,6 +386,18 @@ def _copia_va_a(contexto: Dict[str, Any], tabla: str) -> None:
     assert contexto["destinos"] == [tabla]
 
 
+@then("la actividad no se copia a ninguna otra tabla")
+def _sin_copia(contexto: Dict[str, Any]) -> None:
+    """
+    Asignarse algo a uno mismo —con cualquiera de sus dos nombres— no produce
+    copia. Si la produce, su tracker muestra la tarea duplicada, porque la vista
+    une las dos hojas de la misma persona.
+    """
+    assert contexto["destinos"] == [], (
+        f"es la misma persona: no hay a quién copiar, y se resolvió {contexto['destinos']}"
+    )
+
+
 @then("no hay ninguna tabla destino")
 def _sin_destino(contexto: Dict[str, Any]) -> None:
     assert contexto["destinos"] == [], (

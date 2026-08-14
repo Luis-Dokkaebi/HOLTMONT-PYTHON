@@ -24,7 +24,10 @@ mismo folio son difusión lateral, y dos folios distintos de la misma persona
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
+
+import pytest
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 
@@ -284,3 +287,227 @@ class TestAplicar:
         dedup.aplicar(motor, [{"persona": CARLOS, "folio": "PPC-1", "conservar": None,
                                "borrar": [], "parche": {}, "aviso": "se deja intacto"}])
         assert motor.eventos == []
+
+    def test_si_falla_el_borrado_de_los_hijos_la_fila_se_borra_igual(self):
+        """
+        `task_involucrados` puede no tener renglones o rechazar el borrado. Eso
+        no puede dejar la tarea duplicada: se avisa y se sigue.
+        """
+        class _MotorQueFallaEnLosHijos(self._MotorEspia):
+            def borrar(self, tabla, donde):
+                if tabla == "task_involucrados":
+                    raise dedup.ErrorDeMotor("PostgREST DELETE respondió 409")
+                super().borrar(tabla, donde)
+
+        motor = _MotorQueFallaEnLosHijos()
+        hechos = dedup.aplicar(motor, [{"persona": CARLOS, "folio": "PPC-1",
+                                        "conservar": fila("PPC-1", CARLOS),
+                                        "borrar": [fila("PPC-1", CARLOS_LARGO)],
+                                        "parche": {}, "aviso": ""}])
+
+        assert hechos == {"parches": 0, "involucrados": 0, "borradas": 1}
+        assert [(e[0], e[1]) for e in motor.eventos] == [("borrar", "tasks")]
+
+
+class _MotorFalso:
+    """Motor mínimo con las tres operaciones que usa el script."""
+
+    def __init__(self, tasks, involucrados=()):
+        self.tasks = [dict(f) for f in tasks]
+        self.involucrados = [dict(r) for r in involucrados]
+        self.upserts = []
+
+    def select(self, tabla, columnas=None, donde=None, donde_en=None, **kwargs):
+        filas = self.tasks if tabla == "tasks" else self.involucrados
+        if donde_en:
+            columna, valores = next(iter(donde_en.items()))
+            filas = [f for f in filas if f.get(columna) in set(valores)]
+        return [dict(f) for f in filas]
+
+    def upsert(self, tabla, filas, en_conflicto):
+        self.upserts.extend(filas)
+        for nueva in filas:
+            for f in self.tasks:
+                if f.get("dedupe_key") == nueva.get("dedupe_key"):
+                    f.update(nueva)
+        return list(filas)
+
+    def borrar(self, tabla, donde):
+        if tabla == "tasks":
+            self.tasks = [f for f in self.tasks if f.get("id") != donde.get("id")]
+        else:
+            self.involucrados = [r for r in self.involucrados
+                                 if r.get("task_id") != donde.get("task_id")]
+
+
+PAR_DE_CARLOS = [fila("PPC-204747395", CARLOS),
+                 fila("PPC-204747395", CARLOS_LARGO, reloj="1")]
+
+
+class TestImprimirPlan:
+    def test_el_grupo_avisado_sale_marcado_y_no_cuenta_como_borrado(self, capsys):
+        dedup.imprimir_plan([
+            {"persona": CARLOS, "folio": "PPC-1", "conservar": fila("PPC-1", CARLOS),
+             "borrar": [fila("PPC-1", CARLOS_LARGO)], "parche": {"reloj": "1"}, "aviso": ""},
+            {"persona": CARLOS, "folio": "PPC-9", "conservar": None, "borrar": [],
+             "parche": {}, "aviso": "2 filas en la partición canónica: se deja intacto"},
+        ])
+
+        salida = capsys.readouterr().out
+        assert "AVISO" in salida and "se deja intacto" in salida
+        assert "hereda ['reloj']" in salida
+        assert "total: 1 filas" in salida, "el grupo avisado no se cuenta"
+
+
+class TestAliasDelOrganigrama:
+    def test_reconoce_los_dos_nombres_de_carlos(self):
+        alias, canonica = dedup.alias_del_organigrama([CARLOS, CARLOS_LARGO, "PPCV4"])
+        assert canonica[CARLOS] == CARLOS
+        assert CARLOS in alias
+        assert "PPCV4" not in canonica, "PPCV4 no es la hoja de una persona"
+
+    def test_una_particion_desconocida_no_declara_canonica(self):
+        alias, canonica = dedup.alias_del_organigrama(["HOJA QUE NO EXISTE"])
+        assert alias == {} and canonica == {}
+
+
+class TestRespaldo:
+    def test_el_respaldo_guarda_la_fila_completa_y_sus_involucrados(self, tmp_path, monkeypatch):
+        """Sin la fila completa el respaldo no sirve para revertir con un INSERT."""
+        monkeypatch.setattr(dedup, "RAIZ", tmp_path)
+        borrada = fila("PPC-1", CARLOS_LARGO)
+        plan = [{"persona": CARLOS, "folio": "PPC-1", "conservar": fila("PPC-1", CARLOS),
+                 "borrar": [borrada], "parche": {"reloj": "1"}, "aviso": ""}]
+
+        ruta = dedup.respaldar(plan, {borrada["id"]: [{"task_id": borrada["id"],
+                                                      "raw_name": CARLOS}]})
+
+        guardado = json.loads(ruta.read_text(encoding="utf-8"))
+        assert guardado[0]["borradas"][0]["dedupe_key"] == borrada["dedupe_key"]
+        assert guardado[0]["borradas"][0]["concepto"] == borrada["concepto"]
+        assert guardado[0]["task_involucrados"][0]["raw_name"] == CARLOS
+        assert guardado[0]["parche"] == {"reloj": "1"}
+
+    def test_un_grupo_avisado_no_entra_al_respaldo(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(dedup, "RAIZ", tmp_path)
+        ruta = dedup.respaldar([{"persona": CARLOS, "folio": "PPC-1", "conservar": None,
+                                 "borrar": [], "parche": {}, "aviso": "se deja intacto"}], {})
+        assert json.loads(ruta.read_text(encoding="utf-8")) == []
+
+
+class TestDuplicadosRestantes:
+    def test_los_encuentra_releyendo_la_base(self):
+        motor = _MotorFalso(PAR_DE_CARLOS)
+        assert len(dedup.duplicados_restantes(motor)) == 1
+
+    def test_una_base_limpia_no_devuelve_nada(self):
+        motor = _MotorFalso([fila("PPC-1", CARLOS), fila("PPC-2", CARLOS)])
+        assert dedup.duplicados_restantes(motor) == []
+
+
+class TestInvolucradosDe:
+    def test_los_recoge_solo_de_las_filas_que_se_van_a_borrar(self):
+        borrada = PAR_DE_CARLOS[1]
+        motor = _MotorFalso(PAR_DE_CARLOS, [{"task_id": borrada["id"], "raw_name": CARLOS},
+                                            {"task_id": "otra", "raw_name": "NADIE"}])
+        plan = [{"persona": CARLOS, "folio": "PPC-1", "conservar": PAR_DE_CARLOS[0],
+                 "borrar": [borrada], "parche": {}, "aviso": ""}]
+
+        recogidos = dedup._involucrados_de(motor, plan)
+
+        assert list(recogidos) == [borrada["id"]]
+
+    def test_un_plan_sin_borrados_no_consulta_nada(self):
+        motor = _MotorFalso([], [{"task_id": "x", "raw_name": CARLOS}])
+        assert dedup._involucrados_de(motor, []) == {}
+
+
+class TestCargarEnv:
+    def test_lee_el_env_de_la_raiz_sin_pisar_lo_ya_definido(self, tmp_path, monkeypatch):
+        (tmp_path / ".env").write_text(
+            "# comentario\n\nSUPABASE_URL=https://de-archivo\nSUPABASE_KEY=k\nSIN_IGUAL\n",
+            encoding="utf-8")
+        monkeypatch.setattr(dedup, "RAIZ", tmp_path)
+        monkeypatch.setenv("SUPABASE_URL", "https://del-entorno")
+        monkeypatch.delenv("SUPABASE_KEY", raising=False)
+
+        dedup.cargar_env()
+
+        import os
+        assert os.environ["SUPABASE_URL"] == "https://del-entorno", "el entorno manda"
+        assert os.environ["SUPABASE_KEY"] == "k"
+
+    def test_sin_archivo_no_falla(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(dedup, "RAIZ", tmp_path)
+        dedup.cargar_env()
+
+
+class TestMain:
+    """La CLI: simula por defecto, escribe con --aplicar, y verifica al final."""
+
+    @pytest.fixture(autouse=True)
+    def _entorno(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(dedup, "RAIZ", tmp_path)
+        monkeypatch.setenv("SUPABASE_URL", "https://ejemplo")
+        monkeypatch.setenv("SUPABASE_KEY", "clave")
+
+    @staticmethod
+    def _con_motor(monkeypatch, motor, argv):
+        monkeypatch.setattr(dedup, "PostgrestEngine", lambda url, key: motor)
+        monkeypatch.setattr(dedup.sys, "argv", ["deduplicar_tareas.py", *argv])
+
+    def test_sin_credenciales_sale_con_codigo_2(self, monkeypatch):
+        monkeypatch.delenv("SUPABASE_URL", raising=False)
+        monkeypatch.setattr(dedup.sys, "argv", ["deduplicar_tareas.py"])
+        assert dedup.main() == 2
+
+    def test_la_simulacion_no_escribe_nada(self, monkeypatch, capsys):
+        motor = _MotorFalso(PAR_DE_CARLOS)
+        self._con_motor(monkeypatch, motor, [])
+
+        assert dedup.main() == 0
+        assert len(motor.tasks) == 2, "la simulación no puede borrar"
+        assert "Simulación" in capsys.readouterr().out
+
+    def test_aplicar_consolida_y_verifica(self, monkeypatch, capsys):
+        motor = _MotorFalso(PAR_DE_CARLOS,
+                            [{"task_id": PAR_DE_CARLOS[1]["id"], "raw_name": CARLOS}])
+        self._con_motor(monkeypatch, motor, ["--aplicar"])
+
+        assert dedup.main() == 0
+        assert [f["source_sheet"] for f in motor.tasks] == [CARLOS]
+        assert motor.involucrados == []
+        assert motor.upserts[0]["reloj"] == "1", "hereda el dato de la copia"
+        assert "ninguna persona tiene tareas duplicadas" in capsys.readouterr().out.lower()
+
+    def test_una_base_sin_duplicados_no_hace_nada(self, monkeypatch, capsys):
+        self._con_motor(monkeypatch, _MotorFalso([fila("PPC-1", CARLOS)]), ["--aplicar"])
+
+        assert dedup.main() == 0
+        assert "nada que hacer" in capsys.readouterr().out
+
+    def test_verificar_falla_con_codigo_1_si_quedan_duplicados(self, monkeypatch, capsys):
+        self._con_motor(monkeypatch, _MotorFalso(PAR_DE_CARLOS), ["--verificar"])
+
+        assert dedup.main() == 1
+        assert "Quedan 1 filas duplicadas" in capsys.readouterr().out
+
+    def test_verificar_pasa_con_la_base_ya_consolidada(self, monkeypatch, capsys):
+        self._con_motor(monkeypatch, _MotorFalso([fila("PPC-1", CARLOS)]), ["--verificar"])
+
+        assert dedup.main() == 0
+        assert "Ninguna persona tiene tareas duplicadas" in capsys.readouterr().out
+
+    def test_si_el_borrado_no_surte_efecto_main_devuelve_1(self, monkeypatch, capsys):
+        """
+        Un motor que acepta el borrado sin borrar nada tiene que salir con error:
+        la verificación final es la que impide reportar éxito sin haberlo hecho.
+        """
+        class _MotorSordo(_MotorFalso):
+            def borrar(self, tabla, donde):
+                pass
+
+        self._con_motor(monkeypatch, _MotorSordo(PAR_DE_CARLOS), ["--aplicar"])
+
+        assert dedup.main() == 1
+        assert "Todavía quedan duplicados" in capsys.readouterr().out

@@ -52,7 +52,7 @@ import os
 import pathlib
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
@@ -100,53 +100,78 @@ def _vacio(valor: Any) -> bool:
     return valor is None or (isinstance(valor, str) and not valor.strip())
 
 
+class _Conjuntos:
+    """Union-find sobre nombres de partición. Lo mínimo para agruparlas."""
+
+    def __init__(self, elementos: Sequence[str]):
+        self._padre = {e: e for e in elementos}
+
+    def raiz(self, x: str) -> str:
+        while self._padre[x] != x:
+            x = self._padre[x]
+        return x
+
+    def unir(self, a: str, b: str) -> None:
+        ra, rb = self.raiz(a), self.raiz(b)
+        if ra != rb:
+            self._padre[rb] = ra
+
+    def representantes(self) -> Dict[str, str]:
+        return {e: self.raiz(e) for e in self._padre}
+
+
+def _es_variante_de_grafia(a: str, b: str) -> bool:
+    """
+    ¿Son la misma hoja escrita de dos formas por la migración?
+
+    Solo cuenta el prefijo, que es la forma exacta de los dos casos medidos:
+    `…AVALOS` / `…AVALOS2` y `…COVARRUBIA` / `…COVARRUBIAS`. Compartir el
+    nombre de pila no basta: 'ROCIO CASTRO' y 'ROCIO ABIGAIL CASTRO
+    COVARRUBIA' son dos hojas distintas y unirlas sería decidir por parecido
+    que dos personas son una.
+    """
+    ca, cb = clave_hoja(a), clave_hoja(b)
+    return bool(ca) and bool(cb) and (ca.startswith(cb) or cb.startswith(ca))
+
+
 def agrupar_particiones(hojas: Iterable[str],
-                        alias: Optional[Dict[str, Sequence[str]]] = None) -> Dict[str, str]:
+                        alias: Optional[Mapping[str, Sequence[str]]] = None) -> Dict[str, str]:
     """
     Partición -> partición representante de la persona a la que pertenece.
 
     Dos particiones son de la misma persona cuando el organigrama lo dice
-    (`alias`, que trae `hojas_de_persona`) o cuando una es **prefijo** de la
-    otra. Lo segundo no es una heurística cómoda sino la forma exacta de las dos
-    grafías que dejó la migración y que se midieron en la base:
-
-        'CESAR EDUARDO GARCIA AVALOS'     / 'CESAR EDUARDO GARCIA AVALOS2'
-        'ROCIO ABIGAIL CASTRO COVARRUBIA' / 'ROCIO ABIGAIL CASTRO COVARRUBIAS'
-
-    Nombres que solo comparten el nombre de pila NO se unen: 'ROCIO CASTRO' y
-    'ROCIO ABIGAIL CASTRO COVARRUBIA' quedan separadas, porque unirlas sería
-    decidir por parecido que dos personas son una.
+    (`alias`, que trae `hojas_de_persona`) o cuando una es una variante de
+    grafía de la otra (ver `_es_variante_de_grafia`).
     """
     lista = sorted({str(h) for h in hojas})
-    padre = {h: h for h in lista}
+    conjuntos = _Conjuntos(lista)
+    _unir_por_alias(conjuntos, lista, alias or {})
+    _unir_por_grafia(conjuntos, lista)
+    return conjuntos.representantes()
 
-    def raiz(x: str) -> str:
-        while padre[x] != x:
-            x = padre[x]
-        return x
 
-    def unir(a: str, b: str) -> None:
-        ra, rb = raiz(a), raiz(b)
-        if ra != rb:
-            padre[rb] = ra
-
+def _unir_por_alias(conjuntos: "_Conjuntos", hojas: Sequence[str],
+                    alias: Mapping[str, Sequence[str]]) -> None:
+    """Une las particiones que el organigrama declara de la misma persona."""
     por_clave: Dict[str, List[str]] = collections.defaultdict(list)
-    for hoja in lista:
+    for hoja in hojas:
         por_clave[clave_hoja(hoja)].append(hoja)
 
-    for nombre, equivalentes in (alias or {}).items():
-        for equivalente in equivalentes:
-            for a in por_clave.get(clave_hoja(nombre), []):
-                for b in por_clave.get(clave_hoja(equivalente), []):
-                    unir(a, b)
+    for nombre, equivalentes in alias.items():
+        propias = por_clave.get(clave_hoja(nombre), [])
+        equivalentes_reales = [b for e in equivalentes
+                               for b in por_clave.get(clave_hoja(e), [])]
+        for a in propias:
+            for b in equivalentes_reales:
+                conjuntos.unir(a, b)
 
-    for i, a in enumerate(lista):
-        for b in lista[i + 1:]:
-            ca, cb = clave_hoja(a), clave_hoja(b)
-            if ca and cb and (ca.startswith(cb) or cb.startswith(ca)):
-                unir(a, b)
 
-    return {hoja: raiz(hoja) for hoja in lista}
+def _unir_por_grafia(conjuntos: "_Conjuntos", hojas: Sequence[str]) -> None:
+    """Une las dos grafías de una misma hoja que dejó la migración."""
+    for i, a in enumerate(hojas):
+        for b in hojas[i + 1:]:
+            if _es_variante_de_grafia(a, b):
+                conjuntos.unir(a, b)
 
 
 def elegir_canonica(particiones: Sequence[str], conteos: Dict[str, int],
@@ -190,24 +215,33 @@ def parche_de_herencia(conservada: Dict[str, Any],
     """
     parche: Dict[str, Any] = {}
     for copia in borradas:
-        hoja_copia = clave_hoja(copia.get("source_sheet"))
-        for columna, valor in copia.items():
-            if columna in NO_SE_HEREDAN or _vacio(valor):
-                continue
-            if columna == "avance":
-                continue
-            if clave_hoja(valor) == hoja_copia:
-                continue
+        for columna, valor in _heredables(copia).items():
             if _vacio(conservada.get(columna)) and columna not in parche:
                 parche[columna] = valor
 
-    avances = [c.get("avance") for c in borradas if c.get("avance") is not None]
-    if avances:
-        mayor = max(avances)
-        actual = conservada.get("avance")
-        if actual is None or mayor > actual:
-            parche["avance"] = mayor
+    mayor = _mayor_avance(borradas)
+    actual = conservada.get("avance")
+    if mayor is not None and (actual is None or mayor > actual):
+        parche["avance"] = mayor
     return parche
+
+
+def _heredables(copia: Dict[str, Any]) -> Dict[str, Any]:
+    """Columnas de una copia que pueden pasar a la fila que se conserva."""
+    hoja = clave_hoja(copia.get("source_sheet"))
+    return {
+        columna: valor
+        for columna, valor in copia.items()
+        if columna not in NO_SE_HEREDAN
+        and columna != "avance"          # tiene su propia regla: el máximo
+        and not _vacio(valor)
+        and clave_hoja(valor) != hoja    # no es un dato, es el nombre de la hoja
+    }
+
+
+def _mayor_avance(filas: Sequence[Dict[str, Any]]) -> Optional[float]:
+    avances = [float(f["avance"]) for f in filas if f.get("avance") is not None]
+    return max(avances) if avances else None
 
 
 def plan_de_consolidacion(
@@ -222,44 +256,48 @@ def plan_de_consolidacion(
     simulación imprima exactamente lo que la escritura va a hacer.
     """
     conteos = collections.Counter(str(f.get("source_sheet") or "") for f in filas)
+    grupos = _grupos_por_persona_y_folio(filas, representante)
+    return [
+        _decidir(persona, folio, copias, conteos, (canonicas or {}).get(persona, ""))
+        for (persona, folio), copias in sorted(grupos.items())
+        if len(copias) > 1
+    ]
+
+
+def _grupos_por_persona_y_folio(
+    filas: Sequence[Dict[str, Any]], representante: Dict[str, str]
+) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+    """Las filas agrupadas por (persona, folio). Sin folio no hay grupo posible."""
     grupos: Dict[Tuple[str, str], List[Dict[str, Any]]] = collections.defaultdict(list)
     for fila in filas:
         hoja = str(fila.get("source_sheet") or "")
         folio = str(fila.get("folio") or "").strip().upper()
-        if not folio:
-            continue
-        grupos[(representante.get(hoja, hoja), folio)].append(fila)
+        if folio:
+            grupos[(representante.get(hoja, hoja), folio)].append(fila)
+    return grupos
 
-    plan: List[Dict[str, Any]] = []
-    for (persona, folio), copias in sorted(grupos.items()):
-        if len(copias) < 2:
-            continue
-        particiones = [str(c.get("source_sheet") or "") for c in copias]
-        canonica = elegir_canonica(particiones, conteos,
-                                  (canonicas or {}).get(persona, ""))
-        en_canonica = [c for c in copias
-                       if clave_hoja(c.get("source_sheet")) == clave_hoja(canonica)]
-        if len(en_canonica) != 1:
-            # Dos filas del mismo folio en la **misma** partición no las produce
-            # este defecto (la clave única lo impide) y elegir cuál sobra sería
-            # inventar. Se reporta y se deja intacto.
-            plan.append({"persona": persona, "folio": folio, "conservar": None,
-                         "borrar": [], "parche": {},
-                         "aviso": f"{len(en_canonica)} filas en la partición canónica "
-                                  f"{canonica!r}: se deja intacto"})
-            continue
 
-        conservada = en_canonica[0]
-        borradas = [c for c in copias if c["id"] != conservada["id"]]
-        plan.append({
-            "persona": persona,
-            "folio": folio,
-            "conservar": conservada,
+def _decidir(persona: str, folio: str, copias: Sequence[Dict[str, Any]],
+             conteos: Dict[str, int], canonica_organigrama: str) -> Dict[str, Any]:
+    """Qué se conserva y qué se borra de un grupo con más de una fila."""
+    particiones = [str(c.get("source_sheet") or "") for c in copias]
+    canonica = elegir_canonica(particiones, conteos, canonica_organigrama)
+    en_canonica = [c for c in copias
+                   if clave_hoja(c.get("source_sheet")) == clave_hoja(canonica)]
+
+    if len(en_canonica) != 1:
+        # Dos filas del mismo folio en la **misma** partición no las produce este
+        # defecto (la clave única lo impide) y elegir cuál sobra sería inventar.
+        return {"persona": persona, "folio": folio, "conservar": None, "borrar": [],
+                "parche": {},
+                "aviso": f"{len(en_canonica)} filas en la partición canónica "
+                         f"{canonica!r}: se deja intacto"}
+
+    conservada = en_canonica[0]
+    borradas = [c for c in copias if c["id"] != conservada["id"]]
+    return {"persona": persona, "folio": folio, "conservar": conservada,
             "borrar": borradas,
-            "parche": parche_de_herencia(conservada, borradas),
-            "aviso": "",
-        })
-    return plan
+            "parche": parche_de_herencia(conservada, borradas), "aviso": ""}
 
 
 # ----------------------------------------------------------------------
@@ -359,7 +397,7 @@ def duplicados_restantes(engine: PostgrestEngine) -> List[Dict[str, Any]]:
 # ----------------------------------------------------------------------
 
 def imprimir_plan(plan: Sequence[Dict[str, Any]]) -> None:
-    por_persona: Dict[str, int] = collections.Counter()
+    por_persona: "collections.Counter[str]" = collections.Counter()
     for decision in plan:
         if decision["aviso"]:
             print(f"  {AMARILLO}AVISO{FIN} {decision['persona']} {decision['folio']}: "
@@ -375,6 +413,59 @@ def imprimir_plan(plan: Sequence[Dict[str, Any]]) -> None:
     for persona, n in por_persona.most_common():
         print(f"  {n:>4} filas a borrar en {persona!r}")
     print(f"\n  total: {sum(por_persona.values())} filas")
+
+
+def _verificar(engine: Any) -> int:
+    """Modo `--verificar`: 0 si la base está limpia, 1 si queda algún duplicado."""
+    restantes = duplicados_restantes(engine)
+    if not restantes:
+        print(f"{VERDE}Ninguna persona tiene tareas duplicadas.{FIN}")
+        return 0
+    print(f"{ROJO}Quedan {sum(len(d['borrar']) for d in restantes)} filas duplicadas "
+          f"en {len(restantes)} grupos.{FIN}")
+    imprimir_plan(restantes)
+    return 1
+
+
+def _planear(engine: Any) -> List[Dict[str, Any]]:
+    """Lee la base entera y devuelve el plan de consolidación."""
+    filas = engine.select(TABLA, columnas=["*"])
+    hojas = {str(f.get("source_sheet") or "") for f in filas}
+    alias, canonica_por_hoja = alias_del_organigrama(hojas)
+    representante = agrupar_particiones(hojas, alias)
+    canonicas = {representante[h]: c
+                 for h, c in canonica_por_hoja.items() if h in representante}
+    print(f"{len(filas)} filas en `{TABLA}`, {len(hojas)} particiones.\n")
+    return plan_de_consolidacion(filas, representante, canonicas)
+
+
+def _involucrados_de(engine: Any, plan: Sequence[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Renglones de `task_involucrados` de las filas que se van a borrar."""
+    por_tarea: Dict[str, List[Dict[str, Any]]] = collections.defaultdict(list)
+    ids = [f["id"] for d in plan for f in d["borrar"]]
+    if not ids:
+        return por_tarea
+    for renglon in engine.select(TABLA_HIJA, columnas=["*"], donde_en={"task_id": ids}):
+        por_tarea[str(renglon.get("task_id"))].append(renglon)
+    return por_tarea
+
+
+def _consolidar(engine: Any, plan: Sequence[Dict[str, Any]]) -> int:
+    """Modo `--aplicar`: respalda, escribe y vuelve a verificar contra la base."""
+    ruta = respaldar(plan, _involucrados_de(engine, plan))
+    print(f"\nRespaldo en {ruta}")
+    hechos = aplicar(engine, plan)
+    print(f"{VERDE}Consolidado{FIN}: {hechos['borradas']} filas borradas, "
+          f"{hechos['parches']} filas actualizadas con lo que traía la copia, "
+          f"{hechos['involucrados']} borrados en `{TABLA_HIJA}`.")
+
+    restantes = duplicados_restantes(engine)
+    if restantes:
+        print(f"{ROJO}Todavía quedan duplicados:{FIN}")
+        imprimir_plan(restantes)
+        return 1
+    print(f"{VERDE}Verificado contra la base: ninguna persona tiene tareas duplicadas.{FIN}")
+    return 0
 
 
 def main() -> int:
@@ -393,23 +484,9 @@ def main() -> int:
     engine = PostgrestEngine(url, key)
 
     if args.verificar:
-        restantes = duplicados_restantes(engine)
-        if restantes:
-            print(f"{ROJO}Quedan {sum(len(d['borrar']) for d in restantes)} filas duplicadas "
-                  f"en {len(restantes)} grupos.{FIN}")
-            imprimir_plan(restantes)
-            return 1
-        print(f"{VERDE}Ninguna persona tiene tareas duplicadas.{FIN}")
-        return 0
+        return _verificar(engine)
 
-    filas = engine.select(TABLA, columnas=["*"])
-    hojas = {str(f.get("source_sheet") or "") for f in filas}
-    alias, canonica_por_hoja = alias_del_organigrama(hojas)
-    representante = agrupar_particiones(hojas, alias)
-    canonicas = {representante[h]: c for h, c in canonica_por_hoja.items() if h in representante}
-    plan = plan_de_consolidacion(filas, representante, canonicas)
-
-    print(f"{len(filas)} filas en `{TABLA}`, {len(hojas)} particiones.\n")
+    plan = _planear(engine)
     if not any(d["borrar"] for d in plan):
         print(f"{VERDE}No hay tareas duplicadas: nada que hacer.{FIN}")
         return 0
@@ -419,27 +496,7 @@ def main() -> int:
         print(f"\n{AMARILLO}Simulación: no se escribió nada.{FIN} "
               f"Repite con --aplicar para consolidar.")
         return 0
-
-    involucrados: Dict[str, List[Dict[str, Any]]] = collections.defaultdict(list)
-    ids = [f["id"] for d in plan for f in d["borrar"]]
-    if ids:
-        for renglon in engine.select(TABLA_HIJA, columnas=["*"], donde_en={"task_id": ids}):
-            involucrados[str(renglon.get("task_id"))].append(renglon)
-
-    ruta = respaldar(plan, involucrados)
-    print(f"\nRespaldo en {ruta.relative_to(RAIZ)}")
-    hechos = aplicar(engine, plan)
-    print(f"{VERDE}Consolidado{FIN}: {hechos['borradas']} filas borradas, "
-          f"{hechos['parches']} filas actualizadas con lo que traía la copia, "
-          f"{hechos['involucrados']} borrados en `{TABLA_HIJA}`.")
-
-    restantes = duplicados_restantes(engine)
-    if restantes:
-        print(f"{ROJO}Todavía quedan duplicados:{FIN}")
-        imprimir_plan(restantes)
-        return 1
-    print(f"{VERDE}Verificado contra la base: ninguna persona tiene tareas duplicadas.{FIN}")
-    return 0
+    return _consolidar(engine, plan)
 
 
 if __name__ == "__main__":
