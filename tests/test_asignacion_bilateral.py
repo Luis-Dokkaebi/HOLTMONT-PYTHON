@@ -456,15 +456,23 @@ def test_el_100_de_geraldine_archiva_en_las_dos_tablas(escrituras, copias_en_la_
 
     La copia se encuentra por folio en la base, que es el vínculo entre las dos
     filas. No hace falta que el frontend recuerde quién asignó.
+
+    Con una sola responsable, "todos terminaron" es ella: su 100 % cierra las
+    dos tablas, como siempre. Con varias, la de quien asignó espera al último
+    (`tests/test_actividades_que_regresan.py`).
     """
     from api.services import tracker_store
 
-    # Las copias se declaran con su CONCEPTO, que es como están en la base: dos
-    # copias de una actividad asignada lo comparten, y por eso la
-    # sincronización las alcanza. Ver `tests/test_actividades_que_regresan.py`.
+    # Las copias se declaran como están en la base: primero la más antigua, que
+    # es la de quien asignó —Antonio, que por algo es quien la creó—, y cada una
+    # con su CONCEPTO y su estado. Antes iba primero la de Geraldine, lo que
+    # dejaba a la asignada como originadora: una hoja que la historia de esta
+    # misma prueba desmiente.
     copias_en_la_base["AS-0001"] = [
-        {"source_sheet": "GERALDINE", "concepto": "Revisar planos"},
-        {"source_sheet": "ANTONIO SALAZAR", "concepto": "Revisar planos"},
+        {"source_sheet": "ANTONIO SALAZAR", "concepto": "Revisar planos",
+         "assignee_raw": "GERALDINE", "avance": 0.0, "status": "ASIGNADO"},
+        {"source_sheet": "GERALDINE", "concepto": "Revisar planos",
+         "assignee_raw": "GERALDINE", "avance": 100.0, "status": "HECHO"},
     ]
 
     tracker_store.save_tracker_batch(

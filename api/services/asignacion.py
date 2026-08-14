@@ -109,6 +109,13 @@ _ALIAS_BILATERALES: Dict[str, List[str]] = {
 # de nadie y multiplicaría las escrituras por cada tecleo.
 _CAMPOS_QUE_DISPARAN = ("AVANCE", "ESTATUS", "CUMPLIMIENTO")
 
+# Las mismas tres, desplegadas por todas las grafías con las que pueden llegar.
+# Es lo que hay que quitar de una fila cuando se copia sobre una que ya existe:
+# el estado es de cada persona y no se pisa. Ver `sin_campos_de_cierre`.
+CAMPOS_DE_CIERRE: tuple = tuple(
+    alias for campo in _CAMPOS_QUE_DISPARAN for alias in _ALIAS_BILATERALES[campo]
+)
+
 # Metadatos del frontend. Nunca se copian: `_tempId` identifica el evento de UI
 # que creó la fila en la tabla de origen, y arrastrarlo haría que el gatekeeper
 # tomara la copia por un duplicado de aquella alta y la descartara en silencio.

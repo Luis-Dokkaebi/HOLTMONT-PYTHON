@@ -601,6 +601,85 @@ def _renglon_intacto(contexto: Dict[str, Any], descripcion: str) -> None:
     assert fila["avance"] == 0.0, f"su avance se pisó con el de otro renglón: {fila}"
 
 
+# ----------------------------------------------------------------------
+# Una actividad asignada a varias personas
+# ----------------------------------------------------------------------
+# El estado es de cada quien: terminar la mía no cierra la tuya y guardar la
+# mía no revive la tuya. La fila de quien asignó lleva el avance del más
+# atrasado y se cierra cuando todos terminan. Ver
+# `tests/test_actividades_que_regresan.py`.
+
+FOLIO_COMPARTIDO = "AS-0001"
+
+
+@given(parsers.parse(
+    'que "{quien}" reparte la actividad "{concepto}" entre "{uno}" y "{otro}"'))
+def _actividad_compartida(contexto: Dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+                          quien: str, concepto: str, uno: str, otro: str) -> None:
+    from api.services.asignacion import clave_de_copia
+
+    # Las tres filas llevan la lista completa de involucrados, que es lo que
+    # queda almacenado de verdad: `INVOLUCRADOS` gana sobre `RESPONSABLE` en
+    # `ALIAS_DE_HOJA`. La de quien reparte es la más antigua.
+    contexto["concepto"] = concepto
+    contexto["involucrados"] = f"{uno}, {otro}"
+    filas = [
+        {
+            "id": f"3333333{n}-3333-3333-3333-33333333333{n}",
+            "dedupe_key": clave_de_copia(FOLIO_COMPARTIDO, hoja),
+            "folio": FOLIO_COMPARTIDO, "source_sheet": hoja, "concepto": concepto,
+            "assignee_raw": contexto["involucrados"], "avance": 0.0,
+            "status": "ASIGNADO", "folio_sintetico": False,
+            "created_at": f"2026-08-0{n}T00:00:00Z",
+        }
+        for n, hoja in enumerate([quien, uno, otro], start=1)
+    ]
+    contexto["motor"] = MemoryEngine({
+        "tasks": filas, "quotes": [], "people": [], "plan_semanal": [],
+        "task_involucrados": [], "system_log": [],
+    })
+    monkeypatch.setattr(tracker_store, "_persistencia",
+                        lambda: PersistenciaTracker(contexto["motor"]))
+    monkeypatch.setattr(
+        tracker_store, "read_values",
+        lambda hoja: [["FOLIO", "CONCEPTO", "INVOLUCRADOS", "AVANCE", "ESTATUS"]])
+
+
+@when(parsers.parse('"{persona}" reporta {avance:d} % en su tabla'))
+def _reporta_su_avance(contexto: Dict[str, Any], persona: str, avance: int) -> None:
+    respuesta = tracker_store.save_tracker_batch(
+        persona,
+        [{"FOLIO": FOLIO_COMPARTIDO, "CONCEPTO": contexto["concepto"],
+          "INVOLUCRADOS": contexto["involucrados"], "AVANCE": str(avance),
+          "ESTATUS": "HECHO" if avance == 100 else "EN PROCESO"}],
+        username=persona.replace(" ", "_"),
+    )
+    assert respuesta["success"] is True, respuesta.get("message")
+
+
+def _fila_de_la_hoja(contexto: Dict[str, Any], hoja: str) -> Dict[str, Any]:
+    return next(f for f in contexto["motor"].select("tasks")
+                if f["source_sheet"] == hoja)
+
+
+@then(parsers.parse('la actividad queda terminada para "{hoja}"'))
+def _terminada_para(contexto: Dict[str, Any], hoja: str) -> None:
+    fila = _fila_de_la_hoja(contexto, hoja)
+    assert _esta_archivada(fila) is True, fila
+
+
+@then(parsers.parse('la actividad sigue en operativo para "{hoja}"'))
+def _sigue_abierta_para(contexto: Dict[str, Any], hoja: str) -> None:
+    fila = _fila_de_la_hoja(contexto, hoja)
+    assert _esta_archivada(fila) is False, (
+        f"se cerró la fila de {hoja} sin que su dueño la terminara: {fila}")
+
+
+@then(parsers.parse('la fila de "{hoja}" muestra {avance:d} % de avance'))
+def _muestra_avance(contexto: Dict[str, Any], hoja: str, avance: int) -> None:
+    assert float(_fila_de_la_hoja(contexto, hoja)["avance"]) == float(avance)
+
+
 @given(parsers.parse('una Pre Work Order con clasificación "{clase}"'))
 def _pwo_con_clasificacion(contexto: Dict[str, Any], clase: str) -> None:
     contexto["motor"] = MemoryEngine({

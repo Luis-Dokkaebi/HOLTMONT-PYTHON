@@ -21,10 +21,11 @@ import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from api.services import asignacion
 from api.services import tracker_rules as rules
+from backend.repositories.tasks import esta_archivada
 from backend.services import auditoria
 
 MAKE_WEBHOOK_ENV = "MAKE_WEBHOOK_URL"
@@ -296,11 +297,31 @@ def _espejar_asignaciones(origen: str, tareas: List[Dict[str, Any]], username: s
     Las copias se agrupan **por hoja destino** y cada hoja recibe un solo
     `_persist_batch`. "Guardar todo" manda la tabla entera, así que una llamada
     por fila convertía un guardado de 50 renglones en 50 viajes a la base.
+
+    Una copia **nueva** nace con el estado de la actividad; una que **ya
+    existe** conserva el suyo. La distinción es el arreglo del 2026-08-14: el
+    espejo corre en cada guardado, no solo al asignar, así que copiar la fila
+    entera ponía el 100 % de Geraldine encima del 30 % de Miguel cada vez que
+    ella guardaba. El texto de la actividad (CONCEPTO, fechas, clasificación)
+    sí se sigue refrescando: corregir la descripción tiene que llegarle a quien
+    la va a hacer.
     """
     por_destino: Dict[str, List[Dict[str, Any]]] = {}
     for tarea in tareas:
-        for destino in asignacion.destinos_espejo(origen, tarea, username):
+        destinos = asignacion.destinos_espejo(origen, tarea, username)
+        if not destinos:
+            continue
+        folio = rules.pick_task_value(tarea, ["FOLIO", "ID"])
+        ya_existen = {
+            rules.normalize_staff_name(c.get("source_sheet"))
+            for c in _copias_de_la_actividad(persistencia, tarea, folio, origen,
+                                             _tabla_de(origen))
+        }
+        for destino in destinos:
             espejo = asignacion.construir_espejo(origen, tarea, destino, username)
+            if rules.normalize_staff_name(destino) in ya_existen:
+                espejo = asignacion.sin_campos_de_cierre(
+                    espejo, asignacion.CAMPOS_DE_CIERRE)
             por_destino.setdefault(destino, []).append(espejo)
 
     for destino, filas in por_destino.items():
@@ -328,20 +349,32 @@ def _copias_de(persistencia, folio: Any, tabla: str = "tasks") -> List[Dict[str,
     Antonia cerraba al 100 % y la fila del vendedor se quedaba en su avance
     viejo. `quotes` no tiene `assignee_raw`, así que la columna equivalente es
     `vendedor_raw` y se expone con el mismo nombre para que el resto del módulo
-    no tenga que distinguir.
+    no tenga que distinguir. Lo mismo con `estatus`/`completada`, que en `tasks`
+    se llaman `status`/`cumplimiento`.
+
+    Se traen también las tres columnas que deciden el cierre: quien pregunta por
+    las copias casi siempre necesita saber cuáles están terminadas
+    (`_estado_para_quien_asigno`), y son la misma consulta.
     """
     if not persistencia or not folio:
         return []
     de_ventas = tabla == "quotes"
     columna_responsable = "vendedor_raw" if de_ventas else "assignee_raw"
+    columna_estatus = "estatus" if de_ventas else "status"
+    columna_cierre = "completada" if de_ventas else "cumplimiento"
     try:
         filas = list(persistencia.engine.select(
             tabla,
-            columnas=["source_sheet", columna_responsable, "concepto", "created_at"],
+            columnas=["source_sheet", columna_responsable, "concepto", "created_at",
+                      "avance", columna_estatus, columna_cierre],
             donde={"folio": str(folio).strip()}))
         if de_ventas:
             for fila in filas:
                 fila["assignee_raw"] = fila.get("vendedor_raw")
+                fila["status"] = fila.get("estatus")
+                # `completada` es boolean en `quotes` y texto en `tasks`; se
+                # traduce al "SI" que consulta `esta_archivada`.
+                fila["cumplimiento"] = "SI" if fila.get("completada") else ""
         return filas
     except Exception as exc:  # noqa: BLE001
         print(f"[tracker_store] No se pudieron buscar las copias de {folio!r}: {exc}")
@@ -416,24 +449,6 @@ def _hoja_originadora(copias: Sequence[Dict[str, Any]]) -> Optional[str]:
         return None
     return min(con_hoja, key=lambda c: str(c.get("created_at") or "9999"))["source_sheet"]
 
-
-def _hojas_con_la_actividad(persistencia, tarea: Dict[str, Any], folio: str,
-                            origen: Any, excepto: Iterable[str] = (),
-                            tabla: str = "tasks") -> List[str]:
-    """
-    Hojas con una copia de **esta actividad**, salvo las indicadas. Sin repetir.
-
-    Compartir folio no basta: ver `_copias_de_la_actividad`.
-    """
-    fuera = {rules.normalize_staff_name(h) for h in excepto}
-    hojas: List[str] = []
-    for fila in _copias_de_la_actividad(persistencia, tarea, folio, origen, tabla):
-        hoja = fila.get("source_sheet")
-        if not hoja or rules.normalize_staff_name(hoja) in fuera:
-            continue
-        hojas.append(hoja)
-        fuera.add(rules.normalize_staff_name(hoja))
-    return hojas
 
 
 def _motivo_de_bloqueo_por_reasignacion(persistencia, origen: str,
@@ -576,14 +591,78 @@ def _retirar_copias_huerfanas(origen: str, tareas: List[Dict[str, Any]], usernam
         auditoria.registrar_lote(eventos, engine=persistencia.engine)
 
 
+def _avance_efectivo(fila: Dict[str, Any]) -> float:
+    """
+    El avance de una copia en escala 0-100, contando el cierre por otras vías.
+
+    Una fila cerrada con ESTATUS terminal o CUMPLIMIENTO = SI está terminada
+    aunque su AVANCE diga 40: para el agregado cuenta como 100, o el "todos
+    terminaron" nunca llegaría.
+    """
+    if esta_archivada(fila):
+        return 100.0
+    try:
+        return float(fila.get("avance") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _estado_para_quien_asigno(asignados: Sequence[Dict[str, Any]],
+                              cambios: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Lo que le toca a la fila de quien asignó, según cómo van sus responsables.
+
+    Regla del dueño (2026-08-14), la misma que ya rige las fases de la papa
+    caliente: **la actividad se cierra cuando TODOS terminan**, no cuando el
+    primero reporta.
+
+      * Mientras falte alguien, la fila de quien asignó lleva el avance del
+        compañero **más atrasado**. Es un valor derivado, no capturado: una
+        actividad está tan avanzada como su parte más lenta, y así quien la
+        asignó ve movimiento en vez de un 0 % congelado hasta el final.
+      * Cuando todos están terminados, viaja el cierre tal como lo reportó el
+        último en llegar, y el auto-archivado la manda a TAREAS REALIZADAS.
+
+    Devuelve `None` cuando no hay a quién mirar.
+
+    El avance se manda como **texto**: `normalize_avance()` lee el número `1`
+    como el 1 nativo de una celda con formato porcentual (= 100 %) y el string
+    "1" como 1 % (AGENTS.md §4). Un compañero al 1 % cerraría la actividad de
+    todos si esto mandara el float.
+    """
+    if not asignados:
+        return None
+    if all(esta_archivada(c) for c in asignados):
+        return dict(cambios)
+    minimo = min(_avance_efectivo(c) for c in asignados)
+    return {"FOLIO": cambios["FOLIO"], "AVANCE": f"{minimo:g}"}
+
+
 def _sincronizar_copias(origen: str, tareas: List[Dict[str, Any]], username: str,
                         persistencia) -> None:
     """
-    Propaga el cambio de estado a las demás copias de la misma actividad.
+    Le cuenta a quien asignó la actividad cómo va, sin tocar a los compañeros.
 
-    Es la otra mitad de la bilateralidad: cuando Geraldine pone su actividad al
-    100 %, la copia de Antonio recibe AVANCE y ESTATUS, y el auto-archivado la
-    manda a TAREAS REALIZADAS también en su tabla.
+    El estado de una actividad es **de cada persona**. Antes se propagaba a toda
+    fila con el mismo folio, y con una actividad asignada a varios eso hacía dos
+    destrozos (reportados el 2026-08-14):
+
+      * Geraldine reportaba su 100 % y la actividad se archivaba también en la
+        tabla de Miguel, que no había hecho su parte: su trabajo desaparecía de
+        operativo sin que él lo cerrara.
+      * Después Miguel guardaba su 30 % y **la fila terminada de Geraldine
+        volvía a operativo** con ese 30 %.
+
+    Ahora el estado no viaja entre compañeros. La única fila que se entera es la
+    de **quien asignó** —la hoja originadora, la más antigua del folio—, y lo
+    que recibe es el agregado que calcula `_estado_para_quien_asigno`.
+
+    Tampoco viaja del agregado hacia abajo: si quien asignó guarda su propia
+    fila, no le pisa el avance a nadie. Cada quien cierra la suya.
+
+    Con un solo responsable —el caso normal de una asignación— esto se comporta
+    igual que siempre: ese responsable es "todos", así que su 100 % cierra las
+    dos tablas.
 
     Solo viaja el estado (`asignacion.CAMPOS_BILATERALES`), nunca el CONCEPTO ni
     el RESPONSABLE: quien recibió la actividad no reescribe el texto ni la
@@ -599,16 +678,32 @@ def _sincronizar_copias(origen: str, tareas: List[Dict[str, Any]], username: str
         cambios = asignacion.campos_sincronizables(tarea)
         if not cambios:
             continue
-        # `origen` ya se guardó; la maestra de un folio AV-/AP- la atiende el
-        # reverse sync, que además cierra la fase en el timeline.
-        maestra = _hoja_maestra_de_folio(cambios["FOLIO"])
-        excepto = [origen] + ([maestra] if maestra else [])
+
         # El CONCEPTO se toma de `tarea`, no de `cambios`: los campos
         # bilaterales no lo incluyen (no viaja entre copias, a propósito) y sin
         # él no se distingue una copia de un renglón de programa hermano.
-        for hoja in _hojas_con_la_actividad(persistencia, tarea, cambios["FOLIO"],
-                                            origen, excepto, tabla):
-            por_destino.setdefault(hoja, []).append(dict(cambios))
+        copias = _copias_de_la_actividad(persistencia, tarea, cambios["FOLIO"],
+                                         origen, tabla)
+        destino = _hoja_originadora(copias)
+        if not destino:
+            continue
+
+        propia = rules.normalize_staff_name(origen)
+        if rules.normalize_staff_name(destino) == propia:
+            continue                      # quien asignó guarda lo suyo: nada baja
+
+        # La maestra de un folio AV-/AP- la atiende el reverse sync, que además
+        # cierra la fase en el timeline.
+        maestra = _hoja_maestra_de_folio(cambios["FOLIO"])
+        if maestra and rules.normalize_staff_name(destino) == rules.normalize_staff_name(maestra):
+            continue
+
+        clave_destino = rules.normalize_staff_name(destino)
+        asignados = [c for c in copias
+                     if rules.normalize_staff_name(c.get("source_sheet")) != clave_destino]
+        estado = _estado_para_quien_asigno(asignados, cambios)
+        if estado:
+            por_destino.setdefault(destino, []).append(estado)
 
     for hoja, filas in por_destino.items():
         _persist_batch(hoja, filas, skip_notify=True, username=username,
