@@ -218,10 +218,18 @@ class TaskRepository:
         * Asignar o delegar `PPC-500` a alguien. Sí es una copia: tiene que
           existir una fila en la tabla de quien la recibe, con su propio avance.
 
-        Aun pedida como copia, si ya hay una fila con la clave global **en esta
-        misma hoja** se conserva esa clave: las 4.626 filas de la migración no
-        cambian de identidad, porque hacerlo duplicaría cada tarea que hoy
-        funciona.
+        Aun pedida como copia, si ya hay una fila con la clave global **en
+        alguna hoja de esta misma persona** se conserva esa clave: las 4.626
+        filas de la migración no cambian de identidad, porque hacerlo duplicaría
+        cada tarea que hoy funciona.
+
+        "De esta misma persona" y no "con este mismo nombre de hoja": una
+        persona tiene dos nombres —el de su hoja y el del directorio— y con la
+        comparación literal, asignarle algo por el segundo nombre no encontraba
+        su fila y estrenaba una copia con clave propia. La lectura une las dos
+        particiones (`hojas_del_tracker`), así que esa copia salía como una
+        tarea duplicada en su tabla. Reportado por el dueño el 2026-08-14 sobre
+        el tracker de Carlos Méndez.
 
         Para los folios con iniciales de persona las dos claves ya coinciden,
         así que esto no cambia nada donde nada estaba roto.
@@ -240,9 +248,23 @@ class TaskRepository:
             return global_
 
         for fila in existentes:
-            if _clave_hoja(fila.get("source_sheet")) == _clave_hoja(sheet_name):
+            if _clave_hoja(fila.get("source_sheet")) in self._mis_hojas(sheet_name):
                 return global_
         return clave_de_copia(folio, sheet_name)
+
+    def _mis_hojas(self, sheet_name: str) -> set:
+        """
+        Claves de comparación de todas las particiones que son de esta persona.
+
+        La pedida más las que el organigrama reconoce como suyas. No se filtra
+        por existencia: aquí se responde "¿esta fila ya es mía?", y una hoja que
+        todavía no tiene filas no cambia la respuesta.
+        """
+        from api.services import organigrama
+
+        claves = {_clave_hoja(sheet_name)}
+        claves.update(_clave_hoja(alias) for alias in organigrama.hojas_de_persona(sheet_name))
+        return claves
 
     def resolver_assignee_id(self, assignee_raw: Any) -> Optional[str]:
         """

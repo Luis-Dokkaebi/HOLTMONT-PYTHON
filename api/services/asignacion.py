@@ -161,13 +161,34 @@ def hoja_de_persona(nombre: Any) -> str:
     misma persona y comparten tabla— y traduce el único nombre que no es una
     persona: `ANTONIA_VENTAS` es la tabla de ventas, y el trabajo que se le
     asigna a Antonia va a su tracker personal.
+
+    Y, sobre todo, **traduce el nombre a la hoja canónica del organigrama**
+    (`staff_name`). Una persona tiene dos nombres que no son iguales: el de su
+    hoja ("CARLOS MENDEZ") y el del directorio, que es el que ofrece el
+    selector de involucrados ("CARLOS MENDEZ URBINA"). Sin esta traducción, una
+    actividad asignada por el nombre del directorio estrenaba una **segunda
+    partición** de la misma persona: la fila se escribía con identidad propia
+    (`"CARLOS MENDEZ URBINA::PPC-544684601"`, la clave de copia), la lectura une
+    las dos particiones —`organigrama.hojas_de_persona`— y la tarea aparecía
+    duplicada en su tabla. Es el defecto que reportó el dueño el 2026-08-14, y
+    la misma regla que `persistencia.hoja_del_responsable` ya aplicaba en el
+    camino del PPC: se guarda donde la persona lo va a **ver**.
+
+    El import es local a propósito: `organigrama` resuelve perfiles contra
+    `profiles` (con caché y respaldo en la semilla) y este módulo se declara sin
+    I/O. Si el organigrama no conoce el nombre se conserva el comportamiento
+    anterior —el texto normalizado—, porque inventar una traducción sería peor
+    que respetar lo que se capturó.
     """
     limpio = normalize_staff_name(nombre)
     if not limpio:
         return ""
     if limpio == normalize_staff_name(SALES_MASTER_SHEET):
         return ANTONIA_PERSONAL_SHEET
-    return limpio
+
+    from api.services import organigrama
+
+    return organigrama.hoja_canonica(limpio) or limpio
 
 
 def tabla_de_cotizaciones(nombre: Any) -> str:
