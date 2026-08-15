@@ -2453,10 +2453,13 @@
                       <p class="text-muted fw-bold">No se encontraron clientes con cotizaciones en este mes.</p>
                  </div>
                  <div v-else class="row g-2">
-                     <div class="col-12 col-md-6 col-lg-4" v-for="c in filteredIbCompanies" :key="c">
-                         <div class="list-group-item list-group-item-action border rounded shadow-sm p-3 d-flex align-items-center justify-content-between" style="cursor:pointer; background:white;" @click="selectIbCompany(c)">
-                             <span class="fw-bold text-dark">{{c}}</span>
-                             <i class="fas fa-chevron-right text-muted"></i>
+                     <div class="col-12 col-md-6 col-lg-4" v-for="c in filteredIbCompanies" :key="c.name">
+                         <div class="list-group-item list-group-item-action border rounded shadow-sm p-3 d-flex align-items-center justify-content-between" style="cursor:pointer; background:white;" @click="selectIbCompany(c.name)">
+                             <span class="fw-bold text-dark">{{c.name}}</span>
+                             <span class="d-flex align-items-center gap-2">
+                                 <span class="badge bg-light text-secondary border" v-if="c.count">{{c.count}}</span>
+                                 <i class="fas fa-chevron-right text-muted"></i>
+                             </span>
                          </div>
                      </div>
                  </div>
@@ -3109,10 +3112,13 @@
                      <h5 class="fw-bold text-secondary m-0">Empresas - {{infoBankState.selectedMonth}} {{ infoBankState.selectedYear }}</h5>
                  </div>
                  <div class="row g-2">
-                     <div class="col-12 col-md-6 col-lg-4" v-for="c in filteredIbCompanies" :key="c">
-                         <div class="list-group-item list-group-item-action border rounded shadow-sm p-3 d-flex align-items-center justify-content-between" style="cursor:pointer; background:white;" @click="selectIbCompany(c)">
-                             <span class="fw-bold text-dark">{{c}}</span>
-                             <i class="fas fa-chevron-right text-muted"></i>
+                     <div class="col-12 col-md-6 col-lg-4" v-for="c in filteredIbCompanies" :key="c.name">
+                         <div class="list-group-item list-group-item-action border rounded shadow-sm p-3 d-flex align-items-center justify-content-between" style="cursor:pointer; background:white;" @click="selectIbCompany(c.name)">
+                             <span class="fw-bold text-dark">{{c.name}}</span>
+                             <span class="d-flex align-items-center gap-2">
+                                 <span class="badge bg-light text-secondary border" v-if="c.count">{{c.count}}</span>
+                                 <i class="fas fa-chevron-right text-muted"></i>
+                             </span>
                          </div>
                      </div>
                  </div>
@@ -6487,13 +6493,21 @@ async function toggleVoiceRecording(btnElement) {
           fetchInfoBankCompanies();
       };
 
+      // El backend devuelve {name, count} por cliente. Se acepta también la
+      // cadena suelta: la vista pintaba `{{c}}` sobre el objeto y salía el JSON
+      // crudo en la tarjeta.
+      const normalizeIbCompany = (c) => {
+          if (c && typeof c === 'object') return { name: String(c.name || '').toUpperCase(), count: c.count || 0 };
+          return { name: String(c || '').toUpperCase(), count: 0 };
+      };
+
       const fetchInfoBankCompanies = () => {
           infoBankState.value.isLoading = true;
           ibCompanies.value = [];
           google.script.run.withSuccessHandler(res => {
               infoBankState.value.isLoading = false;
               if (res.success) {
-                  ibCompanies.value = res.data;
+                  ibCompanies.value = (res.data || []).map(normalizeIbCompany).filter(c => c.name);
               } else {
                   Swal.fire('Error', res.message, 'error');
               }
