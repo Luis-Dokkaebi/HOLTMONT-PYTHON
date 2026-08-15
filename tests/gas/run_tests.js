@@ -54,6 +54,19 @@ const TRACKER_HEADERS = ['ID', 'ESPECIALIDAD', 'CONCEPTO', 'FECHA', 'RELOJ', 'AV
 const SALES_HEADERS = ['FOLIO', 'CLIENTE', 'CONCEPTO', 'VENDEDOR', 'FECHA', 'ESTATUS', 'COMENTARIOS',
   'ARCHIVO', 'MONTO', 'F2', 'COTIZACION', 'TIMELINE', 'LAYOUT', 'AVANCE', 'MAP COT', 'PROCESO_LOG'];
 
+/**
+ * Una actividad nueva tal como la manda la vista.
+ *
+ * Desde 2026-08 el backend rechaza toda alta sin PRIORIDAD, RIESGOS y
+ * FEC. EST. FIN (`motivoDeRechazoDeAlta` en CODIGO.js). Los escenarios de este
+ * archivo dan de alta filas para probar otra cosa —folios, ruteo, gatekeeper,
+ * webhooks—, así que llevan el trío de campos igual que lo llevaría la tabla.
+ * El candado tiene sus propias pruebas en la sección 9.
+ */
+function alta(task) {
+  return Object.assign({ PRIORIDAD: 'MEDIA', RIESGOS: 'BAJO', 'FEC. EST. FIN': '30/08/26' }, task);
+}
+
 /** Hoja de tracker personal con 2 filas de UI encima de los encabezados (caso real). */
 function tracker(rows) {
   return [
@@ -200,10 +213,10 @@ function envVentas(extra) {
 
 run('2.1', 'ANTONIA_VENTAS manda tarea a un vendedor', () => {
   const env = envVentas();
-  env.api.apiSaveTrackerBatch('ANTONIA_VENTAS', [{
+  env.api.apiSaveTrackerBatch('ANTONIA_VENTAS', [alta({
     CONCEPTO: 'COTIZACION NAVE ACME', CLIENTE: 'ACME', VENDEDOR: 'EDUARDO MANZANARES (VENTAS)',
     FECHA: '01/07/26', ESTATUS: 'EN PROCESO'
-  }], 'ANTONIA_VENTAS');
+  })], 'ANTONIA_VENTAS');
 
   const enVentas = countRowsContaining(env, 'EDUARDO MANZANARES (VENTAS)', 'COTIZACION NAVE ACME');
   check('2.1', 'La tarea llega a la hoja del vendedor con sufijo (VENTAS)', '1 fila', `${enVentas} fila(s)`, enVentas === 1);
@@ -215,9 +228,9 @@ run('2.1', 'ANTONIA_VENTAS manda tarea a un vendedor', () => {
 
 run('2.1c', 'El titular sí puede escribir en su propia tabla (VENTAS)', () => {
   const env = envVentas({ 'ANGEL SALINAS (VENTAS)': sales([]) });
-  env.api.apiSaveTrackerBatch('ANGEL SALINAS (VENTAS)', [{
+  env.api.apiSaveTrackerBatch('ANGEL SALINAS (VENTAS)', [alta({
     CONCEPTO: 'COTIZACION PROPIA ANGEL', FECHA: '01/07/26', ESTATUS: 'EN PROCESO'
-  }], 'ANGEL_SALINAS');
+  })], 'ANGEL_SALINAS');
   const enVentas = countRowsContaining(env, 'ANGEL SALINAS (VENTAS)', 'COTIZACION PROPIA ANGEL');
   check('2.1c', 'El vendedor conserva su hoja (VENTAS) al guardar', '1 fila',
     `${enVentas} fila(s)`, enVentas === 1);
@@ -225,9 +238,9 @@ run('2.1c', 'El titular sí puede escribir en su propia tabla (VENTAS)', () => {
 
 run('2.2', 'Otro usuario intenta mandar tarea a la hoja (VENTAS) de un vendedor', () => {
   const env = envVentas();
-  env.api.apiSaveTrackerBatch('EDUARDO MANZANARES (VENTAS)', [{
+  env.api.apiSaveTrackerBatch('EDUARDO MANZANARES (VENTAS)', [alta({
     CONCEPTO: 'TAREA GENERAL DE LUIS', FECHA: '01/07/26', ESTATUS: 'PENDIENTE'
-  }], 'LUIS_CARLOS');
+  })], 'LUIS_CARLOS');
 
   const enVentas = countRowsContaining(env, 'EDUARDO MANZANARES (VENTAS)', 'TAREA GENERAL DE LUIS');
   const enGeneral = countRowsContaining(env, 'EDUARDO MANZANARES', 'TAREA GENERAL DE LUIS');
@@ -243,9 +256,9 @@ run('2.2', 'Otro usuario intenta mandar tarea a la hoja (VENTAS) de un vendedor'
 
 run('2.2d', 'Mismo caso vía apiUpdateTask / internalUpdateTask', () => {
   const env = envVentas();
-  env.api.apiUpdateTask('EDUARDO MANZANARES (VENTAS)', {
+  env.api.apiUpdateTask('EDUARDO MANZANARES (VENTAS)', alta({
     CONCEPTO: 'UPDATE DIRECTO LUIS', FECHA: '02/07/26'
-  }, 'LUIS_CARLOS');
+  }), 'LUIS_CARLOS');
   const enVentas = countRowsContaining(env, 'EDUARDO MANZANARES (VENTAS)', 'UPDATE DIRECTO LUIS');
   const enGeneral = countRowsContaining(env, 'EDUARDO MANZANARES', 'UPDATE DIRECTO LUIS');
   check('2.2d', 'internalUpdateTask también purga el sufijo (VENTAS)',
@@ -254,9 +267,9 @@ run('2.2d', 'Mismo caso vía apiUpdateTask / internalUpdateTask', () => {
 
 run('2.3', 'Usuario común intenta mandar tarea al core de ventas de Toñita', () => {
   const env = envVentas();
-  env.api.apiSaveTrackerBatch('ANTONIA_VENTAS', [{
+  env.api.apiSaveTrackerBatch('ANTONIA_VENTAS', [alta({
     CONCEPTO: 'TAREA GENERAL PARA TONITA', FECHA: '03/07/26', ESTATUS: 'PENDIENTE'
-  }], 'EDUARDO_MANZANARES');
+  })], 'EDUARDO_MANZANARES');
 
   const enCore = countRowsContaining(env, 'ANTONIA_VENTAS', 'TAREA GENERAL PARA TONITA');
   const enPersonal = countRowsContaining(env, 'ANTONIA PINEDA LOPEZ', 'TAREA GENERAL PARA TONITA');
@@ -302,7 +315,7 @@ run('3.1', 'Prefijo de folio por usuario al crear tarea', () => {
       'ADMINISTRADOR': tracker([]),
       'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']]
     });
-    env.api.apiSaveTrackerBatch(hoja, [{ CONCEPTO: 'TAREA NUEVA ' + usuario, FECHA: '05/07/26' }], usuario);
+    env.api.apiSaveTrackerBatch(hoja, [alta({ CONCEPTO: 'TAREA NUEVA ' + usuario, FECHA: '05/07/26' })], usuario);
     const row = findRow(env, hoja, 'TAREA NUEVA ' + usuario);
     const folio = row ? String(row.FOLIO || row.ID || '') : '';
     check('3.1', `Folio de ${usuario} inicia con ${prefijo}`, prefijo + '…',
@@ -328,7 +341,7 @@ run('4.1', 'Anti-duplicación backend con mismo _tempId', () => {
     'JAIME OLIVO': tracker([]),
     'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']]
   });
-  const payload = { CONCEPTO: 'TAREA DOBLE CLICK', FECHA: '06/07/26', ESTATUS: 'PENDIENTE', _tempId: 'tmp_123456' };
+  const payload = alta({ CONCEPTO: 'TAREA DOBLE CLICK', FECHA: '06/07/26', ESTATUS: 'PENDIENTE', _tempId: 'tmp_123456' });
   for (let i = 0; i < 5; i++) {
     env.api.apiSaveTrackerBatch('JAIME OLIVO', [JSON.parse(JSON.stringify(payload))], 'JAIME_OLIVO');
   }
@@ -354,10 +367,10 @@ run('4.2', 'Fallback de recuperación de fila sin FOLIO (CONCEPTO+FECHA+RESPONSA
     ]),
     'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']]
   });
-  env.api.apiUpdateTask('JAIME OLIVO', {
+  env.api.apiUpdateTask('JAIME OLIVO', alta({
     CONCEPTO: 'REVISION DE PLANOS', FECHA: '10/07/26', RESPONSABLE: 'JAIME OLIVO',
     COMENTARIOS: 'COMENTARIO NUEVO DEL FRONTEND'
-  }, 'JAIME_OLIVO');
+  }), 'JAIME_OLIVO');
 
   const filas = countRowsContaining(env, 'JAIME OLIVO', 'REVISION DE PLANOS');
   check('4.2a', 'No se duplica la tarea: se sobrescribe la fila existente', '1 fila',
@@ -536,9 +549,9 @@ run('6.3', 'Webhook Make.com / Outlook', () => {
     'ADMINISTRADOR': tracker([]),
     'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']]
   });
-  env.api.apiSaveTrackerBatch('JEHU MARTINEZ', [{
+  env.api.apiSaveTrackerBatch('JEHU MARTINEZ', [alta({
     CONCEPTO: 'NUEVA ASIGNACION', FECHA: '07/07/26', RESPONSABLE: 'JEHU MARTINEZ', ESTATUS: 'ASIGNADO'
-  }], 'LUIS_CARLOS');
+  })], 'LUIS_CARLOS');
 
   check('6.3a', 'Se dispara el webhook al asignar un nuevo RESPONSABLE', '≥ 1 llamada UrlFetchApp',
     `${env.spy.urlFetchCalls.length} llamadas`, env.spy.urlFetchCalls.length >= 1);
@@ -658,7 +671,7 @@ run('7.1d', 'El adaptador no pierde argumentos que el frontend sí manda', () =>
 
 run('7.2', 'apiSaveTrackerBatch devuelve res.data para fusionar en el frontend (AGENTS.md §2)', () => {
   const env = createEnv({ 'JAIME OLIVO': tracker([]), 'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']] });
-  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [{ CONCEPTO: 'X', FECHA: '08/07/26', _tempId: 't1' }], 'JAIME_OLIVO');
+  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [alta({ CONCEPTO: 'X', FECHA: '08/07/26', _tempId: 't1' })], 'JAIME_OLIVO');
   const tieneData = !!(res && res.data);
   check('7.2', 'La respuesta incluye res.data con la tarea actualizada', 'res.data presente',
     tieneData ? 'presente' : `ausente (${JSON.stringify(res)})`, tieneData);
@@ -817,7 +830,7 @@ run('8.7', 'INVOLUCRADOS compuesto no ensucia `people` (AGENTS.md §3)', () => {
 run('8.8', 'Si Supabase falla, el guardado en Sheets NO se rompe', () => {
   const env = envSupabase({ 'JAIME OLIVO': tracker([]), 'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']] },
                           { lanzar: true });
-  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [{ CONCEPTO: 'TAREA CRITICA', FECHA: '08/07/26', _tempId: 't9' }], 'JAIME_OLIVO');
+  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [alta({ CONCEPTO: 'TAREA CRITICA', FECHA: '08/07/26', _tempId: 't9' })], 'JAIME_OLIVO');
   const enLaHoja = countRowsContaining(env, 'JAIME OLIVO', 'TAREA CRITICA');
   const ok = res && res.success === true && enLaHoja === 1;
   check('8.8', 'Con la red caída la tarea se guarda igual', 'success=true y 1 fila en la hoja',
@@ -914,6 +927,104 @@ run('8.10', 'Las credenciales no están en el fuente', () => {
   const hardcodeada = /SUPABASE_(URL|KEY)\s*[:=]\s*["']http|sb_secret_|eyJhbGciOi/.test(CODIGO_SRC);
   check('8.10', 'SUPABASE_URL/KEY solo por Propiedades del Script', 'sin credenciales en CODIGO.js',
     hardcodeada ? 'HAY credenciales en el fuente' : 'sin credenciales', !hardcodeada);
+});
+
+// ======================================================================
+// 9. CONTROL DE ALTA (PRIORIDAD, RIESGOS, FEC. EST. FIN)
+// ======================================================================
+section('9. Control de alta de actividades');
+
+function envAlta() {
+  return createEnv({
+    'JAIME OLIVO': tracker([{ FOLIO: 'JO-0001', CONCEPTO: 'TAREA VIEJA SIN CONTROL', FECHA: '01/07/26' }]),
+    'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']]
+  });
+}
+
+run('9.1', 'Una actividad nueva sin los tres campos no se guarda', () => {
+  const env = envAlta();
+  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO',
+    [{ CONCEPTO: 'TAREA SIN CONTROL', FECHA: '08/07/26', _tempId: 't-alta-1' }], 'JAIME_OLIVO');
+  const filas = countRowsContaining(env, 'JAIME OLIVO', 'TAREA SIN CONTROL');
+  const nombraLosTres = res && /PRIORIDAD/.test(res.message) && /RIESGOS/.test(res.message) &&
+                        /FEC\. EST\. FIN/.test(res.message);
+  check('9.1', 'Alta incompleta rechazada y sin escribir en la hoja', 'success=false y 0 filas',
+    `success=${res && res.success}, filas=${filas}, mensaje="${res && res.message}"`,
+    res && res.success === false && filas === 0 && nombraLosTres,
+    'El rechazo es antes de escribir, no un rollback');
+});
+
+run('9.2', 'Una actividad nueva completa sí se guarda', () => {
+  const env = envAlta();
+  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [alta({
+    CONCEPTO: 'TAREA CONTROLADA', FECHA: '08/07/26', PRIORIDAD: 'URGENTE',
+    RIESGOS: 'CATASTROFICO', _tempId: 't-alta-2'
+  })], 'JAIME_OLIVO');
+  const filas = countRowsContaining(env, 'JAIME OLIVO', 'TAREA CONTROLADA');
+  check('9.2', 'URGENTE y CATASTROFICO son valores válidos del catálogo', 'success=true y 1 fila',
+    `success=${res && res.success}, filas=${filas}`, res && res.success === true && filas === 1);
+});
+
+run('9.3', 'Un valor fuera del catálogo cuenta como faltante', () => {
+  const env = envAlta();
+  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [alta({
+    CONCEPTO: 'TAREA CON PRIORIDAD INVENTADA', FECHA: '08/07/26', PRIORIDAD: 'ESTRATEGICA'
+  })], 'JAIME_OLIVO');
+  check('9.3', 'ESTRATEGICA ya no es una prioridad válida', 'success=false',
+    `success=${res && res.success}, mensaje="${res && res.message}"`,
+    res && res.success === false && /PRIORIDAD/.test(res.message),
+    'Admitir texto libre es lo que vació de sentido la columna');
+});
+
+run('9.4', 'Una fila que ya existe se sigue editando sin los tres campos', () => {
+  const env = envAlta();
+  const res = env.api.apiUpdateTask('JAIME OLIVO',
+    { FOLIO: 'JO-0001', COMENTARIOS: 'SEGUIMIENTO' }, 'JAIME_OLIVO');
+  check('9.4', 'El candado es para dar de alta, no para editar el historial', 'success=true',
+    `success=${res && res.success}, mensaje="${res && res.message}"`, res && res.success === true);
+});
+
+run('9.5', 'Un renglón en blanco no bloquea el lote', () => {
+  const env = envAlta();
+  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [
+    alta({ CONCEPTO: 'TAREA BUENA', FECHA: '08/07/26', _tempId: 't-alta-3' }),
+    { FECHA: '08/07/26', _tempId: 't-alta-4' }
+  ], 'JAIME_OLIVO');
+  const filas = countRowsContaining(env, 'JAIME OLIVO', 'TAREA BUENA');
+  check('9.5', 'La fila vacía se ignora, la buena se guarda', 'success=true y 1 fila',
+    `success=${res && res.success}, filas=${filas}`, res && res.success === true && filas === 1,
+    '"NUEVA ACTIVIDAD" deja renglones vacíos que "Guardar Todo" manda con el resto');
+});
+
+run('9.6', 'El lote entero se rechaza si una actividad nueva está incompleta', () => {
+  const env = envAlta();
+  const res = env.api.apiSaveTrackerBatch('JAIME OLIVO', [
+    alta({ CONCEPTO: 'PRIMERA COMPLETA', FECHA: '08/07/26', _tempId: 't-alta-5' }),
+    { CONCEPTO: 'SEGUNDA INCOMPLETA', FECHA: '08/07/26', _tempId: 't-alta-6' }
+  ], 'JAIME_OLIVO');
+  const filas = countRowsContaining(env, 'JAIME OLIVO', 'PRIMERA COMPLETA');
+  check('9.6', 'No se guarda media captura', 'success=false y 0 filas',
+    `success=${res && res.success}, filas=${filas}`, res && res.success === false && filas === 0,
+    'Guardar la mitad deja al usuario sin saber qué quedó escrito');
+});
+
+run('9.7', 'La vista ofrece el mismo catálogo que valida el backend', () => {
+  const enElBackend = (nombre) => {
+    const m = new RegExp('const ' + nombre + " = \\[([^\\]]*)\\];").exec(CODIGO_SRC);
+    return m ? m[1].replace(/['\s]/g, '') : '';
+  };
+  const enLaVista = (nombre) => {
+    const m = new RegExp('const ' + nombre + " = \\[([^\\]]*)\\];").exec(INDEX_HTML);
+    return m ? m[1].replace(/['\s]/g, '') : '';
+  };
+  const prioridad = enElBackend('PRIORIDADES_VALIDAS');
+  const riesgo = enElBackend('RIESGOS_VALIDOS');
+  const ok = prioridad && riesgo &&
+             prioridad === enLaVista('PRIORIDADES_VALIDAS') &&
+             riesgo === enLaVista('RIESGOS_VALIDOS');
+  check('9.7', 'index.html y CODIGO.js declaran los mismos valores',
+    'catálogos idénticos', `backend=[${prioridad}] / vista=[${enLaVista('PRIORIDADES_VALIDAS')}]`, ok,
+    'Si se separan, la vista ofrece un valor que el backend rechaza');
 });
 
 // ======================================================================
