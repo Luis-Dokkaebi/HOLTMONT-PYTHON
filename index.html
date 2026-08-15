@@ -2793,9 +2793,21 @@
                          <div v-else-if="String(h).toUpperCase().includes('VENDEDOR') || String(h).toUpperCase().includes('RESPONSABLE') || String(h).toUpperCase().includes('INVOLUCRADOS')" style="position:relative; width:100%; height:100%; min-height: 30px; background-color:#f0fdf4;" @click="openVendorSelector(row, h)">
                              <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:11px; white-space:nowrap; overflow:hidden; font-weight:bold; color:#000 !important; cursor:pointer;">{{ toInitials(row[h]) }}</div>
                          </div>
+                         <!-- CATALOGO_PRIORIDAD_TRACKER: el desplegable ofrece `priorityOpts`, el
+                              mismo catálogo que valida el backend. La última opción existe para
+                              las filas viejas: si una fila trae un valor que ya no está en el
+                              catálogo (NORMAL, ESTRATEGICA), se sigue viendo en vez de aparecer
+                              vacía, pero no se puede elegir en una fila nueva. -->
                          <div v-else-if="String(h).toUpperCase().includes('PRIORIDAD') || String(h).toUpperCase().includes('PRIO')" style="position:relative; width:100%; height:100%;">
                              <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; font-size:10px; font-weight:bold;">{{ row[h] }}</div>
-                             <select v-model="row[h]" :disabled="!isFieldEditable(h, row)" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;"><option value="">-</option><option value="NORMAL">NORMAL</option><option value="MEDIA">MEDIA</option><option value="ALTA">ALTA</option><option value="URGENTE">URGENTE</option><option value="ESTRATEGICA">ESTRATEGICA</option></select>
+                             <select v-model="row[h]" :disabled="!isFieldEditable(h, row)" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;"><option value="">-</option><option v-for="opt in priorityOpts" :key="opt" :value="opt">{{ opt }}</option><option v-if="row[h] && !priorityOpts.includes(String(row[h]).toUpperCase().trim())" :value="row[h]">{{ row[h] }}</option></select>
+                         </div>
+                         <!-- CATALOGO_RIESGO_TRACKER: no existía. La celda de riesgo era un campo
+                              de texto libre, así que al dar de alta desde "NUEVA ACTIVIDAD" no
+                              salía ningún selector y cada quien escribía lo que quería. -->
+                         <div v-else-if="String(h).toUpperCase().includes('RIESGO')" style="position:relative; width:100%; height:100%;">
+                             <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; font-size:10px; font-weight:bold;">{{ row[h] }}</div>
+                             <select v-model="row[h]" :disabled="!isFieldEditable(h, row)" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;"><option value="">-</option><option v-for="opt in riskOpts" :key="opt" :value="opt">{{ opt }}</option><option v-if="row[h] && !riskOpts.includes(String(row[h]).toUpperCase().trim())" :value="row[h]">{{ row[h] }}</option></select>
                          </div>
                          <div v-else-if="isMediaColumn(h)" class="text-center" style="padding-top:4px; display:flex; gap:2px; flex-wrap:wrap; justify-content:center; align-items:center; height:100%;">
                              <template v-if="row[h]">
@@ -3055,8 +3067,8 @@
                  <div class="col-md-6"><label class="dynamic-label">Clasificación</label><select v-model="dynamicPpc.clasificacion" class="dynamic-input"><option value="A">A</option><option value="AA">AA</option><option value="AAA">AAA</option></select></div>
                  <div class="col-12"><label class="dynamic-label">Responsable</label><div class="dynamic-input" style="min-height:38px; display:flex; flex-wrap:wrap; gap:5px; align-items:center;" @click="$refs.chipDyn.focus()"><span v-for="(u,i) in selectedResponsables" :key="i" class="user-chip">{{u}} <i class="fas fa-times ms-2 text-secondary" style="cursor:pointer" @click.stop="selectedResponsables.splice(i,1)"></i></span><input ref="chipDyn" v-model="staffSearch" style="background:transparent; border:none; color:#333; outline:none; min-width:60px;" placeholder="+"></div><ul class="list-group position-absolute shadow" style="z-index:100; max-height:150px; overflow:auto; width:300px; margin-top:5px;" v-if="staffSearch"><li v-for="p in filteredDirectory" :key="p.name" class="list-group-item list-group-item-action small py-1" style="cursor:pointer;" @click="addResponsable(p.name)">{{p.name}}</li></ul></div>
                  <div class="col-12"><label class="dynamic-label">Descripción</label><textarea v-model="dynamicPpc.concepto" class="dynamic-input" rows="3"></textarea></div>
-                 <div class="col-md-6"><label class="dynamic-label">Riesgos</label><div><span v-for="r in ['BAJO','MEDIO','ALTO','CATASTROFICO']" :key="r" class="chip-option" :class="{selected: dynamicPpc.riesgos === r}" @click="dynamicPpc.riesgos = r">{{r}}</span></div></div>
-                 <div class="col-md-6"><label class="dynamic-label">Prioridad</label><div><span v-for="p in ['BAJA','MEDIA','URGENTE']" :key="p" class="chip-option" :class="{selected: dynamicPpc.prioridad === p}" @click="dynamicPpc.prioridad = p">{{p}}</span></div></div>
+                 <div class="col-md-6"><label class="dynamic-label">Riesgos</label><div><span v-for="r in riskOpts" :key="r" class="chip-option" :class="{selected: dynamicPpc.riesgos === r}" @click="dynamicPpc.riesgos = r">{{r}}</span></div></div>
+                 <div class="col-md-6"><label class="dynamic-label">Prioridad</label><div><span v-for="p in priorityOpts" :key="p" class="chip-option" :class="{selected: dynamicPpc.prioridad === p}" @click="dynamicPpc.prioridad = p">{{p}}</span></div></div>
                  <div class="col-md-3"><label class="dynamic-label">Fecha Fin</label><input type="date" v-model="dynamicPpc.fechaFin" class="dynamic-input"></div>
                  <div class="col-md-3"><label class="dynamic-label">Archivos</label><button class="btn btn-outline-primary w-100 btn-sm" @click="openFileDialog" style="border-style:dashed; height:36px;"><i class="fas" :class="uploadSuccess ? 'fa-check text-success' : 'fa-cloud-upload-alt'"></i> {{ uploadSuccess ? 'Listo' : 'SUBIR' }}</button><input type="file" ref="fileInput" class="file-input-hidden" accept="*" @change="handleFileSelect"></div>
                  <div class="col-md-6"><label class="dynamic-label">Comentarios</label><input v-model="dynamicPpc.comentarios" class="dynamic-input"></div>
@@ -3378,6 +3390,13 @@
                                     </div>
                                     <div class="card-body">
                                         <div class="d-flex justify-content-around text-center">
+                                            <div>
+                                                <!-- URGENTE entró al catálogo en 2026-08. Sin su propia
+                                                     casilla se contaba como SIN PRIORIDAD, que es lo
+                                                     contrario de lo que el panel intenta mostrar. -->
+                                                <div class="text-danger fw-bold" style="font-size: 1.5rem;">{{ trackerProductivityData.metrics.priorityStats['URGENTE'] }}</div>
+                                                <div class="text-muted" style="font-size: 0.8rem;">URGENTE</div>
+                                            </div>
                                             <div>
                                                 <div class="text-danger fw-bold" style="font-size: 1.5rem;">{{ trackerProductivityData.metrics.priorityStats['ALTA'] }}</div>
                                                 <div class="text-muted" style="font-size: 0.8rem;">ALTA</div>
@@ -4798,8 +4817,11 @@
                            <td><select v-model="item.especialidad" class="excel-input"><option value="" disabled>Sel...</option><option v-for="(d,k) in (config.allDepartments || config.departments)" :key="k" :value="k">{{d.label}}</option></select></td>
                            <td><input v-model="item.concepto" class="excel-input text-normal-case" placeholder="Descripción..."></td>
                            <td><select v-model="item.clasificacion" class="excel-input"><option value=""></option><option value="A">A</option><option value="AA">AA</option><option value="AAA">AAA</option></select></td>
-                           <td><select v-model="item.prioridades" class="excel-input"><option value=""></option><option value="ALTA">ALTA</option><option value="MEDIA">MEDIA</option><option value="BAJA">BAJA</option></select></td>
-                           <td><select v-model="item.riesgos" class="excel-input"><option value=""></option><option value="ALTO">ALTO</option><option value="MEDIO">MEDIO</option><option value="BAJO">BAJO</option></select></td>
+                           <!-- CATALOGO_PRIORIDAD_PPC / CATALOGO_RIESGO_PPC: el mismo catálogo
+                                que el Tracker. Aquí faltaban URGENTE y CATASTROFICO, así que la
+                                misma actividad se clasificaba distinto según dónde se diera de alta. -->
+                           <td><select v-model="item.prioridades" class="excel-input"><option value=""></option><option v-for="opt in priorityOpts" :key="opt" :value="opt">{{ opt }}</option></select></td>
+                           <td><select v-model="item.riesgos" class="excel-input"><option value=""></option><option v-for="opt in riskOpts" :key="opt" :value="opt">{{ opt }}</option></select></td>
                            <td><input v-model="item.restricciones" class="excel-input" placeholder="Restricciones..."></td>
                            <td style="background:#f0fdf4; cursor:pointer;" @click="openInvolucradosSelector(item)"><div style="padding:0 6px; font-size:11px; font-weight:bold; min-height:22px; display:flex; align-items:center; flex-wrap:wrap; gap:2px;">{{ item.responsable || '+' }}</div></td>
                            <td class="text-center small text-muted">HOY</td>
@@ -6789,7 +6811,14 @@ async function toggleVoiceRecording(btnElement) {
           showTimePopup.value = false;
       };
       const extraData = ref({ restricciones: '', prioridades: '', riesgos: '', fechaRespuesta: '', clasificacion: '' });
-      const priorityOpts = ['URGENTE', 'MEDIA', 'BAJA']; const riskOpts = ['ALTO', 'BAJO', 'CATASTROFICO'];
+      // Catálogo único de control, espejo de `PRIORIDADES_VALIDAS` /
+      // `RIESGOS_VALIDOS` de CODIGO.js y de api/services/tracker_rules.py. Antes
+      // cada vista traía el suyo —el Tracker ofrecía NORMAL y ESTRATEGICA, el PPC
+      // Maestro solo ALTA/MEDIA/BAJA y sin CATASTROFICO—, así que el mismo dato
+      // se capturaba con tres vocabularios y ninguna métrica cuadraba.
+      const PRIORIDADES_VALIDAS = ['BAJA', 'MEDIA', 'ALTA', 'URGENTE'];
+      const RIESGOS_VALIDOS = ['BAJO', 'MEDIO', 'ALTO', 'CATASTROFICO'];
+      const priorityOpts = PRIORIDADES_VALIDAS; const riskOpts = RIESGOS_VALIDOS;
       const cellFileInput = ref(null); const uploadingCell = ref({row:null, col:null});
       const dynamicPpc = ref({ especialidad: '', clasificacion: 'A', concepto: '', riesgos: 'BAJO', prioridad: 'MEDIA', fechaFin: '', comentarios: '', archivoUrl: '' });
       const vehicleData = ref({});
@@ -8960,6 +8989,57 @@ const filteredStaffTrackerData = computed(() => {
           return { valid: true };
       };
 
+      // --- CONTROL DE ALTA -------------------------------------------------
+      // Toda actividad nueva nace con PRIORIDAD, RIESGOS y FEC. EST. FIN. Es
+      // espejo exacto de `camposObligatoriosFaltantes` de CODIGO.js y de
+      // `campos_obligatorios_faltantes` de api/services/tracker_rules.py: aquí
+      // avisa antes de pedir el guardado, y el backend lo vuelve a comprobar
+      // porque una validación que solo vive en el navegador no es una
+      // restricción, es una sugerencia.
+      //
+      // Un valor fuera del catálogo cuenta como faltante: una prioridad que
+      // nadie sabe ordenar no prioriza nada.
+      const CAMPOS_OBLIGATORIOS_ACTIVIDAD = [
+          { etiqueta: 'PRIORIDAD', alias: ['PRIORIDAD', 'PRIORIDADES'], catalogo: PRIORIDADES_VALIDAS },
+          { etiqueta: 'RIESGOS', alias: ['RIESGOS', 'RIESGO'], catalogo: RIESGOS_VALIDOS },
+          { etiqueta: 'FEC. EST. FIN', alias: ['FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA ESTIMADA FIN', 'FECHA_ESTIMADA_FIN', 'FECHA ESTIMADA', 'FECHA FIN', 'FECHA_FIN'], catalogo: [] },
+      ];
+
+      // El folio lo pone el backend al dar de alta: una fila sin folio es una
+      // fila que todavía no existe en ninguna hoja.
+      const esActividadNueva = (row) => {
+          const k = Object.keys(row || {}).find(k => ['FOLIO', 'ID'].includes(String(k).toUpperCase().trim()));
+          return !(k && String(row[k] == null ? '' : row[k]).trim());
+      };
+
+      const camposObligatoriosFaltantes = (row) => CAMPOS_OBLIGATORIOS_ACTIVIDAD
+          .filter(campo => {
+              // `claveEtiqueta` iguala las grafías de la misma columna:
+              // FEC. EST. FIN, FECHA_ESTIMADA_FIN y FECHA ESTIMADA DE FIN.
+              const claves = campo.alias.map(claveEtiqueta);
+              const k = Object.keys(row || {}).find(k => claves.includes(claveEtiqueta(k)));
+              const valor = k ? String(row[k] == null ? '' : row[k])
+                  .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+                  .replace(/\s+/g, ' ').trim().toUpperCase() : '';
+              return !valor || (campo.catalogo.length > 0 && !campo.catalogo.includes(valor));
+          })
+          .map(campo => campo.etiqueta);
+
+      const tieneContenidoDeActividad = (row) => ['CONCEPTO', 'DESCRIPCION', 'CLIENTE', 'RESPONSABLE', 'INVOLUCRADOS']
+          .some(clave => {
+              const k = Object.keys(row || {}).find(k => claveEtiqueta(k) === claveEtiqueta(clave));
+              return !!(k && String(row[k] == null ? '' : row[k]).trim());
+          });
+
+      const avisarCamposObligatorios = (faltantes, folio) => {
+          Swal.fire({
+              icon: 'warning',
+              title: 'Campos obligatorios',
+              text: `Falta ${faltantes.join(', ')}${folio ? ` en la actividad ${folio}` : ''}. `
+                  + 'Toda actividad nueva necesita PRIORIDAD, RIESGOS y FEC. EST. FIN.'
+          });
+      };
+
       const saveAllTrackerRows = () => {
           if (staffTracker.value.data.length === 0) return;
           if (isSubmitting.value) return; // Prevention for double clicking and racing conditions
@@ -8969,6 +9049,12 @@ const filteredStaffTrackerData = computed(() => {
               if (!validation.valid) {
                   Swal.fire('Archivos incompletos', `Falta subir archivos a ${validation.missing} en la tarea ${row.FOLIO || row.ID || ''} para poder dar 100%`, 'warning');
                   return;
+              }
+              // Las filas en blanco no cuentan: la tabla deja añadir renglones y
+              // dejarlos vacíos, y el backend los descarta antes de darles folio.
+              if (esActividadNueva(row) && tieneContenidoDeActividad(row)) {
+                  const faltantes = camposObligatoriosFaltantes(row);
+                  if (faltantes.length) { avisarCamposObligatorios(faltantes, row.CONCEPTO || ''); return; }
               }
           }
 
@@ -9060,6 +9146,11 @@ const filteredStaffTrackerData = computed(() => {
           if (!validation.valid) {
               Swal.fire('Archivos incompletos', `Falta subir archivos a ${validation.missing} para poder dar 100%`, 'warning');
               return;
+          }
+
+          if (esActividadNueva(row) && tieneContenidoDeActividad(row)) {
+              const faltantes = camposObligatoriosFaltantes(row);
+              if (faltantes.length) { avisarCamposObligatorios(faltantes, ''); return; }
           }
 
           row._isSaving = true;
@@ -9385,11 +9476,23 @@ const filteredStaffTrackerData = computed(() => {
             return;
         }
 
-        // Validate fechaRespuesta (or fechaFin if mapped)
-        const missingDate = validItems.some(item => !item.fechaRespuesta);
-        if (missingDate) {
-            Swal.fire('Campo Obligatorio', 'Debe colocar la Fecha de Respuesta en todas las actividades ingresadas para poder avanzar.', 'warning');
-            return;
+        // Control de alta, el mismo que el Tracker. En esta tabla la fecha
+        // comprometida es "Fecha Respuesta": es la que `apiSavePPCData` escribe
+        // en FECHA_RESPUESTA y la que ya era obligatoria aquí. Se valida con el
+        // mismo `camposObligatoriosFaltantes` para que prioridad y riesgo no
+        // dependan de qué pantalla usó cada quien.
+        for (const item of validItems) {
+            const faltantes = camposObligatoriosFaltantes({
+                PRIORIDAD: item.prioridades,
+                RIESGOS: item.riesgos,
+                'FEC. EST. FIN': item.fechaRespuesta,
+            }).map(campo => campo === 'FEC. EST. FIN' ? 'FECHA RESPUESTA' : campo);
+            if (faltantes.length) {
+                Swal.fire('Campos obligatorios',
+                    `Falta ${faltantes.join(', ')} en "${item.concepto}". `
+                    + 'Toda actividad nueva necesita PRIORIDAD, RIESGO y FECHA RESPUESTA.', 'warning');
+                return;
+            }
         }
 
         isSubmitting.value = true;

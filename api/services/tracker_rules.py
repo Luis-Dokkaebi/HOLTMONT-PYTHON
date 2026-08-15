@@ -108,6 +108,99 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
 
 ARCHIVE_SEPARATOR = "TAREAS REALIZADAS"
 
+# ----------------------------------------------------------------------
+# CONTROL DE ALTA: CATÁLOGOS Y CAMPOS OBLIGATORIOS
+# ----------------------------------------------------------------------
+# Los dos catálogos son la lista cerrada de valores que la vista ofrece y que
+# el backend acepta. Estaban repartidos por pantalla y no coincidían: el
+# desplegable del Tracker ofrecía NORMAL/MEDIA/ALTA/URGENTE/ESTRATEGICA, el del
+# PPC Maestro solo ALTA/MEDIA/BAJA, y la celda de riesgo del Tracker era texto
+# libre. El mismo dato se capturaba con tres vocabularios distintos, así que no
+# se podía ordenar por prioridad ni contar riesgos.
+#
+# `URGENTE` y `CATASTROFICO` son los que se estrenan (petición del dueño,
+# 2026-08). `NORMAL` y `ESTRATEGICA` salen: ninguna otra vista los conocía y
+# `compute_productivity_metrics` los contaba como SIN_PRIORIDAD.
+
+PRIORIDADES_VALIDAS: tuple[str, ...] = ("BAJA", "MEDIA", "ALTA", "URGENTE")
+RIESGOS_VALIDOS: tuple[str, ...] = ("BAJO", "MEDIO", "ALTO", "CATASTROFICO")
+
+# Alias propios y no `COLUMN_ALIASES`: `FECHA_RESPUESTA` mezcla ahí la fecha
+# comprometida con la estimada de fin, y el control que se pidió es sobre
+# `Fec. Est. Fin`, que es la columna que la vista deja vacía.
+ALIAS_PRIORIDAD: tuple[str, ...] = ("PRIORIDAD", "PRIORIDADES")
+ALIAS_RIESGOS: tuple[str, ...] = ("RIESGOS", "RIESGO")
+ALIAS_FECHA_ESTIMADA_FIN: tuple[str, ...] = (
+    "FEC. EST. FIN", "FECHA ESTIMADA DE FIN", "FECHA ESTIMADA FIN",
+    "FECHA_ESTIMADA_FIN", "FECHA ESTIMADA", "FECHA FIN", "FECHA_FIN",
+)
+
+# (etiqueta que ve el usuario, alias de lectura, catálogo cerrado o vacío)
+CAMPOS_OBLIGATORIOS_ACTIVIDAD: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("PRIORIDAD", ALIAS_PRIORIDAD, PRIORIDADES_VALIDAS),
+    ("RIESGOS", ALIAS_RIESGOS, RIESGOS_VALIDOS),
+    ("FEC. EST. FIN", ALIAS_FECHA_ESTIMADA_FIN, ()),
+)
+
+
+def _valor_de_catalogo(value: Any) -> str:
+    """Mayúsculas, sin acentos y sin espacios sobrantes: CATASTRÓFICO = CATASTROFICO."""
+    if value is None:
+        return ""
+    texto = unicodedata.normalize("NFKD", str(value))
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", texto).strip().upper()
+
+
+def es_actividad_nueva(task: dict[str, Any]) -> bool:
+    """
+    ¿La fila está naciendo?
+
+    Se mide por el folio, no por la bandera `_isNew` del frontend: el folio lo
+    pone el backend al dar de alta, así que una fila sin folio es una fila que
+    todavía no existe en ninguna hoja. Una bandera la puede omitir cualquier
+    cliente; el folio no.
+    """
+    return not str(pick_task_value(task, COLUMN_ALIASES["FOLIO"]) or "").strip()
+
+
+def tiene_contenido_de_actividad(task: dict[str, Any]) -> bool:
+    """
+    ¿La fila dice algo, o es un renglón en blanco?
+
+    La tabla deja añadir renglones vacíos ("NUEVA ACTIVIDAD" y a otra cosa), y
+    "Guardar Todo" los manda con el resto. Un renglón sin concepto, cliente ni
+    responsable no es una actividad: exigirle prioridad bloquearía el lote
+    entero por una fila que nadie llenó. Es el mismo criterio con el que
+    `apiSaveTrackerBatch` ya descarta filas fantasma antes de darles folio.
+    """
+    return any(
+        str(pick_task_value(task, [clave]) or "").strip()
+        for clave in ("CONCEPTO", "DESCRIPCION", "CLIENTE", "RESPONSABLE", "INVOLUCRADOS")
+    )
+
+
+def campos_obligatorios_faltantes(task: dict[str, Any]) -> list[str]:
+    """
+    Qué le falta a una actividad para poder darse de alta.
+
+    Un valor fuera del catálogo cuenta como faltante: una prioridad que nadie
+    sabe ordenar no prioriza nada, y admitir texto libre es lo que vació de
+    sentido la columna.
+    """
+    faltantes: list[str] = []
+    for etiqueta, alias, catalogo in CAMPOS_OBLIGATORIOS_ACTIVIDAD:
+        valor = _valor_de_catalogo(pick_task_value(task, alias))
+        if not valor or (catalogo and valor not in catalogo):
+            faltantes.append(etiqueta)
+    return faltantes
+
+
+def mensaje_campos_obligatorios(faltantes: Sequence[str]) -> str:
+    """El texto que ve el usuario cuando el alta se rechaza."""
+    return (f"No se puede dar de alta la actividad: falta {', '.join(faltantes)}. "
+            "Toda actividad nueva necesita PRIORIDAD, RIESGOS y FEC. EST. FIN.")
+
 # Claves que NO viajan del trabajador a la hoja maestra.
 #
 # CUMPLIMIENTO y las fechas de término son del seguimiento del trabajador y no
@@ -1503,7 +1596,11 @@ def build_quote_metrics_prompt(metrics: Dict[str, Any]) -> str:
 # riesgos, las prioridades y el desglose por departamento, que son las métricas
 # de las que dependen las tres reglas de alerta.
 
-PRIORIDADES = ("ALTA", "MEDIA", "BAJA")
+# El desglose usa el catálogo de alta (`PRIORIDADES_VALIDAS`) para que una
+# prioridad válida no acabe contada como SIN_PRIORIDAD. `URGENTE` entró al
+# catálogo en 2026-08 y hasta entonces caía en ese cajón junto con las filas sin
+# prioridad, que es justo lo que el panel intenta distinguir.
+PRIORIDADES = PRIORIDADES_VALIDAS
 RIESGO_IRRELEVANTE = {"", "BAJO", "NINGUNO", "NO"}
 
 
@@ -1547,7 +1644,8 @@ def compute_productivity_metrics(por_persona: Dict[str, List[Dict[str, Any]]],
     con_duracion = 0
     con_restricciones = 0
     con_riesgos = 0
-    prioridades = {"ALTA": 0, "MEDIA": 0, "BAJA": 0, "SIN_PRIORIDAD": 0}
+    prioridades = {p: 0 for p in PRIORIDADES}
+    prioridades["SIN_PRIORIDAD"] = 0
     por_depto: Dict[str, Dict[str, int]] = {}
     por_colab: Dict[str, Dict[str, Any]] = {}
 
@@ -1571,7 +1669,7 @@ def compute_productivity_metrics(por_persona: Dict[str, List[Dict[str, Any]]],
             if riesgo not in RIESGO_IRRELEVANTE:
                 con_riesgos += 1
 
-            prio = str(pick_task_value(row, ["PRIORIDAD"]) or "").strip().upper()
+            prio = _valor_de_catalogo(pick_task_value(row, ALIAS_PRIORIDAD))
             prioridades[prio if prio in PRIORIDADES else "SIN_PRIORIDAD"] += 1
 
             d = por_depto.setdefault(depto, {"count": 0, "late": 0, "onTime": 0})

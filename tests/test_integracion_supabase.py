@@ -371,11 +371,16 @@ def test_dos_altas_sin_folio_no_se_pisan_entre_invocaciones(tracker):
     proceso. En serverless cada invocación empieza de cero, así que devolvía
     `1001` siempre: la segunda tarea sin folio recibía el mismo que la primera
     y el upsert la sobrescribía. El consecutivo sale ahora de la base.
+
+    Las dos altas traen PRIORIDAD, RIESGOS y FEC. EST. FIN porque desde 2026-08
+    son obligatorias para dar de alta (`tests/test_campos_obligatorios_actividad.py`);
+    lo que aquí se mide sigue siendo el folio.
     """
     for i in (1, 2):
         respuesta = tracker_store.save_tracker_batch(
             "JAIME OLIVO",
-            [{"CONCEPTO": f"TAREA {i}", "RESPONSABLE": "JAIME OLIVO", "_tempId": f"t{i}"}],
+            [{"CONCEPTO": f"TAREA {i}", "RESPONSABLE": "JAIME OLIVO", "_tempId": f"t{i}",
+              "PRIORIDAD": "MEDIA", "RIESGOS": "BAJO", "FEC. EST. FIN": "30/08/26"}],
             username="JAIME_OLIVO",
         )
         assert respuesta["success"] is True, respuesta.get("message")

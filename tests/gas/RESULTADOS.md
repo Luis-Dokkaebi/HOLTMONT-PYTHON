@@ -2,7 +2,7 @@
 
 > Generado automáticamente por `node tests/gas/run_tests.js` contra `CODIGO.js` con mocks de Google Apps Script.
 
-**Total:** 87 · **Pasan:** 87 · **Fallan:** 0
+**Total:** 94 · **Pasan:** 94 · **Fallan:** 0
 
 
 ## 1. Semáforo / Formato condicional
@@ -131,7 +131,7 @@
 | | _Nunca guardar el string compuesto como si fuera una persona_ | | | |
 | 8.8 | Con la red caída la tarea se guarda igual | success=true y 1 fila en la hoja | success=true, filas=1 | ✅ PASA |
 | | _INVARIANTE: mejor perder una réplica que una tarea_ | | | |
-| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-08-15T16:13:59.923Z | ✅ PASA |
+| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-08-15T20:12:03.897Z | ✅ PASA |
 | 8.11 | Estatus canónico en la escritura | 0 fallos | 0 fallos | ✅ PASA |
 | | _Sin esto la columna vuelve a acumular variantes en cada captura_ | | | |
 | 8.12 | Un valor no reconocido pasa tal cual | se conserva | 'EN LICITACION'->"EN LICITACION", 'RAM'->"RAM" | ✅ PASA |
@@ -142,3 +142,20 @@
 | 8.15 | Sin estatus se envía cadena vacía, no null | "" | "" | ✅ PASA |
 | | _tasks.status tiene NOT NULL: un null aborta el upsert entero_ | | | |
 | 8.10 | SUPABASE_URL/KEY solo por Propiedades del Script | sin credenciales en CODIGO.js | sin credenciales | ✅ PASA |
+
+## 9. Control de alta de actividades
+
+| # | Prueba | Esperado | Obtenido | Resultado |
+|---|--------|----------|----------|-----------|
+| 9.1 | Alta incompleta rechazada y sin escribir en la hoja | success=false y 0 filas | success=false, filas=0, mensaje="No se puede dar de alta la actividad: falta PRIORIDAD, RIESGOS, FEC. EST. FIN. Toda actividad nueva necesita PRIORIDAD, RIESGOS y FEC. EST. FIN." | ✅ PASA |
+| | _El rechazo es antes de escribir, no un rollback_ | | | |
+| 9.2 | URGENTE y CATASTROFICO son valores válidos del catálogo | success=true y 1 fila | success=true, filas=1 | ✅ PASA |
+| 9.3 | ESTRATEGICA ya no es una prioridad válida | success=false | success=false, mensaje="No se puede dar de alta la actividad: falta PRIORIDAD. Toda actividad nueva necesita PRIORIDAD, RIESGOS y FEC. EST. FIN." | ✅ PASA |
+| | _Admitir texto libre es lo que vació de sentido la columna_ | | | |
+| 9.4 | El candado es para dar de alta, no para editar el historial | success=true | success=true, mensaje="undefined" | ✅ PASA |
+| 9.5 | La fila vacía se ignora, la buena se guarda | success=true y 1 fila | success=true, filas=1 | ✅ PASA |
+| | _"NUEVA ACTIVIDAD" deja renglones vacíos que "Guardar Todo" manda con el resto_ | | | |
+| 9.6 | No se guarda media captura | success=false y 0 filas | success=false, filas=0 | ✅ PASA |
+| | _Guardar la mitad deja al usuario sin saber qué quedó escrito_ | | | |
+| 9.7 | index.html y CODIGO.js declaran los mismos valores | catálogos idénticos | backend=[BAJA,MEDIA,ALTA,URGENTE] / vista=[BAJA,MEDIA,ALTA,URGENTE] | ✅ PASA |
+| | _Si se separan, la vista ofrece un valor que el backend rechaza_ | | | |

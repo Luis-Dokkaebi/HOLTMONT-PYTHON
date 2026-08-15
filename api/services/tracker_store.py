@@ -596,6 +596,19 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
     if bloqueo:
         return {"success": False, "message": bloqueo}
 
+    # Control de alta: ninguna actividad nace sin PRIORIDAD, RIESGOS ni
+    # FEC. EST. FIN. Se rechaza el lote entero y antes de tocar la base, igual
+    # que la reasignación: guardar la mitad deja al usuario sin saber qué quedó
+    # escrito. Las filas que ya tienen folio no se juzgan — el candado es para
+    # dar de alta, no para volver a editar el historial.
+    for task in tasks:
+        if not rules.es_actividad_nueva(task) or not rules.tiene_contenido_de_actividad(task):
+            continue
+        faltantes = rules.campos_obligatorios_faltantes(task)
+        if faltantes:
+            return {"success": False,
+                    "message": rules.mensaje_campos_obligatorios(faltantes)}
+
     processed: List[Dict[str, Any]] = []
     for raw_task in tasks:
         task = dict(raw_task)

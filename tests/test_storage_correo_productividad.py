@@ -198,7 +198,21 @@ def test_se_cuentan_restricciones_riesgos_y_prioridades():
     assert m["tasksWithRestrictions"] == 1
     # BAJO y NINGUNO no cuentan como riesgo, igual que en el original.
     assert m["tasksWithRisks"] == 1
-    assert m["priorityStats"] == {"ALTA": 1, "MEDIA": 1, "BAJA": 0, "SIN_PRIORIDAD": 1}
+    assert m["priorityStats"] == {"BAJA": 0, "MEDIA": 1, "ALTA": 1, "URGENTE": 0,
+                                  "SIN_PRIORIDAD": 1}
+
+
+def test_urgente_es_una_prioridad_y_no_una_tarea_sin_prioridad():
+    """
+    `URGENTE` entró al catálogo de alta en 2026-08. Antes caía en SIN_PRIORIDAD
+    junto con las filas que nadie clasificó, que es lo contrario de lo que el
+    panel intenta mostrar: son las tareas más priorizadas de todas.
+    """
+    m = rules.compute_productivity_metrics({
+        "A": [_tarea(PRIORIDAD="URGENTE"), _tarea(PRIORIDADES="urgente"), _tarea()],
+    })
+    assert m["priorityStats"]["URGENTE"] == 2
+    assert m["priorityStats"]["SIN_PRIORIDAD"] == 1
 
 
 def test_los_colaboradores_salen_ordenados_por_volumen():

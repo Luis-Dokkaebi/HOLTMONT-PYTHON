@@ -30,6 +30,105 @@ const FOLIO_CONFIG = {
   COLUMN_NAME: 'Folio'
 };
 
+// === INICIO CONTROL DE ALTA ===========================================
+// Toda actividad nueva nace con PRIORIDAD, RIESGOS y FEC. EST. FIN.
+//
+// Los dos catálogos son la lista cerrada de valores que la vista ofrece y que
+// este backend acepta. Estaban repartidos por pantalla y no coincidían: el
+// desplegable del Tracker ofrecía NORMAL/MEDIA/ALTA/URGENTE/ESTRATEGICA, el del
+// PPC Maestro solo ALTA/MEDIA/BAJA, y la celda de riesgo del Tracker era texto
+// libre —al dar de alta desde "NUEVA ACTIVIDAD" no salía ningún selector—. El
+// mismo dato se capturaba con tres vocabularios, así que no se podía ordenar por
+// prioridad ni contar riesgos.
+//
+// Espejo exacto de `api/services/tracker_rules.py` (AGENTS.md §6). La paridad la
+// comprueba `tests/test_campos_obligatorios_actividad.py` ejecutando este mismo
+// validador con Node.
+const PRIORIDADES_VALIDAS = ['BAJA', 'MEDIA', 'ALTA', 'URGENTE'];
+const RIESGOS_VALIDOS = ['BAJO', 'MEDIO', 'ALTO', 'CATASTROFICO'];
+
+const CAMPOS_OBLIGATORIOS_ACTIVIDAD = [
+  { etiqueta: 'PRIORIDAD', alias: ['PRIORIDAD', 'PRIORIDADES'], catalogo: PRIORIDADES_VALIDAS },
+  { etiqueta: 'RIESGOS', alias: ['RIESGOS', 'RIESGO'], catalogo: RIESGOS_VALIDOS },
+  { etiqueta: 'FEC. EST. FIN',
+    alias: ['FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA ESTIMADA FIN', 'FECHA_ESTIMADA_FIN',
+            'FECHA ESTIMADA', 'FECHA FIN', 'FECHA_FIN'],
+    catalogo: [] }
+];
+
+/** Clave de columna sin acentos ni puntuación: FEC. EST. FIN = FECHA_ESTIMADA_FIN. */
+function claveDeColumna(valor) {
+  return String(valor == null ? '' : valor).toUpperCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+/** Mayúsculas y sin acentos, para comparar contra el catálogo. */
+function valorDeCatalogo(valor) {
+  return String(valor == null ? '' : valor)
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+/**
+ * ¿La fila está naciendo?
+ *
+ * Se mide por el folio y no por la bandera `_isNew` del frontend: el folio lo
+ * pone este backend al dar de alta, así que una fila sin folio es una fila que
+ * todavía no existe en ninguna hoja. La bandera la puede omitir cualquier
+ * cliente; el folio no.
+ */
+function esActividadNueva(taskData) {
+  const claves = Object.keys(taskData || {});
+  const k = claves.find(function (k) { return ['FOLIO', 'ID'].indexOf(String(k).toUpperCase().trim()) >= 0; });
+  return !(k && String(taskData[k] == null ? '' : taskData[k]).trim());
+}
+
+/**
+ * ¿La fila dice algo, o es un renglón en blanco?
+ *
+ * La tabla deja añadir renglones y dejarlos vacíos, y "Guardar Todo" los manda
+ * con el resto. Exigirle prioridad a un renglón que nadie llenó bloquearía el
+ * lote entero; es el mismo criterio con el que `apiSaveTrackerBatch` ya descarta
+ * filas fantasma antes de darles folio.
+ */
+function tieneContenidoDeActividad(taskData) {
+  return ['CONCEPTO', 'DESCRIPCION', 'CLIENTE', 'RESPONSABLE', 'INVOLUCRADOS'].some(function (campo) {
+    const k = Object.keys(taskData || {}).find(function (k) { return claveDeColumna(k) === claveDeColumna(campo); });
+    return !!(k && String(taskData[k] == null ? '' : taskData[k]).trim());
+  });
+}
+
+/**
+ * Qué le falta a una actividad para poder darse de alta.
+ *
+ * Un valor fuera del catálogo cuenta como faltante: una prioridad que nadie sabe
+ * ordenar no prioriza nada, y admitir texto libre es lo que vació de sentido la
+ * columna.
+ */
+function camposObligatoriosFaltantes(taskData) {
+  return CAMPOS_OBLIGATORIOS_ACTIVIDAD.filter(function (campo) {
+    const claves = campo.alias.map(claveDeColumna);
+    const k = Object.keys(taskData || {}).find(function (k) { return claves.indexOf(claveDeColumna(k)) >= 0; });
+    const valor = k ? valorDeCatalogo(taskData[k]) : '';
+    return !valor || (campo.catalogo.length > 0 && campo.catalogo.indexOf(valor) < 0);
+  }).map(function (campo) { return campo.etiqueta; });
+}
+
+/** El texto que ve el usuario cuando el alta se rechaza. */
+function mensajeCamposObligatorios(faltantes) {
+  return 'No se puede dar de alta la actividad: falta ' + faltantes.join(', ') +
+         '. Toda actividad nueva necesita PRIORIDAD, RIESGOS y FEC. EST. FIN.';
+}
+
+/** Motivo de rechazo de una fila, o cadena vacía si puede guardarse. */
+function motivoDeRechazoDeAlta(taskData) {
+  if (!esActividadNueva(taskData) || !tieneContenidoDeActividad(taskData)) return '';
+  const faltantes = camposObligatoriosFaltantes(taskData);
+  return faltantes.length ? mensajeCamposObligatorios(faltantes) : '';
+}
+// === FIN CONTROL DE ALTA ==============================================
+
 const INITIAL_DIRECTORY = [
     { name: "ANTONIA_VENTAS", dept: "VENTAS", type: "VENTAS" },
     { name: "JUDITH ECHAVARRIA", dept: "VENTAS", type: "ESTANDAR" },
@@ -1292,6 +1391,16 @@ function internalUpdateTask(personName, taskData, username) {
         // GUARD: PPCV3 Inmutabilidad (Solo modificable por Weekly Plan)
         if (String(personName).trim().toUpperCase() === String(APP_CONFIG.ppcSheetName).trim().toUpperCase()) {
             return { success: false, message: "Operación no permitida: PPCV3 es de solo lectura desde esta vista." };
+        }
+
+        // CONTROL DE ALTA: ninguna actividad nace sin PRIORIDAD, RIESGOS ni
+        // FEC. EST. FIN. Se comprueba sobre el payload tal como llega —antes del
+        // bloque de usuarios restringidos, que borra claves— y antes de tocar la
+        // hoja. Las filas que ya tienen folio no se juzgan: el candado es para
+        // dar de alta, no para volver a editar el historial.
+        const rechazoDeAlta = motivoDeRechazoDeAlta(taskData);
+        if (rechazoDeAlta) {
+            return { success: false, message: rechazoDeAlta };
         }
 
         // RUTEO PROTEGIDO DE VENTAS ("La Ley de Antonia", AGENTS.md §3):
@@ -3058,6 +3167,18 @@ function apiSaveTrackerBatch(personName, tasks, username) {
       personName = routing.sheet;
 
       const isAntonia = String(personName).toUpperCase() === "ANTONIA_VENTAS";
+
+      // CONTROL DE ALTA: el lote entero se rechaza si una actividad nueva viene
+      // sin PRIORIDAD, RIESGOS o FEC. EST. FIN, y antes de escribir nada.
+      // Guardar la mitad del lote deja al usuario sin saber qué quedó escrito.
+      for (var iAlta = 0; iAlta < tasks.length; iAlta++) {
+          const rechazoDeAlta = motivoDeRechazoDeAlta(tasks[iAlta]);
+          if (rechazoDeAlta) {
+              // El `finally` de abajo suelta el candado; soltarlo aquí lo haría
+              // dos veces.
+              return { success: false, message: rechazoDeAlta };
+          }
+      }
 
       // Sequence Logic for Antonia
       let currentSeq = null;
