@@ -29,13 +29,36 @@ from backend.services import auditoria
 
 MAKE_WEBHOOK_ENV = "MAKE_WEBHOOK_URL"
 GEMINI_KEY_ENV = "GEMINI_API_KEY"
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL_ENV = "GEMINI_MODEL"
+
+# Catálogo de modelos, en orden de preferencia. Es una lista y no una constante
+# porque Google **retira modelos**: `gemini-1.5-flash`, que era el valor fijo de
+# este archivo (y de `METRICS_CONFIG.geminiModel` en `CODIGO.js`), responde 404
+# en `v1beta` para las API keys emitidas después de su retiro. El síntoma para
+# el usuario era "Error al consultar Gemini" con una key perfectamente válida,
+# sin ninguna pista de que el problema fuera el modelo.
+#
+# `call_gemini` recorre la lista y solo baja al siguiente cuando el error es del
+# modelo (404). Un 400 —key inválida— corta de inmediato: reintentar con otro
+# modelo no arregla una key mala y multiplica la espera del usuario.
+#
+# `GEMINI_MODEL` en el entorno antepone un modelo a la lista, para fijar uno
+# nuevo sin tocar el código.
+GEMINI_MODELS: List[str] = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+GEMINI_TIMEOUT_S = 30
+
+# Prefijo de las API keys de Google AI Studio. Solo se usa para atajar el error
+# más común (pegar el ID del proyecto, o la key con espacios); la validación de
+# verdad la hace Google en `verificar_gemini_key`.
+GEMINI_KEY_PREFIX = "AIza"
+GEMINI_KEY_MIN_LEN = 30
 
 # Último reporte del agente de métricas (en producción conviene persistirlo
 # en la base; aquí se mantiene en memoria del proceso, como el Properties
 # Service de Apps Script).
 _LAST_AGENT_REPORT: Dict[str, Any] = {}
-
 
 # ----------------------------------------------------------------------
 # Acceso a datos
@@ -744,31 +767,117 @@ def fetch_quote_metrics(month: Optional[int] = None, year: Optional[int] = None)
     return {"success": True, "metrics": metrics}
 
 
-def call_gemini(prompt: str) -> Dict[str, Any]:
-    key = os.environ.get(GEMINI_KEY_ENV, "").strip()
-    if not key:
-        return {"success": False, "text": "Sin GEMINI_API_KEY configurada: el reporte se generó solo con reglas."}
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={key}"
+def modelos_gemini() -> List[str]:
+    """Modelos a probar, con el del entorno al frente si está definido."""
+    preferido = os.environ.get(GEMINI_MODEL_ENV, "").strip()
+    if not preferido:
+        return list(GEMINI_MODELS)
+    return [preferido] + [m for m in GEMINI_MODELS if m != preferido]
+
+
+def _motivo_del_error_http(exc: urllib.error.HTTPError) -> str:
+    """
+    Mensaje que Google puso en el cuerpo, no el genérico del código HTTP.
+
+    Sin esto el usuario leía "HTTP Error 400: Bad Request" y no había forma de
+    distinguir una key con un espacio de más de un modelo retirado. El cuerpo
+    trae `{"error": {"message": "API key not valid. ..."}}`, que sí lo dice.
+    """
     try:
+        cuerpo = json.loads(exc.read().decode("utf-8"))
+        mensaje = str(cuerpo.get("error", {}).get("message", "")).strip()
+    except (AttributeError, OSError, ValueError):
+        mensaje = ""
+    return mensaje or f"HTTP {exc.code}: {exc.reason}"
+
+
+def _texto_de_la_respuesta(body: Dict[str, Any]) -> str:
+    """
+    Une todas las partes de texto del primer candidato.
+
+    El original leía `parts[0].text` a secas. Los modelos actuales parten la
+    respuesta en varios `parts` (y meten bloques sin `text`, como los de
+    razonamiento), así que quedarse con el primero truncaba el análisis.
+    """
+    for candidato in body.get("candidates") or []:
+        partes = ((candidato or {}).get("content") or {}).get("parts") or []
+        textos = [str(p["text"]) for p in partes if isinstance(p, dict) and p.get("text")]
+        if textos:
+            return "\n".join(textos).strip()
+    return ""
+
+
+def _motivo_de_respuesta_vacia(body: Dict[str, Any]) -> str:
+    """Por qué no vino texto: filtro de seguridad o corte por longitud."""
+    bloqueo = str((body.get("promptFeedback") or {}).get("blockReason") or "").strip()
+    if bloqueo:
+        return bloqueo
+    for candidato in body.get("candidates") or []:
+        fin = str((candidato or {}).get("finishReason") or "").strip()
+        if fin and fin != "STOP":
+            return fin
+    return "sin candidatos en la respuesta"
+
+
+def call_gemini(prompt: str, api_key: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Análisis de Gemini para el prompt dado. Nunca lanza: degrada con el motivo.
+
+    `api_key` gana al entorno. Es lo que hace funcionar el botón del tablero en
+    Vercel: cada petición puede caer en una instancia distinta, así que la key
+    que `save_gemini_key` dejó en `os.environ` no existe para la invocación
+    siguiente. Ver `save_gemini_key` para el detalle.
+    """
+    key = str(api_key or "").strip() or os.environ.get(GEMINI_KEY_ENV, "").strip()
+    if not key:
+        return {"success": False,
+                "text": "Sin GEMINI_API_KEY configurada: el reporte se generó solo con reglas. "
+                        "Configúrala desde el dashboard para incluir el análisis de IA."}
+
+    datos = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
+    ultimo_error = ""
+    for modelo in modelos_gemini():
         request = urllib.request.Request(
-            url,
-            data=json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8"),
+            f"{GEMINI_API_BASE}/{modelo}:generateContent?key={key}",
+            data=datos,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = json.loads(response.read().decode("utf-8"))
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
-        return {"success": True, "text": str(text).strip()}
-    except (urllib.error.URLError, OSError, KeyError, IndexError, ValueError) as exc:
-        return {"success": False, "text": f"Error al consultar Gemini: {exc}"}
+        try:
+            with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_S) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            ultimo_error = _motivo_del_error_http(exc)
+            # 404 = ese modelo ya no existe; el siguiente de la lista puede sí.
+            # Cualquier otro código (400 key inválida, 429 cuota, 5xx) no lo
+            # arregla cambiar de modelo: se reporta tal cual y se corta.
+            if exc.code == 404:
+                continue
+            return {"success": False, "text": f"Error al consultar Gemini: {ultimo_error}"}
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            return {"success": False, "text": f"Error al consultar Gemini: {exc}"}
+
+        texto = _texto_de_la_respuesta(body)
+        if texto:
+            return {"success": True, "text": texto}
+        return {"success": False,
+                "text": f"Gemini no devolvió contenido analizable ({_motivo_de_respuesta_vacia(body)})."}
+
+    return {"success": False,
+            "text": f"Error al consultar Gemini: ningún modelo disponible ({ultimo_error})."}
 
 
-def run_quote_metrics_agent(month: Optional[int] = None, year: Optional[int] = None) -> Dict[str, Any]:
+def verificar_gemini_key(key: str) -> Dict[str, Any]:
+    """Comprueba contra Google que la key sirve, con el prompt más corto posible."""
+    return call_gemini("Responde únicamente: OK", api_key=key)
+
+
+def run_quote_metrics_agent(month: Optional[int] = None, year: Optional[int] = None,
+                            api_key: Optional[str] = None) -> Dict[str, Any]:
     """Equivalente de `runQuoteMetricsAgent`: reglas + Gemini + notificación."""
     global _LAST_AGENT_REPORT
     metrics = fetch_quote_metrics(month, year)["metrics"]
-    gemini = call_gemini(rules.build_quote_metrics_prompt(metrics))
+    gemini = call_gemini(rules.build_quote_metrics_prompt(metrics), api_key=api_key)
 
     last_run = {
         "timestamp": rules.to_iso_z(datetime.utcnow()),
@@ -802,11 +911,45 @@ def get_last_agent_report() -> Dict[str, Any]:
 
 
 def save_gemini_key(key: str) -> Dict[str, Any]:
+    """
+    Valida la key contra Google y la deja en el entorno **de este proceso**.
+
+    El original de Apps Script la guardaba en `PropertiesService`, que es
+    almacenamiento durable del proyecto. Aquí no hay equivalente: en Vercel cada
+    petición se atiende en una instancia efímera, así que la key escrita en
+    `os.environ` por este endpoint **no existe** para el `POST /runQuoteAgent`
+    siguiente. Ese es el motivo exacto de que el tablero dijera "Sin
+    GEMINI_API_KEY configurada" justo después de guardarla.
+
+    Las dos formas de que la key sí llegue al agente:
+
+    1. **Permanente**: `GEMINI_API_KEY` en las variables de entorno del proyecto
+       de Vercel. Vale para todos los usuarios y para el cron diario.
+    2. **Por sesión**: el tablero conserva la key en el navegador y la manda en
+       cada `runQuoteAgent` (`api_service.js`). Es lo que hace que el botón
+       funcione sin tocar la configuración del despliegue.
+
+    Guardar sin verificar es lo que hacía descubrir el error tres pasos después,
+    ya dentro del agente y mezclado con el reporte; por eso se comprueba aquí.
+    """
     clean = str(key or "").strip()
     if not clean:
         return {"success": False, "message": "La key no puede estar vacía."}
+    if not clean.startswith(GEMINI_KEY_PREFIX) or len(clean) < GEMINI_KEY_MIN_LEN:
+        return {"success": False,
+                "message": f"Eso no parece una API key de Google AI Studio: empiezan con "
+                           f"'{GEMINI_KEY_PREFIX}' y son más largas. Cópiala de "
+                           "https://aistudio.google.com/apikey."}
+
+    verificacion = verificar_gemini_key(clean)
+    if not verificacion["success"]:
+        return {"success": False, "message": f"Google rechazó la key: {verificacion['text']}"}
+
     os.environ[GEMINI_KEY_ENV] = clean
-    return {"success": True, "message": "Key guardada"}
+    return {"success": True,
+            "message": "Key verificada con Google. Se usará en este navegador; no persiste "
+                       "en el servidor entre invocaciones. Para dejarla fija para todos, "
+                       "define GEMINI_API_KEY en las variables de entorno del despliegue."}
 
 
 def check_gemini_key() -> Dict[str, Any]:

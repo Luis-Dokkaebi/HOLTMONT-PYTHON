@@ -1689,6 +1689,11 @@
                             <i class="fas fa-check me-1"></i>Key configurada: <code>{{ geminiKeyState.preview }}</code>
                         </div>
                         <input type="password" class="form-control form-control-sm mb-2" v-model="geminiKeyInput" placeholder="AIza..." />
+                        <p class="small text-muted mb-0">
+                            Se verifica con Google antes de guardarla y queda en <strong>este navegador</strong>.
+                            Para dejarla fija para todo el equipo, define <code>GEMINI_API_KEY</code> en las
+                            variables de entorno del despliegue.
+                        </p>
                     </div>
                     <div class="custom-modal-footer d-flex justify-content-end gap-2">
                         <button class="btn btn-sm btn-secondary" @click="showGeminiKeyModal = false">Cancelar</button>
@@ -1708,7 +1713,7 @@
             <div v-else-if="quoteMetrics.loaded && quoteMetrics.data.totalCount === 0" class="alert alert-warning">
                 <i class="fas fa-info-circle me-2"></i>
                 No hay cotizaciones terminadas registradas para <strong>{{ qmMonthNames[qmFilters.month-1] }} {{ qmFilters.year }}</strong>.
-                <br><small>Verifica que existan filas en la sección "TAREAS REALIZADAS" de ANTONIA_VENTAS con FECHA en el mes seleccionado.</small>
+                <br><small>Verifica que existan filas en ANTONIA_VENTAS con <strong>F. INICIO</strong> en el mes seleccionado: el periodo se filtra por esa columna, no por F. VISITA ni por F. ENTREGA.</small>
             </div>
 
             <!-- CONTENIDO PRINCIPAL (cuando hay datos) -->
@@ -1994,7 +1999,8 @@
                 <div class="alert alert-info small py-2 mt-2">
                     <i class="fas fa-info-circle me-1"></i>
                     <strong>Nota:</strong> Solo se miden cotizaciones de la sección <em>TAREAS REALIZADAS</em> de ANTONIA_VENTAS.
-                    La duración se calcula desde <em>FECHA</em> hasta el <em>último paso completado en PROCESO_LOG</em>.
+                    El periodo se filtra por <em>F. INICIO</em> y la duración se mide de <em>F. INICIO</em> a <em>F. ENTREGA</em>
+                    (si no hay entrega, hasta hoy).
                     Usa <strong>EXPORTAR SHEET</strong> para guardar los resultados en la hoja <em>KPI_COTIZACIONES</em>.
                 </div>
 
@@ -7201,6 +7207,27 @@ async function toggleVoiceRecording(btnElement) {
       const showGeminiKeyModal = ref(false);
       const geminiKeyInput = ref('');
       const geminiKeyState = ref({ hasKey: false, preview: '' });
+
+      // La key se conserva en el navegador y viaja en cada `runQuoteMetricsAgent`.
+      //
+      // No es una preferencia de diseño: en Vercel cada petición se atiende en
+      // una instancia nueva, así que la key que el servidor guardaba en memoria
+      // al pulsar "Guardar" ya no existía cuando se pulsaba "EJECUTAR AGENTE",
+      // y el reporte salía siempre con "Sin GEMINI_API_KEY configurada".
+      //
+      // Para dejarla fija para todo el equipo (y para el cron diario) va en
+      // `GEMINI_API_KEY` del despliegue; entonces el servidor la resuelve solo
+      // y este almacenamiento local sobra.
+      const GEMINI_KEY_STORAGE = 'holtmont.geminiApiKey';
+
+      const leerGeminiKeyLocal = () => {
+          try { return localStorage.getItem(GEMINI_KEY_STORAGE) || ''; }
+          catch (e) { return ''; }   // modo privado / almacenamiento bloqueado
+      };
+
+      const guardarGeminiKeyLocal = (key) => {
+          try { localStorage.setItem(GEMINI_KEY_STORAGE, key); } catch (e) { /* sin persistencia */ }
+      };
       // ──────────────────────────────────────────────────────────────
 
       // EXECUTIVE SUMMARY DATA
@@ -8372,11 +8399,15 @@ const filteredStaffTrackerData = computed(() => {
               })
               .apiGetLastAgentReport();
 
-          // Verificar si hay Gemini key configurada
+          // Verificar si hay Gemini key configurada. La del entorno del
+          // despliegue manda; si no hay, vale la que este navegador conserve.
+          const keyLocal = leerGeminiKeyLocal();
+          geminiKeyState.value.hasKey  = !!keyLocal;
+          geminiKeyState.value.preview = keyLocal ? keyLocal.substring(0, 6) + '***' : '';
           google.script.run
               .withSuccessHandler(r => {
-                  if (r && r.success) {
-                      geminiKeyState.value.hasKey  = r.hasKey;
+                  if (r && r.success && r.hasKey) {
+                      geminiKeyState.value.hasKey  = true;
                       geminiKeyState.value.preview = r.keyPreview || '';
                   }
               })
@@ -8386,7 +8417,11 @@ const filteredStaffTrackerData = computed(() => {
       // Ejecutar el agente completo (reglas + Gemini + email)
       const runAgent = () => {
           agentState.value.running = true;
-          const params = { month: qmFilters.value.month, year: qmFilters.value.year };
+          const params = {
+              month: qmFilters.value.month,
+              year: qmFilters.value.year,
+              geminiKey: leerGeminiKeyLocal()
+          };
           google.script.run
               .withSuccessHandler(res => {
                   agentState.value.running = false;
@@ -8412,21 +8447,27 @@ const filteredStaffTrackerData = computed(() => {
 
       // Guardar Gemini API Key
       const saveGeminiKey = () => {
-          if (!geminiKeyInput.value.trim()) return;
+          const key = geminiKeyInput.value.trim();
+          if (!key) return;
+          // El servidor la prueba contra Google antes de responder: si está mal,
+          // el motivo se ve aquí y no tres pasos después dentro del reporte.
+          Swal.fire({ title: 'Verificando la key con Google...', allowOutsideClick: false,
+                      didOpen: () => Swal.showLoading() });
           google.script.run
               .withSuccessHandler(res => {
                   if (res && res.success) {
+                      guardarGeminiKeyLocal(key);
                       showGeminiKeyModal.value = false;
                       geminiKeyState.value.hasKey  = true;
-                      geminiKeyState.value.preview = geminiKeyInput.value.substring(0, 6) + '***';
+                      geminiKeyState.value.preview = key.substring(0, 6) + '***';
                       geminiKeyInput.value = '';
-                      Swal.fire({ icon: 'success', title: 'Key guardada', text: 'Gemini API Key configurada.', timer: 2500, showConfirmButton: false });
+                      Swal.fire({ icon: 'success', title: 'Key verificada', text: res.message || 'Gemini API Key configurada.' });
                   } else {
-                      Swal.fire({ icon: 'error', title: 'Error', text: (res && res.message) || 'No se pudo guardar.' });
+                      Swal.fire({ icon: 'error', title: 'La key no sirve', text: (res && res.message) || 'No se pudo guardar.' });
                   }
               })
               .withFailureHandler(err => Swal.fire({ icon: 'error', title: 'Error', text: err.message }))
-              .apiSaveGeminiKey(geminiKeyInput.value.trim());
+              .apiSaveGeminiKey(key);
       };
 
       const writeQuoteMetricsToSheet = () => {
