@@ -162,6 +162,23 @@ def test_la_tabla_respeta_el_periodo_de_f_inicio(banco):
     assert banco.fetch_info_bank_data(2026, "Septiembre", "")["data"] == []
 
 
+def test_un_año_ilegible_cae_en_el_año_en_curso_y_no_revienta(banco, monkeypatch):
+    """La vista manda el año como texto; uno que no sea número no puede tumbar
+    la pantalla, así que se usa el año en curso, como hacía el original."""
+    from datetime import datetime
+
+    class Fijo(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 6, 15)
+
+    monkeypatch.setattr("api.services.tracker_store.datetime", Fijo)
+    res = banco.fetch_info_bank_data("no-es-un-año", "Junio", "DANFOSS 2")
+
+    assert res["success"] is True
+    assert [f["FOLIO"] for f in res["data"]] == ["AV-1222"]
+
+
 def test_los_endpoints_del_banco_responden_lo_que_pinta_la_vista(banco):
     """
     El contrato completo `index.html` -> `api_service.js` -> `api/main.py`: la
