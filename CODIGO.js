@@ -3205,38 +3205,106 @@ function apiSaveTrackerBatch(personName, tasks, username) {
   }
 }
 
+/**
+ * Columnas por las que se coloca cada origen en el calendario del dashboard.
+ * Una actividad del tracker va por su FECHA; una cotización, por su F. INICIO
+ * (decisión del dueño, 2026-08-15). `quotes` tiene además F. VISITA y
+ * F. ENTREGA, así que tomar "la primera fecha que aparezca" la pondría en un
+ * día que no es el que se trabaja.
+ */
+const CALENDAR_DATE_ALIASES = {
+  TRACKER: ["FECHA", "FECHA ALTA", "FECHA_ALTA", "FECHA DE ALTA"],
+  COTIZACIONES: ["F. INICIO", "F INICIO", "F_INICIO", "FECHA INICIO", "FECHA_INICIO", "FECHA DE INICIO"],
+  PERSONAL: ["FECHA", "FECHA ALTA", "FECHA_ALTA"]
+};
+
+/** Día ISO (YYYY-MM-DD) en el que se pinta una fila, o "" si no trae su fecha. */
+function calendarDate(row, origen) {
+  const aliases = CALENDAR_DATE_ALIASES[String(origen || "").toUpperCase().trim()];
+  if (!aliases) return "";
+  const valor = pickTaskValue(row, aliases);
+  if (!valor) return "";
+  let d = null;
+  if (valor instanceof Date) {
+    d = valor;
+  } else {
+    const texto = String(valor).trim();
+    const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return iso[1] + "-" + iso[2] + "-" + iso[3];
+    const dmy = texto.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (dmy) {
+      const y = dmy[3].length === 2 ? "20" + dmy[3] : dmy[3];
+      d = new Date(Number(y), Number(dmy[2]) - 1, Number(dmy[1]));
+    }
+  }
+  if (!d || isNaN(d.getTime())) return "";
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+/**
+ * ¿Esta fila es trabajo de esta persona?
+ *
+ * La regla del calendario: aparece si es RESPONSABLE o VENDEDOR, no por haberla
+ * asignado. Una fila sin responsable cuenta como propia de la hoja en la que
+ * está — no hay nadie más a quien pueda pertenecer.
+ */
+function isResponsibleFor(row, personName) {
+  const quien = normalizeStaffName(personName);
+  if (!quien) return false;
+  const crudo = pickTaskValue(row, ["RESPONSABLE", "RESPONSABLES", "INVOLUCRADOS", "VENDEDOR", "ENCARGADO", "ASIGNADO"]);
+  if (!crudo) return true;
+  const asignados = String(crudo).replace(/\n/g, ",").replace(/;/g, ",").split(",")
+    .map(n => normalizeStaffName(n)).filter(n => n);
+  if (!asignados.length) return true;
+  return asignados.indexOf(quien) !== -1;
+}
+
 function apiFetchCombinedCalendarData(sheetName) {
   try {
       const results = [];
       const baseName = String(sheetName).replace(/\s*\(VENTAS\)/i, "").trim();
-      // Si es ANTONIA_VENTAS, solo buscamos ahí (ella distribuye)
-      const targets = (baseName.toUpperCase() === "ANTONIA_VENTAS") ? ["ANTONIA_VENTAS"] : [baseName, baseName + " (VENTAS)"];
+      // Si es ANTONIA_VENTAS, sus cotizaciones viven en la hoja maestra.
+      const targets = (baseName.toUpperCase() === "ANTONIA_VENTAS")
+        ? [{ hoja: "ANTONIA_VENTAS", origen: "COTIZACIONES" }]
+        : [{ hoja: baseName, origen: "TRACKER" },
+           { hoja: baseName + " (VENTAS)", origen: "COTIZACIONES" }];
 
       targets.forEach(t => {
-          const res = internalFetchSheetData(t);
+          const res = internalFetchSheetData(t.hoja);
           if (res.success && res.data) {
-              results.push(...res.data);
+              res.data.forEach(row => {
+                  // Solo lo que esta persona trabaja: quien reparte una
+                  // actividad no la ve en su propio calendario.
+                  if (!isResponsibleFor(row, baseName)) return;
+                  results.push(Object.assign({}, row, {
+                      ORIGEN: t.origen,
+                      FECHA_CALENDARIO: calendarDate(row, t.origen)
+                  }));
+              });
           }
       });
 
       // --- ADDED: Personal Agenda Integration for Dashboard ---
       const personalRes = internalFetchSheetData("AGENDA_PERSONAL");
       if (personalRes.success && personalRes.data) {
-          const myEvents = personalRes.data.filter(e => String(e.USUARIO).trim().toUpperCase() === baseName.toUpperCase());
+          const myEvents = personalRes.data.filter(e => normalizeStaffName(e.USUARIO) === normalizeStaffName(baseName));
           const mappedEvents = myEvents.map(e => ({
               ...e,
               CONCEPTO: e.TITULO || e.CONCEPTO,
-              CLIENTE: "PERSONAL"
+              CLIENTE: "PERSONAL",
+              ORIGEN: "PERSONAL",
+              FECHA_CALENDARIO: calendarDate(e, "PERSONAL")
           }));
           results.push(...mappedEvents);
       }
       // --------------------------------------------------------
 
-      // Deduplicate by ID/FOLIO
+      // Deduplicate by ORIGEN + ID/FOLIO: una cotización y la actividad que la
+      // acompaña pueden compartir folio y son dos filas del calendario.
       const uniqueTasks = {};
       results.forEach(r => {
           const id = r.ID || r.FOLIO || (r.CONCEPTO ? r.CONCEPTO + r.FECHA : null);
-          if (id) uniqueTasks[id] = r;
+          if (id) uniqueTasks[(r.ORIGEN || "") + "::" + id] = r;
       });
 
       const finalData = Object.values(uniqueTasks);

@@ -1129,41 +1129,88 @@ def fetch_ppc_data() -> Dict[str, Any]:
     return {"success": True, "data": salida}
 
 
+def hojas_del_calendario(persona: Any) -> Dict[str, str]:
+    """
+    Las dos tablas de trabajo de una persona: su tracker y sus cotizaciones.
+
+    La de cotizaciones vale `""` para quien no vende, y quien llama tiene que
+    tratarlo como "no hay tabla" en vez de inventar una (misma regla que
+    `asignacion.tabla_de_cotizaciones`). Toñita es la excepción de siempre: sus
+    cotizaciones viven en la tabla maestra `ANTONIA_VENTAS`, no en una hoja con
+    sufijo, y su tracker es `ANTONIA PINEDA LOPEZ`.
+    """
+    limpio = rules.normalize_staff_name(persona)
+    if not limpio:
+        return {"tracker": "", "cotizaciones": ""}
+
+    tracker = asignacion.hoja_de_persona(limpio) or limpio
+    if limpio == rules.normalize_staff_name(rules.SALES_MASTER_SHEET):
+        return {"tracker": tracker, "cotizaciones": rules.SALES_MASTER_SHEET}
+    return {"tracker": tracker, "cotizaciones": asignacion.tabla_de_cotizaciones(limpio)}
+
+
 def fetch_combined_calendar(sheet_name: str) -> Dict[str, Any]:
     """
-    Equivalente de `apiFetchCombinedCalendarData`.
+    Equivalente de `apiFetchCombinedCalendarData`: el calendario de una persona.
 
-    Une el tracker de la persona, su hoja `(VENTAS)` si la tiene, y sus eventos
-    personales marcados como `CLIENTE = PERSONAL`. Deduplica por ID/FOLIO y, a
-    falta de ambos, por CONCEPTO+FECHA — la misma cadena de identidad que usa el
-    Gatekeeper al guardar.
+    Une sus tres orígenes —tracker, cotizaciones y agenda personal— y aplica la
+    regla que pidió el dueño el 2026-08-15: **solo sale lo que esa persona es
+    responsable de trabajar**. Antes se devolvía la hoja entera, de modo que
+    quien reparte actividades veía en su calendario el trabajo que acababa de
+    asignarle a otro; ahora la fila se filtra con `asignacion.es_responsable`,
+    que mira RESPONSABLE/INVOLUCRADOS en el tracker y VENDEDOR en ventas.
+
+    Cada fila sale etiquetada con dos columnas calculadas que la vista necesita
+    y que no existen en la base:
+
+    * `ORIGEN` — TRACKER, COTIZACIONES o PERSONAL. Es lo que permite que quien
+      tiene las dos tablas distinga en su calendario una cotización de una
+      actividad, en vez de ver un montón indistinto.
+    * `FECHA_CALENDARIO` — el día en que se pinta, en ISO. Sale de FECHA en el
+      tracker y de F. INICIO en cotizaciones (`rules.calendar_date`).
+
+    Deduplica por origen + ID/FOLIO y, a falta de ambos, por CONCEPTO+FECHA —
+    la misma cadena de identidad que usa el Gatekeeper al guardar. El origen es
+    parte de la clave porque una cotización y la actividad que la acompaña
+    pueden compartir folio y son dos filas distintas del calendario.
     """
     base = rules.SALES_SUFFIX_RE.sub("", str(sheet_name or "")).strip()
     if not base:
         return {"success": False, "message": "Falta la hoja a consultar."}
 
-    # Toñita distribuye desde la tabla maestra: no se le suma una hoja (VENTAS).
-    if base.upper() == "ANTONIA_VENTAS":
-        objetivos = ["ANTONIA_VENTAS"]
-    else:
-        objetivos = [base, f"{base} (VENTAS)"]
+    nombres = asignacion.nombres_de_persona(base)
+    hojas = hojas_del_calendario(base)
 
     filas: List[Dict[str, Any]] = []
-    for objetivo in objetivos:
-        active, _history, _headers = read_rows(objetivo)
-        filas.extend(active)
+
+    def agregar(hoja: str, origen: str) -> None:
+        if not hoja:
+            return
+        active, _history, _headers = read_rows(hoja)
+        for fila in active:
+            if not asignacion.es_responsable(fila, nombres):
+                continue
+            filas.append({**fila,
+                          "ORIGEN": origen,
+                          "FECHA_CALENDARIO": rules.calendar_date(fila, origen)})
+
+    agregar(hojas["tracker"], rules.CALENDAR_ORIGIN_TRACKER)
+    agregar(hojas["cotizaciones"], rules.CALENDAR_ORIGIN_QUOTES)
 
     quien = rules.normalize_staff_name(base)
+    conocidos = {rules.normalize_staff_name(n) for n in nombres} or {quien}
     personales, _h, _hd = read_rows("AGENDA_PERSONAL")
     for evento in personales:
         dueno = rules.pick_task_value(evento, ["USUARIO_RAW", "USUARIO"])
-        if rules.normalize_staff_name(dueno) != quien:
+        if rules.normalize_staff_name(dueno) not in conocidos:
             continue
         copia = dict(evento)
         # El frontend pinta el calendario por CONCEPTO y distingue lo personal
         # por CLIENTE: así lo hacía el original.
         copia["CONCEPTO"] = rules.pick_task_value(evento, ["TITULO"]) or copia.get("CONCEPTO", "")
         copia["CLIENTE"] = "PERSONAL"
+        copia["ORIGEN"] = rules.CALENDAR_ORIGIN_PERSONAL
+        copia["FECHA_CALENDARIO"] = rules.calendar_date(evento, rules.CALENDAR_ORIGIN_PERSONAL)
         filas.append(copia)
 
     unicas: Dict[str, Dict[str, Any]] = {}
@@ -1174,7 +1221,7 @@ def fetch_combined_calendar(sheet_name: str) -> Dict[str, Any]:
             fecha = str(rules.pick_task_value(fila, ["FECHA"]) or "").strip()
             clave = f"{concepto}{fecha}" if concepto else ""
         if clave:
-            unicas[clave] = fila
+            unicas[f"{fila.get('ORIGEN', '')}::{clave}"] = fila
 
     return {"success": True, "data": list(unicas.values())}
 

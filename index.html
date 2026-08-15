@@ -1084,10 +1084,13 @@
                                  <div class="day-num">{{ day.number }}</div>
                              </div>
                              <div class="day-body p-2 h-100 overflow-auto custom-scrollbar">
-                                 <div v-for="task in getTasksForDay(day.dateStr)" :key="task.FOLIO" class="calendar-task-card task-anim-enter position-relative" :style="{ borderLeft: '4px solid ' + getTaskColor(task), backgroundColor: getTaskColor(task) + '15' }" @mouseenter="animTaskHover($event.currentTarget)" @mouseleave="animTaskLeave($event.currentTarget)">
+                                 <div v-for="task in getTasksForDay(day.iso)" :key="(task.ORIGEN || '') + '::' + (task.FOLIO || task.ID || task.CONCEPTO)" class="calendar-task-card task-anim-enter position-relative" :style="{ borderLeft: '4px solid ' + getTaskColor(task), backgroundColor: getTaskColor(task) + '15' }" @mouseenter="animTaskHover($event.currentTarget)" @mouseleave="animTaskLeave($event.currentTarget)">
                                      <div class="d-flex justify-content-between align-items-start mb-1">
                                          <span class="badge bg-white text-secondary border fw-normal" style="font-size:8px; opacity:0.8;">{{ task.FOLIO }}</span>
                                          <i v-if="isTaskDone(task)" class="fas fa-check-circle" :style="{color: getTaskColor(task)}"></i>
+                                     </div>
+                                     <div v-if="getTaskOrigin(task)" class="mb-1">
+                                         <span class="badge text-white" :style="{backgroundColor: getOriginColor(task), fontSize: '8px'}">{{ getTaskOrigin(task) }}</span>
                                      </div>
                                      <div class="fw-bold text-dark mb-1" style="font-size:11px; line-height:1.2; overflow-wrap: break-word;">{{ task.CLIENTE || 'Sin Cliente' }}</div>
                                      <div class="text-muted small text-truncate" style="font-size:10px;" :title="task.CONCEPTO">{{ task.CONCEPTO || 'Sin Descripción' }}</div>
@@ -1096,7 +1099,7 @@
                                          <span class="text-secondary text-truncate ms-2" style="font-size:9px; font-weight:bold; max-width: 80px;" :title="getResponsible(task)">{{ toInitials(getResponsible(task)) }}</span>
                                      </div>
                                  </div>
-                                 <div v-if="getTasksForDay(day.dateStr).length === 0" class="text-center mt-5 text-muted small opacity-25">
+                                 <div v-if="getTasksForDay(day.iso).length === 0" class="text-center mt-5 text-muted small opacity-25">
                                      <i class="fas fa-calendar-minus fa-2x mb-2"></i><br>Libre
                                  </div>
                              </div>
@@ -9438,6 +9441,10 @@ const filteredStaffTrackerData = computed(() => {
                   name: ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'][d.getDay()],
                   number: d.getDate(),
                   dateStr: dateStr,
+                  // La casilla se identifica por su día ISO: es el formato en el
+                  // que el backend manda FECHA_CALENDARIO y el único que no
+                  // depende de cómo estuviera escrita la fecha en la fila.
+                  iso: `${d.getFullYear()}-${mm}-${dd}`,
                   isToday: isToday
               });
           }
@@ -9510,23 +9517,33 @@ const filteredStaffTrackerData = computed(() => {
           });
       };
 
+      /**
+       * De quién es el calendario que se está viendo.
+       *
+       * Se pide **el tracker** de la persona, no su hoja de ventas: el backend
+       * une los dos orígenes a partir del nombre (`hojas_del_calendario`) y los
+       * devuelve etiquetados con ORIGEN. Antes se mandaba la hoja `(VENTAS)`
+       * cuando existía, y entonces el calendario de un vendedor enseñaba sus
+       * cotizaciones y perdía sus actividades del tracker.
+       */
+      const calendarTarget = () => {
+          if (currentRole.value === 'ADMIN' && calendarUserFilter.value) return calendarUserFilter.value;
+          if (currentRole.value === 'TONITA' || currentUsername.value === 'ANTONIA_VENTAS') return 'ANTONIA_VENTAS';
+
+          const mods = config.value.specialModules || [];
+          const trackerMod = mods.find(m => m.type === 'mirror_staff' && !String(m.target).toUpperCase().includes('VENTAS'));
+          if (trackerMod) return trackerMod.target;
+
+          const salesMod = mods.find(m => m.type === 'mirror_staff' && String(m.target).toUpperCase().includes('VENTAS'));
+          if (salesMod) return salesMod.target;
+
+          const propia = (config.value.staff || [])[0];
+          return (propia && propia.name) ? propia.name : currentUser.value;
+      };
+
       const loadDashboardCalendar = () => {
           calendarLoading.value = true;
-          let target = currentUser.value;
-
-          // ADMIN FILTER OVERRIDE
-          if (currentRole.value === 'ADMIN' && calendarUserFilter.value) {
-              target = calendarUserFilter.value;
-          } else {
-              const mods = config.value.specialModules || [];
-              const salesMod = mods.find(m => m.type === 'mirror_staff' && String(m.target).toUpperCase().includes('VENTAS'));
-              const trackerMod = mods.find(m => m.type === 'mirror_staff' && !String(m.target).toUpperCase().includes('VENTAS'));
-
-              if (salesMod) target = salesMod.target;
-              else if (trackerMod) target = trackerMod.target;
-
-              if (currentRole.value === 'TONITA' || currentUsername.value === 'ANTONIA_VENTAS') target = "ANTONIA_VENTAS";
-          }
+          const target = calendarTarget();
 
           google.script.run.withSuccessHandler(res => {
               calendarLoading.value = false;
@@ -9547,17 +9564,7 @@ const filteredStaffTrackerData = computed(() => {
           calendarInterval.value = setInterval(() => {
               if (isLoggedIn.value && currentView.value === 'DASHBOARD') {
                   // Silent update (no loading spinner for polling)
-                  let target = currentUser.value;
-                  if (currentRole.value === 'ADMIN' && calendarUserFilter.value) {
-                      target = calendarUserFilter.value;
-                  } else {
-                      const mods = config.value.specialModules || [];
-                      const salesMod = mods.find(m => m.type === 'mirror_staff' && String(m.target).toUpperCase().includes('VENTAS'));
-                      const trackerMod = mods.find(m => m.type === 'mirror_staff' && !String(m.target).toUpperCase().includes('VENTAS'));
-                      if (salesMod) target = salesMod.target;
-                      else if (trackerMod) target = trackerMod.target;
-                      if (currentRole.value === 'TONITA' || currentUsername.value === 'ANTONIA_VENTAS') target = "ANTONIA_VENTAS";
-                  }
+                  const target = calendarTarget();
                   google.script.run.withSuccessHandler(res => {
                       if (res.success) dashboardCalendar.value.tasks = res.data;
                   }).apiFetchCombinedCalendarData(target);
@@ -9565,13 +9572,55 @@ const filteredStaffTrackerData = computed(() => {
           }, 60000); // 60 seconds polling
       });
 
-      const getTasksForDay = (dateStr) => {
-          if (!dashboardCalendar.value.tasks) return [];
-          return dashboardCalendar.value.tasks.filter(t => {
-              const tDate = t['FECHA'] || t['FECHA INICIO'] || t['ALTA'] || t['FECHA DE INICIO'] || t['FECHA VISITA'];
-              return tDate === dateStr;
-          });
+      /**
+       * El día ISO (YYYY-MM-DD) en el que va una fila del calendario.
+       *
+       * `FECHA_CALENDARIO` la calcula el backend con la columna que corresponde
+       * a cada origen: FECHA en el tracker, F. INICIO en cotizaciones. El resto
+       * es respaldo para una respuesta vieja (Apps Script mandaba dd/MM/yy), y
+       * por eso se normalizan los dos formatos en vez de comparar cadenas: era
+       * lo que dejaba el calendario en blanco contra el backend de Python, que
+       * manda las fechas en ISO.
+       */
+      const taskDayKey = (task) => {
+          if (!task) return '';
+          const origen = String(task.ORIGEN || '').toUpperCase();
+          const raw = task.FECHA_CALENDARIO
+              || (origen === 'COTIZACIONES'
+                    ? (task['F. INICIO'] || task['F_INICIO'] || task['FECHA INICIO'] || task['FECHA DE INICIO'])
+                    : (task['FECHA'] || task['FECHA INICIO'] || task['FECHA DE INICIO'] || task['FECHA VISITA']));
+          if (!raw) return '';
+          if (raw instanceof Date) {
+              if (isNaN(raw.getTime())) return '';
+              return `${raw.getFullYear()}-${String(raw.getMonth()+1).padStart(2,'0')}-${String(raw.getDate()).padStart(2,'0')}`;
+          }
+          const texto = String(raw).trim();
+          const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+          const dmy = texto.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+          if (dmy) {
+              const y = dmy[3].length === 2 ? '20' + dmy[3] : dmy[3];
+              return `${y}-${String(dmy[2]).padStart(2,'0')}-${String(dmy[1]).padStart(2,'0')}`;
+          }
+          return '';
       };
+
+      const getTasksForDay = (dayIso) => {
+          if (!dashboardCalendar.value.tasks || !dayIso) return [];
+          return dashboardCalendar.value.tasks.filter(t => taskDayKey(t) === dayIso);
+      };
+
+      /** Etiqueta corta del origen: es lo que distingue cotización de actividad. */
+      const getTaskOrigin = (task) => {
+          const origen = String((task && task.ORIGEN) || '').toUpperCase();
+          if (origen === 'COTIZACIONES') return 'COTIZACIÓN';
+          if (origen === 'PERSONAL') return 'PERSONAL';
+          if (origen === 'TRACKER') return 'TRACKER';
+          return String((task && task.CLIENTE) || '').toUpperCase() === 'PERSONAL' ? 'PERSONAL' : '';
+      };
+
+      const ORIGIN_COLORS = { 'COTIZACIÓN': '#0dcaf0', 'TRACKER': '#6f42c1', 'PERSONAL': '#20c997' };
+      const getOriginColor = (task) => ORIGIN_COLORS[getTaskOrigin(task)] || '#6c757d';
 
       const getTaskColor = (task) => {
           const status = String(task.ESTATUS || task.STATUS || '').toUpperCase();
@@ -11127,7 +11176,7 @@ const filteredStaffTrackerData = computed(() => {
       trackerTable, projectTable, ppcDraftTable,
       showEmployeeModal, newEmployee, openNewEmployeeModal, saveNewEmployee, deleteEmployee, resyncDirectory,
       infoBankState, ibYears, ibMonths, ibCompanies, ibFolders, filteredIbCompanies, selectIbYear, selectIbMonth, selectIbCompany, goBackInfoBank, resetInfoBank, openIbFolder, fetchInfoBankFiles, getBadgeClass,
-      dashboardCalendar, calendarLoading, calendarUserFilter, weekDays, currentMonthYearLabel, navigateCalendar, loadDashboardCalendar, getTasksForDay, getTaskColor, isTaskDone, animTaskHover, animTaskLeave, getResponsible,
+      dashboardCalendar, calendarLoading, calendarUserFilter, weekDays, currentMonthYearLabel, navigateCalendar, loadDashboardCalendar, getTasksForDay, getTaskColor, isTaskDone, animTaskHover, animTaskLeave, getResponsible, getTaskOrigin, getOriginColor,
       staffTrackerFilters, staffTrackerSortAsc, ordenFechaAsc, trackerOrdenAsc, toggleTrackerSort, filteredStaffTrackerData, getUniqueValues, historySearchQuery, filteredStaffTrackerHistory,
       currentActivityContext, showResourceModal, currentResourceTab, openResourcePopup, addResourceToActivity, getActivityTotal, reqCotizacionTotal, cotPreconstruccionTotal, setCheckStatus, openVendorSelector, getAntoniaStatusStyle, openStatusSelector, hotPotatoData, openHotPotatoView, showProcessFlow, openProcessFlow,
       getProcessTimeline, getProcessTimelineDetailed, getProcessStatus, getProcessBtnClass, advanceProcess, getLastUpdate, getFullProcessName, showHotPotatoModal, currentHotPotatoRow, openHotPotatoModal, closeHotPotatoModal,

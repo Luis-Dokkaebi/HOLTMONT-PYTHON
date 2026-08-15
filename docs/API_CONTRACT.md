@@ -171,11 +171,22 @@ El contador vive en Script Property `WORKORDER_SEQ`, con secuencia `padStart(4,'
 | Función | Args | Retorno |
 |---|---|---|
 | `apiFetchUnifiedAgenda(username)` | `username` | agenda combinada |
-| `apiFetchCombinedCalendarData(sheetName)` | `sheetName` | calendario |
+| `apiFetchCombinedCalendarData(sheetName)` | `sheetName` | calendario (ver abajo) |
 | `apiSavePersonalEvent(eventData)` | ↓ | `{success}` |
 | `apiSaveHabitLog(habitData)` | ↓ | `{success}` |
 | `apiFetchInfoBankCompanies(year, monthName)` | ↓ | empresas del banco |
 | `apiFetchInfoBankData(year, monthName, company, folder)` | ↓ | datos del banco |
+
+`apiFetchCombinedCalendarData(sheetName)` devuelve **solo lo que esa persona
+trabaja**: la fila sale si es RESPONSABLE/INVOLUCRADOS (tracker) o VENDEDOR
+(cotizaciones), nunca por haberla asignado. Une los tres orígenes de la persona
+—su tracker, su tabla `(VENTAS)` si la tiene y su agenda personal— y agrega dos
+columnas calculadas a cada fila:
+
+| Columna | Valores | Para qué |
+|---|---|---|
+| `ORIGEN` | `TRACKER`, `COTIZACIONES`, `PERSONAL` | la vista distingue una cotización de una actividad |
+| `FECHA_CALENDARIO` | `YYYY-MM-DD` o `""` | día en el que se pinta: FECHA en el tracker, F. INICIO en cotizaciones |
 
 ---
 

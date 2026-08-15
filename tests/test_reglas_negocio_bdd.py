@@ -766,3 +766,84 @@ def _aviso_reciente_dice(contexto: Dict[str, Any], fragmento: str) -> None:
     assert bandeja, "no hay ningún aviso en la bandeja"
     assert fragmento in bandeja[0].mensaje, (
         f"el aviso dice {bandeja[0].mensaje!r} y se esperaba que incluyera {fragmento!r}")
+
+
+# ----------------------------------------------------------------------
+# Calendario del dashboard
+# ----------------------------------------------------------------------
+#
+# Quién ve qué: la fila sale en el calendario de quien la trabaja (RESPONSABLE
+# o VENDEDOR), no en el de quien la repartió. El tracker se coloca por FECHA y
+# las cotizaciones por F. INICIO.
+
+def _tablas_del_calendario(contexto: Dict[str, Any]) -> Dict[str, list]:
+    return contexto.setdefault("tablas_calendario", {})
+
+
+def _apuntar(contexto: Dict[str, Any], hoja: str, fila: Dict[str, Any]) -> None:
+    _tablas_del_calendario(contexto).setdefault(hoja, []).append(fila)
+
+
+@given(parsers.parse('que "{persona}" tiene en su tabla la actividad "{concepto}" a cargo de "{quien}"'))
+def _actividad_en_la_tabla(contexto: Dict[str, Any], persona: str, concepto: str, quien: str) -> None:
+    _apuntar(contexto, asignacion_hoja(persona),
+             {"FOLIO": f"AS-{len(_tablas_del_calendario(contexto)) + 1}",
+              "CONCEPTO": concepto, "FECHA": "2026-08-10", "RESPONSABLE": quien})
+
+
+@given(parsers.parse('que "{persona}" tiene en su tabla la actividad "{concepto}" sin responsable'))
+def _actividad_sin_responsable(contexto: Dict[str, Any], persona: str, concepto: str) -> None:
+    _apuntar(contexto, asignacion_hoja(persona),
+             {"FOLIO": "AS-9", "CONCEPTO": concepto, "FECHA": "2026-08-10", "RESPONSABLE": ""})
+
+
+@given(parsers.parse('que "{persona}" tiene en su tabla la actividad "{concepto}" con FECHA "{fecha}" a cargo de "{quien}"'))
+def _actividad_con_fecha(contexto: Dict[str, Any], persona: str, concepto: str,
+                         fecha: str, quien: str) -> None:
+    _apuntar(contexto, asignacion_hoja(persona),
+             {"FOLIO": "AS-8", "CONCEPTO": concepto, "FECHA": fecha, "RESPONSABLE": quien})
+
+
+@given(parsers.parse('que "{persona}" tiene en su tabla de cotizaciones "{concepto}" con F. INICIO "{fecha}" a nombre de "{quien}"'))
+def _cotizacion_con_f_inicio(contexto: Dict[str, Any], persona: str, concepto: str,
+                             fecha: str, quien: str) -> None:
+    from api.services.asignacion import tabla_de_cotizaciones
+
+    _apuntar(contexto, tabla_de_cotizaciones(persona),
+             {"FOLIO": "AV-7", "CONCEPTO": concepto, "F. VISITA": "2026-08-01",
+              "F. INICIO": fecha, "F. ENTREGA": "2026-08-30", "VENDEDOR": quien})
+
+
+def asignacion_hoja(persona: str) -> str:
+    from api.services.asignacion import hoja_de_persona
+
+    return hoja_de_persona(persona) or persona
+
+
+@when(parsers.parse('"{persona}" abre su calendario'))
+def _abre_su_calendario(contexto: Dict[str, Any], persona: str, monkeypatch) -> None:
+    tablas = _tablas_del_calendario(contexto)
+    monkeypatch.setattr(tracker_store, "read_rows",
+                        lambda hoja: (list(tablas.get(hoja, [])), [], []))
+    contexto["calendario"] = tracker_store.fetch_combined_calendar(persona)["data"]
+
+
+@then(parsers.parse('el calendario muestra "{concepto}"'))
+def _calendario_muestra(contexto: Dict[str, Any], concepto: str) -> None:
+    conceptos = [f.get("CONCEPTO") for f in contexto["calendario"]]
+    assert concepto in conceptos, f"el calendario muestra {conceptos}"
+
+
+@then(parsers.parse('el calendario no muestra "{concepto}"'))
+def _calendario_no_muestra(contexto: Dict[str, Any], concepto: str) -> None:
+    conceptos = [f.get("CONCEPTO") for f in contexto["calendario"]]
+    assert concepto not in conceptos, f"el calendario muestra {conceptos}"
+
+
+@then(parsers.parse('el calendario muestra "{concepto}" con origen "{origen}" el día "{dia}"'))
+def _calendario_muestra_con_origen(contexto: Dict[str, Any], concepto: str,
+                                   origen: str, dia: str) -> None:
+    filas = [f for f in contexto["calendario"] if f.get("CONCEPTO") == concepto]
+    assert filas, f"el calendario no muestra {concepto}"
+    assert filas[0]["ORIGEN"] == origen
+    assert filas[0]["FECHA_CALENDARIO"] == dia

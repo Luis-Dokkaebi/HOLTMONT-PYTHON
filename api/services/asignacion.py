@@ -225,6 +225,57 @@ def responsables_de(task: Dict[str, Any]) -> List[str]:
     return nombres
 
 
+def nombres_de_persona(nombre: Any) -> List[str]:
+    """
+    Todos los nombres normalizados con los que se puede escribir a una persona.
+
+    Una persona tiene al menos dos: el de su hoja ("CARLOS MENDEZ") y el del
+    directorio, que es el que ofrece el selector de involucrados ("CARLOS
+    MENDEZ URBINA"). Comparar solo contra el primero deja fuera de su propio
+    calendario justo las actividades que le asignaron desde el selector.
+
+    `ANTONIA_VENTAS` entra por partida doble a propósito: es a la vez el nombre
+    de la tabla maestra de ventas y la firma con la que Toñita aparece como
+    vendedora en sus cotizaciones.
+    """
+    limpio = normalize_staff_name(nombre)
+    if not limpio:
+        return []
+
+    from api.services import organigrama
+
+    nombres = [limpio]
+    nombres.extend(normalize_staff_name(alias)
+                   for alias in organigrama.hojas_de_persona(limpio))
+    if limpio == normalize_staff_name(SALES_MASTER_SHEET):
+        nombres.append(normalize_staff_name(ANTONIA_PERSONAL_SHEET))
+    return list(dict.fromkeys(nombres))
+
+
+def es_responsable(task: Dict[str, Any], nombres: Iterable[Any]) -> bool:
+    """
+    ¿Esta fila es trabajo de esta persona?
+
+    Es la regla que decide qué ve cada quien en su calendario (decisión del
+    dueño, 2026-08-15): **aparece si es RESPONSABLE o VENDEDOR**, no por haber
+    asignado la actividad. Si Toñita le asigna una actividad a Sebastián, la
+    fila queda en las dos tablas —la de ella, que la repartió, y la de él, que
+    la trabaja— y solo debe salir en el calendario de Sebastián.
+
+    Una fila **sin responsable** cuenta como propia de la tabla en la que está:
+    quien captura algo en su tracker sin llenar la columna no debería perderlo
+    de vista, y no hay nadie más a quien pueda pertenecer.
+    """
+    conocidos = {normalize_staff_name(n) for n in nombres if normalize_staff_name(n)}
+    if not conocidos:
+        return False
+    asignados = {normalize_staff_name(n) for n in responsables_de(task)}
+    asignados.discard("")
+    if not asignados:
+        return True
+    return bool(asignados & conocidos)
+
+
 def destinos_espejo(hoja_origen: Any, task: Dict[str, Any],
                     username: Any = "") -> List[str]:
     """
