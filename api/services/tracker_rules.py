@@ -520,6 +520,50 @@ def traffic_light_color(clasificacion: Any, dias: int) -> Optional[str]:
 
 
 # ----------------------------------------------------------------------
+# CALENDARIO DEL DASHBOARD
+# ----------------------------------------------------------------------
+# El calendario semanal junta dos orígenes con **fechas distintas**, y esa es
+# la decisión del dueño (2026-08-15): una actividad del tracker se coloca por
+# su FECHA (`fecha_alta`) y una cotización por su F. INICIO (`f_inicio`). No es
+# un detalle cosmético: `quotes` tiene además F. VISITA y F. ENTREGA, y colocar
+# la cotización por la primera columna de fecha que apareciera la habría puesto
+# en un día que no es en el que se trabaja.
+#
+# El tercer origen es la agenda personal, que guarda su FECHA como el tracker.
+
+CALENDAR_ORIGIN_TRACKER = "TRACKER"
+CALENDAR_ORIGIN_QUOTES = "COTIZACIONES"
+CALENDAR_ORIGIN_PERSONAL = "PERSONAL"
+
+CALENDAR_DATE_ALIASES: Dict[str, List[str]] = {
+    CALENDAR_ORIGIN_TRACKER: ["FECHA", "FECHA ALTA", "FECHA_ALTA", "FECHA DE ALTA"],
+    CALENDAR_ORIGIN_QUOTES: ["F. INICIO", "F INICIO", "F_INICIO", "FECHA INICIO",
+                             "FECHA_INICIO", "FECHA DE INICIO"],
+    CALENDAR_ORIGIN_PERSONAL: ["FECHA", "FECHA ALTA", "FECHA_ALTA"],
+}
+
+
+def calendar_date(row: Dict[str, Any], origen: str) -> str:
+    """
+    Día en el que esta fila se pinta en el calendario, como `YYYY-MM-DD`.
+
+    Cadena vacía si la fila no trae la fecha de su origen: sin fecha no hay
+    casilla donde ponerla, y adivinarla con otra columna sería inventar.
+
+    Se devuelve en ISO y no en `dd/MM/yy` a propósito. La base guarda `date` y
+    lo que llega a la vista es `str(date)` — ISO —, mientras que el original de
+    Apps Script mandaba `dd/MM/yy`; el calendario comparaba contra el segundo
+    formato y por eso **no mostraba nada**. Con una columna normalizada, la
+    vista compara un solo formato venga de donde venga el dato.
+    """
+    aliases = CALENDAR_DATE_ALIASES.get(str(origen).upper().strip())
+    if not aliases:
+        return ""
+    fecha = parse_sheet_date(pick_task_value(row, aliases))
+    return fecha.strftime("%Y-%m-%d") if fecha else ""
+
+
+# ----------------------------------------------------------------------
 # PAPA CALIENTE (PROCESO_LOG / MAP COT)
 # ----------------------------------------------------------------------
 
