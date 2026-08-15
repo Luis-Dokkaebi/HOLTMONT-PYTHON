@@ -847,3 +847,58 @@ def _calendario_muestra_con_origen(contexto: Dict[str, Any], concepto: str,
     assert filas, f"el calendario no muestra {concepto}"
     assert filas[0]["ORIGEN"] == origen
     assert filas[0]["FECHA_CALENDARIO"] == dia
+
+
+# ----------------------------------------------------------------------
+# Banco de Cotizaciones
+# ----------------------------------------------------------------------
+#
+# El periodo lo decide F. INICIO, la misma regla del calendario, y una
+# cotización repartida entre dos tablas es una sola cotización en el banco.
+
+BANCO_HEADERS = ["FOLIO", "AREA", "CLIENTE", "CONCEPTO", "VENDEDOR", "F. INICIO",
+                 "ESTATUS", "FECHA"]
+
+
+def _tablas_del_banco(contexto: Dict[str, Any]) -> Dict[str, list]:
+    return contexto.setdefault("tablas_banco", {})
+
+
+@given(parsers.parse('que "{cliente}" tiene la cotización "{folio}" con F. INICIO "{fecha}" en "{hoja}"'))
+def _cotizacion_en_el_banco(contexto: Dict[str, Any], cliente: str, folio: str,
+                            fecha: str, hoja: str) -> None:
+    _tablas_del_banco(contexto).setdefault(hoja, []).append(
+        [folio, "CONSTRUCCION", cliente, "COTIZAR NAVE", "RAMIRO RODRIGUEZ",
+         # La columna FECHA lleva a propósito otro mes: si el banco la usara
+         # para agrupar —el defecto que se arregló— el escenario fallaría.
+         fecha, "ASIGNADO", "2026-09-15"])
+
+
+@when(parsers.parse('se abre el banco de "{mes}" de "{anio}"'))
+def _abre_el_banco(contexto: Dict[str, Any], mes: str, anio: str, monkeypatch) -> None:
+    from api.services import sheets
+
+    tablas = _tablas_del_banco(contexto)
+    monkeypatch.setattr(tracker_store, "read_values",
+                        lambda hoja: ([BANCO_HEADERS] + tablas[hoja]) if hoja in tablas else [])
+    monkeypatch.setattr(sheets, "hojas_de_cotizaciones", lambda: list(tablas))
+    contexto["banco"] = tracker_store.fetch_info_bank_companies(anio, mes)["data"]
+
+
+@then(parsers.parse('el banco muestra al cliente "{cliente}"'))
+def _banco_muestra_cliente(contexto: Dict[str, Any], cliente: str) -> None:
+    nombres = [c["name"] for c in contexto["banco"]]
+    assert cliente in nombres, f"el banco muestra {nombres}"
+
+
+@then(parsers.parse('el banco no muestra al cliente "{cliente}"'))
+def _banco_no_muestra_cliente(contexto: Dict[str, Any], cliente: str) -> None:
+    nombres = [c["name"] for c in contexto["banco"]]
+    assert cliente not in nombres, f"el banco muestra {nombres}"
+
+
+@then(parsers.parse('el banco cuenta {total:d} cotización para el cliente "{cliente}"'))
+def _banco_cuenta_cotizaciones(contexto: Dict[str, Any], total: int, cliente: str) -> None:
+    tarjetas = [c for c in contexto["banco"] if c["name"] == cliente]
+    assert tarjetas, f"el banco no muestra a {cliente}"
+    assert tarjetas[0]["count"] == total

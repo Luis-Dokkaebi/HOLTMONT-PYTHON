@@ -864,36 +864,6 @@ def write_quote_metrics_to_sheet(month: Optional[int] = None, year: Optional[int
     }
 
 
-def fetch_info_bank_companies(year: Any, month: Any) -> Dict[str, Any]:
-    """Clientes con cotizaciones en un periodo (Banco de Información)."""
-    month_map = {"ENERO": 1, "FEBRERO": 2, "MARZO": 3, "ABRIL": 4, "MAYO": 5, "JUNIO": 6,
-                 "JULIO": 7, "AGOSTO": 8, "SEPTIEMBRE": 9, "OCTUBRE": 10, "NOVIEMBRE": 11, "DICIEMBRE": 12}
-    target_month = month_map.get(str(month).upper().strip())
-    if target_month is None:
-        try:
-            target_month = int(month)
-        except (TypeError, ValueError):
-            return {"success": False, "message": f"Mes inválido: {month}"}
-    try:
-        target_year = int(year)
-    except (TypeError, ValueError):
-        target_year = datetime.now().year
-
-    active, history, _ = read_rows(rules.SALES_MASTER_SHEET)
-    companies: Dict[str, Dict[str, Any]] = {}
-    for row in list(active) + list(history):
-        cliente = str(rules.pick_task_value(row, ["CLIENTE"]) or "").strip()
-        if not cliente:
-            continue
-        fecha = rules.parse_sheet_date(rules.pick_task_value(row, ["FECHA INICIO", "FECHA", "ALTA", "FECHA ALTA"]))
-        if not fecha or fecha.month != target_month or fecha.year != target_year:
-            continue
-        entry = companies.setdefault(cliente.upper(), {"name": cliente.upper(), "count": 0})
-        entry["count"] += 1
-
-    return {"success": True, "data": sorted(companies.values(), key=lambda c: c["name"])}
-
-
 def fetch_unified_agenda(username: str = "") -> Dict[str, Any]:
     """
     Equivalente de `apiFetchUnifiedAgenda`: tareas de trabajo del tracker del
@@ -1054,44 +1024,174 @@ def _mes_numero(mes: Any) -> Optional[int]:
     return valor if 1 <= valor <= 12 else None
 
 
-def fetch_info_bank_data(year: Any, month: Any, company: Any = "",
-                         folder: Any = "") -> Dict[str, Any]:
+# --- Banco de Cotizaciones --------------------------------------------
+# El banco agrupa las cotizaciones de la base por año y mes, y dentro de cada
+# mes por cliente. La fecha que manda el agrupamiento es **F. INICIO**: una
+# cotización que arranca el 1 de julio pertenece a julio, aunque se haya
+# capturado o visitado antes.
+#
+# Es la misma decisión del dueño (2026-08-15) que ya gobierna el calendario, así
+# que se reutiliza su lista de alias en vez de escribir otra: una cotización se
+# coloca por su F. INICIO y no por la primera columna de fecha que aparezca
+# (`quotes` tiene además F. VISITA y F. ENTREGA).
+#
+# `FECHA` y `ALTA` se añaden **al final**, solo como respaldo: las hojas de
+# ventas que creó Apps Script (`DEFAULT_SALES_HEADERS`) no tienen F. INICIO y
+# sin el respaldo quedarían fuera del banco. Que vayan al final es lo que
+# arregla el defecto: en `quotes`, `fecha` es otra columna y usarla primero
+# colgaba la cotización del mes equivocado.
+
+CLAVES_FECHA_INICIO = tuple(rules.CALENDAR_DATE_ALIASES[rules.CALENDAR_ORIGIN_QUOTES]) + (
+    "FECHA", "ALTA", "FECHA ALTA")
+
+# Columnas de la tabla del banco, en el orden de la vista.
+COLUMNAS_BANCO = ("FECHA INICIO", "AREA", "CONCEPTO", "VENDEDOR", "ESTATUS")
+
+
+def _anio_numero(anio: Any) -> int:
+    try:
+        return int(anio)
+    except (TypeError, ValueError):
+        return datetime.now().year
+
+
+def _fecha_de_inicio(row: Dict[str, Any]) -> Optional[datetime]:
+    """F. INICIO de una cotización: la fecha con la que el banco la agrupa."""
+    return rules.parse_sheet_date(rules.pick_task_value(row, list(CLAVES_FECHA_INICIO)))
+
+
+def _particiones_de_ventas() -> List[str]:
     """
-    Equivalente de `apiFetchInfoBankData`: cotizaciones de un cliente en un mes.
+    Hojas de `quotes` que forman el banco, con la maestra primero.
 
-    El original compara el cliente con inclusión **bidireccional**
-    (`rowClient.includes(target) || target.includes(rowClient)`) para tolerar que
-    en la hoja el nombre esté abreviado o con sufijos. Se conserva: exigir
-    igualdad dejaría fuera la mayoría de las filas reales.
+    Se consultaba solo `ANTONIA_VENTAS`, así que el banco no veía nada de lo que
+    trabajan los vendedores en su propia partición. La maestra va primero porque
+    al deduplicar gana la primera fila vista, y de las dos copias de una
+    cotización repartida (`(folio, source_sheet)`) la de la tabla maestra es la
+    que trae el reparto completo.
+    """
+    maestra = rules.SALES_MASTER_SHEET
+    try:
+        from api.services import sheets
 
-    `folder` lo manda el frontend y el original tampoco lo usa para filtrar;
-    se acepta y se ignora para no cambiar la firma.
+        hojas = list(sheets.hojas_de_cotizaciones())
+    except Exception as exc:  # pragma: no cover - depende de la infraestructura
+        print(f"[tracker_store] No se pudieron listar las hojas de ventas: {exc}")
+        hojas = []
+
+    clave = rules.normalize_header
+    restantes = [h for h in hojas if clave(h) != clave(maestra)]
+    return [maestra] + restantes
+
+
+def _cotizaciones_del_periodo(mes: int, anio: int, cliente: Any = "") -> List[Dict[str, Any]]:
+    """
+    Cotizaciones de un año/mes (y opcionalmente de un cliente), sin duplicados y
+    ordenadas por F. INICIO.
+
+    El cliente se compara con inclusión **bidireccional**, igual que el original
+    en `CODIGO.js`, para tolerar abreviaturas y sufijos ("ACME" encuentra "ACME
+    INDUSTRIAL"); exigir igualdad dejaría fuera la mayoría de las filas reales.
+
+    La deduplicación es por folio porque una cotización repartida vive en dos
+    particiones por diseño y en el banco es **una** cotización, no dos.
+    """
+    objetivo = str(cliente or "").upper().strip()
+    filas: List[tuple] = []
+    vistos = set()
+
+    for hoja in _particiones_de_ventas():
+        activas, historial, _headers = read_rows(hoja)
+        for row in list(activas) + list(historial):
+            nombre = str(rules.pick_task_value(row, ["CLIENTE"]) or "").upper().strip()
+            if not nombre:
+                continue
+            if objetivo and objetivo not in nombre and nombre not in objetivo:
+                continue
+            fecha = _fecha_de_inicio(row)
+            if not fecha or fecha.month != mes or fecha.year != anio:
+                continue
+            folio = str(rules.pick_task_value(row, ["FOLIO", "ID"]) or "").upper().strip()
+            if folio:
+                if folio in vistos:
+                    continue
+                vistos.add(folio)
+            fila = dict(row)
+            fila["_hoja"] = hoja
+            filas.append((fecha, fila))
+
+    filas.sort(key=lambda par: par[0])
+    return [fila for _fecha, fila in filas]
+
+
+def _fila_del_banco(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Una cotización con los nombres que lee la vista.
+
+    La tabla del banco pinta `file.FECHA_INICIO`, `file.AREA`, `file.CONCEPTO`,
+    `file.VENDEDOR` y `file.ESTATUS`. La fila cruda trae `F. INICIO`, así que la
+    columna de fecha salía vacía en todas las cotizaciones. `CODIGO.js` sí
+    normalizaba antes de responder; esto lo devuelve a la paridad.
+
+    La fecha se entrega en dd/mm/aa, la convención de toda la aplicación:
+    `formatDisplayDate` deja pasar tal cual lo que no reconoce, y un `date` de
+    Postgres llega como "2026-06-01".
+    """
+    fecha = _fecha_de_inicio(row)
+    return {
+        "FECHA_INICIO": fecha.strftime("%d/%m/%y") if fecha else "",
+        "AREA": rules.pick_task_value(row, ["AREA", "DEPARTAMENTO", "ESPECIALIDAD"]) or "",
+        "CONCEPTO": rules.pick_task_value(row, ["CONCEPTO", "DESCRIPCION", "DESCRIPCIÓN", "ACTIVIDAD"]) or "",
+        "VENDEDOR": rules.pick_task_value(row, ["VENDEDOR", "RESPONSABLE", "ENCARGADO", "INVOLUCRADOS"]) or "",
+        "ESTATUS": rules.pick_task_value(row, ["ESTATUS", "STATUS", "ESTADO"]) or "",
+        "FOLIO": rules.pick_task_value(row, ["FOLIO", "ID"]) or "",
+        "CLIENTE": rules.pick_task_value(row, ["CLIENTE"]) or "",
+        "COTIZACION": rules.pick_task_value(row, ["COTIZACION", "ARCHIVO", "LINK", "URL", "PDF"]) or "",
+        "HOJA": row.get("_hoja", ""),
+    }
+
+
+def fetch_info_bank_companies(year: Any, month: Any) -> Dict[str, Any]:
+    """
+    Clientes con cotizaciones en un periodo: las tarjetas del banco.
+
+    Antes buscaba la fecha en `["FECHA INICIO", "FECHA", "ALTA", "FECHA ALTA"]`.
+    En una fila de `quotes` la columna de inicio se llama `F. INICIO`, así que
+    ninguna clave coincidía y ganaba `FECHA` —otra columna del esquema—: el
+    cliente aparecía bajo un mes que no era el de su F. INICIO.
     """
     mes = _mes_numero(month)
     if mes is None:
         return {"success": False, "message": f"Mes inválido: {month}"}
-    try:
-        anio = int(year)
-    except (TypeError, ValueError):
-        anio = datetime.now().year
+    anio = _anio_numero(year)
 
-    objetivo = str(company or "").upper().strip()
-    active, history, headers = read_rows(rules.SALES_MASTER_SHEET)
+    companies: Dict[str, Dict[str, Any]] = {}
+    for row in _cotizaciones_del_periodo(mes, anio):
+        nombre = str(rules.pick_task_value(row, ["CLIENTE"]) or "").upper().strip()
+        entrada = companies.setdefault(nombre, {"name": nombre, "count": 0})
+        entrada["count"] += 1
 
-    filas = []
-    for row in list(active) + list(history):
-        cliente = str(rules.pick_task_value(row, ["CLIENTE"]) or "").upper().strip()
-        if not cliente:
-            continue
-        if objetivo and not (objetivo in cliente or cliente in objetivo):
-            continue
-        fecha = rules.parse_sheet_date(
-            rules.pick_task_value(row, ["FECHA INICIO", "F. INICIO", "FECHA", "ALTA", "FECHA ALTA"]))
-        if not fecha or fecha.month != mes or fecha.year != anio:
-            continue
-        filas.append(row)
+    return {"success": True, "data": sorted(companies.values(), key=lambda c: c["name"])}
 
-    return {"success": True, "data": filas, "headers": headers}
+
+def fetch_info_bank_data(year: Any, month: Any, company: Any = "",
+                         folder: Any = "") -> Dict[str, Any]:
+    """
+    Equivalente de `apiFetchInfoBankData`: cotizaciones de un cliente en un mes,
+    ya normalizadas a las columnas de la vista.
+
+    `folder` lo manda el frontend y el original tampoco lo usa para filtrar: las
+    carpetas son la organización visual del expediente del cliente, no
+    particiones distintas de datos. Se acepta y se ignora para no cambiar la
+    firma.
+    """
+    mes = _mes_numero(month)
+    if mes is None:
+        return {"success": False, "message": f"Mes inválido: {month}"}
+    anio = _anio_numero(year)
+
+    filas = [_fila_del_banco(row) for row in _cotizaciones_del_periodo(mes, anio, company)]
+    return {"success": True, "data": filas, "headers": list(COLUMNAS_BANCO)}
 
 
 def fetch_ppc_data() -> Dict[str, Any]:

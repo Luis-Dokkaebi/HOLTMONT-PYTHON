@@ -2960,9 +2960,10 @@ function apiFetchInfoBankData(year, monthName, companyName, folderName) {
        // Check bidirectional inclusion to handle variations
        if (!rowClient.includes(targetCompany) && !targetCompany.includes(rowClient)) return false;
 
-       // 2. Date Match (Prioridad: FECHA INICIO)
-       // Se prioriza 'FECHA INICIO' tal cual pidió el usuario, luego fallbacks.
-       const dateVal = getVal(['FECHA INICIO', 'FECHA_INICIO', 'FECHA DE INICIO', 'FECHA', 'ALTA', 'FECHA ALTA', 'FECHA_ALTA', 'FECHA VISITA']);
+       // 2. Date Match (Prioridad: F. INICIO)
+       // El periodo lo manda F. INICIO (decisión del dueño); FECHA/ALTA solo
+       // como respaldo para las hojas que no tienen columna de inicio.
+       const dateVal = getVal(BANK_DATE_ALIASES);
 
        if (!dateVal) return false;
        
@@ -2999,7 +3000,7 @@ function apiFetchInfoBankData(year, monthName, companyName, folderName) {
        };
 
        return {
-           'FECHA_INICIO': getVal(['FECHA INICIO', 'FECHA_INICIO', 'FECHA DE INICIO', 'FECHA', 'ALTA', 'FECHA ALTA', 'FECHA_ALTA', 'FECHA VISITA']),
+           'FECHA_INICIO': getVal(BANK_DATE_ALIASES),
            'AREA': getVal(['AREA', 'DEPARTAMENTO', 'ESPECIALIDAD']),
            'CONCEPTO': getVal(['CONCEPTO', 'DESCRIPCION', 'DESCRIPCIÓN', 'ACTIVIDAD']),
            'VENDEDOR': getVal(['VENDEDOR', 'RESPONSABLE', 'ENCARGADO', 'INVOLUCRADOS']),
@@ -3217,6 +3218,14 @@ const CALENDAR_DATE_ALIASES = {
   COTIZACIONES: ["F. INICIO", "F INICIO", "F_INICIO", "FECHA INICIO", "FECHA_INICIO", "FECHA DE INICIO"],
   PERSONAL: ["FECHA", "FECHA ALTA", "FECHA_ALTA"]
 };
+
+/**
+ * Fecha con la que el Banco de Cotizaciones agrupa una cotización por mes y año.
+ * Es la del calendario más FECHA/ALTA al final, como respaldo para las hojas
+ * creadas con DEFAULT_SALES_HEADERS, que no tienen columna de inicio.
+ */
+const BANK_DATE_ALIASES = CALENDAR_DATE_ALIASES.COTIZACIONES.concat(
+  ["FECHA", "ALTA", "FECHA ALTA"]);
 
 /** Día ISO (YYYY-MM-DD) en el que se pinta una fila, o "" si no trae su fecha. */
 function calendarDate(row, origen) {
@@ -5033,7 +5042,10 @@ function apiFetchInfoBankCompanies(year, monthName) {
     (res.data || []).concat(res.history || []).forEach(row => {
       const cliente = String(pickTaskValue(row, ["CLIENTE"]) || "").trim();
       if (!cliente) return;
-      const fecha = parseSheetDate(pickTaskValue(row, ["FECHA INICIO", "FECHA_INICIO", "FECHA", "ALTA", "FECHA ALTA"]));
+      // El banco agrupa por F. INICIO (decisión del dueño, 2026-08-15): se
+      // reutilizan los alias del calendario y FECHA/ALTA quedan de respaldo
+      // para las hojas viejas, que no tienen columna de inicio.
+      const fecha = parseSheetDate(pickTaskValue(row, BANK_DATE_ALIASES));
       if (!fecha) return;
       if (fecha.getMonth() !== targetMonth || fecha.getFullYear() !== targetYear) return;
       const key = cliente.toUpperCase();

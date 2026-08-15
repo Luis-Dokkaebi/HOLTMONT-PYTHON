@@ -326,6 +326,23 @@ def resolve_source_sheet(tabla, sheet_name):
     return _indice_de_hojas(tabla).get(_clave_hoja(pedido), pedido)
 
 
+def hojas_de_cotizaciones():
+    """
+    Todas las particiones de `quotes`: la tabla maestra y la de cada vendedor.
+
+    El Banco de Cotizaciones necesita el conjunto completo, no una hoja: una
+    cotización vive en la partición de quien la reparte y en la de quien la
+    trabaja (la clave de `quotes` es `(folio, source_sheet)`), y consultar solo
+    `ANTONIA_VENTAS` dejaba fuera todo lo que trabajan los vendedores.
+
+    Devuelve los nombres tal como están almacenados —hay capitalización mixta y
+    hojas con espacio inicial— porque son los que acepta la consulta. Sin índice
+    (sin credenciales, o si la consulta falla) la lista viene vacía y quien
+    llama decide el respaldo.
+    """
+    return sorted(_indice_de_hojas("quotes").values(), key=_clave_hoja)
+
+
 def particiones_del_tracker(sheet_name):
     """
     Particiones de `tasks` que forman el tracker de una hoja.
