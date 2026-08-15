@@ -657,6 +657,11 @@ class DateChangeRequest(BaseModel):
 class QuoteAgentRequest(BaseModel):
     month: Optional[int] = None
     year: Optional[int] = None
+    # La key viaja en la petición porque el servidor no tiene dónde guardarla:
+    # cada invocación en Vercel es un proceso nuevo y `os.environ` no sobrevive
+    # de una petición a la siguiente. Ver `tracker_store.save_gemini_key`.
+    # Si no viene, se usa `GEMINI_API_KEY` del entorno del despliegue.
+    geminiKey: Optional[str] = None
 
 
 @app.post("/api/legacy/saveTrackerBatch")
@@ -698,7 +703,7 @@ def api_legacy_quote_metrics(month: Optional[int] = Query(None), year: Optional[
 @app.post("/api/legacy/runQuoteAgent")
 def api_legacy_run_quote_agent(req: QuoteAgentRequest):
     """runQuoteMetricsAgent: reglas + análisis Gemini + notificación."""
-    return tracker_store.run_quote_metrics_agent(req.month, req.year)
+    return tracker_store.run_quote_metrics_agent(req.month, req.year, req.geminiKey)
 
 
 @app.get("/api/legacy/lastAgentReport")

@@ -1273,6 +1273,82 @@ def rows_to_dicts(values: Sequence[Sequence[Any]]) -> Tuple[List[Dict[str, Any]]
 # ----------------------------------------------------------------------
 # MÉTRICAS DE COTIZACIONES
 # ----------------------------------------------------------------------
+# Los alias de fecha son la parte frágil de este bloque y por eso son
+# constantes con nombre y no listas escritas dentro del bucle.
+#
+# La hoja `ANTONIA_VENTAS` NO se rinde con los encabezados del tracker: pasa por
+# `QUOTE_HEADER_MAP` (`api/services/sheets.py`), donde las fechas se llaman
+# `F. VISITA`, `F. INICIO` y `F. ENTREGA`. Mientras aquí solo se buscó `FECHA` /
+# `FECHA INICIO` / `FECHA ALTA` / `ALTA` —los nombres del tracker— `fecha` salía
+# `None` en todas las filas, y con eso el tablero quedaba en blanco por partida
+# doble: el filtro de periodo descartaba la hoja entera y el bloque de SLA, que
+# exige `fecha`, no calculaba ni una alerta.
+#
+# `F. INICIO` va antes que `F. VISITA` por la decisión del dueño del 2026-08-15
+# que ya está anotada en el bloque del CALENDARIO: la cotización se ubica en el
+# día en que se trabaja, no en el de la visita.
+#
+# Los nombres del tracker se conservan primero para las filas que aún llegan con
+# la forma del Spreadsheet original (`DEFAULT_SALES_HEADERS` de `CODIGO.js` sí
+# traía `FECHA`).
+
+QUOTE_DATE_ALIASES: List[str] = [
+    "FECHA", "FECHA INICIO", "FECHA ALTA", "ALTA",
+    "F. INICIO", "F INICIO", "F_INICIO", "FECHA_INICIO", "FECHA DE INICIO",
+    "F. VISITA", "F VISITA", "F_VISITA",
+]
+
+QUOTE_CLOSE_DATE_ALIASES: List[str] = [
+    "FECHA_TERMINO", "FECHA TERMINO", "FECHA REAL",
+    "F. ENTREGA", "F ENTREGA", "F_ENTREGA",
+]
+
+
+# Las tres tablas del tablero se rinden con DOS juegos de claves a propósito.
+#
+# `index.html` lee `name`, `dept`, `ganadas`, `perdidas`, `count`, `clasA/AA/AAA`,
+# `slaOk`, `slaFail` y `projects`; las reglas portadas de `CODIGO.js` publicaban
+# `nombre`, `ganada` y `perdida`. Nadie cruzó los dos nombres, así que DESEMPEÑO
+# POR COTIZADOR y POR DEPARTAMENTO salían con las celdas vacías y un `NAN%` en
+# la columna de cierre, y el panel de clientes AAA no listaba ni un proyecto.
+#
+# Se publican los dos y no solo los de la vista porque las claves originales son
+# el contrato de `write_quote_metrics_to_sheet` (la instantánea de
+# `kpi_cotizaciones`) y del prompt de Gemini. Renombrarlas habría cambiado dos
+# consumidores para arreglar uno.
+
+def _sumar_bucket(entry: Dict[str, Any], bucket: str) -> None:
+    """Suma la cotización a su casilla, en los dos juegos de claves."""
+    entry["total"] += 1
+    if bucket == "GANADA":
+        entry["ganada"] += 1
+        entry["ganadas"] += 1
+    elif bucket == "PERDIDA":
+        entry["perdida"] += 1
+        entry["perdidas"] += 1
+    else:
+        entry["enProceso"] += 1
+    if "count" in entry:
+        entry["count"] += 1
+
+
+def _fila_de_cotizador(nombre: str) -> Dict[str, Any]:
+    """`_areas` es de trabajo: se cambia por `dept` antes de devolver nada."""
+    return {"nombre": nombre, "name": nombre, "total": 0,
+            "ganada": 0, "perdida": 0, "enProceso": 0, "ganadas": 0, "perdidas": 0,
+            "clasA": 0, "clasAA": 0, "clasAAA": 0, "slaOk": 0, "slaFail": 0, "_areas": {}}
+
+
+def _fila_de_departamento(nombre: str) -> Dict[str, Any]:
+    return {"nombre": nombre, "dept": nombre, "total": 0,
+            "ganada": 0, "perdida": 0, "enProceso": 0, "ganadas": 0, "perdidas": 0}
+
+
+def _fila_de_cliente_aaa(cliente: str) -> Dict[str, Any]:
+    return {"cliente": cliente, "total": 0, "count": 0, "fueraSla": 0,
+            "ganada": 0, "perdida": 0, "enProceso": 0, "ganadas": 0, "perdidas": 0,
+            "projects": []}
+
 
 def compute_quote_metrics(rows: Iterable[Dict[str, Any]], month: Optional[int] = None,
                           year: Optional[int] = None) -> Dict[str, Any]:
@@ -1304,7 +1380,7 @@ def compute_quote_metrics(rows: Iterable[Dict[str, Any]], month: Optional[int] =
     sla_days: Dict[str, List[int]] = {c: [] for c in SLA_LIMITS}
 
     for row in rows:
-        fecha = parse_sheet_date(pick_task_value(row, ["FECHA", "FECHA INICIO", "FECHA ALTA", "ALTA"]))
+        fecha = parse_sheet_date(pick_task_value(row, QUOTE_DATE_ALIASES))
         if month and year:
             if not fecha or fecha.month != month or fecha.year != year:
                 continue
@@ -1320,30 +1396,32 @@ def compute_quote_metrics(rows: Iterable[Dict[str, Any]], month: Optional[int] =
             metrics["winLoss"]["enProceso"] += 1
         metrics["winLoss"]["total"] += 1
 
-        vendedor = str(pick_task_value(row, ["VENDEDOR", "RESPONSABLE", "COTIZADOR"]) or "SIN ASIGNAR").upper().strip()
-        entry = by_cotizador.setdefault(vendedor, {"nombre": vendedor, "total": 0, "ganada": 0, "perdida": 0, "enProceso": 0})
-        entry["total"] += 1
-        entry["ganada" if bucket == "GANADA" else ("perdida" if bucket == "PERDIDA" else "enProceso")] += 1
-
         depto = str(pick_task_value(row, ["AREA", "DEPARTAMENTO", "ESPECIALIDAD"]) or "GENERAL").upper().strip()
-        dep = by_department.setdefault(depto, {"nombre": depto, "total": 0, "ganada": 0, "perdida": 0})
-        dep["total"] += 1
-        if bucket == "GANADA":
-            dep["ganada"] += 1
-        elif bucket == "PERDIDA":
-            dep["perdida"] += 1
+
+        vendedor = str(pick_task_value(row, ["VENDEDOR", "RESPONSABLE", "COTIZADOR"]) or "SIN ASIGNAR").upper().strip()
+        entry = by_cotizador.setdefault(vendedor, _fila_de_cotizador(vendedor))
+        _sumar_bucket(entry, bucket)
+        entry["_areas"][depto] = entry["_areas"].get(depto, 0) + 1
+
+        dep = by_department.setdefault(depto, _fila_de_departamento(depto))
+        _sumar_bucket(dep, bucket)
 
         clase = str(pick_task_value(row, ["CLASIFICACION", "CLASI"]) or "").upper().strip()
+        if f"clas{clase}" in entry:
+            entry[f"clas{clase}"] += 1
+
         if clase in metrics["slaSummary"] and fecha:
-            cierre = parse_sheet_date(pick_task_value(row, ["FECHA_TERMINO", "FECHA TERMINO", "FECHA REAL"]))
+            cierre = parse_sheet_date(pick_task_value(row, QUOTE_CLOSE_DATE_ALIASES))
             dias = ((cierre or now) - fecha).days
             limite = metrics["slaSummary"][clase]["slaLimit"]
             metrics["slaSummary"][clase]["count"] += 1
             sla_days[clase].append(dias)
             if dias <= limite:
                 metrics["slaSummary"][clase]["ok"] += 1
+                entry["slaOk"] += 1
             else:
                 metrics["slaSummary"][clase]["fail"] += 1
+                entry["slaFail"] += 1
                 metrics["alerts"].append({
                     "folio": str(pick_task_value(row, ["FOLIO", "ID"]) or ""),
                     "cliente": str(pick_task_value(row, ["CLIENTE"]) or ""),
@@ -1355,10 +1433,17 @@ def compute_quote_metrics(rows: Iterable[Dict[str, Any]], month: Optional[int] =
                 })
             if clase == "AAA":
                 cli = str(pick_task_value(row, ["CLIENTE"]) or "SIN CLIENTE").upper().strip()
-                cli_entry = aaa_by_client.setdefault(cli, {"cliente": cli, "total": 0, "fueraSla": 0})
-                cli_entry["total"] += 1
+                cli_entry = aaa_by_client.setdefault(cli, _fila_de_cliente_aaa(cli))
+                _sumar_bucket(cli_entry, bucket)
                 if dias > limite:
                     cli_entry["fueraSla"] += 1
+                cli_entry["projects"].append({
+                    "folio": str(pick_task_value(row, ["FOLIO", "ID"]) or ""),
+                    "concepto": str(pick_task_value(row, ["CONCEPTO", "DESCRIPCION"]) or ""),
+                    "isGanada": bucket == "GANADA",
+                    "isPerdida": bucket == "PERDIDA",
+                    "durationDays": dias,
+                })
 
     for clase, resumen in metrics["slaSummary"].items():
         dias_list = sla_days[clase]
@@ -1367,6 +1452,13 @@ def compute_quote_metrics(rows: Iterable[Dict[str, Any]], month: Optional[int] =
 
     cerradas = metrics["winLoss"]["ganada"] + metrics["winLoss"]["perdida"]
     metrics["closeRate"] = round((metrics["winLoss"]["ganada"] / cerradas) * 100, 1) if cerradas else 0
+
+    for entry in by_cotizador.values():
+        # El área del cotizador es aquella en la que más cotiza. Una persona
+        # atiende varias, y dejar la última leída habría hecho que la columna
+        # cambiara de valor según el orden de las filas.
+        areas = entry.pop("_areas")
+        entry["dept"] = max(areas.items(), key=lambda par: par[1])[0] if areas else "GENERAL"
 
     metrics["byCotizadorArr"] = sorted(by_cotizador.values(), key=lambda v: v["total"], reverse=True)
     metrics["byDepartmentArr"] = sorted(by_department.values(), key=lambda v: v["total"], reverse=True)
