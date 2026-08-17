@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from backend.core.engine import DataEngine
-from backend.core.errors import BackendError
+from backend.core.errors import BackendError, ErrorDeMotor
 from backend.schemas.ticket import (
     ESTATUS_TERMINALES,
     TicketRead,
@@ -130,6 +130,12 @@ class TicketRepository:
             "updated_at": ahora,
         }
         guardadas = self.engine.insertar(TABLA, [fila])
+        if not guardadas:
+            # PostgREST devuelve la fila porque `insertar` pide
+            # `Prefer: return=representation`. Si aun así llega vacío, el alta
+            # no está confirmada: mejor un error visible que un `IndexError`
+            # que sale a pantalla como un 500 sin causa.
+            raise ErrorDeMotor(f"El alta en {TABLA} no devolvió la fila guardada")
         creado = TicketRead.model_validate(guardadas[0])
         # Acuse de recibo: que quien reportó sepa que llegó y con qué folio
         # referirse a él. Sin `actor`, porque aquí el reportante SÍ debe
@@ -153,6 +159,8 @@ class TicketRepository:
         fila["updated_at"] = _ahora()
 
         guardadas = self.engine.upsert(TABLA, [fila], en_conflicto=CLAVE_UPSERT)
+        if not guardadas:
+            raise ErrorDeMotor(f"El cambio de estatus en {TABLA} no devolvió la fila guardada")
         actualizado = TicketRead.model_validate(guardadas[0])
         # Avisar a quien reportó, no a quien resolvió: `actor` evita que
         # soporte se notifique a sí mismo al mover un ticket propio.
@@ -177,4 +185,6 @@ class TicketRepository:
         fila["updated_at"] = _ahora()
 
         guardadas = self.engine.upsert(TABLA, [fila], en_conflicto=CLAVE_UPSERT)
+        if not guardadas:
+            raise ErrorDeMotor(f"El alta de evidencia en {TABLA} no devolvió la fila guardada")
         return TicketRead.model_validate(guardadas[0])

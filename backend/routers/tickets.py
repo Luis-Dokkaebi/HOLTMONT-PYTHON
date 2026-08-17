@@ -11,6 +11,7 @@ camino reescribe lo que ya se reportó.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -31,15 +32,31 @@ router = APIRouter(prefix="/api/v2", tags=["tickets"])
 # PostgREST.
 CODIGOS_TABLA_FALTANTE = frozenset({"PGRST205", "PGRST202", "42P01"})
 
-MENSAJE_TABLA_FALTANTE = (
-    "El sistema de tickets todavía no está instalado en la base de datos: falta "
-    "crear la tabla `bug_tickets`. Aplicar el DDL de docs/DDL_PENDIENTE.sql §5."
-)
+# La tabla está, pero no con las columnas que espera el repositorio. `PGRST204`
+# es "Could not find the '<col>' column in the schema cache"; `42703` es el
+# `undefined_column` de Postgres. Pasa cuando se aplicó una versión vieja del
+# DDL: sin distinguirlo, este caso salía como un 502 genérico ("vuelve a
+# intentarlo") que nunca se arregla por reintentar.
+CODIGOS_COLUMNA_FALTANTE = frozenset({"PGRST204", "42703"})
+
+# Permiso denegado. `42501` es `insufficient_privilege`; `PGRST301`/`PGRST302`
+# son los de credencial inválida o ausente. `bug_tickets` y
+# `ticket_notificaciones` llevan RLS encendida y SIN políticas
+# (docs/DDL_PENDIENTE.sql §5 y §6): solo `service_role` las ignora, así que un
+# backend configurado con la clave `anon` lee vacío pero **no puede insertar**.
+CODIGOS_PERMISO = frozenset({"42501", "PGRST301", "PGRST302"})
+ESTADOS_PERMISO = frozenset({401, 403})
+
+# `PostgREST GET bug_tickets?select=folio...` → `bug_tickets`. Se usa el nombre
+# de la tabla, y nada más del mensaje: la consulta cruda no viaja al cliente.
+_TABLA_EN_MENSAJE = re.compile(r"PostgREST \w+ ([A-Za-z_][A-Za-z0-9_]*)")
 
 MENSAJE_MOTOR_CAIDO = (
     "No se pudo consultar el sistema de tickets. Vuelve a intentarlo; si sigue "
     "fallando, avisa al equipo."
 )
+
+TABLAS_DEL_SISTEMA = ("bug_tickets", "ticket_notificaciones")
 
 
 def obtener_repositorio() -> TicketRepository:
@@ -59,7 +76,81 @@ def _es_tabla_faltante(exc: BackendError) -> bool:
     # PostgREST no siempre manda `code` en el cuerpo. El 404 basta como señal:
     # la ruta la arma el motor, no el cliente, así que un "no existe" solo
     # puede ser la tabla.
-    return "respondió 404" in str(exc)
+    return exc.estado == 404 or "respondió 404" in str(exc)
+
+
+def _es_columna_faltante(exc: BackendError) -> bool:
+    return isinstance(exc, ErrorDeMotor) and exc.codigo in CODIGOS_COLUMNA_FALTANTE
+
+
+def _es_permiso_denegado(exc: BackendError) -> bool:
+    if not isinstance(exc, ErrorDeMotor):
+        return False
+    if exc.codigo in CODIGOS_PERMISO:
+        return True
+    if exc.estado in ESTADOS_PERMISO:
+        return True
+    # Postgres nombra así la violación de RLS aunque el estado sea 400.
+    return "row-level security" in exc.detalle.lower()
+
+
+def _tabla_del_fallo(exc: BackendError) -> str:
+    """Nombre de la tabla que rechazó la operación; `""` si no se puede saber."""
+    encontrado = _TABLA_EN_MENSAJE.search(str(exc))
+    return encontrado.group(1) if encontrado else ""
+
+
+def _pista(exc: BackendError) -> str:
+    """
+    Código corto para que quien reporta pueda repetirlo al equipo.
+
+    Es el código de PostgREST/Postgres o, si no vino, el estado HTTP. Nunca la
+    consulta ni la URL: eso es lo que se filtró el 2026-08-13 y no debe volver.
+    """
+    if not isinstance(exc, ErrorDeMotor):
+        return ""
+    if exc.codigo:
+        return f" [código: {exc.codigo}]"
+    if exc.estado:
+        return f" [código: HTTP {exc.estado}]"
+    return ""
+
+
+def _causa(exc: BackendError) -> str:
+    """Etiqueta estable de la causa. La usa también `/tickets/diagnostico`."""
+    if _es_tabla_faltante(exc):
+        return "tabla_faltante"
+    if _es_columna_faltante(exc):
+        return "columna_faltante"
+    if _es_permiso_denegado(exc):
+        return "permiso_denegado"
+    return "motor_caido"
+
+
+def _mensaje_de_causa(causa: str, tabla: str) -> str:
+    cual = f"la tabla `{tabla}`" if tabla else "una tabla del sistema de tickets"
+    if causa == "tabla_faltante":
+        return (
+            f"El sistema de tickets todavía no está instalado en la base de datos: falta "
+            f"crear {cual}. Aplicar el DDL de docs/DDL_PENDIENTE.sql §5 (`bug_tickets`) "
+            "y §6 (`ticket_notificaciones`)."
+        )
+    if causa == "columna_faltante":
+        return (
+            f"{cual.capitalize()} existe pero le faltan columnas: se aplicó una versión "
+            "vieja del esquema. Volver a aplicar el DDL de docs/DDL_PENDIENTE.sql §5 y §6. "
+            "Reintentar no lo arregla."
+        )
+    if causa == "permiso_denegado":
+        return (
+            f"La base rechazó la operación sobre {cual} por permisos. Las tablas del "
+            "sistema de tickets llevan RLS encendida y sin políticas "
+            "(docs/DDL_PENDIENTE.sql §5 y §6), así que solo la clave de servicio puede "
+            "escribir en ellas: revisar que `SUPABASE_KEY` sea la `service_role` del "
+            "proyecto y no la `anon`, y que estén los GRANT del DDL. Reintentar no lo "
+            "arregla."
+        )
+    return MENSAJE_MOTOR_CAIDO
 
 
 def _fallo_de_motor(exc: BackendError) -> HTTPException:
@@ -69,14 +160,24 @@ def _fallo_de_motor(exc: BackendError) -> HTTPException:
     El detalle interno se registra pero **no viaja al cliente**: el 2026-08-13
     el dueño intentó reportar un bug y recibió en pantalla
     `PostgREST GET bug_tickets?select=folio&offset=0&limit=1000 respondió 404`,
-    que no le dice qué hacer y además expone la consulta. Se separan las dos
-    causas porque piden acciones distintas: falta el DDL (503, accionable) o
-    la base no responde (502, reintentar).
+    que no le dice qué hacer y además expone la consulta.
+
+    Se separan cuatro causas porque piden acciones distintas, y porque las tres
+    primeras **no se arreglan reintentando** — que es lo único que decía el
+    mensaje genérico que quedó en pantalla el 2026-08-17:
+
+    * falta la tabla (503): aplicar el DDL;
+    * falta una columna (503): aplicar el DDL nuevo, el aplicado es viejo;
+    * permiso denegado (503): la clave del backend no es `service_role`, o
+      faltan los GRANT — con RLS encendida y sin políticas, la clave `anon` lee
+      vacío pero no puede insertar, y ese es exactamente el caso que deja el
+      formulario fallando para todo el mundo;
+    * cualquier otra cosa (502): la base no responde, reintentar.
     """
-    print(f"[tickets] fallo del motor: {exc}")
-    if _es_tabla_faltante(exc):
-        return HTTPException(status_code=503, detail=MENSAJE_TABLA_FALTANTE)
-    return HTTPException(status_code=502, detail=MENSAJE_MOTOR_CAIDO)
+    print(f"[tickets] fallo del motor: {exc} | detalle={getattr(exc, 'detalle', '')[:300]}")
+    causa = _causa(exc)
+    detalle = _mensaje_de_causa(causa, _tabla_del_fallo(exc)) + _pista(exc)
+    return HTTPException(status_code=502 if causa == "motor_caido" else 503, detail=detalle)
 
 
 class SolicitudTicket(BaseModel):
@@ -123,6 +224,45 @@ def listar_tickets(
         "success": True,
         "data": [t.model_dump(mode="json") for t in tickets],
         "count": len(tickets),
+    }
+
+
+@router.get("/tickets/diagnostico")
+def diagnosticar_sistema_de_tickets(
+    repo: TicketRepository = Depends(obtener_repositorio),
+) -> Dict[str, Any]:
+    """
+    Dice si el sistema de tickets puede operar, y qué falta si no.
+
+    Existe porque cuando el formulario falla para todo el mundo, la causa real
+    (falta el DDL, falta una columna, la clave no es `service_role`) solo vivía
+    en los registros del despliegue, que nadie del equipo lee. Una lectura de
+    una fila por tabla basta para distinguirlas.
+
+    No devuelve credenciales ni datos de tickets: solo el nombre de la tabla,
+    la causa y el código de la base.
+    """
+    tablas = []
+    for tabla in TABLAS_DEL_SISTEMA:
+        try:
+            repo.engine.select(tabla, columnas=["folio"], limite=1)
+        except BackendError as exc:
+            causa = _causa(exc)
+            tablas.append({
+                "tabla": tabla,
+                "ok": False,
+                "causa": causa,
+                "codigo": getattr(exc, "codigo", "") or "",
+                "que_hacer": _mensaje_de_causa(causa, tabla),
+            })
+        else:
+            tablas.append({"tabla": tabla, "ok": True, "causa": "", "codigo": "", "que_hacer": ""})
+
+    return {
+        "success": True,
+        "motor": getattr(repo.engine, "nombre", "desconocido"),
+        "operativo": all(t["ok"] for t in tablas),
+        "tablas": tablas,
     }
 
 

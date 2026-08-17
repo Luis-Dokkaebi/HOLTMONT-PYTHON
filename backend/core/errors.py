@@ -22,12 +22,22 @@ class EscrituraDeshabilitada(BackendError):
 
 
 class ErrorDeMotor(BackendError):
-    """El motor rechazó la operación (red, permisos, restricción violada)."""
+    """
+    El motor rechazó la operación (red, permisos, restricción violada).
 
-    def __init__(self, mensaje: str, codigo: str = "", detalle: str = ""):
+    `estado` es el código HTTP con el que respondió PostgREST, o 0 cuando el
+    fallo no llegó a tener respuesta (corte de red, tiempo agotado). Se guarda
+    aparte del mensaje porque quien traduce el error a pantalla necesita
+    distinguir "no existe" (404) de "no tienes permiso" (401/403), y sacarlo
+    del texto con una búsqueda de subcadena es frágil: PostgREST no siempre
+    manda `code` en el cuerpo, pero el estado siempre está.
+    """
+
+    def __init__(self, mensaje: str, codigo: str = "", detalle: str = "", estado: int = 0):
         super().__init__(mensaje)
         self.codigo = codigo
         self.detalle = detalle
+        self.estado = estado
 
 
 class CampoDeSoloLectura(BackendError):
