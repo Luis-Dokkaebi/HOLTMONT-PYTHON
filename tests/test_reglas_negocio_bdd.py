@@ -902,3 +902,76 @@ def _banco_cuenta_cotizaciones(contexto: Dict[str, Any], total: int, cliente: st
     tarjetas = [c for c in contexto["banco"] if c["name"] == cliente]
     assert tarjetas, f"el banco no muestra a {cliente}"
     assert tarjetas[0]["count"] == total
+
+
+# ----------------------------------------------------------------------
+# Control de alta — el candado es del Tracker
+# ----------------------------------------------------------------------
+
+@given(parsers.parse(
+    'que llega la actividad nueva "{concepto}" sin PRIORIDAD, RIESGOS ni FEC. EST. FIN'))
+def _alta_sin_los_tres(contexto: Dict[str, Any], concepto: str) -> None:
+    contexto["alta"] = {"CONCEPTO": concepto, "RESPONSABLE": "JAIME OLIVO",
+                        "CLIENTE": "NEMAK", "_tempId": f"tmp-bdd-{concepto}"}
+
+
+@given(parsers.parse(
+    'que llega la actividad nueva "{concepto}" con PRIORIDAD "{prioridad}", '
+    'RIESGOS "{riesgos}" y FEC. EST. FIN "{fecha}"'))
+def _alta_completa(contexto: Dict[str, Any], concepto: str, prioridad: str,
+                   riesgos: str, fecha: str) -> None:
+    contexto["alta"] = {"CONCEPTO": concepto, "RESPONSABLE": "JAIME OLIVO",
+                        "PRIORIDAD": prioridad, "RIESGOS": riesgos,
+                        "FEC. EST. FIN": fecha, "_tempId": f"tmp-bdd-{concepto}"}
+
+
+@given(parsers.parse(
+    'que la hoja "{hoja}" trae las columnas PRIORIDAD, RIESGOS y FEC. EST. FIN'))
+def _hoja_con_las_tres_columnas(contexto: Dict[str, Any], hoja: str) -> None:
+    contexto["columnas_extra"] = ["PRIORIDAD", "RIESGOS", "FEC. EST. FIN"]
+
+
+@when(parsers.parse('se intenta dar de alta en la hoja "{hoja}"'))
+def _intenta_dar_de_alta(contexto: Dict[str, Any], hoja: str,
+                         monkeypatch: pytest.MonkeyPatch) -> None:
+    contexto["motor"] = MemoryEngine({
+        "tasks": [], "quotes": [], "people": [], "plan_semanal": [],
+        "task_involucrados": [], "system_log": [],
+    })
+    base = (list(tracker_store.ENCABEZADOS_VENTAS) if is_sales_sheet(hoja)
+            else list(tracker_store.ENCABEZADOS_TAREA))
+    cabecera = base + list(contexto.get("columnas_extra", []))
+    monkeypatch.setattr(tracker_store, "_persistencia",
+                        lambda: PersistenciaTracker(contexto["motor"]))
+    monkeypatch.setattr(tracker_store, "read_values", lambda _hoja: [cabecera])
+    contexto["respuesta"] = tracker_store.save_tracker_batch(
+        hoja, [dict(contexto["alta"])],
+        username="ANTONIA_VENTAS" if is_sales_sheet(hoja) else "JAIME_OLIVO",
+    )
+    contexto["tabla"] = "quotes" if is_sales_sheet(hoja) else "tasks"
+
+
+@then("el alta se rechaza nombrando PRIORIDAD, RIESGOS y FEC. EST. FIN")
+def _alta_rechazada(contexto: Dict[str, Any]) -> None:
+    respuesta = contexto["respuesta"]
+    assert respuesta["success"] is False, respuesta
+    for campo in ("PRIORIDAD", "RIESGOS", "FEC. EST. FIN"):
+        assert campo in respuesta["message"], respuesta["message"]
+
+
+@then("no se escribe ninguna fila")
+def _sin_escribir(contexto: Dict[str, Any]) -> None:
+    concepto = contexto["alta"]["CONCEPTO"]
+    filas = [f for f in contexto["motor"].select(contexto["tabla"])
+             if f.get("concepto") == concepto]
+    assert filas == [], "el rechazo tiene que ocurrir antes de escribir"
+
+
+@then("el alta se acepta")
+def _alta_aceptada(contexto: Dict[str, Any]) -> None:
+    respuesta = contexto["respuesta"]
+    assert respuesta["success"] is True, respuesta.get("message")
+    concepto = contexto["alta"]["CONCEPTO"]
+    filas = [f for f in contexto["motor"].select(contexto["tabla"])
+             if f.get("concepto") == concepto]
+    assert len(filas) == 1, f"se esperaba 1 fila de {concepto}, hay {len(filas)}"
