@@ -26,6 +26,14 @@ Qué NO exige esta regla: nada sobre las filas que ya existen. El candado mira
 solo las actividades **nuevas** (sin folio). Una fila vieja e incompleta se
 sigue pudiendo editar y guardar; obligar a completarla dejaría al equipo sin
 poder tocar su propio historial.
+
+Tampoco exige nada **a una tabla que no tiene esas columnas**. Cotizaciones no
+maneja PRIORIDAD, RIESGOS ni FEC. EST. FIN —sus encabezados son otros: `PRIO.
+COT.`, `F. VISITA`, `F. INICIO`, `F. ENTREGA`—, así que allí el candado pedía
+tres datos que la pantalla no tiene dónde capturar y ninguna cotización nueva se
+podía guardar. La regla es del Tracker; se decide por las columnas de la hoja
+destino y no por el nombre de la pantalla, porque la columna es el hecho: la que
+no existe no se puede llenar.
 """
 
 from __future__ import annotations
@@ -135,6 +143,48 @@ def test_la_fecha_respuesta_no_sustituye_a_la_fecha_estimada_de_fin():
     assert rules.campos_obligatorios_faltantes(fila) == ["FEC. EST. FIN"]
 
 
+# ---------------------------------------------------------------------------
+# 2 bis. Una columna que no existe no se puede exigir
+# ---------------------------------------------------------------------------
+
+def test_el_tracker_exige_los_tres_campos_porque_tiene_las_tres_columnas():
+    fila = {"CONCEPTO": "REVISAR PLANOS", "RESPONSABLE": "JAIME OLIVO"}
+    assert rules.campos_obligatorios_faltantes(
+        fila, tracker_store.ENCABEZADOS_TAREA) == ["PRIORIDAD", "RIESGOS", "FEC. EST. FIN"]
+
+
+def test_cotizaciones_no_tiene_esas_columnas_y_no_se_le_exigen():
+    """
+    El defecto reportado: dar de alta una cotización devolvía "Falta PRIORIDAD,
+    RIESGOS, FEC. EST. FIN" y no se podía guardar nada. La tabla de ventas no
+    tiene esas columnas —lleva `PRIO. COT.`, `F. VISITA`, `F. INICIO` y
+    `F. ENTREGA`—, así que el usuario no tenía dónde escribir lo que se le pedía.
+    """
+    fila = {"CLIENTE": "NEMAK", "CONCEPTO": "COTIZAR NAVE", "VENDEDOR": "ANTONIA VENTAS"}
+    assert rules.campos_obligatorios_faltantes(
+        fila, tracker_store.ENCABEZADOS_VENTAS) == []
+
+
+def test_una_columna_presente_pero_vacia_si_se_exige():
+    """
+    La excepción es por columna inexistente, no por celda vacía: si la hoja
+    tiene la columna, dejarla en blanco sigue siendo un alta incompleta.
+    """
+    fila = {"CONCEPTO": "REVISAR PLANOS", "PRIORIDAD": "", "RIESGOS": "BAJO",
+            "FEC. EST. FIN": "30/08/26"}
+    assert rules.campos_obligatorios_faltantes(fila, ["CONCEPTO", "PRIORIDAD",
+                                                     "RIESGOS", "FEC. EST. FIN"]) == ["PRIORIDAD"]
+
+
+def test_sin_lista_de_columnas_se_exigen_los_tres():
+    """
+    Sin saber qué columnas tiene la hoja, el control es el estricto: es lo que
+    aplica cuando no se pudo leer el encabezado, y ante la duda no se abre.
+    """
+    assert rules.campos_obligatorios_faltantes({"CONCEPTO": "X"}, None) == [
+        "PRIORIDAD", "RIESGOS", "FEC. EST. FIN"]
+
+
 def test_el_mensaje_nombra_lo_que_falta():
     mensaje = rules.mensaje_campos_obligatorios(["PRIORIDAD", "FEC. EST. FIN"])
     assert "falta PRIORIDAD, FEC. EST. FIN" in mensaje
@@ -237,6 +287,43 @@ def test_un_renglon_en_blanco_no_bloquea_el_lote(tracker):
     assert len([f for f in tracker.select("tasks") if f["concepto"] == "TAREA BUENA"]) == 1
 
 
+@pytest.fixture
+def cotizaciones(monkeypatch):
+    """La tabla de ventas: sus encabezados no incluyen ninguno de los tres."""
+    motor = MemoryEngine({
+        "tasks": [],
+        "quotes": [],
+        "people": [],
+        "plan_semanal": [],
+        "task_involucrados": [],
+        "system_log": [],
+    })
+    monkeypatch.setattr(tracker_store, "_persistencia", lambda: PersistenciaTracker(motor))
+    monkeypatch.setattr(
+        tracker_store, "read_values",
+        lambda hoja: [list(tracker_store.ENCABEZADOS_VENTAS)],
+    )
+    return motor
+
+
+def test_una_cotizacion_nueva_se_guarda_sin_prioridad_ni_riesgos(cotizaciones):
+    """
+    El defecto reportado, en la capa que escribe: la tabla de cotizaciones no
+    tiene esas columnas, así que exigirlas dejaba a Ventas sin poder dar de alta.
+    """
+    respuesta = tracker_store.save_tracker_batch(
+        "ANTONIA_VENTAS",
+        [{"CLIENTE": "NEMAK", "CONCEPTO": "COTIZAR NAVE INDUSTRIAL",
+          "VENDEDOR": "ANTONIA VENTAS", "_tempId": "tmp-cot-1"}],
+        username="ANTONIA_VENTAS",
+    )
+
+    assert respuesta["success"] is True, respuesta.get("message")
+    filas = [f for f in cotizaciones.select("quotes")
+             if f["concepto"] == "COTIZAR NAVE INDUSTRIAL"]
+    assert len(filas) == 1
+
+
 def test_el_lote_entero_se_rechaza_si_una_actividad_nueva_esta_incompleta(tracker):
     """
     Guardar la mitad del lote deja al usuario sin saber qué se escribió. Es el
@@ -321,6 +408,19 @@ def test_la_vista_no_deja_guardar_una_actividad_nueva_incompleta(vista):
             f"{guardado} no valida los campos obligatorios")
 
 
+def test_la_vista_valida_contra_las_columnas_de_la_tabla_que_esta_abierta(vista):
+    """
+    El aviso salía en Cotizaciones, que no tiene ninguna de las tres columnas.
+    Las dos puertas del Tracker validan contra los encabezados de la tabla
+    abierta; sin ellos el validador pide columnas que esa pantalla no tiene.
+    """
+    for guardado in ("const saveRow", "const saveAllTrackerRows"):
+        inicio = vista.index(guardado)
+        bloque = vista[inicio:inicio + 3000]
+        assert "camposObligatoriosFaltantes(row, staffTracker.value.headers)" in bloque, (
+            f"{guardado} valida sin mirar las columnas de la tabla")
+
+
 # ---------------------------------------------------------------------------
 # 5. Paridad con el backend de Apps Script
 # ---------------------------------------------------------------------------
@@ -355,19 +455,27 @@ def test_el_validador_de_codigo_js_da_el_mismo_veredicto_que_python(tmp_path):
     inicio = codigo.index("// === INICIO CONTROL DE ALTA")
     fin = codigo.index("// === FIN CONTROL DE ALTA")
 
+    # (fila, columnas de la hoja destino). `null` = no se supo leer el
+    # encabezado, que es el caso estricto.
     casos = [
-        {},
-        {"PRIORIDAD": "URGENTE", "RIESGOS": "CATASTROFICO", "FEC. EST. FIN": "30/08/26"},
-        {"PRIORIDADES": "ALTA", "RIESGO": "MEDIO", "FECHA ESTIMADA DE FIN": "30/08/26"},
-        {"PRIORIDAD": "NORMAL", "RIESGOS": "ALTO", "FEC. EST. FIN": "30/08/26"},
-        {"PRIORIDAD": "ALTA", "RIESGOS": "ALTO", "FECHA RESPUESTA": "30/08/26"},
+        [{}, None],
+        [{"PRIORIDAD": "URGENTE", "RIESGOS": "CATASTROFICO", "FEC. EST. FIN": "30/08/26"}, None],
+        [{"PRIORIDADES": "ALTA", "RIESGO": "MEDIO", "FECHA ESTIMADA DE FIN": "30/08/26"}, None],
+        [{"PRIORIDAD": "NORMAL", "RIESGOS": "ALTO", "FEC. EST. FIN": "30/08/26"}, None],
+        [{"PRIORIDAD": "ALTA", "RIESGOS": "ALTO", "FECHA RESPUESTA": "30/08/26"}, None],
+        [{"CONCEPTO": "REVISAR PLANOS"}, list(tracker_store.ENCABEZADOS_TAREA)],
+        [{"CLIENTE": "NEMAK", "CONCEPTO": "COTIZAR NAVE"}, list(tracker_store.ENCABEZADOS_VENTAS)],
+        [{"CONCEPTO": "X", "PRIORIDAD": "", "RIESGOS": "BAJO", "FEC. EST. FIN": "30/08/26"},
+         ["CONCEPTO", "PRIORIDAD", "RIESGOS", "FEC. EST. FIN"]],
     ]
 
     guion = tmp_path / "paridad.js"
     guion.write_text(
         codigo[inicio:fin]
-        + f"\nconsole.log(JSON.stringify({json.dumps(casos)}.map(camposObligatoriosFaltantes)));",
+        + f"\nconsole.log(JSON.stringify({json.dumps(casos)}"
+        + ".map(function (caso) { return camposObligatoriosFaltantes(caso[0], caso[1]); })));",
         encoding="utf-8")
 
     salida = subprocess.run(["node", str(guion)], capture_output=True, text=True, check=True)
-    assert json.loads(salida.stdout) == [rules.campos_obligatorios_faltantes(c) for c in casos]
+    assert json.loads(salida.stdout) == [
+        rules.campos_obligatorios_faltantes(fila, columnas) for fila, columnas in casos]

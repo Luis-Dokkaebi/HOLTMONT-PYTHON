@@ -105,10 +105,22 @@ function tieneContenidoDeActividad(taskData) {
  * Un valor fuera del catálogo cuenta como faltante: una prioridad que nadie sabe
  * ordenar no prioriza nada, y admitir texto libre es lo que vació de sentido la
  * columna.
+ *
+ * `columnas` son los encabezados de la hoja destino. Un campo cuya columna no
+ * existe en esa hoja NO se exige: el control es del Tracker, y la tabla de
+ * cotizaciones no lleva PRIORIDAD, RIESGOS ni FEC. EST. FIN —sus columnas son
+ * `PRIO. COT.`, `F. VISITA`, `F. INICIO` y `F. ENTREGA`—, así que pedírselas
+ * dejaba a Ventas sin poder dar de alta y sin dónde escribir lo que se le pedía.
+ *
+ * Sin `columnas` (null) se exigen los tres: es lo que aplica cuando no se pudo
+ * leer el encabezado de la hoja, y ante la duda el candado no se abre.
  */
-function camposObligatoriosFaltantes(taskData) {
+function camposObligatoriosFaltantes(taskData, columnas) {
+  const presentes = (columnas === null || columnas === undefined)
+    ? null : columnas.map(claveDeColumna);
   return CAMPOS_OBLIGATORIOS_ACTIVIDAD.filter(function (campo) {
     const claves = campo.alias.map(claveDeColumna);
+    if (presentes && !claves.some(function (c) { return presentes.indexOf(c) >= 0; })) return false;
     const k = Object.keys(taskData || {}).find(function (k) { return claves.indexOf(claveDeColumna(k)) >= 0; });
     const valor = k ? valorDeCatalogo(taskData[k]) : '';
     return !valor || (campo.catalogo.length > 0 && campo.catalogo.indexOf(valor) < 0);
@@ -121,10 +133,15 @@ function mensajeCamposObligatorios(faltantes) {
          '. Toda actividad nueva necesita PRIORIDAD, RIESGOS y FEC. EST. FIN.';
 }
 
-/** Motivo de rechazo de una fila, o cadena vacía si puede guardarse. */
-function motivoDeRechazoDeAlta(taskData) {
+/**
+ * Motivo de rechazo de una fila, o cadena vacía si puede guardarse.
+ *
+ * `columnas` son los encabezados de la hoja donde va a caer la fila; se leen con
+ * `encabezadosDeHoja()`. Sin ellos se exigen los tres campos.
+ */
+function motivoDeRechazoDeAlta(taskData, columnas) {
   if (!esActividadNueva(taskData) || !tieneContenidoDeActividad(taskData)) return '';
-  const faltantes = camposObligatoriosFaltantes(taskData);
+  const faltantes = camposObligatoriosFaltantes(taskData, columnas);
   return faltantes.length ? mensajeCamposObligatorios(faltantes) : '';
 }
 // === FIN CONTROL DE ALTA ==============================================
@@ -322,6 +339,36 @@ function findHeaderRow(values) {
     if (rowStr.includes("ID") && rowStr.includes("HABITO") && rowStr.includes("USUARIO")) return i;
   }
   return -1;
+}
+
+/**
+ * Encabezados reales de una hoja, para saber qué columnas tiene.
+ *
+ * Lo usa el control de alta: PRIORIDAD, RIESGOS y FEC. EST. FIN solo se exigen
+ * donde esas columnas existen, es decir en el Tracker. La tabla de cotizaciones
+ * lleva otras (`PRIO. COT.`, `F. VISITA`, `F. INICIO`, `F. ENTREGA`).
+ *
+ * Devuelve `null` —no `[]`— cuando la hoja no existe o no se le encuentra fila
+ * de encabezados: `[]` significaría "esta hoja no tiene ninguna columna" y
+ * abriría el candado; `null` deja el control estricto.
+ *
+ * Lee como mucho las primeras 100 filas, que es hasta donde busca
+ * `findHeaderRow`, para no traerse la hoja entera solo por su cabecera.
+ */
+function encabezadosDeHoja(sheetName) {
+  try {
+    const sheet = findSheetSmart(sheetName);
+    if (!sheet) return null;
+    const filas = Math.min(100, sheet.getLastRow());
+    const columnas = sheet.getLastColumn();
+    if (filas < 1 || columnas < 1) return null;
+    const values = sheet.getRange(1, 1, filas, columnas).getValues();
+    const i = findHeaderRow(values);
+    if (i === -1) return null;
+    return values[i].map(function (h) { return String(h == null ? '' : h); });
+  } catch (e) {
+    return null;
+  }
 }
 
 function registrarLog(user, action, details) {
@@ -1393,16 +1440,6 @@ function internalUpdateTask(personName, taskData, username) {
             return { success: false, message: "Operación no permitida: PPCV3 es de solo lectura desde esta vista." };
         }
 
-        // CONTROL DE ALTA: ninguna actividad nace sin PRIORIDAD, RIESGOS ni
-        // FEC. EST. FIN. Se comprueba sobre el payload tal como llega —antes del
-        // bloque de usuarios restringidos, que borra claves— y antes de tocar la
-        // hoja. Las filas que ya tienen folio no se juzgan: el candado es para
-        // dar de alta, no para volver a editar el historial.
-        const rechazoDeAlta = motivoDeRechazoDeAlta(taskData);
-        if (rechazoDeAlta) {
-            return { success: false, message: rechazoDeAlta };
-        }
-
         // RUTEO PROTEGIDO DE VENTAS ("La Ley de Antonia", AGENTS.md §3):
         // se purga el sufijo (VENTAS) a usuarios ajenos y se blinda el core de Toñita.
         const routing = resolveTrackerTarget(personName, username);
@@ -1411,6 +1448,18 @@ function internalUpdateTask(personName, taskData, username) {
                 `${personName} -> ${routing.sheet} (${routing.reason})`);
         }
         personName = routing.sheet;
+
+        // CONTROL DE ALTA: ninguna actividad nace sin PRIORIDAD, RIESGOS ni
+        // FEC. EST. FIN, y solo donde esas columnas existen: es control del
+        // Tracker, y cotizaciones no las tiene. De ahí que se juzgue después del
+        // ruteo —hasta aquí no se sabe en qué hoja cae la fila— y con el payload
+        // tal como llega, antes del bloque de usuarios restringidos, que borra
+        // claves, y antes de tocar la hoja. Las filas que ya tienen folio no se
+        // juzgan: el candado es para dar de alta, no para editar el historial.
+        const rechazoDeAlta = motivoDeRechazoDeAlta(taskData, encabezadosDeHoja(personName));
+        if (rechazoDeAlta) {
+            return { success: false, message: rechazoDeAlta };
+        }
 
         const isAntonia = String(personName).toUpperCase() === "ANTONIA_VENTAS";
 
@@ -3171,8 +3220,14 @@ function apiSaveTrackerBatch(personName, tasks, username) {
       // CONTROL DE ALTA: el lote entero se rechaza si una actividad nueva viene
       // sin PRIORIDAD, RIESGOS o FEC. EST. FIN, y antes de escribir nada.
       // Guardar la mitad del lote deja al usuario sin saber qué quedó escrito.
+      //
+      // Los tres campos solo se exigen donde esas columnas existen. Cotizaciones
+      // lleva otras (`PRIO. COT.`, `F. VISITA`, `F. INICIO`, `F. ENTREGA`) y el
+      // candado le pedía tres datos que esa pantalla no tiene dónde capturar.
+      // La cabecera se lee una vez para todo el lote: va a la misma hoja.
+      const columnasDeAlta = encabezadosDeHoja(personName);
       for (var iAlta = 0; iAlta < tasks.length; iAlta++) {
-          const rechazoDeAlta = motivoDeRechazoDeAlta(tasks[iAlta]);
+          const rechazoDeAlta = motivoDeRechazoDeAlta(tasks[iAlta], columnasDeAlta);
           if (rechazoDeAlta) {
               // El `finally` de abajo suelta el candado; soltarlo aquí lo haría
               // dos veces.

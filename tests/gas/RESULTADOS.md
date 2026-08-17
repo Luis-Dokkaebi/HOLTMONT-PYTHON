@@ -2,7 +2,7 @@
 
 > Generado automáticamente por `node tests/gas/run_tests.js` contra `CODIGO.js` con mocks de Google Apps Script.
 
-**Total:** 94 · **Pasan:** 94 · **Fallan:** 0
+**Total:** 96 · **Pasan:** 96 · **Fallan:** 0
 
 
 ## 1. Semáforo / Formato condicional
@@ -131,7 +131,7 @@
 | | _Nunca guardar el string compuesto como si fuera una persona_ | | | |
 | 8.8 | Con la red caída la tarea se guarda igual | success=true y 1 fila en la hoja | success=true, filas=1 | ✅ PASA |
 | | _INVARIANTE: mejor perder una réplica que una tarea_ | | | |
-| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-08-17T16:11:00.392Z | ✅ PASA |
+| 8.9 | Auditoría espejada con fecha ISO | 1 envío con usuario y accion | envios=1, usuario=LUIS_CARLOS, fecha=2026-08-17T19:30:20.078Z | ✅ PASA |
 | 8.11 | Estatus canónico en la escritura | 0 fallos | 0 fallos | ✅ PASA |
 | | _Sin esto la columna vuelve a acumular variantes en cada captura_ | | | |
 | 8.12 | Un valor no reconocido pasa tal cual | se conserva | 'EN LICITACION'->"EN LICITACION", 'RAM'->"RAM" | ✅ PASA |
@@ -157,5 +157,9 @@
 | | _"NUEVA ACTIVIDAD" deja renglones vacíos que "Guardar Todo" manda con el resto_ | | | |
 | 9.6 | No se guarda media captura | success=false y 0 filas | success=false, filas=0 | ✅ PASA |
 | | _Guardar la mitad deja al usuario sin saber qué quedó escrito_ | | | |
+| 9.8 | La cotización nueva se guarda sin PRIORIDAD ni RIESGOS | success=true y 1 fila | success=true, filas=1, mensaje="Guardado exitoso" | ✅ PASA |
+| | _El candado es del Tracker: se decide por las columnas de la hoja destino_ | | | |
+| 9.9 | Tracker con RIESGOS, ventas sin ella, hoja ausente = null (control estricto) | true/false/null | tracker=true, ventas=false, ausente=null | ✅ PASA |
+| | _Si no se puede leer la cabecera, se exigen los tres: ante la duda el candado no se abre_ | | | |
 | 9.7 | index.html y CODIGO.js declaran los mismos valores | catálogos idénticos | backend=[BAJA,MEDIA,ALTA,URGENTE] / vista=[BAJA,MEDIA,ALTA,URGENTE] | ✅ PASA |
 | | _Si se separan, la vista ofrece un valor que el backend rechaza_ | | | |

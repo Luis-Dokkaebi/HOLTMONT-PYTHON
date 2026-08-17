@@ -601,10 +601,19 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
     # que la reasignación: guardar la mitad deja al usuario sin saber qué quedó
     # escrito. Las filas que ya tienen folio no se juzgan — el candado es para
     # dar de alta, no para volver a editar el historial.
+    #
+    # Se juzga contra las columnas de la hoja destino, que son las mismas dos
+    # listas con las que se estrena una partición vacía y las mismas que rinde
+    # la lectura. Cotizaciones no tiene ninguno de los tres campos, y el candado
+    # le pedía los tres: ninguna cotización nueva se podía guardar. La lista se
+    # toma de la tabla y no de las claves que mande el cliente, porque un
+    # cliente que omita la columna vacía no debe poder abrir el candado del
+    # Tracker.
+    columnas_destino = ENCABEZADOS_VENTAS if rules.is_sales_sheet(target) else ENCABEZADOS_TAREA
     for task in tasks:
         if not rules.es_actividad_nueva(task) or not rules.tiene_contenido_de_actividad(task):
             continue
-        faltantes = rules.campos_obligatorios_faltantes(task)
+        faltantes = rules.campos_obligatorios_faltantes(task, columnas_destino)
         if faltantes:
             return {"success": False,
                     "message": rules.mensaje_campos_obligatorios(faltantes)}
