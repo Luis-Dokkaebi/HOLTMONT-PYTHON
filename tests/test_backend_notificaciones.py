@@ -353,6 +353,57 @@ def test_el_endpoint_de_marcar_no_acepta_campos_extra(cliente):
     assert r.status_code == 422
 
 
+def test_el_diagnostico_avisa_si_falta_la_columna_nota():
+    """
+    Sin esto, una base con el DDL viejo se ve sana: los avisos llegan (el
+    repositorio reinserta sin la nota) y `/tickets/diagnostico` decía
+    `operativo: true` porque solo miraba `folio`. La nota se perdía en
+    silencio y desde el navegador no había forma de saberlo.
+    """
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from backend.routers.tickets import obtener_repositorio
+
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+    original = motor.select
+
+    def sin_columna_nota(tabla, **kwargs):
+        if tabla == "ticket_notificaciones" and "nota" in (kwargs.get("columnas") or []):
+            raise ErrorDeMotor(
+                "column ticket_notificaciones.nota does not exist", codigo="42703")
+        return original(tabla, **kwargs)
+
+    motor.select = sin_columna_nota
+    app.dependency_overrides[obtener_repositorio] = lambda: TicketRepository(motor)
+    try:
+        cuerpo = TestClient(app).get("/api/v2/tickets/diagnostico").json()
+    finally:
+        app.dependency_overrides.clear()
+
+    avisos = [t for t in cuerpo["tablas"] if t["tabla"] == "ticket_notificaciones"][0]
+    assert cuerpo["operativo"] is False
+    assert avisos["causa"] == "columna_faltante"
+    assert "DDL" in avisos["que_hacer"]
+
+
+def test_el_diagnostico_da_por_buena_la_tabla_con_la_columna_nota():
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from backend.routers.tickets import obtener_repositorio
+
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+    app.dependency_overrides[obtener_repositorio] = lambda: TicketRepository(motor)
+    try:
+        cuerpo = TestClient(app).get("/api/v2/tickets/diagnostico").json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert cuerpo["operativo"] is True
+    assert all(t["ok"] for t in cuerpo["tablas"])
+
+
 def test_los_endpoints_de_avisos_traducen_el_fallo_del_motor():
     from fastapi.testclient import TestClient
 

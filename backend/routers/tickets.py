@@ -56,7 +56,15 @@ MENSAJE_MOTOR_CAIDO = (
     "fallando, avisa al equipo."
 )
 
-TABLAS_DEL_SISTEMA = ("bug_tickets", "ticket_notificaciones")
+# Qué se le pide a cada tabla para darla por buena. No es la lista completa de
+# columnas: son las que, si faltan, dejan el sistema roto de una forma que no se
+# ve desde fuera. `ticket_notificaciones.nota` es el caso: sin ella los avisos
+# siguen llegando —el repositorio los reinserta sin la nota— y la tabla parecía
+# sana, mientras la nota de soporte se perdía en silencio.
+TABLAS_DEL_SISTEMA = {
+    "bug_tickets": ("folio",),
+    "ticket_notificaciones": ("folio", "nota"),
+}
 
 
 def obtener_repositorio() -> TicketRepository:
@@ -239,13 +247,18 @@ def diagnosticar_sistema_de_tickets(
     en los registros del despliegue, que nadie del equipo lee. Una lectura de
     una fila por tabla basta para distinguirlas.
 
+    La lectura pide **las columnas que importan**, no solo `folio`
+    (`TABLAS_DEL_SISTEMA`). Sin eso, una base a la que le falta
+    `ticket_notificaciones.nota` se veía sana aquí mientras la nota de soporte
+    se perdía en cada aviso.
+
     No devuelve credenciales ni datos de tickets: solo el nombre de la tabla,
     la causa y el código de la base.
     """
     tablas = []
-    for tabla in TABLAS_DEL_SISTEMA:
+    for tabla, columnas in TABLAS_DEL_SISTEMA.items():
         try:
-            repo.engine.select(tabla, columnas=["folio"], limite=1)
+            repo.engine.select(tabla, columnas=list(columnas), limite=1)
         except BackendError as exc:
             causa = _causa(exc)
             tablas.append({
