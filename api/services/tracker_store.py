@@ -609,14 +609,21 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
     # toma de la tabla y no de las claves que mande el cliente, porque un
     # cliente que omita la columna vacía no debe poder abrir el candado del
     # Tracker.
-    columnas_destino = ENCABEZADOS_VENTAS if rules.is_sales_sheet(target) else ENCABEZADOS_TAREA
-    for task in tasks:
-        if not rules.es_actividad_nueva(task) or not rules.tiene_contenido_de_actividad(task):
-            continue
-        faltantes = rules.campos_obligatorios_faltantes(task, columnas_destino)
-        if faltantes:
-            return {"success": False,
-                    "message": rules.mensaje_campos_obligatorios(faltantes)}
+    #
+    # Y no corre en Ventas: `control_de_alta_aplica` deja fuera las tablas de
+    # cotizaciones enteras, sin mirar sus columnas. Es la corrección al primer
+    # arreglo, que solo miraba la cabecera: la tabla de cotizaciones expone las
+    # columnas que traiga `quotes`, así que una que se llame como uno de los
+    # tres campos encendía otra vez el candado en la pantalla que no los captura.
+    if rules.control_de_alta_aplica(target):
+        columnas_destino = ENCABEZADOS_TAREA
+        for task in tasks:
+            if not rules.es_actividad_nueva(task) or not rules.tiene_contenido_de_actividad(task):
+                continue
+            faltantes = rules.campos_obligatorios_faltantes(task, columnas_destino)
+            if faltantes:
+                return {"success": False,
+                        "message": rules.mensaje_campos_obligatorios(faltantes)}
 
     processed: List[Dict[str, Any]] = []
     for raw_task in tasks:

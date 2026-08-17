@@ -147,6 +147,24 @@ def test_la_fecha_respuesta_no_sustituye_a_la_fecha_estimada_de_fin():
 # 2 bis. Una columna que no existe no se puede exigir
 # ---------------------------------------------------------------------------
 
+def test_una_hoja_de_ventas_nunca_activa_el_control_de_alta():
+    """
+    El candado es del Tracker y punto. Mirar solo las columnas no bastó: la
+    tabla de cotizaciones de producción expone las columnas que traiga `quotes`,
+    y basta con que una se llame como uno de los tres campos para que el aviso
+    vuelva a salir en una pantalla que no los captura. Ventas queda fuera por
+    ser Ventas, no por qué columnas tenga hoy.
+    """
+    assert rules.control_de_alta_aplica("ANTONIA_VENTAS") is False
+    assert rules.control_de_alta_aplica("TERESA GARZA (VENTAS)") is False
+
+
+def test_los_trackers_si_lo_activan():
+    """`ANTONIA PINEDA LOPEZ` es el tracker de Toñita, no su tabla de ventas."""
+    assert rules.control_de_alta_aplica("JAIME OLIVO") is True
+    assert rules.control_de_alta_aplica("ANTONIA PINEDA LOPEZ") is True
+
+
 def test_el_tracker_exige_los_tres_campos_porque_tiene_las_tres_columnas():
     fila = {"CONCEPTO": "REVISAR PLANOS", "RESPONSABLE": "JAIME OLIVO"}
     assert rules.campos_obligatorios_faltantes(
@@ -324,6 +342,33 @@ def test_una_cotizacion_nueva_se_guarda_sin_prioridad_ni_riesgos(cotizaciones):
     assert len(filas) == 1
 
 
+def test_una_cotizacion_se_guarda_aunque_la_tabla_traiga_esas_columnas(cotizaciones, monkeypatch):
+    """
+    El reporte que siguió al primer arreglo: en producción el aviso seguía
+    saliendo. La tabla de cotizaciones no rinde una lista fija de columnas —
+    expone las que traiga `quotes`—, así que una columna que se llame como uno
+    de los tres campos reactivaba el candado en la pantalla que no los captura.
+
+    Aquí la hoja de ventas trae las tres columnas y la fila las manda vacías: se
+    guarda igual, porque en Ventas el candado no corre.
+    """
+    monkeypatch.setattr(
+        tracker_store, "read_values",
+        lambda hoja: [list(tracker_store.ENCABEZADOS_VENTAS)
+                      + ["PRIORIDAD", "RIESGOS", "FEC. EST. FIN"]],
+    )
+    respuesta = tracker_store.save_tracker_batch(
+        "ANTONIA_VENTAS",
+        [{"CLIENTE": "NEMAK", "CONCEPTO": "COTIZAR PLANTA 3",
+          "VENDEDOR": "ANTONIA VENTAS", "PRIORIDAD": "", "RIESGOS": "",
+          "FEC. EST. FIN": "", "_tempId": "tmp-cot-2"}],
+        username="ANTONIA_VENTAS",
+    )
+
+    assert respuesta["success"] is True, respuesta.get("message")
+    assert [f for f in cotizaciones.select("quotes") if f["concepto"] == "COTIZAR PLANTA 3"]
+
+
 def test_el_lote_entero_se_rechaza_si_una_actividad_nueva_esta_incompleta(tracker):
     """
     Guardar la mitad del lote deja al usuario sin saber qué se escribió. Es el
@@ -421,6 +466,18 @@ def test_la_vista_valida_contra_las_columnas_de_la_tabla_que_esta_abierta(vista)
             f"{guardado} valida sin mirar las columnas de la tabla")
 
 
+def test_la_vista_no_corre_el_control_de_alta_en_una_tabla_de_ventas(vista):
+    """
+    La otra mitad, y la que faltaba: en Ventas el candado no se ejecuta, tenga
+    la tabla las columnas que tenga.
+    """
+    for guardado in ("const saveRow", "const saveAllTrackerRows"):
+        inicio = vista.index(guardado)
+        bloque = vista[inicio:inicio + 3000]
+        assert "controlDeAltaAplica(staffTracker.value.name)" in bloque, (
+            f"{guardado} corre el candado también en la tabla de cotizaciones")
+
+
 # ---------------------------------------------------------------------------
 # 5. Paridad con el backend de Apps Script
 # ---------------------------------------------------------------------------
@@ -479,3 +536,23 @@ def test_el_validador_de_codigo_js_da_el_mismo_veredicto_que_python(tmp_path):
     salida = subprocess.run(["node", str(guion)], capture_output=True, text=True, check=True)
     assert json.loads(salida.stdout) == [
         rules.campos_obligatorios_faltantes(fila, columnas) for fila, columnas in casos]
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node no está instalado")
+def test_las_dos_capas_coinciden_en_que_hojas_llevan_candado(tmp_path):
+    """Qué hoja lleva candado no puede depender de por dónde entre el guardado."""
+    codigo = _leer(CODIGO)
+    inicio = codigo.index("// === INICIO CONTROL DE ALTA")
+    fin = codigo.index("// === FIN CONTROL DE ALTA")
+
+    hojas = ["ANTONIA_VENTAS", "antonia_ventas", "TERESA GARZA (VENTAS)",
+             "JAIME OLIVO", "ANTONIA PINEDA LOPEZ", "PPCV4", ""]
+
+    guion = tmp_path / "paridad_hojas.js"
+    guion.write_text(
+        codigo[inicio:fin]
+        + f"\nconsole.log(JSON.stringify({json.dumps(hojas)}.map(controlDeAltaAplica)));",
+        encoding="utf-8")
+
+    salida = subprocess.run(["node", str(guion)], capture_output=True, text=True, check=True)
+    assert json.loads(salida.stdout) == [rules.control_de_alta_aplica(h) for h in hojas]

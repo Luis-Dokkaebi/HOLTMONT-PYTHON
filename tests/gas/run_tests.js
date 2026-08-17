@@ -1048,6 +1048,31 @@ run('9.9', 'La cabecera de la hoja es lo que decide qué se exige', () => {
     ok, 'Si no se puede leer la cabecera, se exigen los tres: ante la duda el candado no se abre');
 });
 
+run('9.10', 'Ventas no lleva candado ni con esas columnas en la hoja', () => {
+  // El reporte que siguió al primer arreglo: en producción el aviso seguía
+  // saliendo. La tabla de cotizaciones no tiene una cabecera fija —expone las
+  // columnas que traiga la hoja—, así que bastaba con que una se llamara como
+  // uno de los tres campos para reactivar el candado donde no se capturan.
+  const HEADERS = SALES_HEADERS.concat(['PRIORIDAD', 'RIESGOS', 'FEC. EST. FIN']);
+  const hoja = [
+    ['TABLA DE VENTAS'].concat(new Array(HEADERS.length - 1).fill('')),
+    HEADERS.slice(),
+  ];
+  const env = createEnv({
+    'ANTONIA_VENTAS': hoja,
+    'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']]
+  });
+  const res = env.api.apiSaveTrackerBatch('ANTONIA_VENTAS', [{
+    CLIENTE: 'NEMAK', CONCEPTO: 'COTIZAR PLANTA 3', VENDEDOR: 'ANTONIA VENTAS',
+    FECHA: '08/07/26', PRIORIDAD: '', RIESGOS: '', 'FEC. EST. FIN': '', _tempId: 't-cot-2'
+  }], 'ANTONIA_VENTAS');
+  const filas = countRowsContaining(env, 'ANTONIA_VENTAS', 'COTIZAR PLANTA 3');
+  check('9.10', 'La cotización se guarda aunque la hoja traiga las tres columnas',
+    'success=true y 1 fila', `success=${res && res.success}, filas=${filas}, mensaje="${res && res.message}"`,
+    res && res.success === true && filas === 1,
+    'El candado es del Tracker: Ventas queda fuera por ser Ventas');
+});
+
 run('9.7', 'La vista ofrece el mismo catálogo que valida el backend', () => {
   const enElBackend = (nombre) => {
     const m = new RegExp('const ' + nombre + " = \\[([^\\]]*)\\];").exec(CODIGO_SRC);

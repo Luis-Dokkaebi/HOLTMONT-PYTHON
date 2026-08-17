@@ -9011,6 +9011,13 @@ const filteredStaffTrackerData = computed(() => {
           { etiqueta: 'FEC. EST. FIN', alias: ['FEC. EST. FIN', 'FECHA ESTIMADA DE FIN', 'FECHA ESTIMADA FIN', 'FECHA_ESTIMADA_FIN', 'FECHA ESTIMADA', 'FECHA FIN', 'FECHA_FIN'], catalogo: [] },
       ];
 
+      // El candado no corre en Ventas. Mirar solo las columnas no bastó: la
+      // tabla de cotizaciones rinde las columnas que traiga la base, y basta
+      // con que una se llame como uno de los tres campos para que el aviso
+      // vuelva a salir en la pantalla que no los captura. Ventas queda fuera
+      // por ser Ventas, no por qué columnas tenga hoy.
+      const controlDeAltaAplica = (nombreDeHoja) => !esHojaDeVentas(nombreDeHoja);
+
       // El folio lo pone el backend al dar de alta: una fila sin folio es una
       // fila que todavía no existe en ninguna hoja.
       const esActividadNueva = (row) => {
@@ -9063,7 +9070,8 @@ const filteredStaffTrackerData = computed(() => {
               }
               // Las filas en blanco no cuentan: la tabla deja añadir renglones y
               // dejarlos vacíos, y el backend los descarta antes de darles folio.
-              if (esActividadNueva(row) && tieneContenidoDeActividad(row)) {
+              if (controlDeAltaAplica(staffTracker.value.name)
+                      && esActividadNueva(row) && tieneContenidoDeActividad(row)) {
                   const faltantes = camposObligatoriosFaltantes(row, staffTracker.value.headers);
                   if (faltantes.length) { avisarCamposObligatorios(faltantes, row.CONCEPTO || ''); return; }
               }
@@ -9159,7 +9167,8 @@ const filteredStaffTrackerData = computed(() => {
               return;
           }
 
-          if (esActividadNueva(row) && tieneContenidoDeActividad(row)) {
+          if (controlDeAltaAplica(staffTracker.value.name)
+                  && esActividadNueva(row) && tieneContenidoDeActividad(row)) {
               const faltantes = camposObligatoriosFaltantes(row, staffTracker.value.headers);
               if (faltantes.length) { avisarCamposObligatorios(faltantes, ''); return; }
           }
