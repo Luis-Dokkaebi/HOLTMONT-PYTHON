@@ -209,9 +209,14 @@ class TicketRepository:
         actualizado = TicketRead.model_validate(guardadas[0])
         # Avisar a quien reportó, no a quien resolvió: `actor` evita que
         # soporte se notifique a sí mismo al mover un ticket propio.
+        #
+        # La nota de resolución viaja con el aviso: es lo único que le dice a
+        # quien reportó qué pasó con *su* bug. Hasta ahora se guardaba en la
+        # fila del ticket, donde solo la veía soporte en su panel.
         self.notificaciones.crear_para_ticket(
             actualizado.folio, actualizado.reportado_por, cambios.estatus,
             actor=cambios.resuelto_por,
+            nota=cambios.resolucion_notas,
         )
         return actualizado
 

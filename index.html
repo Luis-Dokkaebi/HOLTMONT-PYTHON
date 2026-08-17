@@ -11826,7 +11826,10 @@ function iniciarDictadoNativo(campoDestinoId) {
       (evidenciaHtml ? '<div class="ts-evidencia">' + evidenciaHtml + '</div>' : '') +
       '<div class="ts-resolver">' +
         '<select class="ts-estatus">' + opciones + '</select>' +
-        '<input type="text" class="ts-notas" placeholder="Nota de resolución (opcional)" value="' + escaparHtml(t.resolucion_notas || '') + '">' +
+        // El aviso de la campanita lleva esta nota tal cual a quien reportó:
+        // el placeholder lo dice para que nadie escriba aquí notas internas
+        // creyendo que solo las lee soporte.
+        '<input type="text" class="ts-notas" placeholder="Nota para quien reportó (se le envía; opcional)" value="' + escaparHtml(t.resolucion_notas || '') + '">' +
         '<button type="button" class="ts-guardar">Guardar</button>' +
       '</div>' +
       '<div class="ts-error"></div>';
@@ -11938,6 +11941,15 @@ function iniciarDictadoNativo(campoDestinoId) {
   .av-item.no-leida { background: #f2f8f7; border-left: 3px solid #1f6f68; }
   .av-item .av-folio { font-weight: 700; font-size: 11px; color: #666; }
   .av-item .av-msg { margin-top: 3px; }
+  /* La nota de quien resolvió: se distingue del texto fijo del sistema porque
+     la escribió una persona sobre ese bug en concreto. `pre-wrap` para que los
+     renglones que escribió soporte se lean como los escribió. */
+  .av-item .av-nota {
+    margin-top: 6px; padding: 6px 8px; border-left: 3px solid #1f6f68;
+    background: #f7faf9; color: #333; font-size: 12px; white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .av-item .av-nota b { display: block; font-size: 10px; color: #1f6f68; text-transform: uppercase; }
   .av-item .av-fecha { color: #999; font-size: 10px; margin-top: 3px; }
   #avisos-vacio { padding: 22px 14px; text-align: center; color: #888; }
 </style>
@@ -11997,9 +12009,13 @@ function iniciarDictadoNativo(campoDestinoId) {
           return;
         }
         lista.innerHTML = avisos.map(function (a) {
+          // `a.nota` la escribió una persona: siempre escapada, nunca inyectada
+          // como HTML. Un aviso sin nota se pinta igual que antes.
+          var nota = (a.nota == null ? '' : String(a.nota)).trim();
           return '<div class="av-item' + (a.leida ? '' : ' no-leida') + '">' +
             '<div class="av-folio">' + escaparHtml(a.folio) + '</div>' +
             '<div class="av-msg">' + escaparHtml(a.mensaje) + '</div>' +
+            (nota ? '<div class="av-nota"><b>Nota de soporte</b>' + escaparHtml(nota) + '</div>' : '') +
             '<div class="av-fecha">' + escaparHtml((a.created_at || '').slice(0, 16).replace('T', ' ')) + '</div>' +
           '</div>';
         }).join('');

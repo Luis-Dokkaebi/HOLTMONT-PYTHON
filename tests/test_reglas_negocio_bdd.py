@@ -760,6 +760,29 @@ def _avisos_sin_leer(contexto: Dict[str, Any], quien: str, cuantos: int) -> None
     assert reales == cuantos, f"{quien} tiene {reales} avisos sin leer, se esperaban {cuantos}"
 
 
+@when(parsers.parse('{quien} resuelve el ticket con la nota "{nota}"'))
+def _resuelve_con_nota(contexto: Dict[str, Any], quien: str, nota: str) -> None:
+    _asegurar_ticket(contexto)
+    contexto["ticket"] = contexto["tickets"].actualizar_estatus(
+        contexto["ticket"].folio,
+        TicketUpdate(estatus="RESUELTO", resolucion_notas=nota, resuelto_por=quien))
+
+
+@then(parsers.parse('su aviso más reciente incluye la nota "{nota}"'))
+def _aviso_reciente_con_nota(contexto: Dict[str, Any], nota: str) -> None:
+    bandeja = contexto["tickets"].notificaciones.listar(contexto["reportante"])
+    assert bandeja, "no hay ningún aviso en la bandeja"
+    assert bandeja[0].nota == nota, (
+        f"el aviso trae la nota {bandeja[0].nota!r} y se esperaba {nota!r}")
+
+
+@then("su aviso más reciente no trae nota")
+def _aviso_reciente_sin_nota(contexto: Dict[str, Any]) -> None:
+    bandeja = contexto["tickets"].notificaciones.listar(contexto["reportante"])
+    assert bandeja, "no hay ningún aviso en la bandeja"
+    assert bandeja[0].nota is None, f"el aviso trae la nota {bandeja[0].nota!r}"
+
+
 @then(parsers.parse('su aviso más reciente dice "{fragmento}"'))
 def _aviso_reciente_dice(contexto: Dict[str, Any], fragmento: str) -> None:
     bandeja = contexto["tickets"].notificaciones.listar(contexto["reportante"])

@@ -17,6 +17,17 @@ Característica: Avisos a quien reporta un bug
     Entonces su aviso más reciente dice "Estamos trabajando en tu problema"
     Y TERESA GARZA tiene 2 avisos sin leer
 
+  Escenario: La nota que escribe soporte le llega a quien reportó
+    Dado que TERESA GARZA reporta el problema "El filtro semanal no guarda la fecha" en el módulo "PPC"
+    Cuando LUIS_CARLOS resuelve el ticket con la nota "Era el filtro de fecha, ya quedó"
+    Entonces su aviso más reciente incluye la nota "Era el filtro de fecha, ya quedó"
+    Y su aviso más reciente dice "Tu reporte quedó resuelto"
+
+  Escenario: Un cambio de estatus sin nota no inventa ninguna
+    Dado que TERESA GARZA reporta el problema "El filtro semanal no guarda la fecha" en el módulo "PPC"
+    Cuando LUIS_CARLOS marca el ticket como "EN_REVISION"
+    Entonces su aviso más reciente no trae nota
+
   Escenario: Los avisos leídos dejan de contar
     Dado que TERESA GARZA reporta el problema "El filtro semanal no guarda la fecha" en el módulo "PPC"
     Cuando TERESA GARZA lee sus avisos
