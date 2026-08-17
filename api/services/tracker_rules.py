@@ -180,16 +180,35 @@ def tiene_contenido_de_actividad(task: dict[str, Any]) -> bool:
     )
 
 
-def campos_obligatorios_faltantes(task: dict[str, Any]) -> list[str]:
+def campos_obligatorios_faltantes(task: dict[str, Any],
+                                  columnas: Optional[Sequence[Any]] = None) -> list[str]:
     """
     Qué le falta a una actividad para poder darse de alta.
 
     Un valor fuera del catálogo cuenta como faltante: una prioridad que nadie
     sabe ordenar no prioriza nada, y admitir texto libre es lo que vació de
     sentido la columna.
+
+    `columnas` son los encabezados de la hoja destino. Un campo cuya columna no
+    existe en esa hoja **no se exige**: el control es del Tracker, y la tabla de
+    cotizaciones no lleva PRIORIDAD, RIESGOS ni FEC. EST. FIN —sus columnas son
+    `PRIO. COT.`, `F. VISITA`, `F. INICIO` y `F. ENTREGA`—, así que pedírselas
+    dejaba a Ventas sin poder dar de alta nada y sin dónde escribir lo que se le
+    pedía. Se decide por la columna y no por el nombre de la pantalla porque la
+    columna es el hecho: la que no existe no se puede llenar.
+
+    `columnas=None` significa "no se sabe qué columnas tiene la hoja" y aplica
+    el control estricto (los tres campos), que es lo que corresponde cuando no
+    se pudo leer el encabezado: ante la duda, el candado no se abre.
     """
+    presentes = None
+    if columnas is not None:
+        presentes = {normalize_header(c) for c in columnas}
+
     faltantes: list[str] = []
     for etiqueta, alias, catalogo in CAMPOS_OBLIGATORIOS_ACTIVIDAD:
+        if presentes is not None and not any(normalize_header(a) in presentes for a in alias):
+            continue
         valor = _valor_de_catalogo(pick_task_value(task, alias))
         if not valor or (catalogo and valor not in catalogo):
             faltantes.append(etiqueta)

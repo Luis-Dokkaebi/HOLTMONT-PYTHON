@@ -48,8 +48,13 @@ function run(id, nombre, fn) {
 // ----------------------------------------------------------------------
 // Fixtures
 // ----------------------------------------------------------------------
+// RIESGOS y FEC. EST. FIN son columnas del Tracker real (`ENCABEZADOS_TAREA` en
+// api/services/tracker_store.py) y faltaban en esta plantilla. Importan desde
+// que el control de alta se decide por las columnas de la hoja: sin ellas, esta
+// hoja de prueba no representaba al Tracker que sí las tiene.
 const TRACKER_HEADERS = ['ID', 'ESPECIALIDAD', 'CONCEPTO', 'FECHA', 'RELOJ', 'AVANCE', 'ESTATUS',
-  'COMENTARIOS', 'ARCHIVO', 'CLASIFICACION', 'PRIORIDAD', 'FECHA_RESPUESTA', 'RESPONSABLE', 'CUMPLIMIENTO'];
+  'COMENTARIOS', 'ARCHIVO', 'CLASIFICACION', 'PRIORIDAD', 'RIESGOS', 'FEC. EST. FIN',
+  'FECHA_RESPUESTA', 'RESPONSABLE', 'CUMPLIMIENTO'];
 
 const SALES_HEADERS = ['FOLIO', 'CLIENTE', 'CONCEPTO', 'VENDEDOR', 'FECHA', 'ESTATUS', 'COMENTARIOS',
   'ARCHIVO', 'MONTO', 'F2', 'COTIZACION', 'TIMELINE', 'LAYOUT', 'AVANCE', 'MAP COT', 'PROCESO_LOG'];
@@ -70,7 +75,7 @@ function alta(task) {
 /** Hoja de tracker personal con 2 filas de UI encima de los encabezados (caso real). */
 function tracker(rows) {
   return [
-    ['HOLTMONT — TRACKER PERSONAL', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+    ['HOLTMONT — TRACKER PERSONAL'].concat(new Array(TRACKER_HEADERS.length - 1).fill('')),
     new Array(TRACKER_HEADERS.length).fill(''),
     TRACKER_HEADERS.slice(),
     ...(rows || []).map(r => {
@@ -1006,6 +1011,41 @@ run('9.6', 'El lote entero se rechaza si una actividad nueva está incompleta', 
   check('9.6', 'No se guarda media captura', 'success=false y 0 filas',
     `success=${res && res.success}, filas=${filas}`, res && res.success === false && filas === 0,
     'Guardar la mitad deja al usuario sin saber qué quedó escrito');
+});
+
+run('9.8', 'Cotizaciones no tiene esas columnas y no se le exigen', () => {
+  // El defecto reportado: al dar de alta en Cotizaciones salía "Falta
+  // PRIORIDAD, RIESGOS, FEC. EST. FIN" y no se guardaba nada. Esa tabla lleva
+  // otras columnas y el usuario no tenía dónde escribir lo que se le pedía.
+  const env = createEnv({
+    'ANTONIA_VENTAS': sales([{ FOLIO: 'AV-1000', CLIENTE: 'NEMAK', CONCEPTO: 'COTIZACION VIEJA' }]),
+    'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']]
+  });
+  const res = env.api.apiSaveTrackerBatch('ANTONIA_VENTAS', [{
+    CLIENTE: 'NEMAK', CONCEPTO: 'COTIZAR NAVE INDUSTRIAL', VENDEDOR: 'ANTONIA VENTAS',
+    FECHA: '08/07/26', _tempId: 't-cot-1'
+  }], 'ANTONIA_VENTAS');
+  const filas = countRowsContaining(env, 'ANTONIA_VENTAS', 'COTIZAR NAVE INDUSTRIAL');
+  check('9.8', 'La cotización nueva se guarda sin PRIORIDAD ni RIESGOS', 'success=true y 1 fila',
+    `success=${res && res.success}, filas=${filas}, mensaje="${res && res.message}"`,
+    res && res.success === true && filas === 1,
+    'El candado es del Tracker: se decide por las columnas de la hoja destino');
+});
+
+run('9.9', 'La cabecera de la hoja es lo que decide qué se exige', () => {
+  const env = createEnv({
+    'JAIME OLIVO': tracker([]),
+    'ANTONIA_VENTAS': sales([]),
+    'LOG_SISTEMA': [['FECHA', 'USUARIO', 'ACCION', 'DETALLES']]
+  });
+  const enTracker = (env.api.encabezadosDeHoja('JAIME OLIVO') || []).map(h => String(h).toUpperCase());
+  const enVentas = (env.api.encabezadosDeHoja('ANTONIA_VENTAS') || []).map(h => String(h).toUpperCase());
+  const inexistente = env.api.encabezadosDeHoja('HOJA QUE NO EXISTE');
+  const ok = enTracker.indexOf('RIESGOS') >= 0 && enVentas.indexOf('RIESGOS') === -1 &&
+             inexistente === null;
+  check('9.9', 'Tracker con RIESGOS, ventas sin ella, hoja ausente = null (control estricto)',
+    'true/false/null', `tracker=${enTracker.indexOf('RIESGOS') >= 0}, ventas=${enVentas.indexOf('RIESGOS') >= 0}, ausente=${inexistente}`,
+    ok, 'Si no se puede leer la cabecera, se exigen los tres: ante la duda el candado no se abre');
 });
 
 run('9.7', 'La vista ofrece el mismo catálogo que valida el backend', () => {

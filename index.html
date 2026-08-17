@@ -8999,6 +8999,12 @@ const filteredStaffTrackerData = computed(() => {
       //
       // Un valor fuera del catálogo cuenta como faltante: una prioridad que
       // nadie sabe ordenar no prioriza nada.
+      //
+      // Los tres campos solo se exigen donde esas columnas existen, es decir en
+      // el Tracker. Cotizaciones lleva otras columnas (`Prio. cot.`, `F.
+      // Visita`, `F. Inicio`, `F. Entrega`): allí el aviso pedía tres datos que
+      // esa pantalla no tiene dónde capturar y no dejaba guardar ninguna
+      // cotización nueva.
       const CAMPOS_OBLIGATORIOS_ACTIVIDAD = [
           { etiqueta: 'PRIORIDAD', alias: ['PRIORIDAD', 'PRIORIDADES'], catalogo: PRIORIDADES_VALIDAS },
           { etiqueta: 'RIESGOS', alias: ['RIESGOS', 'RIESGO'], catalogo: RIESGOS_VALIDOS },
@@ -9012,11 +9018,16 @@ const filteredStaffTrackerData = computed(() => {
           return !(k && String(row[k] == null ? '' : row[k]).trim());
       };
 
-      const camposObligatoriosFaltantes = (row) => CAMPOS_OBLIGATORIOS_ACTIVIDAD
+      // `columnas` son los encabezados de la tabla abierta. Un campo cuya
+      // columna no existe ahí no se exige; sin la lista (undefined) se exigen
+      // los tres, que es lo que necesita el PPC Maestro, donde los tres se
+      // capturan en el formulario y no en una tabla con encabezados.
+      const camposObligatoriosFaltantes = (row, columnas) => CAMPOS_OBLIGATORIOS_ACTIVIDAD
           .filter(campo => {
               // `claveEtiqueta` iguala las grafías de la misma columna:
               // FEC. EST. FIN, FECHA_ESTIMADA_FIN y FECHA ESTIMADA DE FIN.
               const claves = campo.alias.map(claveEtiqueta);
+              if (columnas && !columnas.map(claveEtiqueta).some(c => claves.includes(c))) return false;
               const k = Object.keys(row || {}).find(k => claves.includes(claveEtiqueta(k)));
               const valor = k ? String(row[k] == null ? '' : row[k])
                   .normalize('NFKD').replace(/[̀-ͯ]/g, '')
@@ -9053,7 +9064,7 @@ const filteredStaffTrackerData = computed(() => {
               // Las filas en blanco no cuentan: la tabla deja añadir renglones y
               // dejarlos vacíos, y el backend los descarta antes de darles folio.
               if (esActividadNueva(row) && tieneContenidoDeActividad(row)) {
-                  const faltantes = camposObligatoriosFaltantes(row);
+                  const faltantes = camposObligatoriosFaltantes(row, staffTracker.value.headers);
                   if (faltantes.length) { avisarCamposObligatorios(faltantes, row.CONCEPTO || ''); return; }
               }
           }
@@ -9149,7 +9160,7 @@ const filteredStaffTrackerData = computed(() => {
           }
 
           if (esActividadNueva(row) && tieneContenidoDeActividad(row)) {
-              const faltantes = camposObligatoriosFaltantes(row);
+              const faltantes = camposObligatoriosFaltantes(row, staffTracker.value.headers);
               if (faltantes.length) { avisarCamposObligatorios(faltantes, ''); return; }
           }
 
