@@ -180,6 +180,26 @@ def tiene_contenido_de_actividad(task: dict[str, Any]) -> bool:
     )
 
 
+def control_de_alta_aplica(sheet_name: Any) -> bool:
+    """
+    ¿Esta hoja tiene candado de alta?
+
+    No, si es una tabla de ventas. El control es del Tracker: Ventas captura
+    cotizaciones, que no llevan prioridad, riesgo ni fecha estimada de fin.
+
+    Mirar solo las columnas —lo primero que se intentó— no bastó: la tabla de
+    cotizaciones no rinde una lista fija de encabezados, sino los que traiga
+    `quotes` en la base, así que una columna que se llame como uno de los tres
+    campos vuelve a encender el candado en la pantalla que no los captura. Por
+    eso Ventas queda fuera por ser Ventas y no por qué columnas tenga hoy.
+
+    `is_sales_sheet` distingue lo que hay que distinguir: `ANTONIA_VENTAS` y
+    `<Vendedor> (VENTAS)` son tablas de cotizaciones; `ANTONIA PINEDA LOPEZ` es
+    el tracker de Toñita y ahí el candado sí corre.
+    """
+    return not is_sales_sheet(sheet_name)
+
+
 def campos_obligatorios_faltantes(task: dict[str, Any],
                                   columnas: Optional[Sequence[Any]] = None) -> list[str]:
     """

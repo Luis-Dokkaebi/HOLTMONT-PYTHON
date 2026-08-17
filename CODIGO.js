@@ -56,6 +56,25 @@ const CAMPOS_OBLIGATORIOS_ACTIVIDAD = [
     catalogo: [] }
 ];
 
+/**
+ * ¿Esta hoja tiene candado de alta?
+ *
+ * No, si es una tabla de ventas. El control es del Tracker: Ventas captura
+ * cotizaciones, que no llevan prioridad, riesgo ni fecha estimada de fin.
+ *
+ * Mirar solo las columnas no bastó: la tabla de cotizaciones expone las que
+ * traiga la hoja, y basta con que una se llame como uno de los tres campos para
+ * encender otra vez el aviso en la pantalla que no los captura.
+ *
+ * La condición va escrita aquí y no con `isSalesSheet` para que este bloque se
+ * pueda ejecutar suelto: `tests/test_campos_obligatorios_actividad.py` lo
+ * extrae y lo corre con Node para comprobar la paridad con Python.
+ */
+function controlDeAltaAplica(sheetName) {
+  const up = String(sheetName == null ? '' : sheetName).toUpperCase();
+  return !(up === 'ANTONIA_VENTAS' || up.indexOf('(VENTAS)') > -1);
+}
+
 /** Clave de columna sin acentos ni puntuación: FEC. EST. FIN = FECHA_ESTIMADA_FIN. */
 function claveDeColumna(valor) {
   return String(valor == null ? '' : valor).toUpperCase()
@@ -139,7 +158,9 @@ function mensajeCamposObligatorios(faltantes) {
  * `columnas` son los encabezados de la hoja donde va a caer la fila; se leen con
  * `encabezadosDeHoja()`. Sin ellos se exigen los tres campos.
  */
-function motivoDeRechazoDeAlta(taskData, columnas) {
+function motivoDeRechazoDeAlta(taskData, columnas, sheetName) {
+  // Sin nombre de hoja el candado se aplica: ante la duda no se abre.
+  if (!controlDeAltaAplica(sheetName)) return '';
   if (!esActividadNueva(taskData) || !tieneContenidoDeActividad(taskData)) return '';
   const faltantes = camposObligatoriosFaltantes(taskData, columnas);
   return faltantes.length ? mensajeCamposObligatorios(faltantes) : '';
@@ -1456,7 +1477,8 @@ function internalUpdateTask(personName, taskData, username) {
         // tal como llega, antes del bloque de usuarios restringidos, que borra
         // claves, y antes de tocar la hoja. Las filas que ya tienen folio no se
         // juzgan: el candado es para dar de alta, no para editar el historial.
-        const rechazoDeAlta = motivoDeRechazoDeAlta(taskData, encabezadosDeHoja(personName));
+        const rechazoDeAlta = motivoDeRechazoDeAlta(
+            taskData, encabezadosDeHoja(personName), personName);
         if (rechazoDeAlta) {
             return { success: false, message: rechazoDeAlta };
         }
@@ -3221,13 +3243,14 @@ function apiSaveTrackerBatch(personName, tasks, username) {
       // sin PRIORIDAD, RIESGOS o FEC. EST. FIN, y antes de escribir nada.
       // Guardar la mitad del lote deja al usuario sin saber qué quedó escrito.
       //
-      // Los tres campos solo se exigen donde esas columnas existen. Cotizaciones
-      // lleva otras (`PRIO. COT.`, `F. VISITA`, `F. INICIO`, `F. ENTREGA`) y el
-      // candado le pedía tres datos que esa pantalla no tiene dónde capturar.
-      // La cabecera se lee una vez para todo el lote: va a la misma hoja.
-      const columnasDeAlta = encabezadosDeHoja(personName);
+      // El candado no corre en Ventas: allí se capturan cotizaciones, que no
+      // llevan ninguno de los tres campos, y el aviso pedía tres datos que esa
+      // pantalla no tiene dónde escribir. En el resto de hojas se exigen solo
+      // donde esas columnas existen; la cabecera se lee una vez para todo el
+      // lote, que va entero a la misma hoja.
+      const columnasDeAlta = controlDeAltaAplica(personName) ? encabezadosDeHoja(personName) : null;
       for (var iAlta = 0; iAlta < tasks.length; iAlta++) {
-          const rechazoDeAlta = motivoDeRechazoDeAlta(tasks[iAlta], columnasDeAlta);
+          const rechazoDeAlta = motivoDeRechazoDeAlta(tasks[iAlta], columnasDeAlta, personName);
           if (rechazoDeAlta) {
               // El `finally` de abajo suelta el candado; soltarlo aquí lo haría
               // dos veces.
