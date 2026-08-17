@@ -7781,7 +7781,14 @@ const filteredStaffTrackerData = computed(() => {
               if (!row['FOLIO'] && !row['ID']) return true;
 
               const hUp = String(h).toUpperCase();
-              const allowed = ['FECHA', 'FECHA VISITA', 'FECHA ALTA', 'FECHA INICIO', 'ALTA', 'F. VISITA', 'F_VISITA', 'F. INICIO', 'F_INICIO', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', 'ARCHIVO', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'ENTREGA', 'VENDEDOR', 'RESPONSABLE', 'CORREO', 'CARPETA', 'INFO CLIENTE', 'CORREOS', 'CARPETAS', 'AREA', 'COMENTARIOS', 'REQUISITOR'];
+              // `RESTRICCIONES` es el encabezado que rinde la API
+              // (`sheets.TASK_HEADER_MAP`); el rótulo «Restricciones y
+              // Comentarios» que se ve en la tabla lo pone `getHeaderLabel`.
+              // La lista se había escrito con el rótulo en mente, y `COMENTARIOS`
+              // no casa con el encabezado real, así que la celda se volvía de
+              // solo lectura en cuanto la fila recibía folio — justo cuando la
+              // actividad queda asignada y hay que anotar la restricción.
+              const allowed = ['FECHA', 'FECHA VISITA', 'FECHA ALTA', 'FECHA INICIO', 'ALTA', 'F. VISITA', 'F_VISITA', 'F. INICIO', 'F_INICIO', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', 'ARCHIVO', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'ENTREGA', 'VENDEDOR', 'RESPONSABLE', 'CORREO', 'CARPETA', 'INFO CLIENTE', 'CORREOS', 'CARPETAS', 'AREA', 'COMENTARIOS', 'RESTRICCIONES', 'REQUISITOR'];
               return allowed.some(a => hUp.includes(a));
           }
           return true;
