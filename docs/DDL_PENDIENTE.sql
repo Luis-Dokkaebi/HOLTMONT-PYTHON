@@ -274,3 +274,36 @@ CREATE INDEX IF NOT EXISTS ticket_notificaciones_folio_idx
 -- podría leer los avisos de cualquier persona y marcárselos como leídos.
 ALTER TABLE public.ticket_notificaciones ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE ON public.ticket_notificaciones TO service_role;
+
+
+-- ===========================================================================
+-- 7. Comprobar que el sistema de tickets quedó operativo
+-- ===========================================================================
+-- El 2026-08-17 el formulario de "Reportar un problema" devolvía a todo el
+-- equipo el mismo texto —"No se pudo consultar el sistema de tickets. Vuelve a
+-- intentarlo"— sin decir por qué. Ese mensaje es el de un fallo transitorio,
+-- pero las tres causas frecuentes NO se arreglan reintentando:
+--
+--   1. las tablas de §5 y §6 no están creadas;
+--   2. están creadas con una versión vieja del DDL (falta alguna columna);
+--   3. `SUPABASE_KEY` en el despliegue NO es la clave `service_role`.
+--
+-- La tercera es la más engañosa, y la que este mismo archivo hizo posible: al
+-- encender RLS sin políticas, una clave `anon` **sigue leyendo** (devuelve
+-- vacío, sin error) pero no puede insertar. El listado de soporte se ve
+-- normal —"no hay tickets"— y solo el alta falla. Ninguna otra tabla de la
+-- plataforma tiene RLS encendida, así que la clave equivocada no da síntomas
+-- en ningún otro sitio.
+--
+-- Comprobación, sin abrir el dashboard ni leer los registros de Vercel:
+--
+--     GET /api/v2/tickets/diagnostico
+--
+-- Devuelve una línea por tabla con `ok`, la `causa` (`tabla_faltante`,
+-- `columna_faltante`, `permiso_denegado`) y qué hacer. `operativo: true` es la
+-- única respuesta que significa que se pueden mandar tickets. Equivalente en
+-- SQL, para verificarlo desde el editor de Supabase:
+--
+--     SELECT to_regclass('public.bug_tickets'),
+--            to_regclass('public.ticket_notificaciones');
+--     -- las dos deben devolver el nombre de la tabla, no NULL.

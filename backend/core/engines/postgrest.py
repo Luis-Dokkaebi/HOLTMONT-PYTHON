@@ -75,7 +75,10 @@ class PostgrestEngine:
             except (ValueError, AttributeError):
                 pass
             raise ErrorDeMotor(
-                f"PostgREST {metodo} {ruta} respondió {exc.code}", codigo=codigo, detalle=detalle
+                f"PostgREST {metodo} {ruta} respondió {exc.code}",
+                codigo=codigo,
+                detalle=detalle,
+                estado=int(exc.code),
             ) from exc
         except (urllib.error.URLError, OSError) as exc:
             raise ErrorDeMotor(f"Fallo de red hacia PostgREST: {exc}") from exc

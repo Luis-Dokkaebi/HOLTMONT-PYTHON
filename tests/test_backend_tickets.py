@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
+from contextlib import contextmanager
+from unittest import mock
 
 import pytest
 from pydantic import ValidationError
@@ -721,3 +724,323 @@ def test_sin_supabase_la_verificacion_no_finge_un_veredicto():
     """`tests/conftest.py` desconecta las credenciales (R7): sin Storage no se
     puede afirmar ni que está intacta ni que la alteraron."""
     assert storage.verificar_evidencia(URL_EVIDENCIA, "a" * 64)["estado"] == "indeterminado"
+
+
+# --- Por qué falla, no solo que falló ------------------------------------
+#
+# El 2026-08-17 el formulario devolvía a todo el mundo el mismo texto:
+#
+#   "No se pudo consultar el sistema de tickets. Vuelve a intentarlo; si
+#    sigue fallando, avisa al equipo."
+#
+# Es el mensaje de "la base no responde, reintenta". Pero tres de las causas
+# posibles NO se arreglan reintentando —falta la tabla, falta una columna, la
+# clave del backend no puede escribir— y con ese texto ni quien reporta ni el
+# equipo tenían con qué distinguirlas. Cada una tiene ahora su mensaje y su
+# código; el 502 genérico queda solo para lo que sí es transitorio.
+
+
+@contextmanager
+def _cliente_con_motor(motor):
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from backend.routers.tickets import obtener_repositorio
+
+    app.dependency_overrides[obtener_repositorio] = lambda: TicketRepository(motor)
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _motor_que_rechaza(mensaje, codigo="", estado=0, detalle="{}"):
+    """Motor cuyo `select` y `insertar` fallan como lo hace PostgREST."""
+    engine = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+
+    def _revienta(*args, **kwargs):
+        raise ErrorDeMotor(mensaje, codigo=codigo, detalle=detalle, estado=estado)
+
+    engine.select = _revienta
+    engine.insertar = _revienta
+    engine.upsert = _revienta
+    return engine
+
+
+ALTA = {"ticket": {"modulo": "Ventas", "descripcion": "no me deja agregar"}, "reportado_por": "LUIS"}
+
+
+def test_la_clave_sin_permiso_no_dice_reintenta_sino_que_clave_hace_falta():
+    """
+    El caso que deja el formulario roto para todo el equipo: `bug_tickets`
+    lleva RLS encendida y sin políticas (DDL §5), así que con la clave `anon`
+    el listado sale vacío pero el alta la rechaza la base. Reintentar no lo
+    arregla nunca; hay que cambiar `SUPABASE_KEY` por la `service_role`.
+    """
+    motor = _motor_que_rechaza(
+        "PostgREST POST bug_tickets respondió 401",
+        codigo="42501",
+        estado=401,
+        detalle='{"code":"42501","message":"new row violates row-level security policy"}',
+    )
+    with _cliente_con_motor(motor) as cliente:
+        respuesta = cliente.post("/api/v2/tickets", json=ALTA)
+
+    assert respuesta.status_code == 503, "no es culpa de quien reporta ni es transitorio"
+    detalle = respuesta.json()["detail"]
+    assert "SUPABASE_KEY" in detalle and "service_role" in detalle, detalle
+    assert "Reintentar no lo arregla" in detalle, detalle
+    assert "42501" in detalle, "el equipo necesita el código para actuar"
+    for fragmento in CRUDO:
+        assert fragmento not in detalle, f"se filtró {fragmento!r}: {detalle}"
+
+
+def test_un_403_sin_codigo_tambien_se_lee_como_permiso():
+    """PostgREST no siempre manda `code`; el estado HTTP basta para clasificar."""
+    motor = _motor_que_rechaza("PostgREST POST bug_tickets respondió 403", estado=403)
+    with _cliente_con_motor(motor) as cliente:
+        respuesta = cliente.post("/api/v2/tickets", json=ALTA)
+
+    assert respuesta.status_code == 503
+    assert "service_role" in respuesta.json()["detail"]
+
+
+def test_una_columna_que_falta_pide_reaplicar_el_ddl_no_reintentar():
+    """Esquema viejo aplicado: la tabla está, `contexto` no. Antes era un 502."""
+    motor = _motor_que_rechaza(
+        "PostgREST POST bug_tickets respondió 400",
+        codigo="PGRST204",
+        estado=400,
+        detalle='{"code":"PGRST204","message":"Could not find the \'contexto\' column"}',
+    )
+    with _cliente_con_motor(motor) as cliente:
+        respuesta = cliente.post("/api/v2/tickets", json=ALTA)
+
+    assert respuesta.status_code == 503
+    detalle = respuesta.json()["detail"]
+    assert "columnas" in detalle and "DDL" in detalle, detalle
+    assert "PGRST204" in detalle
+
+
+def test_un_corte_de_red_sigue_siendo_502_y_sin_codigo_inventado():
+    motor = _motor_que_rechaza("Fallo de red hacia PostgREST: timeout")
+    with _cliente_con_motor(motor) as cliente:
+        respuesta = cliente.post("/api/v2/tickets", json=ALTA)
+
+    assert respuesta.status_code == 502
+    detalle = respuesta.json()["detail"]
+    assert "Vuelve a intentarlo" in detalle
+    assert "código" not in detalle, "sin código de la base, no se inventa uno"
+
+
+def test_el_fallo_de_los_avisos_nombra_su_propia_tabla():
+    """
+    `ticket_notificaciones` es de la §6 del DDL, tabla aparte. El mensaje decía
+    siempre `bug_tickets`, así que mandaba a crear una tabla que ya existía.
+    """
+    motor = _motor_que_rechaza(
+        "PostgREST GET ticket_notificaciones?select=* respondió 404", codigo="PGRST205", estado=404
+    )
+    with _cliente_con_motor(motor) as cliente:
+        respuesta = cliente.get("/api/v2/notificaciones", params={"usuario": "LUIS"})
+
+    assert respuesta.status_code == 503
+    assert "ticket_notificaciones" in respuesta.json()["detail"]
+
+
+# --- El diagnóstico que antes solo estaba en los registros ----------------
+
+
+def test_el_diagnostico_dice_que_el_sistema_opera(cliente):
+    r = cliente.get("/api/v2/tickets/diagnostico")
+    assert r.status_code == 200
+    cuerpo = r.json()
+    assert cuerpo["operativo"] is True
+    assert {t["tabla"] for t in cuerpo["tablas"]} == {"bug_tickets", "ticket_notificaciones"}
+    assert all(t["ok"] for t in cuerpo["tablas"])
+
+
+def test_el_diagnostico_nombra_la_causa_de_cada_tabla():
+    motor = _motor_que_rechaza(
+        "PostgREST GET bug_tickets?select=folio respondió 401", codigo="42501", estado=401
+    )
+    with _cliente_con_motor(motor) as cliente:
+        cuerpo = cliente.get("/api/v2/tickets/diagnostico").json()
+
+    assert cuerpo["operativo"] is False
+    for tabla in cuerpo["tablas"]:
+        assert tabla["ok"] is False
+        assert tabla["causa"] == "permiso_denegado"
+        assert tabla["codigo"] == "42501"
+        assert "service_role" in tabla["que_hacer"]
+
+
+def test_el_diagnostico_no_filtra_la_consulta_ni_la_credencial(cliente):
+    crudo = cliente.get("/api/v2/tickets/diagnostico").text
+    assert "SUPABASE_KEY=" not in crudo
+    assert "apikey" not in crudo.lower()
+
+
+# --- Un alta que no confirma la fila no puede salir como 500 -------------
+
+
+def test_un_alta_sin_fila_de_vuelta_es_un_fallo_de_motor_no_un_500():
+    """
+    `insertar` pide `Prefer: return=representation`. Si la respuesta llega
+    vacía, `guardadas[0]` reventaba con `IndexError` → 500 sin causa.
+    """
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+    motor.insertar = lambda *a, **k: []
+    repo = TicketRepository(motor)
+
+    with pytest.raises(ErrorDeMotor):
+        repo.crear(TicketWrite(modulo="Ventas", descripcion="X"), "LUIS")
+
+    with _cliente_con_motor(motor) as cliente:
+        respuesta = cliente.post("/api/v2/tickets", json=ALTA)
+    assert respuesta.status_code == 502, "es un fallo del motor, no un 500 sin manejar"
+
+
+def test_el_motor_postgrest_guarda_el_estado_http():
+    """
+    La clasificación se apoya en `estado`, no en buscar texto en el mensaje:
+    PostgREST no siempre manda `code` en el cuerpo.
+    """
+    import urllib.error
+
+    from backend.core.engines.postgrest import PostgrestEngine
+
+    motor = PostgrestEngine("https://proyecto.supabase.co", "clave-de-prueba")
+
+    def _cae(*args, **kwargs):
+        raise urllib.error.HTTPError(
+            "https://proyecto.supabase.co/rest/v1/bug_tickets", 401, "Unauthorized", {},
+            io.BytesIO(b'{"code":"42501","message":"permission denied"}'),
+        )
+
+    with mock.patch("urllib.request.urlopen", _cae):
+        with pytest.raises(ErrorDeMotor) as exc:
+            motor.select("bug_tickets")
+
+    assert exc.value.estado == 401
+    assert exc.value.codigo == "42501"
+
+
+def test_las_mutaciones_sin_fila_de_vuelta_tampoco_revientan():
+    """Mismo cuidado que en el alta, en las otras dos escrituras posibles."""
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+    repo = TicketRepository(motor)
+    repo.crear(TicketWrite(modulo="Ventas", descripcion="X"), "LUIS")
+    motor.upsert = lambda *a, **k: []
+
+    with pytest.raises(ErrorDeMotor):
+        repo.actualizar_estatus("BUG-0001", TicketUpdate(estatus="RESUELTO", resuelto_por="SOPORTE"))
+    with pytest.raises(ErrorDeMotor):
+        repo.agregar_evidencia("BUG-0001", {"url": "https://x/v.mp4", "tipo": "video/mp4"})
+
+
+def test_un_error_de_negocio_no_se_clasifica_como_permiso_ni_lleva_codigo():
+    """
+    "Sin usuario en sesión" es un `BackendError` que no viene del motor: ni es
+    un problema de permisos ni tiene código de la base que ofrecer al equipo.
+    """
+    from backend.core.errors import BackendError
+    from backend.routers.tickets import _causa, _es_permiso_denegado, _pista
+
+    error = BackendError("No se puede reportar un ticket sin usuario en sesión.")
+    assert _es_permiso_denegado(error) is False
+    assert _pista(error) == ""
+    assert _causa(error) == "motor_caido"
+
+
+# --- El folio: lo que tenía el formulario bloqueado ------------------------
+#
+# Medido contra la base real el 2026-08-17: `bug_tickets` tenía UNA fila y su
+# folio era `BUG-0002`. El folio se calculaba contando filas —`1 + 1`— así que
+# cada alta pedía `BUG-0002`, que ya existía, y la UNIQUE de `folio` la
+# rechazaba con `23505`. Todo el equipo llevaba días sin poder reportar un bug
+# y el único consejo en pantalla era reintentar, que daba siempre el mismo
+# folio. Ahora el folio sale del máximo, no del conteo.
+
+
+def test_el_folio_sale_del_mayor_existente_no_del_conteo():
+    """El estado exacto de producción: una fila, y su folio es BUG-0002."""
+    motor = MemoryEngine({
+        "bug_tickets": [{"id": "1", "folio": "BUG-0002", "reportado_por": "CARLOS_MENDEZ",
+                         "modulo": "Tracker", "descripcion": "algo", "severidad": "MEDIA",
+                         "estatus": "CERRADO", "evidencia": [],
+                         "created_at": "2026-08-13T22:02:52Z", "updated_at": "2026-08-13T22:02:52Z"}],
+        "ticket_notificaciones": [],
+    })
+    creado = TicketRepository(motor).crear(
+        TicketWrite(modulo="Ventas", descripcion="no me deja agregar"), "LUIS"
+    )
+    assert creado.folio == "BUG-0003", "contar filas repetía un folio ya tomado"
+
+
+def test_un_hueco_en_la_numeracion_no_repite_folio(repo):
+    """Un ticket borrado a mano deja hueco; el siguiente no puede caer en él."""
+    repo.engine.datos["bug_tickets"] = [{"folio": "BUG-0001"}, {"folio": "BUG-0005"}]
+    assert repo._siguiente_folio() == "BUG-0006"
+
+
+def test_los_folios_con_otra_forma_se_ignoran_en_vez_de_tumbar_el_alta(repo):
+    repo.engine.datos["bug_tickets"] = [
+        {"folio": "MANUAL"}, {"folio": None}, {"folio": ""}, {"folio": "BUG-0003"},
+    ]
+    assert repo._siguiente_folio() == "BUG-0004"
+
+
+def test_una_colision_de_folio_se_reintenta_sola():
+    """
+    Dos altas en el mismo instante calculan el mismo número: no hay candado.
+    La UNIQUE lo señala y el alta se recalcula, en vez de rebotarle el error a
+    quien reporta.
+    """
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+    insertar_real = motor.insertar
+    intentos = []
+
+    def _choca_una_vez(tabla, filas):
+        if tabla != "bug_tickets":  # el aviso de recibo pasa por el mismo motor
+            return insertar_real(tabla, filas)
+        intentos.append(filas[0]["folio"])
+        if len(intentos) == 1:
+            motor.datos["bug_tickets"].append({"folio": filas[0]["folio"]})
+            raise ErrorDeMotor("PostgREST POST bug_tickets respondió 409",
+                               codigo="23505", estado=409)
+        return insertar_real(tabla, filas)
+
+    motor.insertar = _choca_una_vez
+    creado = TicketRepository(motor).crear(TicketWrite(modulo="Ventas", descripcion="X"), "LUIS")
+
+    assert intentos == ["BUG-0001", "BUG-0002"], "el reintento tiene que recalcular el folio"
+    assert creado.folio == "BUG-0002"
+
+
+def test_si_la_colision_no_cede_el_error_sale_a_la_luz():
+    """El reintento no puede tapar un problema que no se resuelve solo."""
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+
+    def _siempre_choca(tabla, filas):
+        raise ErrorDeMotor("PostgREST POST bug_tickets respondió 409", codigo="23505", estado=409)
+
+    motor.insertar = _siempre_choca
+    with pytest.raises(ErrorDeMotor):
+        TicketRepository(motor).crear(TicketWrite(modulo="Ventas", descripcion="X"), "LUIS")
+
+
+def test_un_fallo_que_no_es_colision_no_se_reintenta():
+    """Un 401 por permisos con reintentos es solo cuatro veces el mismo error."""
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+    llamadas = []
+
+    def _sin_permiso(tabla, filas):
+        assert tabla == "bug_tickets", "el alta falla antes de llegar al aviso"
+        llamadas.append(filas[0]["folio"])
+        raise ErrorDeMotor("PostgREST POST bug_tickets respondió 401", codigo="42501", estado=401)
+
+    motor.insertar = _sin_permiso
+    with pytest.raises(ErrorDeMotor):
+        TicketRepository(motor).crear(TicketWrite(modulo="Ventas", descripcion="X"), "LUIS")
+    assert len(llamadas) == 1
