@@ -103,6 +103,74 @@ def test_cada_cambio_deja_su_propio_aviso(tickets, avisos):
     ]
 
 
+def test_la_nota_de_resolucion_le_llega_a_quien_reporto(tickets, avisos):
+    """
+    Lo que pidió el dueño: la nota que escribe soporte al mover el ticket es
+    lo único del aviso que dice *qué pasó con este bug en concreto*. El texto
+    fijo del estatus no lo puede decir.
+    """
+    tickets.crear(TicketWrite(modulo="PPC", descripcion="X"), reportado_por="TERESA GARZA")
+    tickets.actualizar_estatus("BUG-0001", TicketUpdate(
+        estatus="RESUELTO",
+        resolucion_notas="Era el filtro de fecha; ya quedó, vuelve a entrar.",
+        resuelto_por="SOPORTE",
+    ))
+
+    reciente = avisos.listar("TERESA GARZA")[0]
+    assert reciente.nota == "Era el filtro de fecha; ya quedó, vuelve a entrar."
+    assert "vuelve a reportarlo" in reciente.mensaje, "la nota acompaña al texto fijo, no lo sustituye"
+
+
+def test_un_cambio_sin_nota_no_inventa_ninguna(tickets, avisos):
+    tickets.crear(TicketWrite(modulo="PPC", descripcion="X"), reportado_por="TERESA GARZA")
+    tickets.actualizar_estatus("BUG-0001", TicketUpdate(estatus="EN_REVISION"))
+    assert avisos.listar("TERESA GARZA")[0].nota is None
+
+
+def test_una_nota_en_blanco_no_llega_como_nota_vacia(avisos):
+    """Espacios no son una nota: llegarían como un renglón vacío en la campanita."""
+    aviso = avisos.crear_para_ticket("BUG-1", "TERESA GARZA", "RESUELTO", nota="   ")
+    assert aviso is not None and aviso.nota is None
+
+
+def test_si_la_base_no_tiene_la_columna_nota_el_aviso_llega_igual(motor, avisos):
+    """
+    Con el DDL viejo aplicado, `nota` no existe y PostgREST rechaza el insert
+    con `PGRST204`. Sin este reintento la campanita se quedaría muda para todo
+    el equipo —y en silencio, porque `crear_para_ticket` se traga los fallos—
+    hasta que alguien aplicara el DDL nuevo. Se pierde la nota, no el aviso.
+    """
+    original = motor.insertar
+
+    def rechaza_la_columna(tabla, filas):
+        if tabla == "ticket_notificaciones" and any("nota" in f for f in filas):
+            raise ErrorDeMotor(
+                "Could not find the 'nota' column of 'ticket_notificaciones'",
+                codigo="PGRST204",
+            )
+        return original(tabla, filas)
+
+    motor.insertar = rechaza_la_columna
+    aviso = avisos.crear_para_ticket("BUG-1", "TERESA GARZA", "RESUELTO", nota="Ya quedó")
+
+    assert aviso is not None, "el aviso tenía que llegar aunque la nota no quepa"
+    assert aviso.nota is None
+    assert "vuelve a reportarlo" in (aviso.mensaje or "")
+
+
+def test_si_el_insert_falla_por_otra_causa_no_se_reintenta(motor, avisos):
+    """El reintento es solo para la columna faltante, no para tapar cualquier fallo."""
+    intentos = []
+
+    def siempre_falla(tabla, filas):
+        intentos.append(tabla)
+        raise ErrorDeMotor("la tabla de avisos no existe", codigo="PGRST205")
+
+    motor.insertar = siempre_falla
+    assert avisos.crear_para_ticket("BUG-1", "TERESA GARZA", "RESUELTO", nota="Ya quedó") is None
+    assert len(intentos) == 1
+
+
 def test_quien_mueve_su_propio_ticket_no_se_avisa_a_si_mismo(tickets, avisos):
     """Soporte resolviendo un bug que él mismo reportó: ya sabe lo que hizo."""
     tickets.crear(TicketWrite(modulo="PPC", descripcion="X"), reportado_por="LUIS_CARLOS")
@@ -239,6 +307,17 @@ def test_el_endpoint_devuelve_la_bandeja_y_el_contador(cliente):
     cuerpo = cliente.get("/api/v2/notificaciones", params={"usuario": "TERESA GARZA"}).json()
     assert cuerpo["no_leidas"] == 1
     assert cuerpo["data"][0]["estatus"] == "ABIERTO"
+
+
+def test_el_endpoint_devuelve_la_nota_del_cambio_de_estatus(cliente):
+    cliente.post("/api/v2/tickets",
+                 json={"ticket": {"modulo": "PPC", "descripcion": "X"}, "reportado_por": "TERESA GARZA"})
+    cliente.patch("/api/v2/tickets/BUG-0001",
+                  json={"estatus": "RESUELTO", "resolucion_notas": "Ya quedó, vuelve a entrar.",
+                        "resuelto_por": "SOPORTE"})
+
+    cuerpo = cliente.get("/api/v2/notificaciones", params={"usuario": "TERESA GARZA"}).json()
+    assert cuerpo["data"][0]["nota"] == "Ya quedó, vuelve a entrar."
 
 
 def test_el_endpoint_filtra_solo_no_leidas(cliente):

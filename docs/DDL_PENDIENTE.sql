@@ -251,15 +251,29 @@ CREATE POLICY ticket_evidencia_select
 -- debe desaparecer si algún día se depura un ticket viejo. El `folio` queda
 -- como referencia legible, que es para lo que lo usa la campanita.
 
+-- `mensaje` es el texto fijo del estatus; `nota` es lo que escribió a mano
+-- quien resolvió (`bug_tickets.resolucion_notas`) al mover el ticket. Van en
+-- columnas distintas y no concatenadas porque son de naturaleza distinta: uno
+-- lo redacta el sistema y el otro una persona. NULL cuando el cambio se hizo
+-- sin nota, que es lo normal.
+
 CREATE TABLE IF NOT EXISTS public.ticket_notificaciones (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     folio         text NOT NULL,
     destinatario  text NOT NULL,
     estatus       text NOT NULL,
     mensaje       text NOT NULL,
+    nota          text,
     leida         boolean NOT NULL DEFAULT false,
     created_at    timestamptz NOT NULL DEFAULT now()
 );
+
+-- Para las bases donde la tabla ya existe sin `nota`: el `CREATE TABLE IF NOT
+-- EXISTS` de arriba no la agrega. Sin esta línea, PostgREST rechaza cada aviso
+-- con nota (`PGRST204`). El backend lo sobrevive —reinserta el aviso sin la
+-- nota, ver `NotificacionRepository._insertar_aviso`— pero la nota se pierde
+-- hasta que esto se aplique.
+ALTER TABLE public.ticket_notificaciones ADD COLUMN IF NOT EXISTS nota text;
 
 -- El índice que importa: la campanita pregunta "cuántas no leídas tengo" en
 -- cada carga, y esa consulta filtra por las dos columnas a la vez.

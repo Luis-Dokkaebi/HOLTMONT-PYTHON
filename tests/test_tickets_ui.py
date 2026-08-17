@@ -97,6 +97,44 @@ def test_el_error_al_reportar_se_lee_y_no_deja_la_pantalla_trabada():
             navegador.close()
 
 
+def test_la_campanita_muestra_la_nota_de_soporte_y_no_la_ejecuta():
+    """
+    La nota la escribe una persona, así que llega al navegador como texto de
+    terceros: se pinta escapada. Si se inyectara como HTML, un `<img onerror>`
+    en una nota correría en la sesión de quien la lee.
+    """
+    NOTA = 'Ya quedó <img src=x onerror="window.__inyectado = true">'
+
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            page.route("**/api/v2/notificaciones**", lambda route: _responder(route, 200, {
+                "success": True,
+                "no_leidas": 1,
+                "data": [{
+                    "id": "1", "folio": "BUG-0001", "destinatario": "TERESA GARZA",
+                    "estatus": "RESUELTO", "mensaje": "Tu reporte quedó resuelto.",
+                    "nota": NOTA, "leida": False, "created_at": "2026-08-17T12:00:00Z",
+                }],
+            }))
+            page.goto(BASE_URL)
+            page.wait_for_selector("#bug-ticket-fab", state="visible", timeout=15000)
+            page.evaluate("() => { window.app.currentUsername = 'TERESA GARZA'; }")
+
+            # La campanita se revisa cada 30 s: aparece en el primer repaso
+            # posterior al login, no en el instante en que se fija el usuario.
+            page.wait_for_selector("#avisos-fab", state="visible", timeout=45000)
+            page.click("#avisos-fab")
+
+            page.wait_for_selector(".av-item .av-nota", timeout=5000)
+            assert NOTA in page.inner_text(".av-item .av-nota"), "la nota no se ve completa"
+            assert page.locator(".av-nota img").count() == 0, "la nota se pintó como HTML"
+            assert page.evaluate("() => window.__inyectado === true") is False
+        finally:
+            navegador.close()
+
+
 def test_el_error_al_resolver_un_ticket_tampoco_traba_el_panel():
     """Mismo defecto y mismo arreglo en el panel de soporte."""
     with sync_playwright() as p:

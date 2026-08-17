@@ -19,9 +19,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from backend.core.engine import DataEngine
-from backend.schemas.notificacion import NotificacionRead, mensaje_de
+from backend.schemas.notificacion import NotificacionRead, mensaje_de, nota_normalizada
 
 TABLA = "ticket_notificaciones"
+
+# La base no tiene la columna `nota`: se aplicó el DDL anterior a
+# docs/DDL_PENDIENTE.sql §6 con `nota`. `PGRST204` es el "Could not find the
+# '<col>' column in the schema cache" de PostgREST; `42703` el
+# `undefined_column` de Postgres.
+CODIGOS_COLUMNA_FALTANTE = frozenset({"PGRST204", "42703"})
 
 
 class NotificacionRepository:
@@ -38,6 +44,7 @@ class NotificacionRepository:
         destinatario: Any,
         estatus: Any,
         actor: Any = None,
+        nota: Any = None,
     ) -> Optional[NotificacionRead]:
         """
         Genera el aviso de un cambio de estatus. Devuelve `None` cuando no
@@ -49,6 +56,11 @@ class NotificacionRepository:
         * no se sabe a quién avisar;
         * `actor` es la misma persona que reportó — quien mueve su propio
           ticket ya sabe lo que hizo, y avisárselo solo ensucia la campanita.
+
+        `nota` es lo que escribió quien resolvió (`resolucion_notas`). Viaja
+        **junto** al mensaje fijo, no en su lugar: el fijo dice en qué estado
+        quedó el reporte y la nota dice qué pasó con ese bug. Sin nota, el
+        aviso es exactamente el de antes.
 
         Nunca lanza. Un fallo al escribir el aviso se registra y se traga: el
         ticket ya está guardado y perder el aviso es infinitamente preferible
@@ -69,12 +81,40 @@ class NotificacionRepository:
             "leida": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+        limpia = nota_normalizada(nota)
+        if limpia:
+            fila["nota"] = limpia
+
         try:
-            guardadas = self.engine.insertar(TABLA, [fila])
+            guardadas = self._insertar_aviso(fila)
         except Exception as exc:  # noqa: BLE001 - ver docstring del módulo
             print(f"[notificaciones] no se pudo avisar de {folio!r} a {quien!r}: {exc}")
             return None
         return NotificacionRead.model_validate(guardadas[0])
+
+    def _insertar_aviso(self, fila: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Inserta el aviso; si la base no conoce `nota`, lo reinserta sin ella.
+
+        La columna es nueva (docs/DDL_PENDIENTE.sql §6). Contra una base con el
+        DDL anterior, PostgREST rechaza la fila entera con `PGRST204` y —como
+        `crear_para_ticket` se traga los fallos— la campanita se quedaría muda
+        para todo el equipo, en silencio, hasta que alguien notara que ya no
+        llegan avisos. Reintentar sin la nota pierde la nota, que es el mal
+        menor, y deja el aviso igual de puntual que antes.
+
+        El reintento es solo para esta causa: cualquier otro fallo sube tal
+        cual y lo registra quien llama.
+        """
+        try:
+            return self.engine.insertar(TABLA, [fila])
+        except Exception as exc:  # noqa: BLE001 - se relanza si no es la columna
+            if "nota" not in fila or getattr(exc, "codigo", "") not in CODIGOS_COLUMNA_FALTANTE:
+                raise
+            print("[notificaciones] la base no tiene la columna `nota`: se avisa sin ella "
+                  "(aplicar docs/DDL_PENDIENTE.sql §6)")
+            sin_nota = {k: v for k, v in fila.items() if k != "nota"}
+            return self.engine.insertar(TABLA, [sin_nota])
 
     def marcar_leidas(self, destinatario: Any, ids: Optional[Sequence[str]] = None) -> int:
         """
