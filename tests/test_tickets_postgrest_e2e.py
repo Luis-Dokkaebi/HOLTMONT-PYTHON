@@ -9,11 +9,15 @@ alta— y se apunta `PostgrestEngine` a él. Así se ejerce el camino real
 
 Existe por lo que pasó el 2026-08-17: el formulario devolvía "vuelve a
 intentarlo" a todo el mundo, y con las pruebas en verde sobre `MemoryEngine` no
-había forma de distinguir si el alta funcionaba contra PostgREST o no. Estos
-dos escenarios cierran ese hueco: uno confirma que un ticket se manda y se
-guarda, el otro confirma qué se ve en pantalla cuando la clave del backend no
-tiene permiso de escritura (RLS encendida sin políticas, DDL §5), que es el
-fallo que no se arregla reintentando.
+había forma de distinguir si el alta funcionaba contra PostgREST o no. La
+diferencia que importaba estaba justo ahí: `MemoryEngine` no tiene la UNIQUE de
+`folio`, así que el choque de folios —la causa real del bloqueo— era invisible
+para toda la suite. El doble de aquí sí la impone.
+
+Cubre: que un ticket se manda y se guarda; que la evidencia se agrega sin tocar
+lo reportado; el estado exacto de la base el día del bloqueo; dos altas
+simultáneas; y qué se ve en pantalla cuando falta la tabla o cuando la clave
+del backend no puede escribir (RLS encendida sin políticas, DDL §5).
 """
 
 from __future__ import annotations
@@ -105,6 +109,33 @@ def postgrest_falso(monkeypatch):
                 return
             largo = int(self.headers.get("Content-Length", "0"))
             nuevas = json.loads(self.rfile.read(largo) or b"[]")
+            consulta = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            clave = consulta.get("on_conflict", [""])[0]
+
+            if clave:  # upsert: fusiona sobre la fila que ya está
+                guardadas = []
+                for fila in nuevas:
+                    previas = [f for f in estado.tablas[tabla] if f.get(clave) == fila.get(clave)]
+                    fusionada = {**(previas[0] if previas else {"id": str(uuid.uuid4())}), **fila}
+                    if previas:
+                        estado.tablas[tabla][estado.tablas[tabla].index(previas[0])] = fusionada
+                    else:
+                        estado.tablas[tabla].append(fusionada)
+                    guardadas.append(fusionada)
+                devuelve = "return=representation" in (self.headers.get("Prefer") or "")
+                self._responder(200, guardadas if devuelve else [])
+                return
+
+            # INSERT liso. `folio` es UNIQUE en `bug_tickets` (DDL §5): sin esta
+            # restricción el doble no reproduce el fallo que tuvo el sistema
+            # bloqueado desde el 2026-08-13.
+            tomados = {f.get("folio") for f in estado.tablas[tabla]}
+            if tabla == "bug_tickets" and any(f.get("folio") in tomados for f in nuevas):
+                self._responder(409, {
+                    "code": "23505",
+                    "message": 'duplicate key value violates unique constraint "bug_tickets_folio_key"',
+                })
+                return
             guardadas = [{"id": str(uuid.uuid4()), **fila} for fila in nuevas]
             estado.tablas[tabla].extend(guardadas)
             devuelve = "return=representation" in (self.headers.get("Prefer") or "")
@@ -202,3 +233,50 @@ def test_con_la_tabla_sin_crear_el_mensaje_manda_al_ddl(postgrest_falso):
     assert respuesta.status_code == 503
     assert "bug_tickets" in respuesta.detail and "DDL" in respuesta.detail
     assert "select=" not in respuesta.detail, "la consulta cruda no viaja a pantalla"
+
+
+def test_con_la_base_como_estaba_el_2026_08_17_el_alta_vuelve_a_funcionar(
+    repo_postgrest, postgrest_falso
+):
+    """
+    Reproducción exacta del bloqueo, sobre PostgREST y con la UNIQUE puesta.
+
+    Estado medido en la base real ese día: una sola fila, y su folio `BUG-0002`
+    (de `BUG-0001` no quedaba rastro). Contando filas, cada alta pedía
+    `BUG-0002` → `23505` → "vuelve a intentarlo" para todo el equipo, siempre.
+    """
+    postgrest_falso.tablas["bug_tickets"].append({
+        "id": "ya-existente", "folio": "BUG-0002", "reportado_por": "CARLOS_MENDEZ",
+        "modulo": "Tracker", "descripcion": "lo de antes", "severidad": "MEDIA",
+        "estatus": "CERRADO", "evidencia": [],
+    })
+
+    creado = repo_postgrest.crear(
+        TicketWrite(modulo="Ventas", descripcion="no me deja agregar una cotización"), "LUIS"
+    )
+
+    assert creado.folio == "BUG-0003"
+    assert len(postgrest_falso.tablas["bug_tickets"]) == 2, "el ticket quedó guardado"
+
+
+def test_dos_altas_simultaneas_no_pierden_ninguna(repo_postgrest, postgrest_falso):
+    """
+    El folio no tiene candado: la segunda alta calcula el mismo número, la
+    UNIQUE la rebota con 409 y el repositorio recalcula. Ninguna se pierde.
+    """
+    folios = []
+    original = repo_postgrest._siguiente_folio
+    llamadas = {"n": 0}
+
+    def _siempre_el_mismo_la_primera_vez():
+        # Imita la carrera: las dos altas leen la tabla antes de que la otra
+        # haya escrito, así que las dos calculan BUG-0001.
+        llamadas["n"] += 1
+        return "BUG-0001" if llamadas["n"] <= 2 else original()
+
+    repo_postgrest._siguiente_folio = _siempre_el_mismo_la_primera_vez
+    for quien in ("LUIS", "TERESA"):
+        folios.append(repo_postgrest.crear(TicketWrite(modulo="Ventas", descripcion="X"), quien).folio)
+
+    assert folios == ["BUG-0001", "BUG-0002"]
+    assert len(postgrest_falso.tablas["bug_tickets"]) == 2

@@ -18,6 +18,7 @@ una alteración en algo **detectable**. Ver `verificar_evidencia`.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -33,6 +34,14 @@ from backend.schemas.ticket import (
 TABLA = "bug_tickets"
 CLAVE_UPSERT = "folio"
 
+FORMATO_DE_FOLIO = re.compile(r"^BUG-(\d+)$")
+
+# `23505` es `unique_violation`; PostgREST lo devuelve como 409. Dos altas
+# simultáneas calculan el mismo folio, así que el segundo insert rebota: se
+# recalcula y se reintenta en vez de devolverle el fallo a quien reporta.
+CODIGOS_FOLIO_OCUPADO = frozenset({"23505"})
+INTENTOS_DE_ALTA = 5
+
 
 class TicketNoEncontrado(BackendError):
     """No hay ningún `bug_tickets` con ese folio."""
@@ -40,6 +49,11 @@ class TicketNoEncontrado(BackendError):
 
 def _ahora() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _es_folio_ocupado(exc: ErrorDeMotor) -> bool:
+    """La base rechazó el insert porque ese folio ya existe."""
+    return exc.codigo in CODIGOS_FOLIO_OCUPADO or exc.estado == 409
 
 
 class TicketRepository:
@@ -59,17 +73,33 @@ class TicketRepository:
 
     def _siguiente_folio(self) -> str:
         """
-        `BUG-0001`, `BUG-0002`... contando las filas existentes.
+        `BUG-0001`, `BUG-0002`... a partir del folio **más alto** que ya existe.
 
-        Igual que `DB_SITIOS.ID_SITIO` (docs/DDL_PENDIENTE.sql §2), no hay
-        candado: dos altas en el mismo instante podrían calcular el mismo
-        folio. Por eso `crear` usa `insertar` (INSERT liso) y no `upsert`: con
-        la `UNIQUE` de `folio` en el esquema real, una colisión sale como un
-        error visible en el segundo insert, nunca como una fusión silenciosa
-        de dos tickets distintos en una sola fila.
+        Contar las filas era lo que hacía antes, y bloqueó el sistema entero:
+        medido contra la base real el 2026-08-17, `bug_tickets` tenía una sola
+        fila y su folio era `BUG-0002` (de `BUG-0001` no quedaba rastro). El
+        conteo daba `1 + 1 = BUG-0002`, que ya estaba tomado, y como `folio` es
+        UNIQUE cada alta moría con un `23505`. No era intermitente: todo el
+        equipo llevaba días sin poder reportar un bug, y reintentar —lo único
+        que sugería el mensaje en pantalla— daba siempre el mismo folio.
+
+        Con el máximo, un hueco en la numeración deja de importar: un ticket
+        borrado, una migración parcial o una fila cargada a mano ya no vuelven
+        a chocar. Los folios que no tienen la forma `BUG-\\d+` se ignoran en vez
+        de tumbar el alta.
+
+        Sigue sin haber candado, igual que `DB_SITIOS.ID_SITIO`
+        (docs/DDL_PENDIENTE.sql §2): dos altas en el mismo instante calculan el
+        mismo número. Eso lo resuelve `crear` reintentando sobre la UNIQUE, que
+        es la que convierte la colisión en un error visible en vez de una
+        fusión silenciosa de dos tickets en una sola fila.
         """
-        existentes = self.engine.select(TABLA, columnas=["folio"])
-        return f"BUG-{len(existentes) + 1:04d}"
+        mayor = 0
+        for fila in self.engine.select(TABLA, columnas=["folio"]):
+            reconocido = FORMATO_DE_FOLIO.match(str(fila.get("folio") or "").strip().upper())
+            if reconocido:
+                mayor = max(mayor, int(reconocido.group(1)))
+        return f"BUG-{mayor + 1:04d}"
 
     def _fila_completa(self, folio: str) -> Dict[str, Any]:
         filas = self.engine.select(TABLA, donde={"folio": folio})
@@ -111,13 +141,17 @@ class TicketRepository:
         Da de alta el ticket. `reportado_por` viene de la sesión, nunca del
         cuerpo de `TicketWrite` — es la misma razón por la que `tasks` pone
         `source_sheet` en el servidor y no deja que el cliente lo mande.
+
+        Si el folio calculado ya está tomado, se recalcula y se reintenta: la
+        UNIQUE de `folio` señala la colisión y el alta se resuelve sola en vez
+        de rebotarle a quien reporta un error que no puede arreglar.
         """
         if not str(reportado_por or "").strip():
             raise BackendError("No se puede reportar un ticket sin usuario en sesión.")
 
         ahora = _ahora()
         fila: Dict[str, Any] = {
-            "folio": self._siguiente_folio(),
+            "folio": "",
             "reportado_por": reportado_por,
             "modulo": ticket.modulo,
             "descripcion": ticket.descripcion,
@@ -129,7 +163,18 @@ class TicketRepository:
             "created_at": ahora,
             "updated_at": ahora,
         }
-        guardadas = self.engine.insertar(TABLA, [fila])
+
+        guardadas: List[Dict[str, Any]] = []
+        for intento in range(INTENTOS_DE_ALTA):
+            fila["folio"] = self._siguiente_folio()
+            try:
+                guardadas = self.engine.insertar(TABLA, [fila])
+            except ErrorDeMotor as exc:
+                if not _es_folio_ocupado(exc) or intento == INTENTOS_DE_ALTA - 1:
+                    raise
+                continue
+            break
+
         if not guardadas:
             # PostgREST devuelve la fila porque `insertar` pide
             # `Prefer: return=representation`. Si aun así llega vacío, el alta

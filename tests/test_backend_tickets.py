@@ -951,3 +951,96 @@ def test_un_error_de_negocio_no_se_clasifica_como_permiso_ni_lleva_codigo():
     assert _es_permiso_denegado(error) is False
     assert _pista(error) == ""
     assert _causa(error) == "motor_caido"
+
+
+# --- El folio: lo que tenía el formulario bloqueado ------------------------
+#
+# Medido contra la base real el 2026-08-17: `bug_tickets` tenía UNA fila y su
+# folio era `BUG-0002`. El folio se calculaba contando filas —`1 + 1`— así que
+# cada alta pedía `BUG-0002`, que ya existía, y la UNIQUE de `folio` la
+# rechazaba con `23505`. Todo el equipo llevaba días sin poder reportar un bug
+# y el único consejo en pantalla era reintentar, que daba siempre el mismo
+# folio. Ahora el folio sale del máximo, no del conteo.
+
+
+def test_el_folio_sale_del_mayor_existente_no_del_conteo():
+    """El estado exacto de producción: una fila, y su folio es BUG-0002."""
+    motor = MemoryEngine({
+        "bug_tickets": [{"id": "1", "folio": "BUG-0002", "reportado_por": "CARLOS_MENDEZ",
+                         "modulo": "Tracker", "descripcion": "algo", "severidad": "MEDIA",
+                         "estatus": "CERRADO", "evidencia": [],
+                         "created_at": "2026-08-13T22:02:52Z", "updated_at": "2026-08-13T22:02:52Z"}],
+        "ticket_notificaciones": [],
+    })
+    creado = TicketRepository(motor).crear(
+        TicketWrite(modulo="Ventas", descripcion="no me deja agregar"), "LUIS"
+    )
+    assert creado.folio == "BUG-0003", "contar filas repetía un folio ya tomado"
+
+
+def test_un_hueco_en_la_numeracion_no_repite_folio(repo):
+    """Un ticket borrado a mano deja hueco; el siguiente no puede caer en él."""
+    repo.engine.datos["bug_tickets"] = [{"folio": "BUG-0001"}, {"folio": "BUG-0005"}]
+    assert repo._siguiente_folio() == "BUG-0006"
+
+
+def test_los_folios_con_otra_forma_se_ignoran_en_vez_de_tumbar_el_alta(repo):
+    repo.engine.datos["bug_tickets"] = [
+        {"folio": "MANUAL"}, {"folio": None}, {"folio": ""}, {"folio": "BUG-0003"},
+    ]
+    assert repo._siguiente_folio() == "BUG-0004"
+
+
+def test_una_colision_de_folio_se_reintenta_sola():
+    """
+    Dos altas en el mismo instante calculan el mismo número: no hay candado.
+    La UNIQUE lo señala y el alta se recalcula, en vez de rebotarle el error a
+    quien reporta.
+    """
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+    insertar_real = motor.insertar
+    intentos = []
+
+    def _choca_una_vez(tabla, filas):
+        if tabla != "bug_tickets":  # el aviso de recibo pasa por el mismo motor
+            return insertar_real(tabla, filas)
+        intentos.append(filas[0]["folio"])
+        if len(intentos) == 1:
+            motor.datos["bug_tickets"].append({"folio": filas[0]["folio"]})
+            raise ErrorDeMotor("PostgREST POST bug_tickets respondió 409",
+                               codigo="23505", estado=409)
+        return insertar_real(tabla, filas)
+
+    motor.insertar = _choca_una_vez
+    creado = TicketRepository(motor).crear(TicketWrite(modulo="Ventas", descripcion="X"), "LUIS")
+
+    assert intentos == ["BUG-0001", "BUG-0002"], "el reintento tiene que recalcular el folio"
+    assert creado.folio == "BUG-0002"
+
+
+def test_si_la_colision_no_cede_el_error_sale_a_la_luz():
+    """El reintento no puede tapar un problema que no se resuelve solo."""
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+
+    def _siempre_choca(tabla, filas):
+        raise ErrorDeMotor("PostgREST POST bug_tickets respondió 409", codigo="23505", estado=409)
+
+    motor.insertar = _siempre_choca
+    with pytest.raises(ErrorDeMotor):
+        TicketRepository(motor).crear(TicketWrite(modulo="Ventas", descripcion="X"), "LUIS")
+
+
+def test_un_fallo_que_no_es_colision_no_se_reintenta():
+    """Un 401 por permisos con reintentos es solo cuatro veces el mismo error."""
+    motor = MemoryEngine({"bug_tickets": [], "ticket_notificaciones": []})
+    llamadas = []
+
+    def _sin_permiso(tabla, filas):
+        assert tabla == "bug_tickets", "el alta falla antes de llegar al aviso"
+        llamadas.append(filas[0]["folio"])
+        raise ErrorDeMotor("PostgREST POST bug_tickets respondió 401", codigo="42501", estado=401)
+
+    motor.insertar = _sin_permiso
+    with pytest.raises(ErrorDeMotor):
+        TicketRepository(motor).crear(TicketWrite(modulo="Ventas", descripcion="X"), "LUIS")
+    assert len(llamadas) == 1
