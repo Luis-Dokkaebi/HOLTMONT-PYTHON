@@ -36,8 +36,15 @@ def test_catalogo_conceptos_ui():
         expect(pop_up_label).to_be_visible()
 
         # Verify duration dropdown options are updated
-        # The modal button acts as a great anchor since it's inside the same row
-        mo_btn = page.locator("button:has-text('MO')").last
+        # The modal button acts as a great anchor since it's inside the same row.
+        #
+        # El nombre va exacto: `has-text('MO')` busca subcadena sin distinguir
+        # mayúsculas, así que también casaba con "Remodelación", "RED NEURONAL
+        # HOLTMONT" y "marcar todas como leídas" (4 coincidencias). `.last`
+        # acababa en el botón de notificaciones, cuya fila no tiene el
+        # desplegable de duración, y la prueba fallaba por el localizador y no
+        # por la aplicación: el `<select>` con min/hrs/días sigue en su sitio.
+        mo_btn = page.get_by_role("button", name="MO", exact=True).last
         row = mo_btn.locator("xpath=../../..")
         dropdown = row.locator("select").first
 
