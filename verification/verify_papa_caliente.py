@@ -266,11 +266,11 @@ def _recorrido(motor: MemoryEngine) -> Dict[str, Any]:
 
 
 def _invariante_del_destino(vendedores: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """La regla del dueño, comprobada sobre los ocho vendedores con tabla."""
+    """La regla del dueño, comprobada sobre los nueve vendedores con tabla."""
     desviados = [f["vendedor"] for f in vendedores if f["ahora"]["tabla"] != "tasks"]
     return {
         "nombre": "Una fase delegada siempre aterriza en el tracker",
-        "explicacion": "Ninguno de los ocho vendedores con tabla `(VENTAS)` "
+        "explicacion": "Ninguno de los nueve vendedores con tabla `(VENTAS)` "
                        "recibe su microtarea en `quotes`, ni siquiera con el "
                        "tracker vacío y la tabla de ventas poblada.",
         "cumple": not desviados,
@@ -357,7 +357,7 @@ def _delegar_y_localizar(vendedor: str, resolver=None) -> Dict[str, Any]:
 
 def matriz_de_vendedores() -> List[Dict[str, Any]]:
     """
-    Los ocho vendedores con tabla `(VENTAS)`, uno por uno, con la regla
+    Los nueve vendedores con tabla `(VENTAS)`, uno por uno, con la regla
     anterior y con la vigente. La columna que importa es `tabla`: tiene que ser
     `tasks` en todos.
     """

@@ -56,7 +56,7 @@ from api.services.tracker_rules import (
     pick_task_value,
 )
 
-# Las ocho personas con tabla de cotizaciones `<NOMBRE> (VENTAS)`.
+# Las nueve personas con tabla de cotizaciones `<NOMBRE> (VENTAS)`.
 #
 # Es una lista **declarada**, no deducida, y esa es la decisión. Había tres
 # fuentes que decían cosas distintas y ninguna acertaba por sí sola:
@@ -82,6 +82,13 @@ VENDEDORES_CON_TABLA: tuple = (
     "EDUARDO TERAN",
     "EDGAR LOPEZ",
     "JUAN JOSE SANCHEZ",
+    # Alta del 2026-08-18. Entró por la vía consciente que pide este bloque: el
+    # dueño reportó que su módulo "Cotizaciones" no aparecía y que debe tener su
+    # tabla como Sebastián Padilla. El directorio no lo respalda —es
+    # ELECTROMECANICA/ESTANDAR— pero el modal de delegación de `index.html` ya lo
+    # nombraba a mano (`p.name === 'MIGUEL GALLARDO'`), así que la vista lo
+    # ofrecía como destino y el backend le decía que no había a dónde mandarlo.
+    "MIGUEL GALLARDO",
 )
 
 _VENDEDORES_NORMALIZADOS: Dict[str, str] = {

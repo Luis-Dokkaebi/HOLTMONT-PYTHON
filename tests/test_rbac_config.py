@@ -81,22 +81,47 @@ def test_vendedor_recibe_modulo_de_cotizaciones():
 
 
 def test_no_vendedor_no_recibe_modulo_de_cotizaciones():
-    cfg = config("STAFF_USER", "MIGUEL_GALLARDO")
+    cfg = config("STAFF_USER", "ROLANDO_MORENO")
     assert not [m for m in cfg["specialModules"] if m["id"] == "MY_SALES"]
 
 
-def test_los_nueve_vendedores_del_organigrama():
+def test_miguel_gallardo_recibe_su_tabla_de_cotizaciones():
     """
-    El original declara 9 cuentas con `seller: true`.
+    Reporte del dueño (2026-08-18): entró a su cuenta y no tenía la tabla de
+    Cotizaciones que sí tiene Sebastián Padilla.
 
-    El SSD pedía decidir entre "6 vendedores" y estas 9; la decisión tomada es
+    Cotiza desde ELECTROMECANICA, así que la bandera no puede depender del
+    departamento —igual que Alfonso Correa desde CONSTRUCCION—. El módulo tiene
+    que apuntar a su hoja con sufijo, no a su tracker: sin el sufijo estaría
+    abriendo dos veces la misma tabla de actividades.
+    """
+    cfg = config("STAFF_USER", "MIGUEL_GALLARDO")
+    ventas = [m for m in cfg["specialModules"] if m["id"] == "MY_SALES"]
+
+    assert ventas, "MIGUEL_GALLARDO debe ver su módulo de Cotizaciones"
+    assert ventas[0]["target"] == "MIGUEL GALLARDO (VENTAS)"
+    assert ventas[0]["label"] == "Cotizaciones"
+
+    # La misma forma que la de Sebastián, que es la referencia que dio el dueño.
+    sebastian = next(m for m in config("STAFF_USER", "SEBASTIAN_PADILLA")["specialModules"]
+                     if m["id"] == "MY_SALES")
+    assert {k: v for k, v in ventas[0].items() if k != "target"} == \
+           {k: v for k, v in sebastian.items() if k != "target"}
+
+
+def test_los_diez_vendedores_del_organigrama():
+    """
+    El original declara 9 cuentas con `seller: true`; Miguel Gallardo es el alta
+    del dueño del 2026-08-18 y hace diez.
+
+    El SSD pedía decidir entre "6 vendedores" y aquellas 9; la decisión tomada es
     que manda el atributo del perfil, no una lista aparte. Si alguien cambia un
     `seller`, esta prueba lo hace explícito en vez de que se note en permisos.
     """
     assert organigrama.vendedores() == [
         "ALFONSO_CORREA", "ANGEL_SALINAS", "EDUARDO_MANZANARES", "EDUARDO_TERAN",
-        "JUAN_JOSE_SANCHEZ", "JUDITH_ECHAVARRIA", "RAMIRO_RODRIGUEZ",
-        "SEBASTIAN_PADILLA", "TERESA_GARZA",
+        "JUAN_JOSE_SANCHEZ", "JUDITH_ECHAVARRIA", "MIGUEL_GALLARDO",
+        "RAMIRO_RODRIGUEZ", "SEBASTIAN_PADILLA", "TERESA_GARZA",
     ]
 
 
