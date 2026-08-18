@@ -7466,6 +7466,17 @@ async function toggleVoiceRecording(btnElement) {
       // del directorio (api/main.py) desde una unica lista declarada.
       const puedeRecibirDeEstaTabla = (p) => !esHojaDeVentas(staffTracker.value.name) || !!p.sales;
       const filteredDirectory = computed(() => (config.value.directory || config.value.staff).filter(p => p.name.toLowerCase().includes(staffSearch.value.toLowerCase()) && !selectedResponsables.value.includes(p.name) && p.name !== 'ANTONIA_VENTAS' && puedeRecibirDeEstaTabla(p)).slice(0,5));
+      // A quien ofrece el modal de la columna VENDEDOR / RESPONSABLE /
+      // INVOLUCRADOS de la tabla. Es la MISMA regla que `filteredDirectory`, y
+      // por eso reusa `puedeRecibirDeEstaTabla` en vez de repetir la condicion:
+      // eran dos entradas a la misma decision y solo una la respetaba, asi que
+      // desde `ANTONIA_VENTAS` el modal ofrecia a los 40 del directorio. Elegir
+      // ahi a alguien sin tabla `(VENTAS)` guardaba la fila sin error y sin
+      // copia: `destinos_espejo` no tiene a donde mandarla (api/services/asignacion.py).
+      const asignablesDeEstaTabla = () => (config.value.directory || config.value.staff || [])
+          .filter(p => p.name !== 'ANTONIA_VENTAS' && puedeRecibirDeEstaTabla(p))
+          .map(p => p.name)
+          .filter((n, i, a) => a.indexOf(n) === i);
       const pageTitle = computed(() => currentView.value);
       const currentDeptData = computed(() => config.value.departments[currentDept.value] || {});
 
@@ -10297,7 +10308,7 @@ const filteredStaffTrackerData = computed(() => {
           if (!isFieldEditable(field, row)) return;
 
           const isSalesTable = String(staffTracker.value.name).toUpperCase().includes('VENTAS') || currentUsername.value === 'ANTONIA_VENTAS';
-          const staffToUse = allStaffList.value;
+          const staffToUse = asignablesDeEstaTabla();
           const currentVals = row[field] ? String(row[field]).split(',').map(s => s.trim()) : [];
 
           let htmlContent = `

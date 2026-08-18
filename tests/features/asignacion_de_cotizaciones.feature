@@ -37,6 +37,17 @@ Característica: A dónde va una cotización asignada
     Dado que Toñita reparte una cotización a "GERALDINE MARTINEZ HERNANDEZ"
     Entonces no hay ninguna tabla destino
 
+  # Reporte del dueño (2026-08-18), con captura del modal «Asignar Vendedor /
+  # Empleado»: desde ANTONIA_VENTAS salían los 40 del directorio. La regla ya
+  # estaba, pero solo en la otra entrada —los chips—, no en este modal.
+  Escenario: El modal de una tabla de ventas solo ofrece a quien tiene tabla
+    Dado que se abre el modal de asignación en la hoja "ANTONIA_VENTAS"
+    Entonces la lista ofrece solo a quien tiene tabla de cotizaciones
+
+  Escenario: El modal de un tracker ofrece a cualquier empleado
+    Dado que se abre el modal de asignación en la hoja "JAIME OLIVO"
+    Entonces la lista ofrece a todo el directorio
+
   Escenario: Un vendedor no reparte cotizaciones
     Dado que el vendedor "SEBASTIAN PADILLA" reparte una cotización a "TERESA GARZA"
     Entonces no hay ninguna tabla destino

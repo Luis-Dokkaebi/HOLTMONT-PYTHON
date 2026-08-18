@@ -411,6 +411,39 @@ def _no_ve_el_modulo(contexto: Dict[str, Any], etiqueta: str) -> None:
     assert not _modulos_por_etiqueta(contexto, etiqueta)
 
 
+@given(parsers.parse('que se abre el modal de asignación en la hoja "{hoja}"'))
+def _abre_el_modal(contexto: Dict[str, Any], hoja: str) -> None:
+    """
+    Evalúa con Node el `staffToUse` real de `openVendorSelector` en `index.html`.
+
+    El directorio de prueba y el evaluador viven en `test_lista_de_asignables`;
+    aquí se reusan para no tener dos copias de la misma maquinaria.
+    """
+    import shutil
+
+    from tests.test_lista_de_asignables import _del_modal
+
+    if shutil.which("node") is None:
+        pytest.skip("node no está instalado")
+
+    contexto["ofrecidos"] = _del_modal(hoja)
+
+
+@then("la lista ofrece solo a quien tiene tabla de cotizaciones")
+def _ofrece_solo_vendedores(contexto: Dict[str, Any]) -> None:
+    from tests.test_lista_de_asignables import DIRECTORIO
+
+    con_tabla = [p["name"] for p in DIRECTORIO if p["sales"]]
+    assert contexto["ofrecidos"] == con_tabla
+
+
+@then("la lista ofrece a todo el directorio")
+def _ofrece_a_todos(contexto: Dict[str, Any]) -> None:
+    from tests.test_lista_de_asignables import DIRECTORIO
+
+    assert contexto["ofrecidos"] == [p["name"] for p in DIRECTORIO]
+
+
 @then("la actividad no se copia a ninguna otra tabla")
 def _sin_copia(contexto: Dict[str, Any]) -> None:
     """
