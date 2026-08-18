@@ -54,10 +54,13 @@ from backend.services.persistencia import PersistenciaTracker
 
 ANTONIA = "ANTONIA_VENTAS"
 
-# Los ocho que el dueño autorizó como destino de una cotización.
+# Los nueve que el dueño autorizó como destino de una cotización.
+# Miguel Gallardo se dio de alta el 2026-08-18: cotiza desde Electromecánica y
+# el modal de delegación de la vista ya lo ofrecía como destino.
 CON_TABLA = [
     "EDUARDO MANZANARES", "RAMIRO RODRIGUEZ", "SEBASTIAN PADILLA", "TERESA GARZA",
     "ANGEL SALINAS", "EDUARDO TERAN", "EDGAR LOPEZ", "JUAN JOSE SANCHEZ",
+    "MIGUEL GALLARDO",
 ]
 
 # Personas reales del directorio que **no** tienen tabla de cotizaciones.
@@ -72,7 +75,7 @@ SIN_TABLA = [
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("nombre", CON_TABLA)
-def test_los_ocho_autorizados_tienen_tabla_de_cotizaciones(nombre: str) -> None:
+def test_los_autorizados_tienen_tabla_de_cotizaciones(nombre: str) -> None:
     assert tabla_de_cotizaciones(nombre) == f"{nombre} (VENTAS)"
 
 

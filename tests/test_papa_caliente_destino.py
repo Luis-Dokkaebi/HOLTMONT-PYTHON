@@ -52,7 +52,7 @@ CANDIDATOS_DEL_MODAL = (
 @pytest.mark.parametrize("vendedor", VENDEDORES_CON_TABLA)
 def test_ningun_vendedor_recibe_su_fase_en_la_tabla_de_ventas(vendedor):
     """
-    Los ocho vendedores con tabla `(VENTAS)`. El destino es su tracker, y la
+    Los nueve vendedores con tabla `(VENTAS)`. El destino es su tracker, y la
     resolución ya no depende de qué partición exista: es el nombre, punto.
     """
     destino = tracker_store.resolve_worker_sheet(vendedor)
@@ -98,7 +98,7 @@ def _motor_con_vendedores() -> MemoryEngine:
     Base donde cada vendedor tiene SOLO su tabla de ventas poblada.
 
     Es el peor caso de la regla vieja: el tracker de todos está vacío, así que
-    las ocho delegaciones se desviaban a `quotes`.
+    las nueve delegaciones se desviaban a `quotes`.
     """
     return MemoryEngine({
         "quotes": [{
@@ -151,7 +151,7 @@ def _delegar(persona: str, paso: str = "CD"):
 @pytest.mark.parametrize("vendedor", VENDEDORES_CON_TABLA)
 def test_la_fase_delegada_a_un_vendedor_aterriza_en_tasks(vendedor, base):
     """
-    El caso que preguntó el dueño, con los ocho: Antonia delega a Sebastián y la
+    El caso que preguntó el dueño, con los nueve: Antonia delega a Sebastián y la
     microtarea aparece en su tracker, no entre sus cotizaciones.
     """
     respuesta = _delegar(vendedor)

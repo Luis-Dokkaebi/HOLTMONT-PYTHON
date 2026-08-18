@@ -386,6 +386,31 @@ def _copia_va_a(contexto: Dict[str, Any], tabla: str) -> None:
     assert contexto["destinos"] == [tabla]
 
 
+@given(parsers.parse('que "{cuenta}" entra al sistema'))
+def _entra_al_sistema(contexto: Dict[str, Any], cuenta: str) -> None:
+    from api.main import api_get_system_config
+    from api.services import organigrama
+
+    contexto["config"] = api_get_system_config(
+        role=organigrama.perfil(cuenta).get("role", "STAFF_USER"), username=cuenta)
+
+
+def _modulos_por_etiqueta(contexto: Dict[str, Any], etiqueta: str) -> list:
+    return [m for m in contexto["config"]["specialModules"] if m["label"] == etiqueta]
+
+
+@then(parsers.parse('ve el módulo "{etiqueta}" apuntando a "{destino}"'))
+def _ve_el_modulo(contexto: Dict[str, Any], etiqueta: str, destino: str) -> None:
+    modulos = _modulos_por_etiqueta(contexto, etiqueta)
+    assert modulos, f"no ve «{etiqueta}»; ve {[m['label'] for m in contexto['config']['specialModules']]}"
+    assert modulos[0]["target"] == destino
+
+
+@then(parsers.parse('no ve el módulo "{etiqueta}"'))
+def _no_ve_el_modulo(contexto: Dict[str, Any], etiqueta: str) -> None:
+    assert not _modulos_por_etiqueta(contexto, etiqueta)
+
+
 @then("la actividad no se copia a ninguna otra tabla")
 def _sin_copia(contexto: Dict[str, Any]) -> None:
     """

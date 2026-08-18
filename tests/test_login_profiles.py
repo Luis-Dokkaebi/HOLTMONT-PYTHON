@@ -115,6 +115,31 @@ def test_los_campos_que_faltan_en_la_base_caen_a_la_semilla(monkeypatch):
     assert perfil["seller"] is True
 
 
+def test_la_base_no_puede_apagar_un_vendedor_de_la_semilla(monkeypatch):
+    """
+    `profiles` se pobló una vez desde `USER_DB` y no se vuelve a escribir al
+    desplegar. Si la semilla marca a alguien como vendedor y aquella fila trae
+    la columna apagada, el módulo `MY_SALES` desaparecía en producción sin que
+    nada lo dijera — es el accidente ya medido con `soporte` (ANTONIO_SALAZAR,
+    2026-08-13), y el que dejaría a Miguel Gallardo sin tabla de Cotizaciones
+    aunque el repositorio diga que la tiene.
+
+    La bandera es aditiva: la base puede concederla, no retirarla.
+    """
+    _con_profiles(monkeypatch, [
+        {"username": "MIGUEL_GALLARDO", "password": "x", "seller": False}])
+
+    assert organigrama.perfil("MIGUEL_GALLARDO")["seller"] is True
+
+
+def test_la_base_puede_dar_de_alta_a_un_vendedor_que_la_semilla_no_marca(monkeypatch):
+    """La otra dirección sigue viva: el dueño edita `profiles` sin desplegar."""
+    _con_profiles(monkeypatch, [
+        {"username": "ROLANDO_MORENO", "password": "x", "seller": True}])
+
+    assert organigrama.perfil("ROLANDO_MORENO")["seller"] is True
+
+
 def test_un_fallo_de_base_no_deja_entrar(monkeypatch):
     """Ante un error de red se niega el acceso, no se concede."""
     class Roto:

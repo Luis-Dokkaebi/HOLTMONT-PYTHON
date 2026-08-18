@@ -81,7 +81,7 @@ la tabla de ventas de nadie.
 tracker primero y, si esa partición estaba vacía, `<NOMBRE> (VENTAS)`—. Como
 `PersistenciaTracker` decide la tabla por el nombre de la hoja (`is_sales_sheet` → `quotes`),
 un vendedor sin filas en su tracker recibía la microtarea entre sus cotizaciones. Medido
-sobre los ocho vendedores con tabla, con el tracker vacío:
+sobre los nueve vendedores con tabla, con el tracker vacío:
 
 | Vendedor | Regla anterior | Regla vigente |
 | --- | --- | --- |
@@ -147,7 +147,7 @@ estado que dejó el anterior— e imprime el estado de la base después de cada 
 Al final comprueba seis invariantes contra el estado de la base: identidad propia por copia,
 el 100 % de una fase no cierra la cotización, la maestra no hereda el concepto marcado, las
 microtareas no se sincronizan entre sí, la papa caliente no pasa por el espejo de
-asignaciones, y —barriendo a los ocho vendedores con tabla `(VENTAS)`— una fase delegada
+asignaciones, y —barriendo a los nueve vendedores con tabla `(VENTAS)`— una fase delegada
 siempre aterriza en el tracker.
 
 `tests/test_papa_caliente_destino.py` fija la regla del §3 con 33 pruebas: la resolución del

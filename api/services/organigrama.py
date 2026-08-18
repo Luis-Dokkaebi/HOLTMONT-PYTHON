@@ -115,7 +115,11 @@ PERFILES: Dict[str, Dict[str, Any]] = {
     "JUANY_RODRIGUEZ": {"role": "STAFF_USER", "label": "Juana Maria Rodriguez Juarez", "email": "", "staff_name": "JUANA MARIA RODRIGUEZ JUAREZ", "dept": "FINANZAS", "seller": False},
     "EDUARDO_BENITEZ": {"role": "STAFF_USER", "label": "Eduardo Israel Benitez Garcia", "email": "", "staff_name": "EDUARDO BENITEZ", "dept": "LIMPIEZA", "seller": False},
     "ROLANDO_MORENO": {"role": "STAFF_USER", "label": "Jesus Rolando Moreno Perez", "email": "", "staff_name": "ROLANDO MORENO", "dept": "HVAC", "seller": False},
-    "MIGUEL_GALLARDO": {"role": "STAFF_USER", "label": "Miguel Angel Gallardo Jaramillo", "email": "", "staff_name": "MIGUEL GALLARDO", "dept": "ELECTROMECANICA", "seller": False},
+    # Cotiza desde Electromecánica, igual que Alfonso Correa desde Construcción:
+    # la bandera es aditiva y no depende del departamento. Decisión del dueño
+    # (2026-08-18) al reportar que su módulo "Cotizaciones" no aparecía; el
+    # modal de delegación de `index.html` ya lo ofrecía como destino.
+    "MIGUEL_GALLARDO": {"role": "STAFF_USER", "label": "Miguel Angel Gallardo Jaramillo", "email": "", "staff_name": "MIGUEL GALLARDO", "dept": "ELECTROMECANICA", "seller": True},
     "JEHU_MARTINEZ": {"role": "STAFF_USER", "label": "Jehu Arsenio Martinez Montes", "email": "", "staff_name": "JEHU MARTINEZ", "dept": "ELECTROMECANICA", "seller": False},
     "RICARDO_MENDO": {"role": "STAFF_USER", "label": "Ricardo Alonso Mendo Morales", "email": "", "staff_name": "RICARDO MENDO", "dept": "CONSTRUCCION", "seller": False},
     "CARLOS_MENDEZ": {"role": "STAFF_USER", "label": "Carlos Mendez Urbina", "email": "", "staff_name": "CARLOS MENDEZ", "dept": "CALIDAD", "seller": False},
@@ -215,7 +219,15 @@ def _perfil_desde_base(clave: str) -> Optional[Dict[str, Any]]:
             "email": fila.get("email") or base.get("email", ""),
             "staff_name": fila.get("staff_name") or base.get("staff_name", ""),
             "dept": fila.get("dept") or base.get("dept", ""),
-            "seller": bool(fila.get("seller", base.get("seller", False))),
+            # `seller` se suma, no se sustituye: si la semilla marca a alguien
+            # como vendedor, una fila de `profiles` que traiga la columna
+            # apagada no puede quitarle el módulo. Es el mismo accidente que ya
+            # se midió con `soporte` (ANTONIO_SALAZAR, 2026-08-13): la bandera
+            # queda encendida en el repo y apagada en producción, sin aviso,
+            # porque `profiles` se pobló una vez desde `USER_DB` y no se vuelve
+            # a tocar al desplegar. La base sí puede **conceder** la bandera a
+            # quien la semilla no marca; para retirarla se edita la semilla.
+            "seller": bool(fila.get("seller")) or bool(base.get("seller", False)),
             # `soporte` habilita la vista de tickets de bug. Faltaba aquí, y
             # como este diccionario se reconstruye clave por clave, la bandera
             # se perdía en cuanto la cuenta existía en `profiles`: quedaba
