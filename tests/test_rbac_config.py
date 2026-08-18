@@ -328,3 +328,89 @@ def test_la_base_puede_conceder_la_bandera_a_quien_no_la_trae(monkeypatch):
     organigrama.reset_cache_perfiles()
     monkeypatch.setattr(organigrama, "_filas_profiles", lambda: [fila])
     assert config("STAFF_USER", "MIGUEL_GALLARDO")["canManageTickets"] is True
+
+
+# --- Prospección geoespacial (DENUE) -----------------------------------
+#
+# El módulo publica 20,957 nombres con teléfono y correo. Quién lo ve es una
+# decisión del dueño (plan de prospección §11, punto 2): ADMIN, ADMIN_CONTROL y
+# las cuentas de compras/ventas; no el STAFF_USER genérico.
+#
+# La mitad que importa de una regla de permisos es a quién NO se le da: que el
+# módulo aparezca de más no rompe nada visible, y por eso nadie lo notaría.
+
+MODULO_GEO = "PROSPECCION_GEO"
+
+
+def _ve_geo(role, username=""):
+    return MODULO_GEO in [m["id"] for m in config(role, username)["specialModules"]]
+
+
+@pytest.mark.parametrize("rol,cuenta", [
+    ("ADMIN", "LUIS_CARLOS"),
+    ("ADMIN_CONTROL", "JAIME_OLIVO"),
+    ("ADMIN_CONTROL", "DIMAS_RAMOS"),
+    ("TONITA", "ANTONIA_VENTAS"),        # la cuenta de la tabla maestra de ventas
+    ("STAFF_USER", "SONIA_GARCIA"),      # COMPRAS
+    ("STAFF_USER", "VANESSA_DE_LARA"),   # COMPRAS
+    ("STAFF_USER", "RAMIRO_RODRIGUEZ"),  # VENTAS
+    ("STAFF_USER", "JUDITH_ECHAVARRIA"), # COMPRAS y además vendedora
+])
+def test_compras_ventas_y_administracion_ven_prospeccion(rol, cuenta):
+    assert _ve_geo(rol, cuenta)
+
+
+@pytest.mark.parametrize("rol,cuenta", [
+    ("STAFF_USER", "EDUARDO_BENITEZ"),   # LIMPIEZA
+    ("STAFF_USER", "ROLANDO_MORENO"),    # HVAC
+    ("STAFF_USER", "RICARDO_MENDO"),     # CONSTRUCCION, sin tabla de cotizaciones
+    ("STAFF_USER", "LAURA_HUERTA"),      # RH
+    ("STAFF_USER", "ROCIO_CASTRO"),      # FINANZAS
+    ("WORKORDER_USER", "PREWORK_ORDER"),
+    ("PPC_ADMIN", "JESUS_CANTU"),
+])
+def test_el_resto_del_personal_no_ve_prospeccion(rol, cuenta):
+    assert not _ve_geo(rol, cuenta)
+
+
+def test_un_rol_desconocido_no_hereda_prospeccion():
+    """
+    El `return` final del endpoint lo alcanzan ADMIN **y** cualquier rol sin
+    rama. Es exactamente el camino por el que STAFF_USER heredaba la
+    configuración de ADMIN antes de tener la suya; un módulo nuevo no puede
+    volver a colarse por ahí.
+    """
+    assert not _ve_geo("ROL_QUE_NADIE_DEFINIO", "LUIS_CARLOS")
+
+
+def test_sin_username_la_prospeccion_no_se_concede_por_defecto():
+    """
+    Un cliente viejo que solo mande `role` degrada a "sin rama por usuario",
+    nunca a permisos de más.
+    """
+    assert not _ve_geo("STAFF_USER", "")
+
+
+def test_el_modulo_de_prospeccion_declara_el_tipo_que_el_frontend_sabe_abrir():
+    """
+    R9. `index.html` enruta por `m.type` en `openModule`; si el backend publica
+    un tipo que la cadena de `else if` no contempla, el clic no hace nada y
+    **no** se registra ningún error en consola. Ya pasó con `work_order_form`.
+    """
+    geo = next(m for m in config("ADMIN", "LUIS_CARLOS")["specialModules"]
+               if m["id"] == MODULO_GEO)
+    assert geo["type"] == "geo_prospect_view"
+    assert geo["label"] == "Prospección"
+    assert geo["icon"] == "fa-map-marked-alt"
+
+
+def test_la_regla_de_visibilidad_vive_en_un_solo_sitio():
+    """
+    `organigrama.puede_ver_prospeccion` es la única fuente. Probarla directa
+    —sin pasar por el endpoint— es lo que permite cambiarla en un sitio el día
+    que el dueño quiera abrirla o cerrarla.
+    """
+    assert organigrama.puede_ver_prospeccion("ADMIN", "LUIS_CARLOS")
+    assert organigrama.puede_ver_prospeccion("STAFF_USER", "SONIA_GARCIA")
+    assert not organigrama.puede_ver_prospeccion("STAFF_USER", "EDUARDO_BENITEZ")
+    assert not organigrama.puede_ver_prospeccion("STAFF_USER", "CUENTA_QUE_NO_EXISTE")

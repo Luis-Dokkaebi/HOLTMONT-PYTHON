@@ -204,6 +204,20 @@ class SavePPCRequest(BaseModel):
     payload: List[Dict[str, Any]]
     activeUser: str
 
+def _con_prospeccion(modulos: List[Dict[str, Any]], geo_module: Dict[str, Any],
+                     visible: bool) -> List[Dict[str, Any]]:
+    """
+    Agrega el módulo de Prospección a `modulos` si esta cuenta lo ve.
+
+    Vive fuera de `api_get_system_config` por una razón de puerta, no de
+    estética: esa función ya está en complejidad C (16), es deuda inventariada
+    (RESTRICCIONES_EXTREMAS.md §4) y la regla dice que una función existente
+    sale igual o mejor, nunca peor. Con la decisión aquí, las cuatro ramas de
+    rol la llaman sin añadir una sola bifurcación al contador.
+    """
+    return [*modulos, geo_module] if visible else list(modulos)
+
+
 @app.get("/api/config")
 def api_get_system_config(
     role: str = Query(..., description="Rol del usuario"),
@@ -248,6 +262,14 @@ def api_get_system_config(
     ppc_module_weekly = { "id": "WEEKLY_PLAN", "label": "Planeación Semanal", "icon": "fa-calendar-alt", "color": "#6f42c1", "type": "weekly_plan_view" }
     kpi_module = { "id": "KPI_DASHBOARD", "label": "KPI Performance", "icon": "fa-chart-line", "color": "#d63384", "type": "kpi_dashboard_view" }
     wo_module = { "id": "WORK_ORDER_FORM", "label": "Pre Work Order", "icon": "fa-clipboard-list", "color": "#fd7e14", "type": "work_order_form" }
+    # Prospección geoespacial sobre el DENUE. Quién lo ve NO se decide aquí:
+    # `organigrama.puede_ver_prospeccion` es el único sitio donde vive esa regla,
+    # para que se pueda probar sin levantar la API y para que abrirla o cerrarla
+    # sea un cambio de una línea. Son 20,957 nombres con teléfono y correo: no es
+    # un dato que deba ver todo el personal por defecto.
+    geo_module = { "id": "PROSPECCION_GEO", "label": "Prospección", "icon": "fa-map-marked-alt",
+                   "color": "#20c997", "type": "geo_prospect_view" }
+    ve_prospeccion = organigrama.puede_ver_prospeccion(role, username)
     ppc_modules = [ ppc_module_master, ppc_module_weekly ]
 
     if role == 'TONITA':
@@ -256,7 +278,7 @@ def api_get_system_config(
             "allDepartments": ALL_DEPTS,
             "staff": [ { "name": "ANTONIA_VENTAS", "dept": "VENTAS" } ],
             "directory": full_directory,
-            "specialModules": [
+            "specialModules": _con_prospeccion([
                 # Su tracker personal es una hoja distinta de la tabla maestra
                 # de ventas: `ANTONIA PINEDA LOPEZ` vs `ANTONIA_VENTAS`. Faltaba
                 # y con él faltaba el acceso a sus propias tareas.
@@ -265,7 +287,7 @@ def api_get_system_config(
                   "type": "mirror_staff", "target": "ANTONIA PINEDA LOPEZ" },
                 ppc_module_master,
                 ppc_module_weekly,
-            ],
+            ], geo_module, ve_prospeccion),
             "accessProjects": False,
             "canSeeBancoJuntas": False,
             "canManageTickets": puede_gestionar_tickets,
@@ -307,7 +329,9 @@ def api_get_system_config(
             "allDepartments": ALL_DEPTS,
             "staff": [ { "name": hoja, "dept": perfil.get("dept", "") } ],
             "directory": full_directory,
-            "specialModules": modulos,
+            # Compras y ventas sí; el STAFF_USER genérico no. El resto del
+            # personal no prospecta y no tiene por qué llevarse el directorio.
+            "specialModules": _con_prospeccion(modulos, geo_module, ve_prospeccion),
             "accessProjects": False,
             "canSeeBancoJuntas": False,
             "canManageTickets": puede_gestionar_tickets,
@@ -343,12 +367,12 @@ def api_get_system_config(
             "allDepartments": ALL_DEPTS,
             "staff": full_directory,
             "directory": full_directory,
-            "specialModules": [
+            "specialModules": _con_prospeccion([
                 { "id": "PPC_DINAMICO", "label": "Tracker", "icon": "fa-layer-group", "color": "#e83e8c", "type": "ppc_dynamic_view" },
                 *ppc_modules,
                 { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" },
                 { "id": "ADMIN_TRACKER", "label": "Control", "icon": "fa-clipboard-list", "color": "#6f42c1", "type": "mirror_staff", "target": "ADMINISTRADOR" },
-            ],
+            ], geo_module, ve_prospeccion),
             "accessProjects": True,
             "canSeeBancoJuntas": True,
             "canManageTickets": puede_gestionar_tickets,
@@ -364,6 +388,7 @@ def api_get_system_config(
         default_modules.append(kpi_module)
         default_modules.append({ "id": "OBSIDIAN_GRAPH", "label": "Grafo de Conocimiento",
                                  "icon": "fa-project-diagram", "color": "#8b5cf6", "type": "obsidian_graph_view" })
+        default_modules = _con_prospeccion(default_modules, geo_module, ve_prospeccion)
 
     return {
         "departments": ALL_DEPTS,

@@ -349,6 +349,44 @@ def es_vendedor(username: Any) -> bool:
     return bool(perfil(username).get("seller"))
 
 
+# --- Prospección geoespacial: quién ve el módulo ------------------------
+# El catálogo del DENUE sirve para dos trabajos distintos: buscar PROVEEDORES
+# (compras) y buscar CLIENTES (ventas). Nadie más lo necesita, y son 20,957
+# nombres con teléfono y correo: no es un dato que deba ver todo el personal
+# por defecto.
+#
+# Decisión del dueño (plan de prospección §11, punto 2): ADMIN, ADMIN_CONTROL
+# y las cuentas de compras/ventas. NO el STAFF_USER genérico.
+DEPARTAMENTOS_DE_PROSPECCION = ("VENTAS", "COMPRAS")
+
+# Roles que ven el módulo por el rol mismo, sin mirar el departamento.
+# TONITA es la cuenta de la tabla maestra de ventas.
+ROLES_DE_PROSPECCION = ("ADMIN", "ADMIN_CONTROL", "TONITA")
+
+
+def puede_ver_prospeccion(role: Any, username: Any) -> bool:
+    """
+    Si esta cuenta ve el módulo de Prospección.
+
+    La regla vive aquí y no en `/api/config` para que se pueda probar sola —sin
+    levantar la API ni leer el directorio— y para que exista **un** sitio donde
+    cambiarla cuando el dueño quiera abrirla o cerrarla.
+
+    Un STAFF_USER entra por dos caminos, los dos ligados al trabajo y no al
+    rango: estar en COMPRAS o VENTAS, o tener tabla de cotizaciones
+    (`seller`), que en esta plataforma es la definición operativa de "vende".
+    Quien no cumpla ninguno de los dos no ve el módulo, y esa es la mitad
+    importante de la regla.
+    """
+    if str(role or "").strip().upper() in ROLES_DE_PROSPECCION:
+        return True
+    datos = perfil(username)
+    if not datos:
+        return False
+    return (str(datos.get("dept") or "").strip().upper() in DEPARTAMENTOS_DE_PROSPECCION
+            or bool(datos.get("seller")))
+
+
 def correo(username: Any) -> str:
     return perfil(username).get("email") or ""
 

@@ -14,8 +14,10 @@ import pytest
 from pydantic import ValidationError
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from api.services import prospeccion
 from api.services import tracker_store
 from api.services import work_order
+from api.services.denue_repo import RepositorioDenue
 from api.services.asignacion import destinos_espejo, es_delegacion_de_fase
 from api.services.sheets import SEPARADOR_ARCHIVO, _valores_de_tareas
 from api.services.tracker_rules import (
@@ -1056,3 +1058,93 @@ def _alta_aceptada(contexto: Dict[str, Any]) -> None:
     filas = [f for f in contexto["motor"].select(contexto["tabla"])
              if f.get("concepto") == concepto]
     assert len(filas) == 1, f"se esperaba 1 fila de {concepto}, hay {len(filas)}"
+
+
+# ----------------------------------------------------------------------
+# Prospección geoespacial — solo se ofrece a quien se puede contactar
+# ----------------------------------------------------------------------
+#
+# Estos pasos construyen un directorio de verdad —un SQLite con el mismo
+# esquema que el artefacto que viaja en el bundle— y lo consultan con el
+# servicio real. Nada de dobles: lo que el escenario aprueba es la regla que
+# corre en producción, no una reimplementación suya.
+
+_ESQUEMA_DENUE = """
+CREATE TABLE denue (
+  id TEXT PRIMARY KEY, nom_estab TEXT, nombre_act TEXT, codigo_act TEXT,
+  per_ocu TEXT, telefono TEXT, correoelec TEXT, www TEXT,
+  municipio TEXT, nom_vial TEXT, numero_ext TEXT, cod_postal TEXT,
+  latitud REAL, longitud REAL
+);
+"""
+
+
+def _celda(valor: str) -> Optional[str]:
+    """Una casilla en blanco de la tabla es "no lo declaró", que es NULL."""
+    limpio = str(valor).strip()
+    return limpio or None
+
+
+@given("el directorio de negocios:")
+def _directorio_de_negocios(contexto: Dict[str, Any], datatable: List[List[str]],
+                            tmp_path) -> None:
+    import sqlite3
+
+    encabezados, *filas = datatable
+    columna = {nombre: encabezados.index(nombre) for nombre in encabezados}
+
+    ruta = tmp_path / "directorio.sqlite"
+    conexion = sqlite3.connect(ruta)
+    with conexion:
+        conexion.executescript(_ESQUEMA_DENUE)
+        for numero, fila in enumerate(filas, start=1):
+            conexion.execute(
+                "INSERT INTO denue VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    f"{numero:02d}",
+                    fila[columna["nombre"]].strip(),
+                    "Comercio al por menor en ferreterías y tlapalerías", "467111",
+                    fila[columna["personal"]].strip(),
+                    _celda(fila[columna["telefono"]]),
+                    _celda(fila[columna["correo"]]),
+                    _celda(fila[columna["pagina"]]),
+                    "Cuauhtémoc", "REPUBLICA DE CUBA", "10", "06010",
+                    19.44, -99.14,
+                ),
+            )
+    conexion.close()
+    contexto["directorio"] = RepositorioDenue(ruta)
+
+
+@when("Compras pide la lista de prospectos")
+def _lista_de_prospectos(contexto: Dict[str, Any]) -> None:
+    contexto["lista"] = prospeccion.establecimientos(
+        contexto["directorio"], solo_con_contacto=True)
+
+
+@when("Compras pide la lista de prospectos de 11 o más personas")
+def _lista_de_prospectos_grandes(contexto: Dict[str, Any]) -> None:
+    contexto["lista"] = prospeccion.establecimientos(
+        contexto["directorio"], solo_con_contacto=True, personal_min=11)
+
+
+@when("se consulta el directorio completo")
+def _directorio_completo(contexto: Dict[str, Any]) -> None:
+    contexto["lista"] = prospeccion.establecimientos(
+        contexto["directorio"], solo_con_contacto=False)
+
+
+@then(parsers.parse("la lista trae {cantidad:d} negocios"))
+def _la_lista_trae(contexto: Dict[str, Any], cantidad: int) -> None:
+    assert contexto["lista"]["total"] == cantidad
+    assert len(contexto["lista"]["items"]) == cantidad
+
+
+@then(parsers.parse('"{nombre}" aparece en la lista'))
+def _aparece_en_la_lista(contexto: Dict[str, Any], nombre: str) -> None:
+    assert nombre in {fila["nom_estab"] for fila in contexto["lista"]["items"]}
+
+
+@then(parsers.parse('"{nombre}" no aparece en la lista'))
+def _no_aparece_en_la_lista(contexto: Dict[str, Any], nombre: str) -> None:
+    assert nombre not in {fila["nom_estab"] for fila in contexto["lista"]["items"]}
