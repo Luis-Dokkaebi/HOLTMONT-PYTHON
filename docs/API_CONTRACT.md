@@ -188,6 +188,61 @@ columnas calculadas a cada fila:
 | `ORIGEN` | `TRACKER`, `COTIZACIONES`, `PERSONAL` | la vista distingue una cotización de una actividad |
 | `FECHA_CALENDARIO` | `YYYY-MM-DD` o `""` | día en el que se pinta: FECHA en el tracker, F. INICIO en cotizaciones |
 
+### 3.9 Prospección geoespacial (DENUE) — REST real
+
+> **Excepción al §1 de este documento.** Todo lo anterior son funciones RPC
+> modeladas como pseudo-rutas. Estas dos **sí son rutas HTTP REST** servidas por
+> FastAPI: nacen en la plataforma Python, no vienen de `CODIGO.js`, y no tienen
+> equivalente en Apps Script.
+
+| Método y ruta | Entrada | Salida |
+|---|---|---|
+| `GET /api/geo/catalogo` | — | `{success, alcaldias: [16], giros: [99]}` |
+| `GET /api/geo/establecimientos` | `alcaldia`, `giros` (repetible), `personal_min`, `solo_con_contacto`, `bbox`, `limite`, `desplazamiento` | `{success, total, mostrados, items: [...]}` |
+
+**De dónde sale el dato.** De `api/data/denue.sqlite`, un SQLite de solo lectura
+que viaja en el bundle con los 20,957 establecimientos de la cadena de valor de
+la construcción en CDMX. Se consulta con el `sqlite3` de la biblioteca estándar:
+leerlo desde el Parquet original exigiría `pandas` + `pyarrow` + `numpy`, que
+desempaquetadas suman 251 MB y rebasan solas el límite de 250 MB de una función
+serverless. **Este módulo no añade ninguna dependencia a `api/requirements.txt`.**
+
+El artefacto lo genera `scripts/construir_sqlite.py` del repositorio `ModeloGeo`.
+El dato es público del INEGI y solo cambia cuando el instituto publica (cada
+semestre); lo que la empresa genere encima —prospecto contactado, asignado,
+cotizado— es otra cosa y va a Supabase.
+
+**Las 10 columnas de `items`**, y ninguna más:
+
+`id`, `nom_estab`, `nombre_act`, `per_ocu`, `telefono`, `correoelec`, `www`,
+`municipio`, `latitud`, `longitud`.
+
+El SQLite guarda 14 y el DENUE publica 42. El domicilio (`cod_postal`,
+`nom_vial`, `numero_ext`) y `codigo_act` se quedan dentro: una fila completa son
+~1.5 KB y 3,000 marcadores serían 4.5 MB de JSON por cada paneo del mapa.
+
+**Tres reglas del contrato que no se deducen de la firma:**
+
+1. **`personal_min` filtra por el piso del rango.** `per_ocu` es texto
+   (`"11 a 30 personas"`), no un número. Se incluyen los rangos cuyo **piso**
+   alcanza el mínimo: `personal_min=11` deja fuera a `"6 a 10 personas"` aunque
+   un negocio de ese rango pudiera tener 10. Es la lectura conservadora — nadie
+   puede afirmar que ese negocio tiene 11.
+2. **`bbox` pone la latitud primero** (`lat_min,lon_min,lat_max,lon_max`), como
+   el INEGI y como Leaflet. **GeoJSON pone la longitud primero**; la conversión
+   vive en un solo sitio (`prospeccion.anillo_de_geojson`).
+3. **`total` y `mostrados` son números distintos.** `total` son los que cumplen
+   los filtros; `mostrados` los que caben en `limite` (default 500, techo 3000).
+   Sirve para que la interfaz diga "3,000 de 8,412" en vez de recortar en
+   silencio, que es lo que hacía el notebook con su tope de 2,000 marcadores.
+
+**Errores.** Un parámetro inválido —bbox de tres números, bbox invertido, texto
+donde iba un número— devuelve `{success: false, message: "..."}` con HTTP 200,
+igual que `/api/plano_2d`. Nunca un 500: un mapa en blanco sin motivo se lee
+como "aquí no hay negocios", que es una respuesta falsa. Si el artefacto no está
+desplegado, el `message` dice cómo regenerarlo.
+
+
 ---
 
 ## 4. Integraciones externas

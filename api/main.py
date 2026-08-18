@@ -134,6 +134,68 @@ def api_generar_plano_2d(req: Plano2DRequest):
         req.descripcion, llm=servicio_plano.llm_disponible())
 
 
+# ======================================================================
+# PROSPECCIÓN GEOESPACIAL — /api/geo
+# ======================================================================
+# El catálogo del DENUE (20,957 establecimientos de la cadena de valor de la
+# construcción en CDMX) vive en un SQLite de solo lectura dentro del bundle y se
+# consulta con el `sqlite3` de la biblioteca estándar. Leerlo desde el Parquet
+# exigiría pandas + pyarrow + numpy: 251 MB desempaquetadas, que rebasan solas
+# el límite de 250 MB de una función serverless. Por eso `api/requirements.txt`
+# no crece con este módulo.
+#
+# Estas dos rutas son de lectura pura sobre dato público del INEGI. Lo que la
+# empresa genere encima —prospecto contactado, asignado, cotizado— es otra cosa
+# y va a Supabase por el motor que ya existe.
+
+@app.get("/api/geo/catalogo")
+def api_geo_catalogo():
+    """
+    Las alcaldías y los giros que existen en el catálogo, para poblar los combos.
+
+    Salen del propio artefacto, no de una lista escrita a mano: el día que el
+    INEGI publique un giro nuevo, el combo lo tiene al regenerar el SQLite.
+    """
+    from api.services import denue_repo, prospeccion
+
+    return prospeccion.catalogo(denue_repo.repositorio_disponible())
+
+
+@app.get("/api/geo/establecimientos")
+def api_geo_establecimientos(
+    alcaldia: Optional[str] = None,
+    giros: Optional[List[str]] = Query(None),
+    personal_min: Optional[int] = None,
+    solo_con_contacto: bool = False,
+    bbox: Optional[str] = None,
+    limite: Optional[int] = None,
+    desplazamiento: int = 0,
+):
+    """
+    Los establecimientos que pasan los filtros, en las 10 columnas del mapa.
+
+    `bbox` es `lat_min,lon_min,lat_max,lon_max` — el orden del INEGI y de
+    Leaflet, no el de GeoJSON. Devuelve `total` (los que cumplen) y `mostrados`
+    (los que caben en el límite) por separado: el notebook cortaba en 2,000
+    marcadores sin avisar y nadie sabía si estaba viendo todo.
+
+    No lanza 500 con parámetros basura: devuelve `success: false` con el motivo,
+    mismo criterio que `/api/plano_2d`.
+    """
+    from api.services import denue_repo, prospeccion
+
+    return prospeccion.establecimientos(
+        denue_repo.repositorio_disponible(),
+        alcaldia=alcaldia,
+        giros=giros,
+        personal_min=personal_min,
+        solo_con_contacto=solo_con_contacto,
+        bbox=bbox,
+        limite=limite,
+        desplazamiento=desplazamiento,
+    )
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
