@@ -108,6 +108,73 @@ class ApiService {
         }
     }
 
+    /** Marca el estado comercial de un establecimiento (`geo_prospectos`). */
+    static async geoProspecto(payload) {
+        return ApiService._geoPost('/api/geo/prospecto', payload);
+    }
+
+    /** El agente: analiza el sitio del negocio o redacta el correo de contacto. */
+    static async geoAgente(payload) {
+        return ApiService._geoPost('/api/geo/agente', payload);
+    }
+
+    /** La solicitud de cotización. Hoy vuelve bloqueada: falta el aviso legal. */
+    static async geoSolicitarCotizacion(payload) {
+        return ApiService._geoPost('/api/geo/solicitar_cotizacion', payload);
+    }
+
+    static async _geoPost(ruta, payload) {
+        try {
+            const response = await fetch(`${API_BASE_URL}${ruta}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload || {})
+            });
+            return await response.json();
+        } catch (e) {
+            return { success: false, message: "Connection Error: " + e.toString() };
+        }
+    }
+
+    /**
+     * Descarga la selección del polígono como CSV o XLSX.
+     *
+     * El archivo lo arma el servidor y baja como binario, así que aquí NO se
+     * puede hacer `res.json()`: hay que mirar el `content-type` para distinguir
+     * el archivo del error. Un `{success:false}` interpretado como archivo se
+     * descargaría como un CSV con el mensaje de error dentro, y eso parece un
+     * archivo bueno hasta que alguien lo abre.
+     */
+    static async geoExportarSeleccion(payload, formato) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/geo/seleccion`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(Object.assign({}, payload, { formato: formato }))
+            });
+            if ((response.headers.get('content-type') || '').includes('application/json')) {
+                return await response.json();
+            }
+            ApiService._descargar(await response.blob(), `prospectos.${formato}`);
+            return { success: true };
+        } catch (e) {
+            return { success: false, message: "Connection Error: " + e.toString() };
+        }
+    }
+
+    static _descargar(blob, nombre) {
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement('a');
+        enlace.href = url;
+        enlace.download = nombre;
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+        // Sin revocar, cada exportación deja el archivo entero retenido en
+        // memoria hasta que se recargue la pestaña.
+        URL.revokeObjectURL(url);
+    }
+
     static async login(username, password) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/login`, {

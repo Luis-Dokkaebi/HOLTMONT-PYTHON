@@ -230,6 +230,21 @@ def catalogo(repositorio: Any) -> Dict[str, Any]:
     }
 
 
+def establecimiento(repositorio: Any, identificador: Any) -> Optional[Dict[str, Any]]:
+    """
+    La ficha de un solo establecimiento, o `None` si ese id no existe.
+
+    Es lo que necesita el agente para trabajar: sin el nombre y el giro, el
+    correo que redacta va dirigido a "(sin nombre)". `id` es PRIMARY KEY, así
+    que la búsqueda es por índice.
+    """
+    if repositorio is None:
+        return None
+    filas = repositorio.consultar(
+        f"SELECT {_SELECCION} FROM denue WHERE id = ?", [str(identificador or "").strip()])
+    return filas[0] if filas else None
+
+
 def establecimientos(repositorio: Any, alcaldia: Any = None, giros: Any = None,
                      personal_min: Any = None, solo_con_contacto: Any = False,
                      bbox: Any = None, limite: Any = None,

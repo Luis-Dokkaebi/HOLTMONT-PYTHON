@@ -449,6 +449,10 @@ def test_el_ppc_maestro_se_resuelve_por_el_indice_de_plan_semanal(monkeypatch):
 RUTAS_GEO = {
     ("GET", "/api/geo/catalogo"): "geoCatalogo",
     ("GET", "/api/geo/establecimientos"): "geoEstablecimientos",
+    ("POST", "/api/geo/prospecto"): "geoProspecto",
+    ("POST", "/api/geo/agente"): "geoAgente",
+    ("POST", "/api/geo/solicitar_cotizacion"): "geoSolicitarCotizacion",
+    ("POST", "/api/geo/seleccion"): "geoExportarSeleccion",
 }
 
 # Versiones fijas: una CDN sin versión es una dependencia que cambia sola, y
@@ -488,10 +492,52 @@ def test_los_metodos_geo_llaman_a_su_ruta():
     """Un método que existe pero apunta a otra ruta pasa la prueba de arriba."""
     js = leer(ADAPTER_JS)
     for metodo, ruta in (("geoCatalogo", "/api/geo/catalogo"),
-                         ("geoEstablecimientos", "/api/geo/establecimientos")):
+                         ("geoEstablecimientos", "/api/geo/establecimientos"),
+                         ("geoProspecto", "/api/geo/prospecto"),
+                         ("geoAgente", "/api/geo/agente"),
+                         ("geoSolicitarCotizacion", "/api/geo/solicitar_cotizacion"),
+                         ("geoExportarSeleccion", "/api/geo/seleccion")):
         inicio = js.index(f"static async {metodo}(")
         cuerpo = js[inicio:inicio + 1800]
         assert ruta in cuerpo, f"{metodo}() no llama a {ruta}"
+
+
+def test_la_exportacion_distingue_el_archivo_del_error():
+    """
+    Un `{success:false}` tratado como archivo se descarga como un CSV con el
+    mensaje de error dentro, y eso parece un archivo bueno hasta que alguien lo
+    abre. Por eso se mira el `content-type` antes de hacer nada.
+    """
+    js = leer(ADAPTER_JS)
+    inicio = js.index("static async geoExportarSeleccion(")
+    cuerpo = js[inicio:inicio + 1800]
+    assert "content-type" in cuerpo
+    assert "application/json" in cuerpo
+
+
+def test_el_panel_expone_los_controles_del_puente_con_el_negocio():
+    """
+    Vue solo ve lo que `setup()` devuelve: una función declarada y no expuesta
+    deja el botón inerte, sin error de consola.
+    """
+    html = leer(INDEX_HTML)
+    for identificador in ("geoGuardarProspecto", "geoAnalizar", "geoSolicitar",
+                          "geoExportarCsv", "geoExportarXlsx"):
+        assert f'id="{identificador}"' in html, f"falta el control {identificador}"
+    for nombre in ("guardarProspectoGeo", "consultarAgenteGeo", "solicitarCotizacionGeo",
+                   "exportarSeleccionGeo", "geoEstado", "geoAgente"):
+        assert re.search(rf"return \{{[^}}]*\b{nombre}\b", html, re.S), (
+            f"`{nombre}` no se expone en el return de setup()")
+
+
+def test_la_ficha_declara_de_donde_salio_el_texto_del_agente():
+    """
+    `fuente` no es decoración: distingue un análisis leído de la página del
+    negocio de uno armado con el resumen de un buscador, y quien firma el correo
+    tiene derecho a saberlo.
+    """
+    html = leer(INDEX_HTML)
+    assert "geoAgente.fuente" in html
 
 
 def test_el_frontend_no_pide_el_catalogo_por_el_puente_de_apps_script():

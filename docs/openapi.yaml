@@ -883,6 +883,42 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GeoCotizacionResultado" }
 
+  /api/geo/agente:
+    post:
+      tags: [Geo]
+      operationId: apiGeoAgente
+      summary: Analiza el sitio del negocio, o redacta el correo de contacto.
+      description: >
+        El grafo de la celda 4 del notebook, portado. `check_website` tiene tres
+        estados y no dos: el texto puede venir de la caché precalculada
+        (`geo_prospectos.web_cache`), de una lectura en vivo con la biblioteca
+        estándar, o de Tavily. Con texto se analiza; sin texto se redacta el
+        contacto — que es el caso normal, porque solo el 13.6% de los
+        establecimientos declaró sitio web.
+        `GROQ_API_KEY` sale del servidor y NUNCA baja al navegador. Sin ella la
+        ruta degrada con `success: false`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [establecimiento_id]
+              properties:
+                establecimiento_id: { type: string }
+                consulta:
+                  type: string
+                  description: Qué se le pregunta al agente sobre este negocio.
+      responses:
+        "200":
+          description: El texto del agente, o el motivo de no poder.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GeoAgenteResultado"
+                  - $ref: "#/components/schemas/SuccessResult"
+
 components:
   schemas:
 
@@ -1295,3 +1331,23 @@ components:
         destinatarios:
           type: array
           items: { type: string }
+
+    GeoAgenteResultado:
+      type: object
+      properties:
+        success: { type: boolean }
+        tipo:
+          type: string
+          enum: [analisis, correo]
+          description: >
+            `analisis` cuando se pudo leer texto del negocio; `correo` cuando no
+            y el agente redactó el contacto a partir del giro del INEGI.
+        texto: { type: string }
+        fuente:
+          type: string
+          enum: [cache, web, tavily, sin_web]
+          description: >
+            De dónde salió el texto. No es decoración: no es lo mismo un
+            análisis leído de la página del negocio que uno armado con el
+            resumen de un buscador, y quien firma el correo tiene derecho a
+            saberlo.

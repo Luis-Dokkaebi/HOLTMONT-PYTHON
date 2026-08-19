@@ -207,6 +207,30 @@ def test_sin_artefacto_el_catalogo_explica_que_falta_en_vez_de_reventar():
 
 
 # ----------------------------------------------------------------------
+# La ficha de un solo establecimiento
+# ----------------------------------------------------------------------
+
+def test_la_ficha_de_un_establecimiento_sale_por_su_id(repo: RepositorioDenue):
+    """Es lo que necesita el agente: sin nombre ni giro, el correo va a ciegas."""
+    ficha = prospeccion.establecimiento(repo, "03")
+    assert ficha["nom_estab"] == "INGENIERIA DEL VALLE"
+    assert tuple(ficha.keys()) == COLUMNAS_DEL_MAPA
+
+
+def test_un_id_que_no_existe_devuelve_none(repo: RepositorioDenue):
+    """
+    `None` y no una ficha vacía: con los campos en blanco el agente redactaría
+    un correo dirigido a "(sin nombre)" y lo daría por bueno.
+    """
+    assert prospeccion.establecimiento(repo, "99999") is None
+    assert prospeccion.establecimiento(repo, None) is None
+
+
+def test_sin_catalogo_no_hay_ficha():
+    assert prospeccion.establecimiento(None, "03") is None
+
+
+# ----------------------------------------------------------------------
 # Filtros
 # ----------------------------------------------------------------------
 

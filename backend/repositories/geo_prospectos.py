@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from backend.core.engine import DataEngine
 from backend.core.errors import BackendError, ErrorDeMotor
-from backend.schemas.geo_prospecto import ProspectoRead, ProspectoWrite
+from backend.schemas.geo_prospecto import ESTADO_INICIAL, ProspectoRead, ProspectoWrite
 
 TABLA = "geo_prospectos"
 CLAVE_UPSERT = "denue_id"
@@ -106,3 +106,36 @@ class GeoProspectoRepository:
             # sale a pantalla como un 500 sin causa.
             raise ErrorDeMotor(f"El guardado en {TABLA} no devolvió la fila guardada")
         return ProspectoRead.model_validate(guardadas[0])
+
+    # --- la caché del texto del sitio (plan §4, D3, capa 1) -----------
+
+    def texto_del_sitio(self, denue_id: str) -> str:
+        """
+        El texto ya extraído del sitio de ese negocio, o `""`.
+
+        Es la capa más barata de las tres del agente: sin ella, cada consulta
+        vuelve a salir a un servidor ajeno y el vendedor espera.
+        """
+        fila = self.buscar(denue_id)
+        return str((fila or {}).get("web_cache") or "")
+
+    def guardar_texto_del_sitio(self, denue_id: str, texto: str) -> None:
+        """
+        Deja el texto leído en la caché, sin tocar el estado comercial.
+
+        La fila puede no existir todavía: leer el sitio de un negocio no lo
+        convierte en prospecto, así que en ese caso se crea con el estado
+        inicial. `estado` es NOT NULL y omitirlo abortaría el alta con un 23502.
+        """
+        clave = str(denue_id or "").strip()
+        if not clave:
+            return
+        ahora = _ahora()
+        fila: Dict[str, Any] = {
+            CLAVE_UPSERT: clave, "web_cache": texto, "web_cache_at": ahora,
+            "updated_at": ahora,
+        }
+        if self.buscar(clave) is None:
+            fila["estado"] = ESTADO_INICIAL
+            fila["created_at"] = ahora
+        self.engine.upsert(TABLA, [fila], en_conflicto=CLAVE_UPSERT)

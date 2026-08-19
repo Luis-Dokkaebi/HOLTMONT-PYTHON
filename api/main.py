@@ -295,6 +295,63 @@ def api_geo_seleccion(req: GeoSeleccionRequest):
         headers={"Content-Disposition": f'attachment; filename="prospectos.{extension}"'})
 
 
+class GeoAgenteRequest(BaseModel):
+    """Lo que pide el vendedor sobre un establecimiento del mapa."""
+
+    establecimiento_id: str
+    consulta: str = ""
+
+
+def _cache_del_sitio(denue_id: str):
+    """
+    Los dos accesos a la caché de texto, o `(None, None)` si no hay base.
+
+    Se resuelven aquí y no dentro del agente porque el agente no sabe —ni debe
+    saber— que existe una tabla. Sin base, el agente sigue funcionando: pierde
+    la capa más barata y sale a leer el sitio en vivo.
+    """
+    from backend.core.engine import construir_engine
+    from backend.core.errors import BackendError, SinMotorConfigurado
+    from backend.repositories.geo_prospectos import GeoProspectoRepository
+
+    try:
+        repositorio = GeoProspectoRepository(construir_engine())
+        return (repositorio.texto_del_sitio, repositorio.guardar_texto_del_sitio)
+    except (SinMotorConfigurado, BackendError):
+        return (None, None)
+
+
+@app.post("/api/geo/agente")
+def api_geo_agente(req: GeoAgenteRequest):
+    """
+    El agente sobre un establecimiento: analiza su sitio, o redacta el contacto.
+
+    `fuente` dice de dónde salió el texto —`cache`, `web`, `tavily` o
+    `sin_web`— porque no es lo mismo un análisis leído de la página del negocio
+    que uno armado con el resumen de un buscador, y quien firma el correo tiene
+    derecho a saberlo.
+
+    Degrada con `success: false` en vez de lanzar: sin `GROQ_API_KEY` el resto
+    del módulo sigue en pie. La clave nunca baja al navegador (plan §4, D5).
+    """
+    from api.services import denue_repo, prospeccion, prospeccion_agente
+
+    ficha = prospeccion.establecimiento(
+        denue_repo.repositorio_disponible(), req.establecimiento_id)
+    if ficha is None:
+        return {"success": False, "message":
+                f"No existe el establecimiento {req.establecimiento_id!r} en el catálogo."}
+
+    leer_cache, escribir_cache = _cache_del_sitio(req.establecimiento_id)
+    return prospeccion_agente.ejecutar(
+        ficha, req.consulta,
+        llm=prospeccion_agente.llm_disponible(),
+        extractor=prospeccion_agente.extractor_disponible(),
+        cache=leer_cache,
+        buscador=prospeccion_agente.buscador_disponible(),
+        guardar_cache=escribir_cache)
+
+
 @app.post("/api/geo/solicitar_cotizacion")
 def api_geo_solicitar_cotizacion(req: GeoCotizacionRequest):
     """

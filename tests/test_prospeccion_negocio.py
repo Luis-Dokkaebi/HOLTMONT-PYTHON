@@ -199,6 +199,50 @@ def test_el_doble_rechaza_una_fila_sin_estado_igual_que_postgres(repo):
         repo.engine.upsert(TABLA, [{"denue_id": "9274655"}], en_conflicto="denue_id")
 
 
+# --- La caché del texto del sitio (capa 1 del agente) ------------------
+
+def test_leer_el_sitio_de_un_negocio_no_lo_convierte_en_prospecto(repo):
+    """
+    La fila se crea con el estado inicial porque `estado` es NOT NULL y omitirlo
+    abortaría el alta con un 23502. Pero eso NO es una decisión comercial: nadie
+    ha contactado a este negocio todavía.
+    """
+    repo.guardar_texto_del_sitio("9274655", "Venden tubería de cobre.")
+    guardado = repo.obtener("9274655")
+    assert guardado.estado == "NUEVO"
+    assert guardado.web_cache == "Venden tubería de cobre."
+    assert guardado.web_cache_at is not None
+
+
+def test_la_cache_del_sitio_sobrevive_al_cambio_de_estado(repo):
+    """
+    Marcar un prospecto no puede tirar el texto que costó scrapear: el upsert
+    fusiona y `guardar` omite `web_cache` a propósito.
+    """
+    repo.guardar_texto_del_sitio("9274655", "Venden tubería de cobre.")
+    _marcar(repo, "9274655", "CONTACTADO", vendedor="RAMIRO RODRIGUEZ")
+    assert repo.texto_del_sitio("9274655") == "Venden tubería de cobre."
+
+
+def test_guardar_el_estado_no_reescribe_la_cache_con_vacio(repo):
+    """El caso al revés del anterior, y el que más fácil se cuela."""
+    _marcar(repo, "9274655", "NUEVO")
+    repo.guardar_texto_del_sitio("9274655", "Texto del sitio.")
+    _marcar(repo, "9274655", "COTIZANDO")
+    assert repo.texto_del_sitio("9274655") == "Texto del sitio."
+
+
+def test_un_negocio_sin_cache_devuelve_cadena_vacia(repo):
+    """`None` obligaría a comprobar el nulo en el agente por una fila que no existe."""
+    assert repo.texto_del_sitio("9274655") == ""
+
+
+def test_no_se_guarda_cache_sin_identificador(repo):
+    """Una fila con `denue_id` vacío no pertenece a ningún negocio."""
+    repo.guardar_texto_del_sitio("   ", "texto")
+    assert repo.engine.select(TABLA) == []
+
+
 # ----------------------------------------------------------------------
 # La exportación de la selección
 # ----------------------------------------------------------------------

@@ -242,6 +242,41 @@ igual que `/api/plano_2d`. Nunca un 500: un mapa en blanco sin motivo se lee
 como "aquí no hay negocios", que es una respuesta falsa. Si el artefacto no está
 desplegado, el `message` dice cómo regenerarlo.
 
+#### El agente de prospección
+
+| Método y ruta | Entrada | Salida |
+|---|---|---|
+| `POST /api/geo/agente` | `{establecimiento_id, consulta}` | `{success, tipo, texto, fuente}` |
+
+Es el grafo de la celda 4 del notebook, portado. `tipo` es `analisis` cuando se
+pudo leer texto del negocio y `correo` cuando no —y ese es el caso normal: solo
+2,848 de los 20,957 establecimientos declararon sitio web—.
+
+**`fuente` no es decoración.** Dice de dónde salió el texto y son cuatro valores
+con significados distintos para quien va a firmar el correo:
+
+| `fuente` | Qué leyó el agente |
+|---|---|
+| `cache` | El texto que extrajo el job de enriquecimiento fuera de línea |
+| `web` | El sitio, leído en vivo con la biblioteca estándar |
+| `tavily` | El resumen de un buscador, porque el sitio arma su contenido con JS |
+| `sin_web` | Nada. El correo se redactó solo con el giro del INEGI |
+
+Las tres capas se prueban en ese orden porque ese es el orden del costo: la
+caché es gratis, la lectura en vivo tarda menos de un segundo en la mayoría
+(§2.3) y Tavily es una llamada de pago.
+
+**`GROQ_API_KEY` sale del servidor y nunca baja al navegador** (plan §4, D5). El
+notebook la pedía en un `widgets.Password`. Sin la clave, la ruta degrada con
+`success: false` y el resto del módulo sigue en pie.
+
+**El scraping no corre en el runtime.** `crawl4ai` + Playwright necesitan un
+Chromium que no cabe en el bundle. La lectura en vivo es `urllib` + `html.parser`
+(`api/services/extractor_web.py`), con la lista de defensas contra SSRF de §9 del
+plan: lista blanca de esquemas, rechazo de direcciones internas comprobando
+**todas** las que resuelva el host, revalidación en cada redirección, techo de
+400 KB, timeout de 8 s, `User-Agent` identificable y `robots.txt` respetado.
+
 #### El puente con el negocio
 
 | Método y ruta | Entrada | Salida |

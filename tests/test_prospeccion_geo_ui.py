@@ -197,3 +197,44 @@ def test_solo_con_contacto_es_la_regla_que_manda_en_el_mapa():
             assert todos > con_contacto
         finally:
             navegador.close()
+
+
+def _acercar(page, veces: int = 6) -> None:
+    """Acerca el mapa con su propio control hasta deshacer los grupos."""
+    for _ in range(veces):
+        page.click(".leaflet-control-zoom-in")
+        page.wait_for_timeout(250)
+
+
+def test_al_hacer_clic_en_un_negocio_aparece_su_ficha_y_el_puente_con_el_negocio():
+    """
+    La ficha no es solo lectura: desde ahí se marca el prospecto y se llama al
+    agente. Un botón declarado y no expuesto a la plantilla queda inerte, sin
+    error de consola — por eso se comprueba en el navegador y no solo en el HTML.
+    """
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1500, "height": 950})
+        try:
+            _entrar(page, "ADMIN", "LUIS_CARLOS")
+            _abrir_prospeccion(page)
+            _conteo(page)
+
+            # Acercar hasta que los grupos se abran en marcadores individuales.
+            _acercar(page)
+            page.wait_for_selector("img.leaflet-marker-icon", timeout=30000)
+            page.click("img.leaflet-marker-icon")
+
+            page.wait_for_selector("#geoFicha", timeout=15000)
+            for control in ("#geoEstado", "#geoVendedor", "#geoNota",
+                            "#geoGuardarProspecto", "#geoAnalizar", "#geoSolicitar"):
+                assert page.is_visible(control), f"falta {control} en la ficha"
+
+            # El estado nace en NUEVO: marcar un negocio no puede heredar el
+            # estado del que se miró antes.
+            assert page.input_value("#geoEstado") == "NUEVO"
+            # "Cotización" arranca deshabilitado: sin texto del agente no hay
+            # correo que mandar.
+            assert page.is_disabled("#geoSolicitar")
+        finally:
+            navegador.close()

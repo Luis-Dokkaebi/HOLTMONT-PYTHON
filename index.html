@@ -1684,11 +1684,23 @@
                 <div v-if="geoMensaje" id="geoMensaje" class="alert alert-warning py-1 px-2 mt-2 mb-0 small">
                     {{ geoMensaje }}
                 </div>
-                <div v-if="geoSeleccion.activa" id="geoSeleccion" class="alert alert-success py-1 px-2 mt-2 mb-0 small d-flex justify-content-between align-items-center">
+                <div v-if="geoSeleccion.activa" id="geoSeleccion" class="alert alert-success py-1 px-2 mt-2 mb-0 small d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <span><i class="fas fa-draw-polygon"></i>
                         <strong>{{ geoSeleccion.dentro.toLocaleString('es-MX') }}</strong>
                         establecimientos dentro del polígono</span>
-                    <button class="btn btn-sm btn-outline-success py-0" @click="limpiarSeleccionGeo()">Limpiar</button>
+                    <span class="d-flex gap-1">
+                        <!-- El archivo lo arma el servidor con la biblioteca
+                             estándar; aquí solo se dispara la descarga. -->
+                        <button id="geoExportarCsv" class="btn btn-sm btn-success py-0"
+                                :disabled="geoExportando" @click="exportarSeleccionGeo('csv')">
+                            <i class="fas fa-file-csv"></i> CSV
+                        </button>
+                        <button id="geoExportarXlsx" class="btn btn-sm btn-success py-0"
+                                :disabled="geoExportando" @click="exportarSeleccionGeo('xlsx')">
+                            <i class="fas fa-file-excel"></i> XLSX
+                        </button>
+                        <button class="btn btn-sm btn-outline-success py-0" @click="limpiarSeleccionGeo()">Limpiar</button>
+                    </span>
                 </div>
               </div>
             </div>
@@ -1728,6 +1740,59 @@
                             <li v-if="!geoFicha.telefono && !geoFicha.correoelec && !geoFicha.www"
                                 class="text-danger">Sin dato de contacto</li>
                         </ul>
+
+                        <!-- El puente con el negocio: lo que la empresa genera
+                             encima del catálogo va a Supabase, no al SQLite del
+                             INEGI, que es de solo lectura. -->
+                        <hr class="my-2">
+                        <label class="form-label mb-1 small text-muted">Estado del prospecto</label>
+                        <select id="geoEstado" class="form-select form-select-sm mb-1" v-model="geoEstado">
+                            <option value="NUEVO">Nuevo</option>
+                            <option value="CONTACTADO">Contactado</option>
+                            <option value="COTIZANDO">Cotizando</option>
+                            <option value="DESCARTADO">Descartado</option>
+                        </select>
+                        <input id="geoVendedor" class="form-control form-control-sm mb-1"
+                               v-model="geoVendedor" placeholder="Quién lo lleva">
+                        <textarea id="geoNota" class="form-control form-control-sm mb-2" rows="2"
+                                  v-model="geoNota" placeholder="Nota"></textarea>
+                        <button id="geoGuardarProspecto" class="btn btn-sm btn-success w-100 mb-2"
+                                :disabled="geoGuardando" @click="guardarProspectoGeo()">
+                            <i class="fas fa-save"></i>
+                            {{ geoGuardando ? 'Guardando…' : 'Guardar prospecto' }}
+                        </button>
+
+                        <div class="d-flex gap-1 mb-2">
+                            <button id="geoAnalizar" class="btn btn-sm btn-outline-primary flex-fill"
+                                    :disabled="geoAgente.cargando" @click="consultarAgenteGeo()">
+                                <i class="fas fa-robot"></i> Analizar
+                            </button>
+                            <button id="geoSolicitar" class="btn btn-sm btn-outline-primary flex-fill"
+                                    :disabled="!geoAgente.texto || geoAgente.tipo !== 'correo'"
+                                    @click="solicitarCotizacionGeo()">
+                                <i class="fas fa-paper-plane"></i> Cotización
+                            </button>
+                        </div>
+
+                        <div v-if="geoAgente.cargando" class="small text-muted">
+                            <i class="fas fa-circle-notch fa-spin"></i> El agente está trabajando…
+                        </div>
+                        <div v-if="geoAgente.texto" id="geoAgenteTexto"
+                             class="small bg-light border rounded p-2" style="white-space:pre-wrap;">
+                            <!-- `fuente` no es decoración: distingue un análisis
+                                 leído de la página del negocio de uno armado con
+                                 el resumen de un buscador. Quien firma el correo
+                                 tiene derecho a saberlo. -->
+                            <div class="text-muted mb-1" style="font-size:11px;">
+                                {{ geoAgente.tipo === 'correo' ? 'Correo redactado' : 'Análisis' }}
+                                · fuente: {{ geoAgente.fuente }}
+                            </div>
+                            {{ geoAgente.texto }}
+                        </div>
+                        <div v-if="geoAgente.aviso" id="geoAgenteAviso"
+                             class="alert alert-warning py-1 px-2 mt-2 mb-0 small">
+                            {{ geoAgente.aviso }}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -8506,6 +8571,14 @@ const filteredStaffTrackerData = computed(() => {
       const geoFicha = ref(null);
       const geoSeleccion = ref({ activa: false, dentro: 0 });
 
+      // El puente con el negocio (Fase 5) y el agente (Fase 4).
+      const geoEstado = ref('NUEVO');
+      const geoVendedor = ref('');
+      const geoNota = ref('');
+      const geoGuardando = ref(false);
+      const geoExportando = ref(false);
+      const geoAgente = ref({ cargando: false, tipo: '', texto: '', fuente: '', aviso: '' });
+
       // Los objetos de Leaflet viven FUERA de `ref()`. No es descuido: son
       // objetos con estado interno y referencias circulares al DOM, y
       // envolverlos en el Proxy reactivo de Vue rompe Leaflet sin aportar nada,
@@ -8647,7 +8720,16 @@ const filteredStaffTrackerData = computed(() => {
               // La ficha la pinta Vue, no un popup de Leaflet: así el HTML del
               // nombre del negocio —que viene del INEGI— nunca se concatena a
               // mano dentro del DOM.
-              marcador.on('click', () => { geoFicha.value = item; });
+              marcador.on('click', () => {
+                  geoFicha.value = item;
+                  // Sin esto, la ficha del negocio nuevo abre con el estado, el
+                  // vendedor y el análisis del anterior, y quien guarde sin
+                  // mirar le pone a este negocio los datos de aquel.
+                  geoEstado.value = 'NUEVO';
+                  geoVendedor.value = '';
+                  geoNota.value = '';
+                  geoAgente.value = { cargando: false, tipo: '', texto: '', fuente: '', aviso: '' };
+              });
               return marcador;
           });
           geoCluster.addLayers(marcadores);
@@ -8670,6 +8752,94 @@ const filteredStaffTrackerData = computed(() => {
       const limpiarSeleccionGeo = () => {
           if (geoCapaDibujo) geoCapaDibujo.clearLayers();
           geoSeleccion.value = { activa: false, dentro: 0 };
+      };
+
+      /** Guarda el estado comercial del negocio abierto en la ficha. */
+      const guardarProspectoGeo = async () => {
+          if (!geoFicha.value) return;
+          geoGuardando.value = true;
+          const res = await ApiService.geoProspecto({
+              establecimiento_id: geoFicha.value.id,
+              estado: geoEstado.value,
+              vendedor: geoVendedor.value,
+              nota: geoNota.value
+          });
+          geoGuardando.value = false;
+          if (res && res.success) {
+              Swal.fire({ icon: 'success', title: 'Prospecto guardado',
+                          text: `${geoFicha.value.nom_estab}: ${geoEstado.value}`,
+                          timer: 1800, showConfirmButton: false });
+          } else {
+              // El motivo suele ser accionable ("falta la tabla geo_prospectos,
+              // se crea con DDL_PENDIENTE.sql §8"): mostrarlo tal cual sirve más
+              // que un "error al guardar".
+              Swal.fire('No se guardó', (res && res.message) || 'Error desconocido', 'error');
+          }
+      };
+
+      /**
+       * El agente sobre el negocio abierto.
+       *
+       * Devuelve un análisis si pudo leer el sitio y un correo redactado si no.
+       * Solo el 13.6% de los establecimientos tiene web, así que la segunda
+       * rama es la normal, no la excepción.
+       */
+      const consultarAgenteGeo = async () => {
+          if (!geoFicha.value) return;
+          geoAgente.value = { cargando: true, tipo: '', texto: '', fuente: '', aviso: '' };
+          const res = await ApiService.geoAgente({
+              establecimiento_id: geoFicha.value.id,
+              consulta: geoNota.value
+          });
+          if (res && res.success) {
+              geoAgente.value = { cargando: false, tipo: res.tipo, texto: res.texto,
+                                  fuente: res.fuente, aviso: '' };
+          } else {
+              geoAgente.value = { cargando: false, tipo: '', texto: '', fuente: '',
+                                  aviso: (res && res.message) || 'El agente no respondió.' };
+          }
+      };
+
+      /**
+       * Manda el correo que redactó el agente.
+       *
+       * Hoy vuelve bloqueado: falta el aviso de identificación y baja que exige
+       * la LFPDPPP para contacto comercial. El texto redactado se queda en
+       * pantalla para copiarlo, que es lo único que se puede hacer hasta que el
+       * dueño defina ese aviso.
+       */
+      const solicitarCotizacionGeo = async () => {
+          if (!geoFicha.value || !geoAgente.value.texto) return;
+          const res = await ApiService.geoSolicitarCotizacion({
+              establecimiento_id: geoFicha.value.id,
+              destinatario: geoFicha.value.correoelec || '',
+              asunto: 'Solicitud de cotización',
+              mensaje: geoAgente.value.texto,
+              nombre: geoFicha.value.nom_estab || ''
+          });
+          if (res && res.success) {
+              Swal.fire('Enviado', res.message, 'success');
+          } else {
+              geoAgente.value = { ...geoAgente.value,
+                                  aviso: (res && res.message) || 'No se pudo enviar.' };
+          }
+      };
+
+      /** Descarga la selección del polígono. El archivo lo arma el servidor. */
+      const exportarSeleccionGeo = async (formato) => {
+          if (!geoCapaDibujo) return;
+          const capas = geoCapaDibujo.getLayers();
+          if (!capas.length) return;
+          geoExportando.value = true;
+          const res = await ApiService.geoExportarSeleccion({
+              poligono: capas[0].toGeoJSON(),
+              personal_min: geoPersonalMin.value || null,
+              solo_con_contacto: geoSoloConContacto.value
+          }, formato);
+          geoExportando.value = false;
+          if (res && !res.success) {
+              Swal.fire('No se pudo exportar', res.message || 'Error desconocido', 'error');
+          }
       };
 
       const loadKPIData = () => {
@@ -11700,6 +11870,9 @@ const filteredStaffTrackerData = computed(() => {
       return { geoCatalogo, geoAlcaldia, geoGiros, geoPersonalMin, geoSoloConContacto,
                geoTotal, geoMostrados, geoCargando, geoMensaje, geoFicha, geoSeleccion,
                cargarCatalogoGeo, recargarGeo, limpiarSeleccionGeo, urlDeSitio,
+               geoEstado, geoVendedor, geoNota, geoGuardando, geoExportando, geoAgente,
+               guardarProspectoGeo, consultarAgenteGeo, solicitarCotizacionGeo,
+               exportarSeleccionGeo,
                trackerKpis, arcosDeLaDona, panoramaPlegado, alternarPanorama, clasificacionDe, esRetrasada, esUrgente, allStaffList, visibleTrackerHeaders, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentUsername, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, esColumnaDeHora, toTimeValue, formatDisplayTime, updateTimeFromPicker, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, runTrackerProductivityAgent, trackerProductivityData, isLoadingTrackerProductivity,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, loadExecutiveSummary, executiveSummaryData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       openInvolucradosSelector,
