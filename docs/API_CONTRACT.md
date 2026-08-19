@@ -188,6 +188,33 @@ columnas calculadas a cada fila:
 | `ORIGEN` | `TRACKER`, `COTIZACIONES`, `PERSONAL` | la vista distingue una cotización de una actividad |
 | `FECHA_CALENDARIO` | `YYYY-MM-DD` o `""` | día en el que se pinta: FECHA en el tracker, F. INICIO en cotizaciones |
 
+### 3.8 bis Subida de archivos (adjuntos y evidencia de cierre)
+
+| Función / ruta | Args | Retorno |
+|---|---|---|
+| `uploadFileToDrive(data, type, name, client)` → `POST /api/legacy/upload` | data URL base64 | `{success, fileUrl, path}` |
+| `ApiService.subirArchivoDirecto(file, client)` → `POST /api/legacy/uploadUrl` | `{name, client}` | `{success, uploadUrl, fileUrl, path, maxBytes}` |
+
+**Hay dos rutas y la diferencia importa.** `POST /api/legacy/upload` recibe el
+archivo dentro del JSON de la petición, y ese JSON es el cuerpo de una función
+serverless que Vercel corta en **4.5 MB**. Base64 infla 4/3, así que por ahí no
+pasa un archivo de más de ~3.3 MB: el 413 lo emite la plataforma antes de
+ejecutar el código y su respuesta ni siquiera es JSON. El tope está declarado en
+`storage.MAX_BYTES_SUBIDA_JSON` y se comprueba, para que el rechazo tenga
+mensaje.
+
+`POST /api/legacy/uploadUrl` es la ruta de los archivos grandes: el servidor
+**solo firma** la clave del objeto (que decide él — firmar la que mande el
+navegador dejaría escribir en cualquier parte del bucket) y devuelve la URL de
+subida; los bytes van del navegador a Storage con un `PUT`, sin pasar por la
+función. `fileUrl` es la URL pública que se guarda en la celda cuando el `PUT`
+termina.
+
+En `index.html` los cuatro selectores de archivo pasan por
+`subirArchivoAlmacen(file)`: usa la ruta firmada cuando el adaptador de Python
+está presente y `uploadFileToDrive` en el despliegue de Apps Script. Devuelve
+siempre `{success, message}`, nunca deja el fallo en la consola.
+
 ### 3.9 Prospección geoespacial (DENUE) — REST real
 
 > **Excepción al §1 de este documento.** Todo lo anterior son funciones RPC

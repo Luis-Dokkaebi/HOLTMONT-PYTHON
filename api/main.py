@@ -1289,6 +1289,27 @@ def api_legacy_upload(req: UploadRequest):
     return storage.subir(req.data, req.type, req.name, req.client, req.date)
 
 
+class UploadUrlRequest(BaseModel):
+    name: Optional[str] = None
+    client: Optional[str] = None
+    date: Optional[str] = None
+
+
+@app.post("/api/legacy/uploadUrl")
+def api_legacy_upload_url(req: UploadUrlRequest):
+    """
+    URL firmada para subir directo a Storage (archivos que no caben en el JSON).
+
+    El cuerpo de una función en Vercel se corta en 4.5 MB, así que
+    `/api/legacy/upload` —que recibe el archivo en base64— no puede con un
+    adjunto grande. Aquí solo viaja el nombre; los bytes van del navegador a
+    Storage.
+    """
+    from api.services import storage
+
+    return storage.url_de_subida_firmada(req.name, req.client, req.date)
+
+
 @app.post("/api/legacy/archiveQuote")
 def api_legacy_archive_quote(req: ArchiveRequest):
     """

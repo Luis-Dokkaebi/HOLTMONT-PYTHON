@@ -175,6 +175,57 @@ class ApiService {
         URL.revokeObjectURL(url);
     }
 
+    /**
+     * Sube un archivo DIRECTO a Storage con una URL firmada.
+     *
+     * Por qué no basta `uploadFileToDrive`: ahí el archivo viaja en base64
+     * dentro del JSON de la petición, y ese JSON es el cuerpo de una función
+     * serverless de Vercel, que la plataforma corta en 4.5 MB. Base64 infla
+     * 4/3, así que por esa vía no pasa un adjunto de más de ~3.3 MB — el 413
+     * lo emite la plataforma antes de ejecutar nada, y su respuesta ni
+     * siquiera es JSON. Ese es el "no me deja cargar archivos pesados" de
+     * BUG-0009.
+     *
+     * Aquí el servidor solo firma la ruta y los bytes van del navegador a
+     * Storage, sin pasar por la función. Devuelve `{success, fileUrl}`, la
+     * misma forma que `uploadFileToDrive`, para que quien la llame no tenga
+     * que distinguir.
+     */
+    static async subirArchivoDirecto(file, client) {
+        if (!file) return { success: false, message: 'No se eligió ningún archivo.' };
+        let firma;
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/legacy/uploadUrl`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: file.name, client: client || null })
+            });
+            firma = await response.json();
+        } catch (e) {
+            return { success: false, message: 'No se pudo preparar la subida: ' + e.toString() };
+        }
+        if (!firma || !firma.success || !firma.uploadUrl) {
+            return { success: false, message: (firma && firma.message) || 'No se pudo preparar la subida.' };
+        }
+        if (firma.maxBytes && file.size > firma.maxBytes) {
+            return { success: false, message: `El archivo pesa ${file.size} bytes y el máximo es ${firma.maxBytes}.` };
+        }
+        try {
+            const subida = await fetch(firma.uploadUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': file.type || 'application/octet-stream' },
+                body: file
+            });
+            if (!subida.ok) {
+                // El cuerpo de Storage puede no ser JSON; el estado sí dice algo.
+                return { success: false, message: `Storage rechazó el archivo (HTTP ${subida.status}).` };
+            }
+        } catch (e) {
+            return { success: false, message: 'No se pudo subir el archivo: ' + e.toString() };
+        }
+        return { success: true, fileUrl: firma.fileUrl, path: firma.path };
+    }
+
     static async login(username, password) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/login`, {
