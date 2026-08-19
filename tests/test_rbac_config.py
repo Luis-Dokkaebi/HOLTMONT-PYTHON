@@ -328,3 +328,138 @@ def test_la_base_puede_conceder_la_bandera_a_quien_no_la_trae(monkeypatch):
     organigrama.reset_cache_perfiles()
     monkeypatch.setattr(organigrama, "_filas_profiles", lambda: [fila])
     assert config("STAFF_USER", "MIGUEL_GALLARDO")["canManageTickets"] is True
+
+
+# --- Prospección geoespacial (DENUE) -----------------------------------
+#
+# El módulo publica 20,957 nombres con teléfono y correo. Quién lo ve es una
+# decisión del dueño: los roles ADMIN y ADMIN_CONTROL, más las cuentas que
+# lleven la bandera `prospeccion` en su perfil.
+#
+# `prospeccion` es aditiva, igual que `soporte`: no reemplaza el rol de nadie,
+# solo agrega el mapa encima del que ya tenga. Se prefiere a una regla derivada
+# del departamento porque una bandera por cuenta se audita —y se revoca— mirando
+# una sola línea.
+#
+# La mitad que importa de una regla de permisos es a quién NO se le da: que el
+# módulo aparezca de más no rompe nada visible, y por eso nadie lo notaría.
+
+MODULO_GEO = "PROSPECCION_GEO"
+
+
+def _ve_geo(role, username=""):
+    return MODULO_GEO in [m["id"] for m in config(role, username)["specialModules"]]
+
+
+@pytest.mark.parametrize("rol,cuenta", [
+    ("ADMIN", "LUIS_CARLOS"),
+    ("ADMIN_CONTROL", "JAIME_OLIVO"),
+    ("ADMIN_CONTROL", "DIMAS_RAMOS"),
+    ("STAFF_USER", "ANTONIO_SALAZAR"),   # entra por la bandera, no por el rol
+])
+def test_los_dos_roles_y_la_cuenta_con_bandera_ven_prospeccion(rol, cuenta):
+    assert _ve_geo(rol, cuenta)
+
+
+@pytest.mark.parametrize("rol,cuenta", [
+    ("STAFF_USER", "JUDITH_ECHAVARRIA"),  # COMPRAS y vendedora: tampoco lo ve
+    ("STAFF_USER", "RAMIRO_RODRIGUEZ"),   # VENTAS
+    ("STAFF_USER", "SONIA_GARCIA"),       # COMPRAS
+    ("STAFF_USER", "EDUARDO_BENITEZ"),
+    ("STAFF_USER", "LAURA_HUERTA"),
+    ("TONITA", "ANTONIA_VENTAS"),
+    ("WORKORDER_USER", "PREWORK_ORDER"),
+    ("PPC_ADMIN", "JESUS_CANTU"),
+])
+def test_el_resto_del_personal_no_ve_prospeccion(rol, cuenta):
+    """
+    Compras y ventas quedaron fuera por decisión del dueño. Se prueba explícito
+    porque es la lectura que uno esperaría —el módulo sirve para prospectar
+    proveedores y clientes— y sin prueba volvería a colarse.
+    """
+    assert not _ve_geo(rol, cuenta)
+
+
+def test_un_rol_desconocido_no_hereda_prospeccion():
+    """
+    El `return` final del endpoint lo alcanzan ADMIN **y** cualquier rol sin
+    rama. Es exactamente el camino por el que STAFF_USER heredaba la
+    configuración de ADMIN antes de tener la suya; un módulo nuevo no puede
+    volver a colarse por ahí.
+    """
+    assert not _ve_geo("ROL_QUE_NADIE_DEFINIO", "LUIS_CARLOS")
+
+
+def test_sin_username_la_prospeccion_no_se_concede_por_defecto():
+    """
+    Un cliente viejo que solo mande `role` degrada a "sin rama por usuario",
+    nunca a permisos de más.
+    """
+    assert not _ve_geo("STAFF_USER", "")
+
+
+def test_la_bandera_no_le_da_nada_mas_que_el_mapa():
+    """
+    `prospeccion` es aditiva: no puede traer departamentos, directorio ni
+    `accessProjects` de regalo. Es la comprobación que faltó cuando STAFF_USER
+    heredaba la configuración de ADMIN.
+    """
+    salida = config("STAFF_USER", "ANTONIO_SALAZAR")
+    assert salida["departments"] == {}
+    assert salida["accessProjects"] is False
+    assert salida["canSeeBancoJuntas"] is False
+    assert [m["id"] for m in salida["specialModules"]][:2] == ["MY_TRACKER", "PPC_MASTER"]
+
+
+def test_admin_y_admin_control_ven_el_mapa_sin_necesitar_la_bandera():
+    """Los dos roles lo tienen por el rol; su perfil no trae `prospeccion`."""
+    assert not organigrama.perfil("LUIS_CARLOS").get("prospeccion")
+    assert not organigrama.perfil("JAIME_OLIVO").get("prospeccion")
+    assert _ve_geo("ADMIN", "LUIS_CARLOS")
+    assert _ve_geo("ADMIN_CONTROL", "JAIME_OLIVO")
+
+
+def test_la_bandera_de_prospeccion_sobrevive_a_una_fila_en_profiles(monkeypatch):
+    """
+    `_perfil_desde_base` reconstruye el perfil clave por clave, así que una
+    bandera que no se liste ahí se pierde en cuanto la cuenta existe en
+    `profiles`: encendida en la semilla, apagada en producción, sin aviso. Es el
+    accidente que ya se midió con `soporte` y que aquí no se repite.
+
+    El nombre lleva "de_prospeccion" porque ya existe arriba la prueba gemela de
+    `soporte`: repetir el nombre no da error, Python se queda con la última y la
+    primera **deja de correr en silencio**. Lo cazó `ruff` con un F811.
+    """
+    organigrama.reset_cache_perfiles()
+    monkeypatch.setattr(organigrama, "_filas_profiles", lambda: [
+        {"username": "ANTONIO_SALAZAR", "role": "STAFF_USER", "dept": "GENERAL"},
+    ])
+    assert organigrama.perfil("ANTONIO_SALAZAR")["prospeccion"] is True
+    assert _ve_geo("STAFF_USER", "ANTONIO_SALAZAR")
+
+
+def test_la_base_puede_conceder_la_bandera_a_quien_la_semilla_no_marca(monkeypatch):
+    """
+    Dar el módulo a otra persona no exige desplegar: se enciende la columna en
+    `profiles`. Es el camino que el dueño usará para abrirlo a compras o ventas
+    si algún día lo decide.
+    """
+    organigrama.reset_cache_perfiles()
+    monkeypatch.setattr(organigrama, "_filas_profiles", lambda: [
+        {"username": "SONIA_GARCIA", "role": "STAFF_USER", "dept": "COMPRAS",
+         "prospeccion": True},
+    ])
+    assert _ve_geo("STAFF_USER", "SONIA_GARCIA")
+
+
+def test_el_modulo_de_prospeccion_declara_el_tipo_que_el_frontend_sabe_abrir():
+    """
+    R9. `index.html` enruta por `m.type` en `openModule`; si el backend publica
+    un tipo que la cadena de `else if` no contempla, el clic no hace nada y
+    **no** se registra ningún error en consola. Ya pasó con `work_order_form`.
+    """
+    geo = next(m for m in config("ADMIN", "LUIS_CARLOS")["specialModules"]
+               if m["id"] == MODULO_GEO)
+    assert geo["type"] == "geo_prospect_view"
+    assert geo["label"] == "Prospección"
+    assert geo["icon"] == "fa-map-marked-alt"

@@ -139,7 +139,7 @@ PERFILES: Dict[str, Dict[str, Any]] = {
     "ROCIO_CASTRO": {"role": "STAFF_USER", "label": "Rocio Castro Covarrubias", "email": "", "staff_name": "ROCIO ABIGAIL CASTRO COVARRUBIAS", "dept": "FINANZAS", "seller": False},
     "GERALDINE_MARTINEZ": {"role": "STAFF_USER", "label": "Geraldine Marie Martinez Hernandez", "email": "", "staff_name": "GERALDINE MARTINEZ HERNANDEZ", "dept": "PRECIOS UNITARIOS", "seller": False},
     "CESAR_EDUARDO_GARCIA": {"role": "STAFF_USER", "label": "Cesar Eduardo Garcia Avalos", "email": "", "staff_name": "CESAR EDUARDO GARCIA AVALOS", "dept": "CONSTRUCCION", "seller": False},
-    "ANTONIO_SALAZAR": {"role": "STAFF_USER", "label": "Antonio Salazar", "email": "", "staff_name": "ANTONIO SALAZAR", "dept": "GENERAL", "seller": False, "soporte": True},
+    "ANTONIO_SALAZAR": {"role": "STAFF_USER", "label": "Antonio Salazar", "email": "", "staff_name": "ANTONIO SALAZAR", "dept": "GENERAL", "seller": False, "soporte": True, "prospeccion": True},
     # Baja (2026-08): se retiró de `USER_DB` en Apps Script y no se migra a
     # `profiles`, así que no puede entrar a ninguna de las dos plataformas. Su
     # casilla se conserva aquí porque el organigrama lo registra en GENERAL y
@@ -206,6 +206,21 @@ def _filas_profiles() -> List[Dict[str, Any]]:
     return _CACHE_PROFILES["filas"]
 
 
+def _bandera_aditiva(fila: Dict[str, Any], base: Dict[str, Any], nombre: str) -> bool:
+    """
+    Valor de una bandera del perfil, prefiriendo `profiles` y cayendo a la semilla.
+
+    `is None` en vez de `.get(nombre, default)`: hoy la tabla puede no tener la
+    columna y hay que caer a la semilla, pero si mañana se agrega y llega en
+    nulo, también debe caer — un nulo no es "revocada".
+
+    Está fuera de `_perfil_desde_base` porque esa función ya estaba en B (10) y
+    resolver aquí las dos banderas en línea la habría subido a C (11). Una
+    función existente sale igual o mejor (RESTRICCIONES_EXTREMAS.md §5).
+    """
+    return bool(fila[nombre] if fila.get(nombre) is not None else base.get(nombre, False))
+
+
 def _perfil_desde_base(clave: str) -> Optional[Dict[str, Any]]:
     for fila in _filas_profiles():
         if clave_usuario(fila.get("username")) != clave:
@@ -228,19 +243,17 @@ def _perfil_desde_base(clave: str) -> Optional[Dict[str, Any]]:
             # a tocar al desplegar. La base sí puede **conceder** la bandera a
             # quien la semilla no marca; para retirarla se edita la semilla.
             "seller": bool(fila.get("seller")) or bool(base.get("seller", False)),
-            # `soporte` habilita la vista de tickets de bug. Faltaba aquí, y
-            # como este diccionario se reconstruye clave por clave, la bandera
-            # se perdía en cuanto la cuenta existía en `profiles`: quedaba
-            # encendida en la semilla y apagada en producción, sin aviso.
-            # Medido contra el proyecto real el 2026-08-13 con ANTONIO_SALAZAR.
+            # Las dos banderas aditivas. Van listadas aquí y no heredadas
+            # porque este diccionario se reconstruye clave por clave: la que no
+            # aparezca se pierde en cuanto la cuenta existe en `profiles`
+            # —encendida en la semilla, apagada en producción, sin aviso—.
+            # Medido contra el proyecto real el 2026-08-13 con ANTONIO_SALAZAR,
+            # que es justamente quien lleva las dos.
             #
-            # `is None` en vez de `.get(k, default)`: hoy la tabla no tiene la
-            # columna y hay que caer a la semilla, pero si mañana se agrega y
-            # llega en nulo, también debe caer — un nulo no es "revocada".
-            "soporte": bool(
-                fila["soporte"] if fila.get("soporte") is not None
-                else base.get("soporte", False)
-            ),
+            #   `soporte`     -> la vista de tickets de bug
+            #   `prospeccion` -> el módulo del mapa del DENUE
+            "soporte": _bandera_aditiva(fila, base, "soporte"),
+            "prospeccion": _bandera_aditiva(fila, base, "prospeccion"),
         }
     return None
 

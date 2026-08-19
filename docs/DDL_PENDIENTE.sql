@@ -321,3 +321,72 @@ GRANT SELECT, INSERT, UPDATE ON public.ticket_notificaciones TO service_role;
 --     SELECT to_regclass('public.bug_tickets'),
 --            to_regclass('public.ticket_notificaciones');
 --     -- las dos deben devolver el nombre de la tabla, no NULL.
+
+
+-- ===========================================================================
+-- 8. geo_prospectos  — REQUERIDA por POST /api/geo/prospecto
+-- ===========================================================================
+-- Estado: la tabla NO existe. El módulo de Prospección geoespacial lee su
+-- catálogo de un SQLite dentro del bundle (`api/data/denue.sqlite`), pero lo
+-- que la empresa genera encima de ese catálogo necesita una tabla real.
+--
+-- Por qué la separación (plan de prospección §4, decisión D2):
+--
+--   * El DENUE es de terceros, público e **inmutable** entre publicaciones del
+--     INEGI (semestrales). Subir sus 20,957 filas a Supabase sería pagar red y
+--     respaldos para leer un dato que no cambia y que no es nuestro.
+--   * Lo que la empresa produce —prospecto contactado, asignado a un vendedor,
+--     nota, texto del sitio ya extraído— sí es nuestro y sí es mutable. Eso va
+--     aquí.
+--
+-- `denue_id` es la clave del establecimiento en el DENUE y es la PRIMARY KEY.
+-- **No hay FOREIGN KEY**, y no es un olvido: la tabla referida vive en otra
+-- base (un archivo SQLite en el bundle), así que Postgres no tiene contra qué
+-- validarla. La integridad la sostiene el catálogo, que se regenera entero con
+-- `scripts/construir_sqlite.py` de `ModeloGeo` cuando el INEGI publica.
+--
+-- Un `denue_id` que deje de existir en una publicación futura conserva su fila
+-- aquí, huérfana. Es deliberado: si un negocio desaparece del DENUE, el
+-- registro de que alguien lo contactó no debe desaparecer con él.
+
+CREATE TABLE IF NOT EXISTS public.geo_prospectos (
+    denue_id      TEXT PRIMARY KEY,   -- id del DENUE; sin FK, viven en bases distintas
+    estado        TEXT NOT NULL,      -- NUEVO | CONTACTADO | COTIZANDO | DESCARTADO
+    vendedor      TEXT,
+    nota          TEXT,
+    web_cache     TEXT,               -- texto extraído del sitio (plan §4, D3, capa 1)
+    web_cache_at  TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- El panel de compras filtra por estado ("enséñame los CONTACTADO") y cada
+-- vendedor por los suyos. Son los dos únicos accesos que hace la aplicación.
+CREATE INDEX IF NOT EXISTS geo_prospectos_estado_idx
+    ON public.geo_prospectos (estado);
+CREATE INDEX IF NOT EXISTS geo_prospectos_vendedor_idx
+    ON public.geo_prospectos (vendedor);
+
+-- `estado` es la máquina de estados del prospecto y la aplicación ya la valida
+-- (`backend/schemas/geo_prospecto.py`). La restricción se repite aquí a
+-- propósito: la validación de la aplicación protege de un cliente equivocado,
+-- el CHECK protege de una carga manual, de un script y de la propia aplicación
+-- el día que alguien añada un cuarto camino de escritura.
+ALTER TABLE public.geo_prospectos
+    DROP CONSTRAINT IF EXISTS geo_prospectos_estado_check;
+ALTER TABLE public.geo_prospectos
+    ADD CONSTRAINT geo_prospectos_estado_check
+    CHECK (estado IN ('NUEVO', 'CONTACTADO', 'COTIZANDO', 'DESCARTADO'));
+
+-- Mismo cerrojo doble que `bug_tickets` (§5): RLS encendida y sin políticas
+-- deja la tabla accesible solo a `service_role`, que es quien la usa desde el
+-- backend. Sin esto, la clave `anon` —la que se publica en el navegador—
+-- podría leer la cartera comercial completa: a quién se contactó, quién lo
+-- lleva y qué se anotó de cada negocio.
+--
+-- OJO con el síntoma, que ya se documentó en §7: con la clave equivocada la
+-- LECTURA devuelve vacío sin error y solo la escritura falla. Un panel de
+-- prospectos vacío se lee como "todavía no hay ninguno", que es una respuesta
+-- falsa.
+ALTER TABLE public.geo_prospectos ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE ON public.geo_prospectos TO service_role;

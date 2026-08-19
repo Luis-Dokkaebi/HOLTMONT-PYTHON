@@ -429,3 +429,180 @@ def test_el_ppc_maestro_se_resuelve_por_el_indice_de_plan_semanal(monkeypatch):
     filas = sheets._filas_del_ppc_maestro()
     assert [f["id"] for f in filas] == ["a", "b"]
     sheets.reset_source_sheet_cache()
+
+
+# ----------------------------------------------------------------------
+# R9 · Los cinco puntos de sutura del módulo de Prospección geoespacial
+# ----------------------------------------------------------------------
+#
+# El recorrido en navegador vive en `tests/test_prospeccion_geo_ui.py`, pero esa
+# suite se salta donde no hay Chromium. Estas comprobaciones son estáticas: leen
+# los archivos y no necesitan ni navegador ni servidor, así que el contrato
+# `index.html` → `api_service.js` → `api/main.py` queda cubierto en cualquier
+# entorno.
+#
+# Lo que protegen es un fallo que NO deja rastro: si el backend publica un tipo
+# de módulo que la cadena de `else if` de `openModule` no contempla, el clic
+# simplemente no hace nada. Sin excepción, sin error en consola, sin nada que
+# mirar en el log. Le pasó a `work_order_form` y le puede pasar a este.
+
+RUTAS_GEO = {
+    ("GET", "/api/geo/catalogo"): "geoCatalogo",
+    ("GET", "/api/geo/establecimientos"): "geoEstablecimientos",
+    ("POST", "/api/geo/prospecto"): "geoProspecto",
+    ("POST", "/api/geo/agente"): "geoAgente",
+    ("POST", "/api/geo/solicitar_cotizacion"): "geoSolicitarCotizacion",
+    ("POST", "/api/geo/seleccion"): "geoExportarSeleccion",
+}
+
+# Versiones fijas: una CDN sin versión es una dependencia que cambia sola, y
+# `tests/conftest.py` cachea por URL exacta para que la suite corra sin red.
+CDN_DEL_MAPA = (
+    "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+    "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+    "https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js",
+    "https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js",
+    "https://unpkg.com/@turf/turf@6.5.0/turf.min.js",
+)
+
+
+@pytest.mark.parametrize("clave,metodo", sorted(RUTAS_GEO.items()))
+def test_las_rutas_geo_existen_en_main(rutas, clave, metodo):
+    assert clave in rutas, f"Falta {clave[0]} {clave[1]} en api/main.py ({metodo})"
+
+
+@pytest.mark.parametrize("metodo", sorted(RUTAS_GEO.values()))
+def test_apiservice_publica_los_metodos_geo(metodo):
+    """
+    Van en `ApiService` y NO en `GoogleScriptRunAdapter`, igual que
+    `generarPlano2D`.
+
+    Todo lo que el frontend invoca por el puente de Apps Script debe existir
+    como función en `CODIGO.js` — lo verifica la prueba 7.1 de
+    `tests/gas/run_tests.js`. Estas dos lecturas no tienen equivalente ahí y no
+    pueden tenerlo: el catálogo es un SQLite dentro del bundle de Vercel.
+    """
+    js = leer(ADAPTER_JS)
+    assert f"static async {metodo}(" in js, f"Falta ApiService.{metodo}()"
+    assert metodo not in metodos_del_adaptador(), (
+        f"{metodo}() no puede vivir en GoogleScriptRunAdapter: no existe en CODIGO.js")
+
+
+def test_los_metodos_geo_llaman_a_su_ruta():
+    """Un método que existe pero apunta a otra ruta pasa la prueba de arriba."""
+    js = leer(ADAPTER_JS)
+    for metodo, ruta in (("geoCatalogo", "/api/geo/catalogo"),
+                         ("geoEstablecimientos", "/api/geo/establecimientos"),
+                         ("geoProspecto", "/api/geo/prospecto"),
+                         ("geoAgente", "/api/geo/agente"),
+                         ("geoSolicitarCotizacion", "/api/geo/solicitar_cotizacion"),
+                         ("geoExportarSeleccion", "/api/geo/seleccion")):
+        inicio = js.index(f"static async {metodo}(")
+        cuerpo = js[inicio:inicio + 1800]
+        assert ruta in cuerpo, f"{metodo}() no llama a {ruta}"
+
+
+def test_la_exportacion_distingue_el_archivo_del_error():
+    """
+    Un `{success:false}` tratado como archivo se descarga como un CSV con el
+    mensaje de error dentro, y eso parece un archivo bueno hasta que alguien lo
+    abre. Por eso se mira el `content-type` antes de hacer nada.
+    """
+    js = leer(ADAPTER_JS)
+    inicio = js.index("static async geoExportarSeleccion(")
+    cuerpo = js[inicio:inicio + 1800]
+    assert "content-type" in cuerpo
+    assert "application/json" in cuerpo
+
+
+def test_el_panel_expone_los_controles_del_puente_con_el_negocio():
+    """
+    Vue solo ve lo que `setup()` devuelve: una función declarada y no expuesta
+    deja el botón inerte, sin error de consola.
+    """
+    html = leer(INDEX_HTML)
+    for identificador in ("geoGuardarProspecto", "geoAnalizar", "geoSolicitar",
+                          "geoExportarCsv", "geoExportarXlsx"):
+        assert f'id="{identificador}"' in html, f"falta el control {identificador}"
+    for nombre in ("guardarProspectoGeo", "consultarAgenteGeo", "solicitarCotizacionGeo",
+                   "exportarSeleccionGeo", "geoEstado", "geoAgente"):
+        assert re.search(rf"return \{{[^}}]*\b{nombre}\b", html, re.S), (
+            f"`{nombre}` no se expone en el return de setup()")
+
+
+def test_la_ficha_declara_de_donde_salio_el_texto_del_agente():
+    """
+    `fuente` no es decoración: distingue un análisis leído de la página del
+    negocio de uno armado con el resumen de un buscador, y quien firma el correo
+    tiene derecho a saberlo.
+    """
+    html = leer(INDEX_HTML)
+    assert "geoAgente.fuente" in html
+
+
+def test_el_frontend_no_pide_el_catalogo_por_el_puente_de_apps_script():
+    """
+    Regresión real de esta fase: la primera versión colgó los dos métodos del
+    adaptador y `index.html` los llamaba con `google.script.run`. La suite GAS
+    lo cazó — "7.1 · 2 faltantes: apiGeoCatalogo, apiGeoEstablecimientos"—
+    porque el contrato dice que lo que se invoca por ese puente existe en
+    `CODIGO.js`. Se corrigió el código, no la puerta.
+    """
+    html = leer(INDEX_HTML)
+    assert "ApiService.geoCatalogo(" in html
+    assert "ApiService.geoEstablecimientos(" in html
+    assert "apiGeoCatalogo" not in html
+    assert "apiGeoEstablecimientos" not in html
+
+
+def test_los_giros_viajan_como_parametro_repetido():
+    """
+    FastAPI lee una lista como el MISMO parámetro repetido (`?giros=A&giros=B`).
+    Un `giros=A,B` llegaría como una sola cadena y no emparejaría con ningún
+    giro del DENUE: cero resultados, sin error.
+    """
+    js = leer(ADAPTER_JS)
+    inicio = js.index("static async geoEstablecimientos(")
+    cuerpo = js[inicio:inicio + 1800]
+    assert "params.append('giros'" in cuerpo
+
+
+def test_open_module_sabe_abrir_el_tipo_que_publica_el_backend():
+    """
+    El tipo que declara `/api/config` y el que enruta `openModule` tienen que
+    ser la misma cadena. Si divergen, el módulo aparece en el menú y el clic no
+    hace absolutamente nada.
+    """
+    html = leer(INDEX_HTML)
+    main = leer(MAIN_PY)
+    assert '"type": "geo_prospect_view"' in main
+    assert "m.type === 'geo_prospect_view'" in html
+    assert "currentView.value = 'PROSPECCION_GEO'" in html
+    assert "cargarCatalogoGeo()" in html
+
+
+def test_el_panel_del_mapa_existe_y_esta_expuesto_a_la_plantilla():
+    """
+    Vue solo ve lo que `setup()` devuelve. Una referencia declarada y no
+    expuesta deja la plantilla pintando `undefined` sin lanzar nada.
+    """
+    html = leer(INDEX_HTML)
+    assert """v-if="currentView === 'PROSPECCION_GEO'\"""" in html
+    assert 'id="geoMapa"' in html
+    for nombre in ("geoCatalogo", "geoAlcaldia", "geoGiros", "geoSoloConContacto",
+                   "geoTotal", "geoMostrados", "geoFicha", "geoSeleccion",
+                   "cargarCatalogoGeo", "recargarGeo", "limpiarSeleccionGeo", "urlDeSitio"):
+        assert re.search(rf"return \{{[^}}]*\b{nombre}\b", html, re.S), (
+            f"`{nombre}` no se expone en el return de setup()")
+
+
+@pytest.mark.parametrize("cdn", CDN_DEL_MAPA)
+def test_las_librerias_del_mapa_estan_declaradas_en_el_head(cdn):
+    """
+    Sin la CDN, `L` es `undefined` y el mapa no monta. Con la versión suelta,
+    la dependencia cambia sola y el caché de `tests/conftest.py` —que indexa por
+    URL exacta— deja de servir.
+    """
+    html = leer(INDEX_HTML)
+    cabeza = html[:html.index("</head>")]
+    assert cdn in cabeza

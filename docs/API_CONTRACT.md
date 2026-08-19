@@ -188,6 +188,145 @@ columnas calculadas a cada fila:
 | `ORIGEN` | `TRACKER`, `COTIZACIONES`, `PERSONAL` | la vista distingue una cotización de una actividad |
 | `FECHA_CALENDARIO` | `YYYY-MM-DD` o `""` | día en el que se pinta: FECHA en el tracker, F. INICIO en cotizaciones |
 
+### 3.9 Prospección geoespacial (DENUE) — REST real
+
+> **Excepción al §1 de este documento.** Todo lo anterior son funciones RPC
+> modeladas como pseudo-rutas. Estas dos **sí son rutas HTTP REST** servidas por
+> FastAPI: nacen en la plataforma Python, no vienen de `CODIGO.js`, y no tienen
+> equivalente en Apps Script.
+
+| Método y ruta | Entrada | Salida |
+|---|---|---|
+| `GET /api/geo/catalogo` | — | `{success, alcaldias: [16], giros: [99]}` |
+| `GET /api/geo/establecimientos` | `alcaldia`, `giros` (repetible), `personal_min`, `solo_con_contacto`, `bbox`, `limite`, `desplazamiento` | `{success, total, mostrados, items: [...]}` |
+
+**De dónde sale el dato.** De `api/data/denue.sqlite`, un SQLite de solo lectura
+que viaja en el bundle con los 20,957 establecimientos de la cadena de valor de
+la construcción en CDMX. Se consulta con el `sqlite3` de la biblioteca estándar:
+leerlo desde el Parquet original exigiría `pandas` + `pyarrow` + `numpy`, que
+desempaquetadas suman 251 MB y rebasan solas el límite de 250 MB de una función
+serverless. **Este módulo no añade ninguna dependencia a `api/requirements.txt`.**
+
+El artefacto lo genera `scripts/construir_sqlite.py` del repositorio `ModeloGeo`.
+El dato es público del INEGI y solo cambia cuando el instituto publica (cada
+semestre); lo que la empresa genere encima —prospecto contactado, asignado,
+cotizado— es otra cosa y va a Supabase.
+
+**Las 10 columnas de `items`**, y ninguna más:
+
+`id`, `nom_estab`, `nombre_act`, `per_ocu`, `telefono`, `correoelec`, `www`,
+`municipio`, `latitud`, `longitud`.
+
+El SQLite guarda 14 y el DENUE publica 42. El domicilio (`cod_postal`,
+`nom_vial`, `numero_ext`) y `codigo_act` se quedan dentro: una fila completa son
+~1.5 KB y 3,000 marcadores serían 4.5 MB de JSON por cada paneo del mapa.
+
+**Tres reglas del contrato que no se deducen de la firma:**
+
+1. **`personal_min` filtra por el piso del rango.** `per_ocu` es texto
+   (`"11 a 30 personas"`), no un número. Se incluyen los rangos cuyo **piso**
+   alcanza el mínimo: `personal_min=11` deja fuera a `"6 a 10 personas"` aunque
+   un negocio de ese rango pudiera tener 10. Es la lectura conservadora — nadie
+   puede afirmar que ese negocio tiene 11.
+2. **`bbox` pone la latitud primero** (`lat_min,lon_min,lat_max,lon_max`), como
+   el INEGI y como Leaflet. **GeoJSON pone la longitud primero**; la conversión
+   vive en un solo sitio (`prospeccion.anillo_de_geojson`).
+3. **`total` y `mostrados` son números distintos.** `total` son los que cumplen
+   los filtros; `mostrados` los que caben en `limite` (default 500, techo 3000).
+   Sirve para que la interfaz diga "3,000 de 8,412" en vez de recortar en
+   silencio, que es lo que hacía el notebook con su tope de 2,000 marcadores.
+
+**Errores.** Un parámetro inválido —bbox de tres números, bbox invertido, texto
+donde iba un número— devuelve `{success: false, message: "..."}` con HTTP 200,
+igual que `/api/plano_2d`. Nunca un 500: un mapa en blanco sin motivo se lee
+como "aquí no hay negocios", que es una respuesta falsa. Si el artefacto no está
+desplegado, el `message` dice cómo regenerarlo.
+
+#### El agente de prospección
+
+| Método y ruta | Entrada | Salida |
+|---|---|---|
+| `POST /api/geo/agente` | `{establecimiento_id, consulta}` | `{success, tipo, texto, fuente}` |
+
+Es el grafo de la celda 4 del notebook, portado. `tipo` es `analisis` cuando se
+pudo leer texto del negocio y `correo` cuando no —y ese es el caso normal: solo
+2,848 de los 20,957 establecimientos declararon sitio web—.
+
+**`fuente` no es decoración.** Dice de dónde salió el texto y son cuatro valores
+con significados distintos para quien va a firmar el correo:
+
+| `fuente` | Qué leyó el agente |
+|---|---|
+| `cache` | El texto que extrajo el job de enriquecimiento fuera de línea |
+| `web` | El sitio, leído en vivo con la biblioteca estándar |
+| `tavily` | El resumen de un buscador, porque el sitio arma su contenido con JS |
+| `sin_web` | Nada. El correo se redactó solo con el giro del INEGI |
+
+Las tres capas se prueban en ese orden porque ese es el orden del costo: la
+caché es gratis, la lectura en vivo tarda menos de un segundo en la mayoría
+(§2.3) y Tavily es una llamada de pago.
+
+**`GROQ_API_KEY` sale del servidor y nunca baja al navegador** (plan §4, D5). El
+notebook la pedía en un `widgets.Password`. Sin la clave, la ruta degrada con
+`success: false` y el resto del módulo sigue en pie.
+
+**El scraping no corre en el runtime.** `crawl4ai` + Playwright necesitan un
+Chromium que no cabe en el bundle. La lectura en vivo es `urllib` + `html.parser`
+(`api/services/extractor_web.py`), con la lista de defensas contra SSRF de §9 del
+plan: lista blanca de esquemas, rechazo de direcciones internas comprobando
+**todas** las que resuelva el host, revalidación en cada redirección, techo de
+400 KB, timeout de 8 s, `User-Agent` identificable y `robots.txt` respetado.
+
+#### El puente con el negocio
+
+| Método y ruta | Entrada | Salida |
+|---|---|---|
+| `POST /api/geo/prospecto` | `{establecimiento_id, estado, vendedor, nota}` | `{success, prospecto}` |
+| `POST /api/geo/seleccion` | `{poligono, personal_min, solo_con_contacto, formato}` | JSON, CSV o XLSX |
+| `POST /api/geo/solicitar_cotizacion` | `{establecimiento_id, destinatario, asunto, mensaje}` | `{success, motivo, vista_previa}` |
+
+**Dos bases, a propósito.** El catálogo del INEGI es de terceros, público e
+inmutable entre publicaciones, y vive en el SQLite del bundle. Lo que la empresa
+produce encima —prospecto contactado, asignado a un vendedor, notas— es nuestro y
+mutable, y va a `geo_prospectos` en Supabase por el `DataEngine` que ya existe
+(`backend/core/engine.py`). No se mezclan: el dato del INEGI no entra a los
+respaldos de la empresa y no se suben 21,000 filas ajenas solo para leerlas.
+
+El DDL de `geo_prospectos` está en [`DDL_PENDIENTE.sql`](DDL_PENDIENTE.sql) §8 y
+lo aplica el dueño. Mientras no exista la tabla, `POST /api/geo/prospecto`
+degrada con `success: false` y el motivo.
+
+**El estado del prospecto** sale de `{ NUEVO, CONTACTADO, COTIZANDO, DESCARTADO }`
+y la clave es `denue_id`: un establecimiento tiene **un solo** estado comercial.
+Alta y cambio son la misma llamada (upsert). Tres reglas que no se ven en la firma:
+
+1. **Un estado desconocido se rechaza con 422**, no se corrige a `NUEVO`.
+   Degradarlo diría que a ese negocio nunca lo contactó nadie, borrando trabajo
+   que alguien ya hizo.
+2. **`created_at` solo se escribe en el alta.** Es lo único con lo que se puede
+   medir cuánto tarda un negocio en pasar de `NUEVO` a `COTIZANDO`.
+3. **`web_cache` no se puede mandar desde el navegador** (`extra="forbid"`). La
+   escribe el job de enriquecimiento fuera de línea, y el upsert fusiona, así que
+   omitirla la conserva.
+
+**La exportación** (`formato=csv` o `xlsx`) devuelve el archivo con
+`Content-Disposition`, con las mismas 10 columnas del mapa y encabezados
+legibles. Se arma con la biblioteca estándar (`api/services/exportacion.py`):
+meter `openpyxl` al runtime es justo lo que evita todo este diseño. El CSV lleva
+BOM porque su destino es Excel en Windows, que sin él lee "Cuauhtémoc" como
+"CuauhtÃ©moc".
+
+**La solicitud de cotización está bloqueada a propósito.** El DENUE es dato
+público; usar sus correos para contacto comercial cae bajo la **LFPDPPP**, que
+exige identificar a la empresa y ofrecer una vía de baja. Ese texto es decisión
+del dueño (plan de prospección §11, punto 5) y todavía no existe, así que la ruta
+devuelve `motivo: "aviso_legal_pendiente"` y el correo ya redactado en
+`vista_previa` para mandarlo a mano. Hay dos cerrojos —la constante
+`AVISO_LFPDPPP` vacía y la variable `GEO_CORREO_HABILITADO`— porque encender solo
+la variable no debe alcanzar. El envío usa `api/services/correo.py`; no hay un
+segundo camino.
+
+
 ---
 
 ## 4. Integraciones externas

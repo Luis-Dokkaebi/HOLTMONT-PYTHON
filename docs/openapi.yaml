@@ -63,6 +63,11 @@ tags:
     description: Agenda unificada, eventos personales y hábitos.
   - name: Integraciones
     description: Gemini, Drive y utilidades.
+  - name: Geo
+    description: >
+      Prospección geoespacial sobre el DENUE del INEGI. A diferencia del resto
+      de este documento, estas SÍ son rutas HTTP REST reales servidas por
+      FastAPI (`api/main.py`), no pseudo-rutas `/rpc/*`.
 
 paths:
 
@@ -699,6 +704,221 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SuccessResult" }
 
+  # --------------------------------------------------------------------- Geo
+  # Rutas REST reales (FastAPI), no pseudo-rutas RPC. El catálogo es un SQLite
+  # de solo lectura dentro del bundle: dato público del INEGI que solo cambia
+  # cuando el instituto publica, cada semestre.
+  /api/geo/catalogo:
+    get:
+      tags: [Geo]
+      operationId: apiGeoCatalogo
+      summary: Alcaldías y giros disponibles en el catálogo del DENUE.
+      description: >
+        Pobla los combos del módulo de prospección. Los valores salen del propio
+        artefacto, no de una lista escrita a mano: un giro nuevo del INEGI
+        aparece al regenerar el SQLite, sin tocar código.
+      responses:
+        "200":
+          description: Catálogo, o el motivo de no poder servirlo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GeoCatalogo"
+                  - $ref: "#/components/schemas/SuccessResult"
+
+  /api/geo/establecimientos:
+    get:
+      tags: [Geo]
+      operationId: apiGeoEstablecimientos
+      summary: Establecimientos del DENUE que pasan los filtros.
+      description: >
+        Devuelve `total` (los que cumplen los filtros) y `mostrados` (los que
+        caben en `limite`) por separado, para que la interfaz pueda decir
+        "3,000 de 8,412" en vez de recortar en silencio.
+        Un parámetro inválido devuelve `success: false` con el motivo; nunca 500.
+      parameters:
+        - name: alcaldia
+          in: query
+          required: false
+          schema: { type: string, example: Cuauhtémoc }
+          description: Nombre exacto de la alcaldía (columna `municipio`).
+        - name: giros
+          in: query
+          required: false
+          explode: true
+          schema:
+            type: array
+            maxItems: 99
+            items: { type: string }
+          description: Uno o varios giros (columna `nombre_act`). Se repite el parámetro.
+        - name: personal_min
+          in: query
+          required: false
+          schema: { type: integer, example: 11 }
+          description: >
+            Mínimo de personal ocupado. `per_ocu` es un rango de texto, así que
+            se incluyen los rangos cuyo PISO alcanza el mínimo: `11` deja fuera
+            a "6 a 10 personas" aunque un negocio de ese rango pudiera tener 10.
+        - name: solo_con_contacto
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: Solo los que declararon teléfono, correo o sitio web.
+        - name: bbox
+          in: query
+          required: false
+          schema: { type: string, example: "19.36,-99.19,19.40,-99.14" }
+          description: >
+            Recorte del mapa como `lat_min,lon_min,lat_max,lon_max` — el orden
+            del INEGI y de Leaflet, NO el de GeoJSON (que pone la longitud
+            primero). Invertido o con menos de cuatro números se rechaza.
+        - name: limite
+          in: query
+          required: false
+          schema: { type: integer, default: 500, maximum: 3000 }
+          description: Filas devueltas. Se acota entre 1 y 3000; un valor absurdo cae al default.
+        - name: desplazamiento
+          in: query
+          required: false
+          schema: { type: integer, default: 0, minimum: 0 }
+          description: Paginación. El orden es `ORDER BY id`, estable entre páginas.
+      responses:
+        "200":
+          description: Establecimientos, o el motivo de no poder servirlos.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GeoEstablecimientos"
+                  - $ref: "#/components/schemas/SuccessResult"
+
+  /api/geo/prospecto:
+    post:
+      tags: [Geo]
+      operationId: apiGeoProspecto
+      summary: Marca el estado comercial de un establecimiento del DENUE.
+      description: >
+        Alta y cambio son la misma llamada: un establecimiento tiene un solo
+        estado comercial, así que se hace upsert por `denue_id`. Escribe en
+        `geo_prospectos` (Supabase), NO en el catálogo del INEGI, que es de solo
+        lectura. `created_at` solo se fija en el alta.
+        La tabla la crea el dueño con `docs/DDL_PENDIENTE.sql` §8; hasta
+        entonces la ruta degrada con `success: false` y el motivo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GeoProspectoWrite" }
+      responses:
+        "200":
+          description: El prospecto guardado, o el motivo de no poder.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GeoProspectoGuardado"
+                  - $ref: "#/components/schemas/SuccessResult"
+        "422":
+          description: >
+            `estado` fuera de { NUEVO, CONTACTADO, COTIZANDO, DESCARTADO }, o
+            una columna que el cliente no puede mandar (`web_cache`,
+            `created_at`). No se degrada a `NUEVO`: eso diría que a este negocio
+            nunca lo contactó nadie.
+
+  /api/geo/seleccion:
+    post:
+      tags: [Geo]
+      operationId: apiGeoSeleccion
+      summary: Establecimientos dentro del polígono dibujado, para ver o exportar.
+      description: >
+        El punto-en-polígono se resuelve con SQL recortando primero por la caja
+        del polígono (índice `idx_geo`) y probando la geometría después, en
+        Python puro — sin PostGIS y sin GeoPandas.
+        `formato=csv` y `formato=xlsx` devuelven el archivo con
+        `Content-Disposition`; cualquier otro valor devuelve JSON. El XLSX se
+        arma con la biblioteca estándar: `openpyxl` no entra al runtime.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GeoSeleccion" }
+      responses:
+        "200":
+          description: Los establecimientos, o el archivo, o el motivo de no poder.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GeoEstablecimientos"
+                  - $ref: "#/components/schemas/SuccessResult"
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+
+  /api/geo/solicitar_cotizacion:
+    post:
+      tags: [Geo]
+      operationId: apiGeoSolicitarCotizacion
+      summary: Manda la solicitud de cotización por el canal SMTP que ya existe.
+      description: >
+        ⚠️ HOY NO ENVÍA NADA. Falta el aviso de identificación y baja que exige
+        la LFPDPPP para contacto comercial con los correos del DENUE, y es una
+        decisión del dueño (plan de prospección §11, punto 5).
+        La respuesta trae `motivo: "aviso_legal_pendiente"` y el correo ya
+        redactado en `vista_previa`, para copiarlo y mandarlo a mano.
+        Cuando el texto exista, hacen falta además `GEO_CORREO_HABILITADO=1` y
+        `SMTP_HOST`. El correo sale por `api/services/correo.py`; no hay un
+        segundo camino de envío.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GeoCotizacion" }
+      responses:
+        "200":
+          description: Resultado del envío, o el motivo del bloqueo con la vista previa.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeoCotizacionResultado" }
+
+  /api/geo/agente:
+    post:
+      tags: [Geo]
+      operationId: apiGeoAgente
+      summary: Analiza el sitio del negocio, o redacta el correo de contacto.
+      description: >
+        El grafo de la celda 4 del notebook, portado. `check_website` tiene tres
+        estados y no dos: el texto puede venir de la caché precalculada
+        (`geo_prospectos.web_cache`), de una lectura en vivo con la biblioteca
+        estándar, o de Tavily. Con texto se analiza; sin texto se redacta el
+        contacto — que es el caso normal, porque solo el 13.6% de los
+        establecimientos declaró sitio web.
+        `GROQ_API_KEY` sale del servidor y NUNCA baja al navegador. Sin ella la
+        ruta degrada con `success: false`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [establecimiento_id]
+              properties:
+                establecimiento_id: { type: string }
+                consulta:
+                  type: string
+                  description: Qué se le pregunta al agente sobre este negocio.
+      responses:
+        "200":
+          description: El texto del agente, o el motivo de no poder.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GeoAgenteResultado"
+                  - $ref: "#/components/schemas/SuccessResult"
+
 components:
   schemas:
 
@@ -969,3 +1189,165 @@ components:
         meta: { type: string }
         log: { type: object }
       additionalProperties: true
+
+    GeoCatalogo:
+      type: object
+      description: Valores disponibles para los combos del módulo de prospección.
+      properties:
+        success: { type: boolean }
+        alcaldias:
+          type: array
+          items: { type: string }
+          description: 16 alcaldías de la Ciudad de México, ordenadas.
+        giros:
+          type: array
+          items: { type: string }
+          description: 99 giros de la cadena de valor de la construcción, ordenados.
+
+    GeoEstablecimiento:
+      type: object
+      description: >
+        Un establecimiento del DENUE, en las 10 columnas que pinta el mapa. El
+        SQLite guarda 14 y el DENUE publica 42: el domicilio (`cod_postal`,
+        `nom_vial`, `numero_ext`) y `codigo_act` NO salen por esta API.
+      properties:
+        id: { type: string, description: Clave del establecimiento en el DENUE. }
+        nom_estab: { type: string }
+        nombre_act: { type: string, description: Giro. }
+        per_ocu: { type: string, description: 'Rango de personal, p. ej. "11 a 30 personas".' }
+        telefono: { type: [string, "null"] }
+        correoelec: { type: [string, "null"] }
+        www: { type: [string, "null"] }
+        municipio: { type: string, description: Alcaldía. }
+        latitud: { type: number }
+        longitud: { type: number }
+
+    GeoEstablecimientos:
+      type: object
+      properties:
+        success: { type: boolean }
+        total:
+          type: integer
+          description: Cuántos cumplen los filtros, sin aplicar el límite.
+        mostrados:
+          type: integer
+          description: Cuántos van en `items`. Menor que `total` cuando hubo recorte.
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/GeoEstablecimiento" }
+
+    GeoProspectoWrite:
+      type: object
+      description: Lo que manda el mapa al marcar un establecimiento.
+      required: [establecimiento_id]
+      additionalProperties: false
+      properties:
+        establecimiento_id:
+          type: string
+          description: Clave del establecimiento en el DENUE (`denue_id`).
+        estado:
+          type: string
+          default: NUEVO
+          enum: [NUEVO, CONTACTADO, COTIZANDO, DESCARTADO]
+        vendedor:
+          type: [string, "null"]
+          description: Quién lo lleva. Cadena vacía y nulo son lo mismo.
+        nota:
+          type: [string, "null"]
+
+    GeoProspecto:
+      type: object
+      description: Una fila de `geo_prospectos`.
+      properties:
+        denue_id: { type: string }
+        estado: { type: string, enum: [NUEVO, CONTACTADO, COTIZANDO, DESCARTADO] }
+        vendedor: { type: [string, "null"] }
+        nota: { type: [string, "null"] }
+        web_cache:
+          type: [string, "null"]
+          description: >
+            Texto del sitio, extraído fuera de línea por el job de
+            enriquecimiento. El navegador NO puede escribirla.
+        web_cache_at: { type: [string, "null"], format: date-time }
+        created_at:
+          type: string
+          format: date-time
+          description: Se fija en el alta y no se reescribe en los cambios de estado.
+        updated_at: { type: string, format: date-time }
+
+    GeoProspectoGuardado:
+      type: object
+      properties:
+        success: { type: boolean }
+        prospecto: { $ref: "#/components/schemas/GeoProspecto" }
+
+    GeoSeleccion:
+      type: object
+      required: [poligono]
+      properties:
+        poligono:
+          type: object
+          description: >
+            GeoJSON `Polygon`, o un `Feature` que lo envuelva — lo que manda
+            `Leaflet.draw`. GeoJSON pone la LONGITUD primero, al revés que el
+            `bbox` de `/api/geo/establecimientos`.
+        personal_min: { type: [integer, "null"] }
+        solo_con_contacto: { type: boolean, default: false }
+        formato:
+          type: string
+          default: json
+          enum: [json, csv, xlsx]
+
+    GeoCotizacion:
+      type: object
+      required: [establecimiento_id]
+      properties:
+        establecimiento_id: { type: string }
+        destinatario:
+          type: string
+          description: Correo del negocio. Solo 7,324 de los 20,957 declararon uno.
+        asunto: { type: string, default: "Solicitud de cotización" }
+        mensaje:
+          type: string
+          description: El texto ya redactado (por el agente o por una persona).
+        nombre: { type: string }
+
+    GeoCotizacionResultado:
+      type: object
+      properties:
+        success: { type: boolean }
+        motivo:
+          type: string
+          enum: [aviso_legal_pendiente, envio_deshabilitado, smtp_no_configurado, sin_destinatario]
+          description: Por qué no se mandó. Ausente cuando `success` es true.
+        message: { type: string }
+        vista_previa:
+          type: object
+          description: El correo ya compuesto, para copiarlo mientras el envío esté bloqueado.
+          properties:
+            asunto: { type: string }
+            destinatario: { type: string }
+            html: { type: string }
+        destinatarios:
+          type: array
+          items: { type: string }
+
+    GeoAgenteResultado:
+      type: object
+      properties:
+        success: { type: boolean }
+        tipo:
+          type: string
+          enum: [analisis, correo]
+          description: >
+            `analisis` cuando se pudo leer texto del negocio; `correo` cuando no
+            y el agente redactó el contacto a partir del giro del INEGI.
+        texto: { type: string }
+        fuente:
+          type: string
+          enum: [cache, web, tavily, sin_web]
+          description: >
+            De dónde salió el texto. No es decoración: no es lo mismo un
+            análisis leído de la página del negocio que uno armado con el
+            resumen de un buscador, y quien firma el correo tiene derecho a
+            saberlo.

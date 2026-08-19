@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Body, Query, Header
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -9,6 +9,12 @@ import secrets
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from fastapi import UploadFile, File, Form
+
+# El contrato de `geo_prospectos`. Se importa arriba y no junto a la ruta porque
+# FastAPI necesita el modelo resuelto al decorar, y porque un import a media
+# altura sumaría un E402 al conteo de `ruff`, que es una puerta (§4).
+# Solo depende de `pydantic`, que ya es requisito para que la app arranque.
+from backend.schemas.geo_prospecto import ProspectoWrite
 
 # AI Utils
 try:
@@ -134,6 +140,234 @@ def api_generar_plano_2d(req: Plano2DRequest):
         req.descripcion, llm=servicio_plano.llm_disponible())
 
 
+# ======================================================================
+# PROSPECCIÓN GEOESPACIAL — /api/geo
+# ======================================================================
+# El catálogo del DENUE (20,957 establecimientos de la cadena de valor de la
+# construcción en CDMX) vive en un SQLite de solo lectura dentro del bundle y se
+# consulta con el `sqlite3` de la biblioteca estándar. Leerlo desde el Parquet
+# exigiría pandas + pyarrow + numpy: 251 MB desempaquetadas, que rebasan solas
+# el límite de 250 MB de una función serverless. Por eso `api/requirements.txt`
+# no crece con este módulo.
+#
+# Estas dos rutas son de lectura pura sobre dato público del INEGI. Lo que la
+# empresa genere encima —prospecto contactado, asignado, cotizado— es otra cosa
+# y va a Supabase por el motor que ya existe.
+
+@app.get("/api/geo/catalogo")
+def api_geo_catalogo():
+    """
+    Las alcaldías y los giros que existen en el catálogo, para poblar los combos.
+
+    Salen del propio artefacto, no de una lista escrita a mano: el día que el
+    INEGI publique un giro nuevo, el combo lo tiene al regenerar el SQLite.
+    """
+    from api.services import denue_repo, prospeccion
+
+    return prospeccion.catalogo(denue_repo.repositorio_disponible())
+
+
+@app.get("/api/geo/establecimientos")
+def api_geo_establecimientos(
+    alcaldia: Optional[str] = None,
+    giros: Optional[List[str]] = Query(None),
+    personal_min: Optional[int] = None,
+    solo_con_contacto: bool = False,
+    bbox: Optional[str] = None,
+    limite: Optional[int] = None,
+    desplazamiento: int = 0,
+):
+    """
+    Los establecimientos que pasan los filtros, en las 10 columnas del mapa.
+
+    `bbox` es `lat_min,lon_min,lat_max,lon_max` — el orden del INEGI y de
+    Leaflet, no el de GeoJSON. Devuelve `total` (los que cumplen) y `mostrados`
+    (los que caben en el límite) por separado: el notebook cortaba en 2,000
+    marcadores sin avisar y nadie sabía si estaba viendo todo.
+
+    No lanza 500 con parámetros basura: devuelve `success: false` con el motivo,
+    mismo criterio que `/api/plano_2d`.
+    """
+    from api.services import denue_repo, prospeccion
+
+    return prospeccion.establecimientos(
+        denue_repo.repositorio_disponible(),
+        alcaldia=alcaldia,
+        giros=giros,
+        personal_min=personal_min,
+        solo_con_contacto=solo_con_contacto,
+        bbox=bbox,
+        limite=limite,
+        desplazamiento=desplazamiento,
+    )
+
+
+# --- El puente con el negocio (Fase 5) ---------------------------------
+#
+# Hasta aquí el módulo es un mapa: enseña 20,957 establecimientos y no deja
+# rastro de nada. Lo que sigue es lo que lo convierte en parte de la
+# plataforma — marcar un prospecto, exportar una selección y pedir cotización
+# por el mismo canal de correo que ya usan los agentes.
+#
+# El dato del INEGI y el de la empresa NO se mezclan (plan §4, decisión D2): el
+# catálogo sigue siendo un SQLite de solo lectura y lo mutable va a Supabase por
+# el `DataEngine` que ya existe.
+
+class GeoSeleccionRequest(BaseModel):
+    """El polígono que dibujó el usuario, más los filtros vigentes del panel."""
+
+    poligono: Dict[str, Any]
+    personal_min: Optional[int] = None
+    solo_con_contacto: bool = False
+    # `json` para pintar, `csv`/`xlsx` para llevárselo a compras.
+    formato: str = "json"
+
+
+class GeoCotizacionRequest(BaseModel):
+    """La solicitud de cotización ya redactada, lista para salir por correo."""
+
+    establecimiento_id: str
+    destinatario: str = ""
+    asunto: str = "Solicitud de cotización"
+    mensaje: str = ""
+    nombre: str = ""
+
+
+_MEDIOS_DE_EXPORTACION = {
+    "csv": ("text/csv; charset=utf-8", "csv"),
+    "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"),
+}
+
+
+@app.post("/api/geo/prospecto")
+def api_geo_prospecto(req: ProspectoWrite):
+    """
+    Marca el estado comercial de un establecimiento del DENUE.
+
+    Alta y cambio son la misma llamada: un establecimiento tiene un solo estado
+    comercial, así que el repositorio hace upsert por `denue_id`. `estado` sale
+    de { NUEVO, CONTACTADO, COTIZANDO, DESCARTADO } y un valor desconocido se
+    rechaza en vez de degradar a `NUEVO` — degradarlo diría que a este negocio
+    nunca lo contactó nadie, borrando trabajo que alguien ya hizo.
+
+    Si no hay motor de datos configurado degrada con `success: false` y el
+    motivo, igual que `/api/plano_2d`. La tabla la crea el dueño con
+    `docs/DDL_PENDIENTE.sql` §8.
+    """
+    from backend.core.engine import construir_engine
+    from backend.core.errors import BackendError, SinMotorConfigurado
+    from backend.repositories.geo_prospectos import GeoProspectoRepository
+
+    try:
+        repositorio = GeoProspectoRepository(construir_engine())
+        guardado = repositorio.guardar(req)
+    except SinMotorConfigurado as exc:
+        return {"success": False, "message": str(exc)}
+    except BackendError as exc:
+        return {"success": False, "message": str(exc)}
+    return {"success": True, "prospecto": guardado.model_dump(mode="json")}
+
+
+@app.post("/api/geo/seleccion")
+def api_geo_seleccion(req: GeoSeleccionRequest):
+    """
+    Los establecimientos dentro del polígono dibujado, para verlos o exportarlos.
+
+    `formato=csv` y `formato=xlsx` devuelven el archivo; cualquier otro valor
+    devuelve JSON. La exportación se arma con la biblioteca estándar
+    (`api/services/exportacion.py`): meter `openpyxl` al runtime es justo lo que
+    todo este diseño evita.
+    """
+    from api.services import denue_repo, exportacion, prospeccion
+
+    resultado = prospeccion.seleccion(
+        denue_repo.repositorio_disponible(), req.poligono,
+        personal_min=req.personal_min, solo_con_contacto=req.solo_con_contacto)
+
+    medio = _MEDIOS_DE_EXPORTACION.get(str(req.formato).lower().strip())
+    if medio is None or not resultado.get("success"):
+        return resultado
+
+    tipo, extension = medio
+    generar = exportacion.a_csv if extension == "csv" else exportacion.a_xlsx
+    return Response(
+        content=generar(resultado["items"]), media_type=tipo,
+        headers={"Content-Disposition": f'attachment; filename="prospectos.{extension}"'})
+
+
+class GeoAgenteRequest(BaseModel):
+    """Lo que pide el vendedor sobre un establecimiento del mapa."""
+
+    establecimiento_id: str
+    consulta: str = ""
+
+
+def _cache_del_sitio(denue_id: str):
+    """
+    Los dos accesos a la caché de texto, o `(None, None)` si no hay base.
+
+    Se resuelven aquí y no dentro del agente porque el agente no sabe —ni debe
+    saber— que existe una tabla. Sin base, el agente sigue funcionando: pierde
+    la capa más barata y sale a leer el sitio en vivo.
+    """
+    from backend.core.engine import construir_engine
+    from backend.core.errors import BackendError, SinMotorConfigurado
+    from backend.repositories.geo_prospectos import GeoProspectoRepository
+
+    try:
+        repositorio = GeoProspectoRepository(construir_engine())
+        return (repositorio.texto_del_sitio, repositorio.guardar_texto_del_sitio)
+    except (SinMotorConfigurado, BackendError):
+        return (None, None)
+
+
+@app.post("/api/geo/agente")
+def api_geo_agente(req: GeoAgenteRequest):
+    """
+    El agente sobre un establecimiento: analiza su sitio, o redacta el contacto.
+
+    `fuente` dice de dónde salió el texto —`cache`, `web`, `tavily` o
+    `sin_web`— porque no es lo mismo un análisis leído de la página del negocio
+    que uno armado con el resumen de un buscador, y quien firma el correo tiene
+    derecho a saberlo.
+
+    Degrada con `success: false` en vez de lanzar: sin `GROQ_API_KEY` el resto
+    del módulo sigue en pie. La clave nunca baja al navegador (plan §4, D5).
+    """
+    from api.services import denue_repo, prospeccion, prospeccion_agente
+
+    ficha = prospeccion.establecimiento(
+        denue_repo.repositorio_disponible(), req.establecimiento_id)
+    if ficha is None:
+        return {"success": False, "message":
+                f"No existe el establecimiento {req.establecimiento_id!r} en el catálogo."}
+
+    leer_cache, escribir_cache = _cache_del_sitio(req.establecimiento_id)
+    return prospeccion_agente.ejecutar(
+        ficha, req.consulta,
+        llm=prospeccion_agente.llm_disponible(),
+        extractor=prospeccion_agente.extractor_disponible(),
+        cache=leer_cache,
+        buscador=prospeccion_agente.buscador_disponible(),
+        guardar_cache=escribir_cache)
+
+
+@app.post("/api/geo/solicitar_cotizacion")
+def api_geo_solicitar_cotizacion(req: GeoCotizacionRequest):
+    """
+    Manda la solicitud de cotización por el canal SMTP que ya existe.
+
+    ⚠️ Hoy **no manda nada**: falta el aviso de identificación y baja que exige
+    la LFPDPPP para contacto comercial, y es una decisión del dueño (plan §11,
+    punto 5). La respuesta trae `motivo: "aviso_legal_pendiente"` y el correo ya
+    redactado, para copiarlo y mandarlo a mano mientras tanto.
+    """
+    from api.services import prospeccion_correo
+
+    return prospeccion_correo.solicitar_cotizacion(
+        req.nombre or req.establecimiento_id, req.destinatario, req.asunto, req.mensaje)
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -141,6 +375,35 @@ class LoginRequest(BaseModel):
 class SavePPCRequest(BaseModel):
     payload: List[Dict[str, Any]]
     activeUser: str
+
+def _ve_prospeccion(role: str, cuenta: str) -> bool:
+    """
+    Si esta cuenta ve el módulo de Prospección.
+
+    Misma forma que `puede_gestionar_tickets`: una bandera aditiva del perfil,
+    más los dos roles que la tienen por el rol mismo. Vive fuera de
+    `api_get_system_config` por la misma razón que `_con_prospeccion` —esa
+    función ya está en complejidad C (16), es deuda inventariada
+    (RESTRICCIONES_EXTREMAS.md §4) y un `or` más la habría subido a 17—.
+    """
+    return bool(organigrama.perfil(cuenta).get("prospeccion")) or role in (
+        "ADMIN", "ADMIN_CONTROL",
+    )
+
+
+def _con_prospeccion(modulos: List[Dict[str, Any]], geo_module: Dict[str, Any],
+                     visible: bool) -> List[Dict[str, Any]]:
+    """
+    Agrega el módulo de Prospección a `modulos` si esta cuenta lo ve.
+
+    Vive fuera de `api_get_system_config` por una razón de puerta, no de
+    estética: esa función ya está en complejidad C (16), es deuda inventariada
+    (RESTRICCIONES_EXTREMAS.md §4) y la regla dice que una función existente
+    sale igual o mejor, nunca peor. Con la decisión aquí, las cuatro ramas de
+    rol la llaman sin añadir una sola bifurcación al contador.
+    """
+    return [*modulos, geo_module] if visible else list(modulos)
+
 
 @app.get("/api/config")
 def api_get_system_config(
@@ -186,6 +449,17 @@ def api_get_system_config(
     ppc_module_weekly = { "id": "WEEKLY_PLAN", "label": "Planeación Semanal", "icon": "fa-calendar-alt", "color": "#6f42c1", "type": "weekly_plan_view" }
     kpi_module = { "id": "KPI_DASHBOARD", "label": "KPI Performance", "icon": "fa-chart-line", "color": "#d63384", "type": "kpi_dashboard_view" }
     wo_module = { "id": "WORK_ORDER_FORM", "label": "Pre Work Order", "icon": "fa-clipboard-list", "color": "#fd7e14", "type": "work_order_form" }
+    # Prospección geoespacial sobre el DENUE. `prospeccion` es una bandera
+    # aditiva en el perfil, igual que `soporte`: no reemplaza el rol de nadie,
+    # solo agrega el mapa encima del que ya tenga. ADMIN y ADMIN_CONTROL lo ven
+    # sin necesitar la bandera; el resto del personal solo con ella.
+    #
+    # Son 20,957 nombres con teléfono y correo: no es un dato que deba ver todo
+    # el personal por defecto, y una bandera por cuenta es más fácil de auditar
+    # —y de revocar— que una regla derivada del departamento.
+    geo_module = { "id": "PROSPECCION_GEO", "label": "Prospección", "icon": "fa-map-marked-alt",
+                   "color": "#20c997", "type": "geo_prospect_view" }
+    ve_prospeccion = _ve_prospeccion(role, cuenta)
     ppc_modules = [ ppc_module_master, ppc_module_weekly ]
 
     if role == 'TONITA':
@@ -245,7 +519,9 @@ def api_get_system_config(
             "allDepartments": ALL_DEPTS,
             "staff": [ { "name": hoja, "dept": perfil.get("dept", "") } ],
             "directory": full_directory,
-            "specialModules": modulos,
+            # Solo con la bandera `prospeccion` en el perfil. El STAFF_USER
+            # genérico no la trae y no tiene por qué llevarse el directorio.
+            "specialModules": _con_prospeccion(modulos, geo_module, ve_prospeccion),
             "accessProjects": False,
             "canSeeBancoJuntas": False,
             "canManageTickets": puede_gestionar_tickets,
@@ -281,12 +557,12 @@ def api_get_system_config(
             "allDepartments": ALL_DEPTS,
             "staff": full_directory,
             "directory": full_directory,
-            "specialModules": [
+            "specialModules": _con_prospeccion([
                 { "id": "PPC_DINAMICO", "label": "Tracker", "icon": "fa-layer-group", "color": "#e83e8c", "type": "ppc_dynamic_view" },
                 *ppc_modules,
                 { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" },
                 { "id": "ADMIN_TRACKER", "label": "Control", "icon": "fa-clipboard-list", "color": "#6f42c1", "type": "mirror_staff", "target": "ADMINISTRADOR" },
-            ],
+            ], geo_module, ve_prospeccion),
             "accessProjects": True,
             "canSeeBancoJuntas": True,
             "canManageTickets": puede_gestionar_tickets,
@@ -302,6 +578,7 @@ def api_get_system_config(
         default_modules.append(kpi_module)
         default_modules.append({ "id": "OBSIDIAN_GRAPH", "label": "Grafo de Conocimiento",
                                  "icon": "fa-project-diagram", "color": "#8b5cf6", "type": "obsidian_graph_view" })
+        default_modules = _con_prospeccion(default_modules, geo_module, ve_prospeccion)
 
     return {
         "departments": ALL_DEPTS,

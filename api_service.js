@@ -51,6 +51,130 @@ class ApiService {
         }
     }
 
+    // --- Prospección geoespacial (DENUE) -------------------------------
+    //
+    // Van aquí y NO en `GoogleScriptRunAdapter` a propósito. El adaptador imita
+    // `google.script.run`, y todo lo que el frontend invoca por ese puente debe
+    // existir como función en `CODIGO.js` — lo verifica la prueba 7.1 de
+    // `tests/gas/run_tests.js`. Estas dos lecturas no tienen equivalente en
+    // Apps Script y no pueden tenerlo: el catálogo es un SQLite dentro del
+    // bundle de Vercel. Ponerlas en el adaptador habría roto ese contrato; es
+    // el mismo motivo por el que `generarPlano2D` vive en esta clase.
+
+    /** Alcaldías y giros del catálogo, para los combos del mapa. */
+    static async geoCatalogo() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/geo/catalogo`);
+            return await response.json();
+        } catch (e) {
+            return { success: false, message: "Connection Error: " + e.toString() };
+        }
+    }
+
+    /**
+     * Establecimientos que pasan los filtros del mapa.
+     *
+     * Recibe un objeto y no argumentos posicionales porque son siete filtros y
+     * casi todos opcionales: posicionalmente, agregar el octavo obligaría a
+     * tocar todas las llamadas.
+     *
+     * Tres detalles del contrato que se resuelven aquí y no en el componente:
+     *
+     *  - `giros` viaja como el MISMO parámetro repetido (`?giros=A&giros=B`),
+     *    que es lo que FastAPI lee como lista. Un `giros=A,B` llegaría como una
+     *    sola cadena y no emparejaría con ningún giro del DENUE.
+     *  - Los valores vacíos NO se mandan. `alcaldia=` es una alcaldía llamada
+     *    cadena vacía y devolvería cero establecimientos; omitir el parámetro
+     *    es lo que significa "sin filtrar".
+     *  - `bbox` es `lat_min,lon_min,lat_max,lon_max` — el orden del INEGI y de
+     *    Leaflet, no el de GeoJSON, que pone la longitud primero.
+     */
+    static async geoEstablecimientos(filtros) {
+        const f = filtros || {};
+        const params = new URLSearchParams();
+        if (f.alcaldia) params.append('alcaldia', f.alcaldia);
+        (f.giros || []).forEach(giro => { if (giro) params.append('giros', giro); });
+        if (f.personal_min) params.append('personal_min', String(f.personal_min));
+        if (f.solo_con_contacto) params.append('solo_con_contacto', 'true');
+        if (f.bbox) params.append('bbox', f.bbox);
+        if (f.limite) params.append('limite', String(f.limite));
+        if (f.desplazamiento) params.append('desplazamiento', String(f.desplazamiento));
+        try {
+            const response = await fetch(
+                `${API_BASE_URL}/api/geo/establecimientos?${params.toString()}`);
+            return await response.json();
+        } catch (e) {
+            return { success: false, message: "Connection Error: " + e.toString() };
+        }
+    }
+
+    /** Marca el estado comercial de un establecimiento (`geo_prospectos`). */
+    static async geoProspecto(payload) {
+        return ApiService._geoPost('/api/geo/prospecto', payload);
+    }
+
+    /** El agente: analiza el sitio del negocio o redacta el correo de contacto. */
+    static async geoAgente(payload) {
+        return ApiService._geoPost('/api/geo/agente', payload);
+    }
+
+    /** La solicitud de cotización. Hoy vuelve bloqueada: falta el aviso legal. */
+    static async geoSolicitarCotizacion(payload) {
+        return ApiService._geoPost('/api/geo/solicitar_cotizacion', payload);
+    }
+
+    static async _geoPost(ruta, payload) {
+        try {
+            const response = await fetch(`${API_BASE_URL}${ruta}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload || {})
+            });
+            return await response.json();
+        } catch (e) {
+            return { success: false, message: "Connection Error: " + e.toString() };
+        }
+    }
+
+    /**
+     * Descarga la selección del polígono como CSV o XLSX.
+     *
+     * El archivo lo arma el servidor y baja como binario, así que aquí NO se
+     * puede hacer `res.json()`: hay que mirar el `content-type` para distinguir
+     * el archivo del error. Un `{success:false}` interpretado como archivo se
+     * descargaría como un CSV con el mensaje de error dentro, y eso parece un
+     * archivo bueno hasta que alguien lo abre.
+     */
+    static async geoExportarSeleccion(payload, formato) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/geo/seleccion`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(Object.assign({}, payload, { formato: formato }))
+            });
+            if ((response.headers.get('content-type') || '').includes('application/json')) {
+                return await response.json();
+            }
+            ApiService._descargar(await response.blob(), `prospectos.${formato}`);
+            return { success: true };
+        } catch (e) {
+            return { success: false, message: "Connection Error: " + e.toString() };
+        }
+    }
+
+    static _descargar(blob, nombre) {
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement('a');
+        enlace.href = url;
+        enlace.download = nombre;
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+        // Sin revocar, cada exportación deja el archivo entero retenido en
+        // memoria hasta que se recargue la pestaña.
+        URL.revokeObjectURL(url);
+    }
+
     static async login(username, password) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/login`, {
