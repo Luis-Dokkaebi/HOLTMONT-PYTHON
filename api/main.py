@@ -204,6 +204,21 @@ class SavePPCRequest(BaseModel):
     payload: List[Dict[str, Any]]
     activeUser: str
 
+def _ve_prospeccion(role: str, cuenta: str) -> bool:
+    """
+    Si esta cuenta ve el módulo de Prospección.
+
+    Misma forma que `puede_gestionar_tickets`: una bandera aditiva del perfil,
+    más los dos roles que la tienen por el rol mismo. Vive fuera de
+    `api_get_system_config` por la misma razón que `_con_prospeccion` —esa
+    función ya está en complejidad C (16), es deuda inventariada
+    (RESTRICCIONES_EXTREMAS.md §4) y un `or` más la habría subido a 17—.
+    """
+    return bool(organigrama.perfil(cuenta).get("prospeccion")) or role in (
+        "ADMIN", "ADMIN_CONTROL",
+    )
+
+
 def _con_prospeccion(modulos: List[Dict[str, Any]], geo_module: Dict[str, Any],
                      visible: bool) -> List[Dict[str, Any]]:
     """
@@ -262,14 +277,17 @@ def api_get_system_config(
     ppc_module_weekly = { "id": "WEEKLY_PLAN", "label": "Planeación Semanal", "icon": "fa-calendar-alt", "color": "#6f42c1", "type": "weekly_plan_view" }
     kpi_module = { "id": "KPI_DASHBOARD", "label": "KPI Performance", "icon": "fa-chart-line", "color": "#d63384", "type": "kpi_dashboard_view" }
     wo_module = { "id": "WORK_ORDER_FORM", "label": "Pre Work Order", "icon": "fa-clipboard-list", "color": "#fd7e14", "type": "work_order_form" }
-    # Prospección geoespacial sobre el DENUE. Quién lo ve NO se decide aquí:
-    # `organigrama.puede_ver_prospeccion` es el único sitio donde vive esa regla,
-    # para que se pueda probar sin levantar la API y para que abrirla o cerrarla
-    # sea un cambio de una línea. Son 20,957 nombres con teléfono y correo: no es
-    # un dato que deba ver todo el personal por defecto.
+    # Prospección geoespacial sobre el DENUE. `prospeccion` es una bandera
+    # aditiva en el perfil, igual que `soporte`: no reemplaza el rol de nadie,
+    # solo agrega el mapa encima del que ya tenga. ADMIN y ADMIN_CONTROL lo ven
+    # sin necesitar la bandera; el resto del personal solo con ella.
+    #
+    # Son 20,957 nombres con teléfono y correo: no es un dato que deba ver todo
+    # el personal por defecto, y una bandera por cuenta es más fácil de auditar
+    # —y de revocar— que una regla derivada del departamento.
     geo_module = { "id": "PROSPECCION_GEO", "label": "Prospección", "icon": "fa-map-marked-alt",
                    "color": "#20c997", "type": "geo_prospect_view" }
-    ve_prospeccion = organigrama.puede_ver_prospeccion(role, username)
+    ve_prospeccion = _ve_prospeccion(role, cuenta)
     ppc_modules = [ ppc_module_master, ppc_module_weekly ]
 
     if role == 'TONITA':
@@ -278,7 +296,7 @@ def api_get_system_config(
             "allDepartments": ALL_DEPTS,
             "staff": [ { "name": "ANTONIA_VENTAS", "dept": "VENTAS" } ],
             "directory": full_directory,
-            "specialModules": _con_prospeccion([
+            "specialModules": [
                 # Su tracker personal es una hoja distinta de la tabla maestra
                 # de ventas: `ANTONIA PINEDA LOPEZ` vs `ANTONIA_VENTAS`. Faltaba
                 # y con él faltaba el acceso a sus propias tareas.
@@ -287,7 +305,7 @@ def api_get_system_config(
                   "type": "mirror_staff", "target": "ANTONIA PINEDA LOPEZ" },
                 ppc_module_master,
                 ppc_module_weekly,
-            ], geo_module, ve_prospeccion),
+            ],
             "accessProjects": False,
             "canSeeBancoJuntas": False,
             "canManageTickets": puede_gestionar_tickets,
@@ -329,8 +347,8 @@ def api_get_system_config(
             "allDepartments": ALL_DEPTS,
             "staff": [ { "name": hoja, "dept": perfil.get("dept", "") } ],
             "directory": full_directory,
-            # Compras y ventas sí; el STAFF_USER genérico no. El resto del
-            # personal no prospecta y no tiene por qué llevarse el directorio.
+            # Solo con la bandera `prospeccion` en el perfil. El STAFF_USER
+            # genérico no la trae y no tiene por qué llevarse el directorio.
             "specialModules": _con_prospeccion(modulos, geo_module, ve_prospeccion),
             "accessProjects": False,
             "canSeeBancoJuntas": False,

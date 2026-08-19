@@ -1612,10 +1612,10 @@
 
         <!-- ============================================================ -->
         <!-- PANEL: PROSPECCIÓN GEOESPACIAL (DENUE)                     -->
-        <!-- Visible para: ADMIN, ADMIN_CONTROL y cuentas de compras y  -->
-        <!-- ventas. Quién lo ve lo decide el backend                   -->
-        <!-- (organigrama.puede_ver_prospeccion): aquí no se repite la  -->
-        <!-- regla, porque una regla escrita dos veces se contradice.   -->
+        <!-- Visible para ADMIN, ADMIN_CONTROL y las cuentas con la     -->
+        <!-- bandera `prospeccion` en su perfil. Quién lo ve lo decide  -->
+        <!-- el backend en /api/config: aquí no se repite la regla,     -->
+        <!-- porque una regla escrita dos veces se contradice.          -->
         <!-- ============================================================ -->
         <div v-if="currentView === 'PROSPECCION_GEO'" class="h-100 d-flex flex-column" style="background:#f8f9fa; padding:16px; overflow:hidden;">
 

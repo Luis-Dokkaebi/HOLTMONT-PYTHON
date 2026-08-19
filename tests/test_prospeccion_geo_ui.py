@@ -24,19 +24,23 @@ from playwright.sync_api import sync_playwright
 
 BASE_URL = "http://localhost:8000"
 
-# Cuentas reales del organigrama, una por rama de la regla de visibilidad
-# (`organigrama.puede_ver_prospeccion`).
+# Cuentas reales del organigrama, una por rama de la regla de visibilidad: los
+# roles ADMIN y ADMIN_CONTROL, más quien lleve la bandera `prospeccion` en su
+# perfil.
 VE_EL_MODULO = [
-    ("ADMIN", "LUIS_CARLOS"),            # el rol que lo ve por rol
+    ("ADMIN", "LUIS_CARLOS"),
     ("ADMIN_CONTROL", "JAIME_OLIVO"),
-    ("TONITA", "ANTONIA_VENTAS"),        # la cuenta de la tabla maestra de ventas
-    ("STAFF_USER", "SONIA_GARCIA"),      # COMPRAS
-    ("STAFF_USER", "RAMIRO_RODRIGUEZ"),  # VENTAS
+    ("STAFF_USER", "ANTONIO_SALAZAR"),   # entra por la bandera, no por el rol
 ]
 
+# Compras y ventas quedaron fuera por decisión del dueño. Van en esta lista a
+# propósito: es la lectura que uno esperaría —el módulo sirve para prospectar
+# proveedores y clientes— y sin prueba volvería a colarse.
 NO_VE_EL_MODULO = [
-    ("STAFF_USER", "EDUARDO_BENITEZ"),   # LIMPIEZA: el STAFF_USER genérico
-    ("STAFF_USER", "ROLANDO_MORENO"),    # HVAC
+    ("STAFF_USER", "JUDITH_ECHAVARRIA"),  # COMPRAS y además vendedora
+    ("TONITA", "ANTONIA_VENTAS"),         # la cuenta de la tabla maestra de ventas
+    ("STAFF_USER", "RAMIRO_RODRIGUEZ"),   # VENTAS
+    ("STAFF_USER", "EDUARDO_BENITEZ"),    # el STAFF_USER genérico
     ("WORKORDER_USER", "PREWORK_ORDER"),
     ("PPC_ADMIN", "JESUS_CANTU"),
 ]
@@ -81,12 +85,14 @@ def _conteo(page) -> tuple:
     return int(mostrados.replace(",", "")), int(total.replace(",", ""))
 
 
-def test_el_modulo_aparece_solo_para_compras_ventas_y_administracion():
+def test_el_modulo_aparece_para_el_rol_correcto_y_no_para_los_demas():
     """
-    La mitad importante de una regla de permisos es a quién NO se le da.
+    Las dos mitades de la regla, en la misma prueba: aparece para quien debe y
+    **no** aparece para el resto.
 
-    Son 20,957 nombres con teléfono y correo: que el módulo se filtre al
-    STAFF_USER genérico no rompe nada visible, y por eso hay que probarlo.
+    La segunda mitad es la que se rompe en silencio. Son 20,957 nombres con
+    teléfono y correo: que el módulo se filtre a una cuenta de más no lanza
+    ningún error, no aparece en ningún log y nadie lo reporta.
     """
     with sync_playwright() as p:
         navegador = p.chromium.launch(headless=True)
