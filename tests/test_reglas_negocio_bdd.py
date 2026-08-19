@@ -31,6 +31,12 @@ from api.services.tracker_rules import (
     resolve_tracker_target,
 )
 from backend.core.engines.memoria import MemoryEngine
+from backend.repositories.geo_prospectos import (
+    TABLA as TABLA_PROSPECTOS,
+    GeoProspectoRepository,
+    ProspectoNoEncontrado,
+)
+from backend.schemas.geo_prospecto import ProspectoWrite
 from backend.schemas.quote import QuoteWrite
 from backend.schemas.task import TaskWrite
 from backend.schemas.ticket import TicketUpdate, TicketWrite
@@ -1148,3 +1154,92 @@ def _aparece_en_la_lista(contexto: Dict[str, Any], nombre: str) -> None:
 @then(parsers.parse('"{nombre}" no aparece en la lista'))
 def _no_aparece_en_la_lista(contexto: Dict[str, Any], nombre: str) -> None:
     assert nombre not in {fila["nom_estab"] for fila in contexto["lista"]["items"]}
+
+# ----------------------------------------------------------------------
+# Prospección geoespacial — el recorrido del prospecto por el embudo
+# ----------------------------------------------------------------------
+#
+# Contra el repositorio real sobre `MemoryEngine`. R7: ninguna prueba escribe en
+# la base de producción, y el doble reproduce lo que aquí importa —el upsert que
+# fusiona— en vez de fingirlo.
+
+@given(parsers.parse('el negocio "{nombre}" del mapa, sin marcar'))
+def _negocio_sin_marcar(contexto: Dict[str, Any], nombre: str) -> None:
+    contexto["negocio"] = nombre
+    # El identificador que trae el catálogo del INEGI para ese establecimiento.
+    contexto["denue_id"] = "9274655"
+    contexto["prospectos"] = GeoProspectoRepository(MemoryEngine())
+
+
+@when(parsers.parse('Compras lo marca como "{estado}"'))
+def _compras_lo_marca(contexto: Dict[str, Any], estado: str) -> None:
+    guardado = contexto["prospectos"].guardar(
+        ProspectoWrite(establecimiento_id=contexto["denue_id"], estado=estado))
+    contexto.setdefault("historial", []).append(guardado)
+
+
+@when(parsers.parse(
+    'Compras lo marca como "{estado}" a nombre de "{vendedor}" con la nota "{nota}"'))
+def _compras_lo_marca_con_dueno(contexto: Dict[str, Any], estado: str,
+                                vendedor: str, nota: str) -> None:
+    contexto.setdefault("historial", []).append(
+        contexto["prospectos"].guardar(ProspectoWrite(
+            establecimiento_id=contexto["denue_id"], estado=estado,
+            vendedor=vendedor, nota=nota)))
+
+
+@when(parsers.parse('Compras intenta marcarlo como "{estado}"'))
+def _compras_intenta_marcarlo(contexto: Dict[str, Any], estado: str) -> None:
+    try:
+        contexto["prospectos"].guardar(
+            ProspectoWrite(establecimiento_id=contexto["denue_id"], estado=estado))
+        contexto["rechazo"] = None
+    except ValidationError as error:
+        contexto["rechazo"] = error
+
+
+@then(parsers.parse('el negocio queda en "{estado}"'))
+def _el_negocio_queda_en(contexto: Dict[str, Any], estado: str) -> None:
+    assert contexto["prospectos"].obtener(contexto["denue_id"]).estado == estado
+
+
+@then("queda registrado el día en que entró al embudo")
+def _queda_registrada_la_entrada(contexto: Dict[str, Any]) -> None:
+    assert contexto["prospectos"].obtener(contexto["denue_id"]).created_at is not None
+
+
+@then("el día en que entró al embudo es el mismo del principio")
+def _la_entrada_no_se_movio(contexto: Dict[str, Any]) -> None:
+    fechas = {p.created_at for p in contexto["historial"]}
+    assert len(fechas) == 1, f"la fecha de entrada cambió por el camino: {fechas}"
+
+
+@then("hay un solo registro de ese negocio")
+def _un_solo_registro(contexto: Dict[str, Any]) -> None:
+    assert len(contexto["prospectos"].engine.select(TABLA_PROSPECTOS)) == 1
+
+
+@then(parsers.parse('el negocio lo lleva "{vendedor}"'))
+def _lo_lleva(contexto: Dict[str, Any], vendedor: str) -> None:
+    assert contexto["prospectos"].obtener(contexto["denue_id"]).vendedor == vendedor
+
+
+@then(parsers.parse('la nota del negocio dice "{nota}"'))
+def _la_nota_dice(contexto: Dict[str, Any], nota: str) -> None:
+    assert contexto["prospectos"].obtener(contexto["denue_id"]).nota == nota
+
+
+@then("el sistema rechaza el momento desconocido")
+def _rechaza_el_momento(contexto: Dict[str, Any]) -> None:
+    assert contexto["rechazo"] is not None
+    assert "estado debe ser uno de" in str(contexto["rechazo"])
+
+
+@then("el negocio sigue sin marcar")
+def _sigue_sin_marcar(contexto: Dict[str, Any]) -> None:
+    """
+    Lo que se protege es que un momento inventado no deje al negocio en `NUEVO`:
+    eso diría que nadie lo ha contactado, borrando trabajo que alguien ya hizo.
+    """
+    with pytest.raises(ProspectoNoEncontrado):
+        contexto["prospectos"].obtener(contexto["denue_id"])

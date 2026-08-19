@@ -41,6 +41,10 @@ NO_NULOS: Dict[str, tuple] = {
     "ticket_notificaciones": (
         "id", "folio", "destinatario", "estatus", "mensaje", "leida", "created_at",
     ),
+    # `geo_prospectos` (docs/DDL_PENDIENTE.sql §8). `vendedor`, `nota` y las dos
+    # columnas de caché web admiten nulo: un prospecto recién marcado en el mapa
+    # todavía no tiene dueño ni notas.
+    "geo_prospectos": ("denue_id", "estado", "created_at", "updated_at"),
 }
 
 # Valores por defecto reales. Importan porque una columna NOT NULL **con**
@@ -72,6 +76,14 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "id": lambda: str(uuid.uuid4()),
         "leida": False,
         "created_at": "1970-01-01T00:00:00Z",
+    },
+    # `denue_id` NO lleva default: es la PRIMARY KEY y la trae el catálogo del
+    # INEGI, no la base. `estado` tampoco, aunque la aplicación siempre lo
+    # mande: el DDL lo declara NOT NULL sin DEFAULT y el doble tiene que
+    # rechazar el nulo donde lo rechazaría Postgres.
+    "geo_prospectos": {
+        "created_at": "1970-01-01T00:00:00Z",
+        "updated_at": "1970-01-01T00:00:00Z",
     },
 }
 

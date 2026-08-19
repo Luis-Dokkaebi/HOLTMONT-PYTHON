@@ -242,6 +242,55 @@ igual que `/api/plano_2d`. Nunca un 500: un mapa en blanco sin motivo se lee
 como "aquí no hay negocios", que es una respuesta falsa. Si el artefacto no está
 desplegado, el `message` dice cómo regenerarlo.
 
+#### El puente con el negocio
+
+| Método y ruta | Entrada | Salida |
+|---|---|---|
+| `POST /api/geo/prospecto` | `{establecimiento_id, estado, vendedor, nota}` | `{success, prospecto}` |
+| `POST /api/geo/seleccion` | `{poligono, personal_min, solo_con_contacto, formato}` | JSON, CSV o XLSX |
+| `POST /api/geo/solicitar_cotizacion` | `{establecimiento_id, destinatario, asunto, mensaje}` | `{success, motivo, vista_previa}` |
+
+**Dos bases, a propósito.** El catálogo del INEGI es de terceros, público e
+inmutable entre publicaciones, y vive en el SQLite del bundle. Lo que la empresa
+produce encima —prospecto contactado, asignado a un vendedor, notas— es nuestro y
+mutable, y va a `geo_prospectos` en Supabase por el `DataEngine` que ya existe
+(`backend/core/engine.py`). No se mezclan: el dato del INEGI no entra a los
+respaldos de la empresa y no se suben 21,000 filas ajenas solo para leerlas.
+
+El DDL de `geo_prospectos` está en [`DDL_PENDIENTE.sql`](DDL_PENDIENTE.sql) §8 y
+lo aplica el dueño. Mientras no exista la tabla, `POST /api/geo/prospecto`
+degrada con `success: false` y el motivo.
+
+**El estado del prospecto** sale de `{ NUEVO, CONTACTADO, COTIZANDO, DESCARTADO }`
+y la clave es `denue_id`: un establecimiento tiene **un solo** estado comercial.
+Alta y cambio son la misma llamada (upsert). Tres reglas que no se ven en la firma:
+
+1. **Un estado desconocido se rechaza con 422**, no se corrige a `NUEVO`.
+   Degradarlo diría que a ese negocio nunca lo contactó nadie, borrando trabajo
+   que alguien ya hizo.
+2. **`created_at` solo se escribe en el alta.** Es lo único con lo que se puede
+   medir cuánto tarda un negocio en pasar de `NUEVO` a `COTIZANDO`.
+3. **`web_cache` no se puede mandar desde el navegador** (`extra="forbid"`). La
+   escribe el job de enriquecimiento fuera de línea, y el upsert fusiona, así que
+   omitirla la conserva.
+
+**La exportación** (`formato=csv` o `xlsx`) devuelve el archivo con
+`Content-Disposition`, con las mismas 10 columnas del mapa y encabezados
+legibles. Se arma con la biblioteca estándar (`api/services/exportacion.py`):
+meter `openpyxl` al runtime es justo lo que evita todo este diseño. El CSV lleva
+BOM porque su destino es Excel en Windows, que sin él lee "Cuauhtémoc" como
+"CuauhtÃ©moc".
+
+**La solicitud de cotización está bloqueada a propósito.** El DENUE es dato
+público; usar sus correos para contacto comercial cae bajo la **LFPDPPP**, que
+exige identificar a la empresa y ofrecer una vía de baja. Ese texto es decisión
+del dueño (plan de prospección §11, punto 5) y todavía no existe, así que la ruta
+devuelve `motivo: "aviso_legal_pendiente"` y el correo ya redactado en
+`vista_previa` para mandarlo a mano. Hay dos cerrojos —la constante
+`AVISO_LFPDPPP` vacía y la variable `GEO_CORREO_HABILITADO`— porque encender solo
+la variable no debe alcanzar. El envío usa `api/services/correo.py`; no hay un
+segundo camino.
+
 
 ---
 

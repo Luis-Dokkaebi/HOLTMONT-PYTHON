@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Body, Query, Header
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -9,6 +9,12 @@ import secrets
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from fastapi import UploadFile, File, Form
+
+# El contrato de `geo_prospectos`. Se importa arriba y no junto a la ruta porque
+# FastAPI necesita el modelo resuelto al decorar, y porque un import a media
+# altura sumaría un E402 al conteo de `ruff`, que es una puerta (§4).
+# Solo depende de `pydantic`, que ya es requisito para que la app arranque.
+from backend.schemas.geo_prospecto import ProspectoWrite
 
 # AI Utils
 try:
@@ -194,6 +200,115 @@ def api_geo_establecimientos(
         limite=limite,
         desplazamiento=desplazamiento,
     )
+
+
+# --- El puente con el negocio (Fase 5) ---------------------------------
+#
+# Hasta aquí el módulo es un mapa: enseña 20,957 establecimientos y no deja
+# rastro de nada. Lo que sigue es lo que lo convierte en parte de la
+# plataforma — marcar un prospecto, exportar una selección y pedir cotización
+# por el mismo canal de correo que ya usan los agentes.
+#
+# El dato del INEGI y el de la empresa NO se mezclan (plan §4, decisión D2): el
+# catálogo sigue siendo un SQLite de solo lectura y lo mutable va a Supabase por
+# el `DataEngine` que ya existe.
+
+class GeoSeleccionRequest(BaseModel):
+    """El polígono que dibujó el usuario, más los filtros vigentes del panel."""
+
+    poligono: Dict[str, Any]
+    personal_min: Optional[int] = None
+    solo_con_contacto: bool = False
+    # `json` para pintar, `csv`/`xlsx` para llevárselo a compras.
+    formato: str = "json"
+
+
+class GeoCotizacionRequest(BaseModel):
+    """La solicitud de cotización ya redactada, lista para salir por correo."""
+
+    establecimiento_id: str
+    destinatario: str = ""
+    asunto: str = "Solicitud de cotización"
+    mensaje: str = ""
+    nombre: str = ""
+
+
+_MEDIOS_DE_EXPORTACION = {
+    "csv": ("text/csv; charset=utf-8", "csv"),
+    "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"),
+}
+
+
+@app.post("/api/geo/prospecto")
+def api_geo_prospecto(req: ProspectoWrite):
+    """
+    Marca el estado comercial de un establecimiento del DENUE.
+
+    Alta y cambio son la misma llamada: un establecimiento tiene un solo estado
+    comercial, así que el repositorio hace upsert por `denue_id`. `estado` sale
+    de { NUEVO, CONTACTADO, COTIZANDO, DESCARTADO } y un valor desconocido se
+    rechaza en vez de degradar a `NUEVO` — degradarlo diría que a este negocio
+    nunca lo contactó nadie, borrando trabajo que alguien ya hizo.
+
+    Si no hay motor de datos configurado degrada con `success: false` y el
+    motivo, igual que `/api/plano_2d`. La tabla la crea el dueño con
+    `docs/DDL_PENDIENTE.sql` §8.
+    """
+    from backend.core.engine import construir_engine
+    from backend.core.errors import BackendError, SinMotorConfigurado
+    from backend.repositories.geo_prospectos import GeoProspectoRepository
+
+    try:
+        repositorio = GeoProspectoRepository(construir_engine())
+        guardado = repositorio.guardar(req)
+    except SinMotorConfigurado as exc:
+        return {"success": False, "message": str(exc)}
+    except BackendError as exc:
+        return {"success": False, "message": str(exc)}
+    return {"success": True, "prospecto": guardado.model_dump(mode="json")}
+
+
+@app.post("/api/geo/seleccion")
+def api_geo_seleccion(req: GeoSeleccionRequest):
+    """
+    Los establecimientos dentro del polígono dibujado, para verlos o exportarlos.
+
+    `formato=csv` y `formato=xlsx` devuelven el archivo; cualquier otro valor
+    devuelve JSON. La exportación se arma con la biblioteca estándar
+    (`api/services/exportacion.py`): meter `openpyxl` al runtime es justo lo que
+    todo este diseño evita.
+    """
+    from api.services import denue_repo, exportacion, prospeccion
+
+    resultado = prospeccion.seleccion(
+        denue_repo.repositorio_disponible(), req.poligono,
+        personal_min=req.personal_min, solo_con_contacto=req.solo_con_contacto)
+
+    medio = _MEDIOS_DE_EXPORTACION.get(str(req.formato).lower().strip())
+    if medio is None or not resultado.get("success"):
+        return resultado
+
+    tipo, extension = medio
+    generar = exportacion.a_csv if extension == "csv" else exportacion.a_xlsx
+    return Response(
+        content=generar(resultado["items"]), media_type=tipo,
+        headers={"Content-Disposition": f'attachment; filename="prospectos.{extension}"'})
+
+
+@app.post("/api/geo/solicitar_cotizacion")
+def api_geo_solicitar_cotizacion(req: GeoCotizacionRequest):
+    """
+    Manda la solicitud de cotización por el canal SMTP que ya existe.
+
+    ⚠️ Hoy **no manda nada**: falta el aviso de identificación y baja que exige
+    la LFPDPPP para contacto comercial, y es una decisión del dueño (plan §11,
+    punto 5). La respuesta trae `motivo: "aviso_legal_pendiente"` y el correo ya
+    redactado, para copiarlo y mandarlo a mano mientras tanto.
+    """
+    from api.services import prospeccion_correo
+
+    return prospeccion_correo.solicitar_cotizacion(
+        req.nombre or req.establecimiento_id, req.destinatario, req.asunto, req.mensaje)
 
 
 class LoginRequest(BaseModel):

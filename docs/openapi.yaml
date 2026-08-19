@@ -793,6 +793,96 @@ paths:
                   - $ref: "#/components/schemas/GeoEstablecimientos"
                   - $ref: "#/components/schemas/SuccessResult"
 
+  /api/geo/prospecto:
+    post:
+      tags: [Geo]
+      operationId: apiGeoProspecto
+      summary: Marca el estado comercial de un establecimiento del DENUE.
+      description: >
+        Alta y cambio son la misma llamada: un establecimiento tiene un solo
+        estado comercial, así que se hace upsert por `denue_id`. Escribe en
+        `geo_prospectos` (Supabase), NO en el catálogo del INEGI, que es de solo
+        lectura. `created_at` solo se fija en el alta.
+        La tabla la crea el dueño con `docs/DDL_PENDIENTE.sql` §8; hasta
+        entonces la ruta degrada con `success: false` y el motivo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GeoProspectoWrite" }
+      responses:
+        "200":
+          description: El prospecto guardado, o el motivo de no poder.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GeoProspectoGuardado"
+                  - $ref: "#/components/schemas/SuccessResult"
+        "422":
+          description: >
+            `estado` fuera de { NUEVO, CONTACTADO, COTIZANDO, DESCARTADO }, o
+            una columna que el cliente no puede mandar (`web_cache`,
+            `created_at`). No se degrada a `NUEVO`: eso diría que a este negocio
+            nunca lo contactó nadie.
+
+  /api/geo/seleccion:
+    post:
+      tags: [Geo]
+      operationId: apiGeoSeleccion
+      summary: Establecimientos dentro del polígono dibujado, para ver o exportar.
+      description: >
+        El punto-en-polígono se resuelve con SQL recortando primero por la caja
+        del polígono (índice `idx_geo`) y probando la geometría después, en
+        Python puro — sin PostGIS y sin GeoPandas.
+        `formato=csv` y `formato=xlsx` devuelven el archivo con
+        `Content-Disposition`; cualquier otro valor devuelve JSON. El XLSX se
+        arma con la biblioteca estándar: `openpyxl` no entra al runtime.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GeoSeleccion" }
+      responses:
+        "200":
+          description: Los establecimientos, o el archivo, o el motivo de no poder.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GeoEstablecimientos"
+                  - $ref: "#/components/schemas/SuccessResult"
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+
+  /api/geo/solicitar_cotizacion:
+    post:
+      tags: [Geo]
+      operationId: apiGeoSolicitarCotizacion
+      summary: Manda la solicitud de cotización por el canal SMTP que ya existe.
+      description: >
+        ⚠️ HOY NO ENVÍA NADA. Falta el aviso de identificación y baja que exige
+        la LFPDPPP para contacto comercial con los correos del DENUE, y es una
+        decisión del dueño (plan de prospección §11, punto 5).
+        La respuesta trae `motivo: "aviso_legal_pendiente"` y el correo ya
+        redactado en `vista_previa`, para copiarlo y mandarlo a mano.
+        Cuando el texto exista, hacen falta además `GEO_CORREO_HABILITADO=1` y
+        `SMTP_HOST`. El correo sale por `api/services/correo.py`; no hay un
+        segundo camino de envío.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GeoCotizacion" }
+      responses:
+        "200":
+          description: Resultado del envío, o el motivo del bloqueo con la vista previa.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeoCotizacionResultado" }
+
 components:
   schemas:
 
@@ -1109,3 +1199,99 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/GeoEstablecimiento" }
+
+    GeoProspectoWrite:
+      type: object
+      description: Lo que manda el mapa al marcar un establecimiento.
+      required: [establecimiento_id]
+      additionalProperties: false
+      properties:
+        establecimiento_id:
+          type: string
+          description: Clave del establecimiento en el DENUE (`denue_id`).
+        estado:
+          type: string
+          default: NUEVO
+          enum: [NUEVO, CONTACTADO, COTIZANDO, DESCARTADO]
+        vendedor:
+          type: [string, "null"]
+          description: Quién lo lleva. Cadena vacía y nulo son lo mismo.
+        nota:
+          type: [string, "null"]
+
+    GeoProspecto:
+      type: object
+      description: Una fila de `geo_prospectos`.
+      properties:
+        denue_id: { type: string }
+        estado: { type: string, enum: [NUEVO, CONTACTADO, COTIZANDO, DESCARTADO] }
+        vendedor: { type: [string, "null"] }
+        nota: { type: [string, "null"] }
+        web_cache:
+          type: [string, "null"]
+          description: >
+            Texto del sitio, extraído fuera de línea por el job de
+            enriquecimiento. El navegador NO puede escribirla.
+        web_cache_at: { type: [string, "null"], format: date-time }
+        created_at:
+          type: string
+          format: date-time
+          description: Se fija en el alta y no se reescribe en los cambios de estado.
+        updated_at: { type: string, format: date-time }
+
+    GeoProspectoGuardado:
+      type: object
+      properties:
+        success: { type: boolean }
+        prospecto: { $ref: "#/components/schemas/GeoProspecto" }
+
+    GeoSeleccion:
+      type: object
+      required: [poligono]
+      properties:
+        poligono:
+          type: object
+          description: >
+            GeoJSON `Polygon`, o un `Feature` que lo envuelva — lo que manda
+            `Leaflet.draw`. GeoJSON pone la LONGITUD primero, al revés que el
+            `bbox` de `/api/geo/establecimientos`.
+        personal_min: { type: [integer, "null"] }
+        solo_con_contacto: { type: boolean, default: false }
+        formato:
+          type: string
+          default: json
+          enum: [json, csv, xlsx]
+
+    GeoCotizacion:
+      type: object
+      required: [establecimiento_id]
+      properties:
+        establecimiento_id: { type: string }
+        destinatario:
+          type: string
+          description: Correo del negocio. Solo 7,324 de los 20,957 declararon uno.
+        asunto: { type: string, default: "Solicitud de cotización" }
+        mensaje:
+          type: string
+          description: El texto ya redactado (por el agente o por una persona).
+        nombre: { type: string }
+
+    GeoCotizacionResultado:
+      type: object
+      properties:
+        success: { type: boolean }
+        motivo:
+          type: string
+          enum: [aviso_legal_pendiente, envio_deshabilitado, smtp_no_configurado, sin_destinatario]
+          description: Por qué no se mandó. Ausente cuando `success` es true.
+        message: { type: string }
+        vista_previa:
+          type: object
+          description: El correo ya compuesto, para copiarlo mientras el envío esté bloqueado.
+          properties:
+            asunto: { type: string }
+            destinatario: { type: string }
+            html: { type: string }
+        destinatarios:
+          type: array
+          items: { type: string }
