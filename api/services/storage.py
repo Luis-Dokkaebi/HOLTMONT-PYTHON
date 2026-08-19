@@ -41,6 +41,26 @@ BUCKET_EVIDENCIA_POR_DEFECTO = "ticket-evidencia"
 # los adjuntos del tracker; el video de un bug suele pesar más que una foto.
 MAX_BYTES_EVIDENCIA = 50 * 1024 * 1024
 
+# Lo que de verdad cabe por `/api/legacy/upload`.
+#
+# Reporte BUG-0009 (2026-08-18): "no me deja cerrar tareas que capture ni cargar
+# archivos pesados". La causa no está en este módulo sino en el camino: el
+# archivo viaja como data URL dentro de un JSON, y ese JSON es el cuerpo de una
+# función serverless de Vercel, que rechaza cualquier petición de más de 4.5 MB
+# antes de que el código llegue a ejecutarse. Base64 infla 4/3, así que por esa
+# ruta no pasa un archivo de más de ~3.3 MB por mucho que `index.html`
+# anunciara 35 MB.
+#
+# El tope se declara aquí —y se comprueba— para que el rechazo tenga un mensaje
+# que diga qué hacer, en vez de un 413 de la plataforma sin cuerpo JSON.
+LIMITE_CUERPO_FUNCION = 4_500_000
+MAX_BYTES_SUBIDA_JSON = 3 * 1024 * 1024
+
+# Lo que cabe por la ruta directa (URL firmada): el archivo va del navegador a
+# Storage sin pasar por la función, así que el tope vuelve a ser el del
+# producto y no el del sobre.
+MAX_BYTES_SUBIDA_DIRECTA = 35 * 1024 * 1024
+
 MIME_EVIDENCIA_PERMITIDOS = frozenset(
     {"video/mp4", "video/webm", "image/png", "image/jpeg"}
 )
@@ -278,6 +298,17 @@ def subir(data: Any, tipo: Any = None, nombre: Any = None,
     if not contenido:
         return {"success": False, "message": "El archivo llegó vacío."}
 
+    if len(contenido) > MAX_BYTES_SUBIDA_JSON:
+        # No es un capricho del servidor: por esta ruta el archivo va dentro
+        # del JSON de la petición y la plataforma corta el cuerpo en 4.5 MB.
+        # Los archivos grandes tienen su propio camino (`url_de_subida_firmada`)
+        # y el mensaje lo dice, porque el usuario no tiene por qué deducirlo.
+        return {"success": False,
+                "message": f"El archivo pesa {len(contenido)} bytes y por esta vía "
+                           f"solo caben {MAX_BYTES_SUBIDA_JSON}. Los archivos grandes "
+                           f"se suben directo a Storage con una URL firmada "
+                           f"(hasta {MAX_BYTES_SUBIDA_DIRECTA} bytes)."}
+
     mime = str(tipo or "").strip() or mime_detectado or MIME_POR_DEFECTO
     ruta = ruta_de_archivo(nombre, cliente, fecha)
 
@@ -290,6 +321,56 @@ def subir(data: Any, tipo: Any = None, nombre: Any = None,
         return {"success": False, "message": f"No se pudo subir a Storage: {exc}"}
 
     return {"success": True, "fileUrl": url, "path": ruta}
+
+
+def url_de_subida_firmada(nombre: Any, cliente: Any = None,
+                          fecha: Any = None) -> Dict[str, Any]:
+    """
+    URL firmada para que el navegador suba el archivo **directo** a Storage.
+
+    Es la ruta de los archivos grandes. `subir()` recibe el archivo en base64
+    dentro del JSON de la petición, y ese JSON es el cuerpo de una función
+    serverless que la plataforma corta en 4.5 MB: por ahí no pasa un adjunto
+    de 20 MB, ni pasará, porque el límite no es del código. Con la URL firmada
+    los bytes van del navegador a Storage sin tocar la función, y el tope
+    vuelve a ser el del bucket.
+
+    Devuelve `{success, uploadUrl, fileUrl, path}`:
+
+    * `uploadUrl` — el destino del `PUT` (lleva el token dentro);
+    * `fileUrl`   — la URL pública que se guarda en la celda cuando el `PUT`
+      termina, la misma que devolvería `subir()`;
+    * `path`      — la clave del objeto, por si el llamador quiere archivarlo
+      después (`archivar_cotizacion`).
+
+    La ruta la decide el servidor, nunca el cliente: firmar la clave que mande
+    el navegador dejaría escribir en cualquier parte del bucket.
+    """
+    from api.services.supabase_manager import sb_manager
+
+    if not sb_manager.is_configured:
+        return {"success": False,
+                "message": "Supabase no está configurado: no se puede subir el archivo."}
+
+    ruta = ruta_de_archivo(nombre, cliente, fecha)
+
+    try:
+        almacen = sb_manager.client.storage.from_(bucket())
+        firma = almacen.create_signed_upload_url(ruta)
+        url_publica = almacen.get_public_url(ruta)
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False,
+                "message": f"No se pudo preparar la subida directa: {exc}"}
+
+    subida = ""
+    if isinstance(firma, dict):
+        subida = str(firma.get("signed_url") or firma.get("signedUrl") or "")
+    if not subida:
+        return {"success": False,
+                "message": "Storage no devolvió la URL firmada de subida."}
+
+    return {"success": True, "uploadUrl": subida, "fileUrl": url_publica,
+            "path": ruta, "maxBytes": MAX_BYTES_SUBIDA_DIRECTA}
 
 
 def archivar_cotizacion(file_url: Any, cliente: Any, fecha: Any = None) -> Dict[str, Any]:

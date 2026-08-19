@@ -6367,10 +6367,57 @@
 <script>
   // Límite de subida, compartido por los cuatro selectores de archivo (audio de
   // transcripción, validación de diseño, celda del tracker y adjunto general).
-  // En Apps Script rebasarlo provocaba un error opaco de "Script Invocation";
-  // aquí el cuerpo viaja como data URL en el JSON, así que un archivo grande
-  // revienta igual pero más lejos. Se valida antes de leerlo.
+  // En Apps Script rebasarlo provocaba un error opaco de "Script Invocation".
   const MAX_UPLOAD_BYTES = 35 * 1024 * 1024;
+
+  // === INICIO SUBIDA DE ARCHIVOS ===
+  //
+  // BUG-0009 (2026-08-18): "no me deja cerrar tareas que capture ni cargar
+  // archivos pesados". Los 35 MB de arriba nunca fueron ciertos en el
+  // despliegue de Python: el archivo se mandaba como data URL dentro del JSON
+  // de la petición, y ese JSON es el cuerpo de una función serverless que la
+  // plataforma corta en 4.5 MB. Base64 infla 4/3, así que todo lo que pasara
+  // de ~3.3 MB moría con un 413 que ni siquiera trae JSON — `res.json()`
+  // reventaba, la promesa se rechazaba y, como ninguno de los selectores
+  // ponía `withFailureHandler`, el error solo salía por consola: el spinner
+  // se quedaba girando y la pantalla no decía nada.
+  //
+  // Ahora hay una sola puerta para los cuatro selectores:
+  //
+  //   * con el backend de Python, el archivo va DIRECTO a Storage con una URL
+  //     firmada y no pasa por la función, así que los 35 MB sí son reales;
+  //   * con Apps Script se sigue usando `uploadFileToDrive`, que es el backend
+  //     de producción (AGENTS.md §1) y no tiene ese tope;
+  //   * en ambos casos el fallo se devuelve como `{success:false, message}` y
+  //     el llamador lo muestra. Nunca se queda callado.
+  function subirArchivoAlmacen(file, opciones) {
+      const opts = opciones || {};
+      if (!file) return Promise.resolve({ success: false, message: 'No se eligió ningún archivo.' });
+      if (file.size > MAX_UPLOAD_BYTES) {
+          return Promise.resolve({
+              success: false,
+              message: 'El archivo es demasiado grande (máximo 35MB).'
+          });
+      }
+      if (typeof ApiService !== 'undefined' && ApiService && ApiService.subirArchivoDirecto) {
+          return ApiService.subirArchivoDirecto(file, opts.client || null);
+      }
+      return new Promise((resolve) => {
+          const lector = new FileReader();
+          lector.onerror = () => resolve({ success: false, message: 'No se pudo leer el archivo.' });
+          lector.onload = (ev) => {
+              google.script.run
+                  .withSuccessHandler(res => resolve(res || { success: false, message: 'El servidor no respondió.' }))
+                  .withFailureHandler(err => resolve({
+                      success: false,
+                      message: (err && err.message) || 'No se pudo subir el archivo.'
+                  }))
+                  .uploadFileToDrive(ev.target.result, file.type, file.name);
+          };
+          lector.readAsDataURL(file);
+      });
+  }
+  // === FIN SUBIDA DE ARCHIVOS ===
 
   window.onerror = function(msg, url, line, col, error) { if(String(msg).toLowerCase().includes("script error")) return; Swal.fire({ icon: 'error', title: 'Error de Renderizado', text: 'Ocurrió un error visual: ' + (error ? error.message : msg) }); };
 
@@ -7265,29 +7312,24 @@ async function toggleVoiceRecording(btnElement) {
       const handleDesignFileSelect = (e) => {
           const file = e.target.files[0];
           if(!file) return;
-          if(file.size > MAX_UPLOAD_BYTES) { Swal.fire('Error', 'El archivo es demasiado grande (máximo 35MB).', 'error'); e.target.value = null; return; }
           isUploadingFile.value = true;
-          const r = new FileReader();
-          r.onload = (ev) => {
-              google.script.run.withSuccessHandler(res => {
-                  isUploadingFile.value = false;
-                  if(res.success){
-                      const ctx = designUploadContext.value;
-                      if (workorderData.value.designValidation.items[ctx.row]) {
-                          workorderData.value.designValidation.items[ctx.row][ctx.col].push({
-                              url: res.fileUrl,
-                              type: ctx.type,
-                              name: file.name
-                          });
-                      }
-                      Swal.fire('Archivo Subido', '', 'success');
-                  } else {
-                      Swal.fire('Error', res.message, 'error');
+          subirArchivoAlmacen(file).then(res => {
+              isUploadingFile.value = false;
+              if(res && res.success){
+                  const ctx = designUploadContext.value;
+                  if (workorderData.value.designValidation.items[ctx.row]) {
+                      workorderData.value.designValidation.items[ctx.row][ctx.col].push({
+                          url: res.fileUrl,
+                          type: ctx.type,
+                          name: file.name
+                      });
                   }
-                  e.target.value = null;
-              }).uploadFileToDrive(ev.target.result, file.type, file.name);
-          };
-          r.readAsDataURL(file);
+                  Swal.fire('Archivo Subido', '', 'success');
+              } else {
+                  Swal.fire('No se subió el archivo', (res && res.message) || 'Error desconocido', 'error');
+              }
+              e.target.value = null;
+          });
       };
 
       const specialEquipment = ref({ items: [{ quantity: '1', unit: 'unidad', type: '', description: '', spec: '', days: '1', hours: '0', cost: '', total: 0 }] });
@@ -9485,41 +9527,67 @@ const filteredStaffTrackerData = computed(() => {
       const reloadStaffTracker = () => loadTrackerData();
 
 
+      // === INICIO REGLA DE EVIDENCIA ===
+      //
+      // Cerrar una actividad exige evidencia (Política de Registro §3.4). Lo
+      // que NO exige —y era el defecto de BUG-0009 y BUG-0010— es que la
+      // evidencia esté en tres columnas a la vez.
+      //
+      // La versión anterior pedía `ARCHIVO` y además empujaba `CORREO` y
+      // `CARPETA` a la lista de obligatorios, en el tracker y en ventas. Como
+      // las tres columnas existen en el tracker general, cerrar una tarea
+      // pedía tres subidas distintas y bastaba que faltara una para que la
+      // pantalla contestara "Falta subir archivos a CORREO para poder dar
+      // 100%" — literalmente el reporte de ROCIO_CASTRO. Una tarea que no se
+      // resolvió por correo no tiene qué poner ahí, así que no había forma de
+      // cerrarla.
+      //
+      // Regla nueva: en el tracker general basta UNA evidencia en cualquiera
+      // de las columnas de archivo (ARCHIVO, CORREO o CARPETA). En las hojas
+      // de ventas se conserva el expediente por documento —cada uno es una
+      // entrega distinta del proceso de cotización— pero CORREO y CARPETA
+      // dejan de ser obligatorios también ahí.
+      const COLUMNAS_DE_EVIDENCIA = ['ARCHIVO', 'CORREO', 'CARPETA'];
+      const DOCUMENTOS_DE_VENTAS = ['INFO CLIENTE', 'F2', 'COTIZACION', 'TIMELINE', 'LAYOUT'];
+
+      const filaSeEstaCerrando = (row) => Object.entries(row).some(([k, v]) => {
+          const kUp = String(k).toUpperCase().trim();
+          const vStr = String(v).toUpperCase().trim();
+          if (kUp.includes('AVANCE') && (parseFloat(String(vStr).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(vStr).replace('%', '').replace(',', '.').trim()) === 1 && !String(vStr).includes('%')))) return true;
+          if (kUp.includes('ESTATUS') && ['HECHO', 'TERMINADO', 'FINALIZADO', 'REALIZADO', 'COMPLETADO', 'DONE'].includes(vStr)) return true;
+          if (kUp.includes('CUMPLIMIENTO') && vStr === 'SI') return true;
+          return false;
+      });
+
+      const columnaDeEvidenciaExiste = (headers, nombre) =>
+          (headers || []).some(h => String(h).toUpperCase().trim() === nombre);
+
+      const valorDeEvidencia = (row, nombre) => {
+          const clave = Object.keys(row).find(k => String(k).toUpperCase().trim() === nombre);
+          return clave ? String(row[clave] == null ? '' : row[clave]).trim() : '';
+      };
+
       const validateCompletionFiles = (row, headers) => {
-          const isCompleted = Object.entries(row).some(([k, v]) => {
-              const kUp = String(k).toUpperCase().trim();
-              const vStr = String(v).toUpperCase().trim();
-              if (kUp.includes('AVANCE') && (parseFloat(String(vStr).replace('%', '').replace(',', '.').trim()) === 100 || (parseFloat(String(vStr).replace('%', '').replace(',', '.').trim()) === 1 && !String(vStr).includes('%')))) return true;
-              if (kUp.includes('ESTATUS') && ['HECHO', 'TERMINADO', 'FINALIZADO', 'REALIZADO', 'COMPLETADO', 'DONE'].includes(vStr)) return true;
-              if (kUp.includes('CUMPLIMIENTO') && vStr === 'SI') return true;
-              return false;
-          });
+          if (!filaSeEstaCerrando(row)) return { valid: true };
 
-          if (isCompleted) {
-              let requiredFiles = ['INFO CLIENTE', 'F2', 'COTIZACION', 'TIMELINE', 'LAYOUT'];
+          const esVentas = (headers || []).some(h => ['COTIZACION', 'F2', 'LAYOUT'].includes(String(h).toUpperCase().trim()));
 
-              const isSalesTracker = headers.some(h => ['COTIZACION', 'F2', 'LAYOUT'].includes(String(h).toUpperCase().trim()));
-              if (!isSalesTracker) {
-                  requiredFiles = ['ARCHIVO'];
-              }
-
-              requiredFiles.push('CORREO', 'CARPETA');
-
-              for (const req of requiredFiles) {
-                  // Check if this requirement is part of the current tracker's columns
-                  const headerExists = headers.some(h => String(h).toUpperCase().trim() === req);
-                  if (headerExists) {
-                      // Find the actual key used in the row object for this header
-                      const rowKey = Object.keys(row).find(k => String(k).toUpperCase().trim() === req);
-                      const val = rowKey ? row[rowKey] : null;
-                      if (!val || String(val).trim() === '') {
-                          return { valid: false, missing: req };
-                      }
+          if (esVentas) {
+              for (const doc of DOCUMENTOS_DE_VENTAS) {
+                  if (columnaDeEvidenciaExiste(headers, doc) && !valorDeEvidencia(row, doc)) {
+                      return { valid: false, missing: doc };
                   }
               }
+              return { valid: true };
           }
-          return { valid: true };
+
+          // Tracker general: una evidencia, en la columna que sea.
+          const disponibles = COLUMNAS_DE_EVIDENCIA.filter(c => columnaDeEvidenciaExiste(headers, c));
+          if (disponibles.length === 0) return { valid: true };
+          if (disponibles.some(c => valorDeEvidencia(row, c))) return { valid: true };
+          return { valid: false, missing: disponibles.join(' o ') };
       };
+      // === FIN REGLA DE EVIDENCIA ===
 
       // --- CONTROL DE ALTA -------------------------------------------------
       // Toda actividad nueva nace con PRIORIDAD, RIESGOS y FEC. EST. FIN. Es
@@ -9597,7 +9665,7 @@ const filteredStaffTrackerData = computed(() => {
           for (const row of staffTracker.value.data) {
               const validation = validateCompletionFiles(row, staffTracker.value.headers);
               if (!validation.valid) {
-                  Swal.fire('Archivos incompletos', `Falta subir archivos a ${validation.missing} en la tarea ${row.FOLIO || row.ID || ''} para poder dar 100%`, 'warning');
+                  Swal.fire('Falta la evidencia', `Para cerrar al 100% la tarea ${row.FOLIO || row.ID || ''} sube al menos un archivo en ${validation.missing}.`, 'warning');
                   return;
               }
               // Las filas en blanco no cuentan: la tabla deja añadir renglones y
@@ -9695,7 +9763,7 @@ const filteredStaffTrackerData = computed(() => {
 
           const validation = validateCompletionFiles(row, staffTracker.value.headers);
           if (!validation.valid) {
-              Swal.fire('Archivos incompletos', `Falta subir archivos a ${validation.missing} para poder dar 100%`, 'warning');
+              Swal.fire('Falta la evidencia', `Para cerrar al 100% sube al menos un archivo en ${validation.missing}.`, 'warning');
               return;
           }
 
@@ -9783,18 +9851,39 @@ const filteredStaffTrackerData = computed(() => {
       };
 
       const openCellUpload = (row, col) => { uploadingCell.value = {row, col}; cellFileInput.value.click(); };
-      const handleCellFile = (e) => { const file = e.target.files[0]; if(!file || !uploadingCell.value.row) return; if(file.size > MAX_UPLOAD_BYTES) { Swal.fire('Error', 'El archivo es demasiado grande (máximo 35MB).', 'error'); e.target.value = null; return; } Swal.showLoading(); const r = new FileReader(); r.onload = (ev) => { google.script.run.withSuccessHandler(res => { if(res.success){ const colName = String(uploadingCell.value.col).toUpperCase(); if (isMediaColumn(colName) || colName === 'REQUISITOR') { const currentVal = uploadingCell.value.row[uploadingCell.value.col] || ''; uploadingCell.value.row[uploadingCell.value.col] = currentVal ? currentVal + '\n' + res.fileUrl : res.fileUrl; } else { uploadingCell.value.row[uploadingCell.value.col] = res.fileUrl; } saveRow(uploadingCell.value.row); } else Swal.fire('Error', res.message, 'error'); e.target.value = null; }).uploadFileToDrive(ev.target.result, file.type, file.name); }; r.readAsDataURL(file); };
+      const handleCellFile = (e) => {
+          const file = e.target.files[0];
+          if (!file || !uploadingCell.value.row) return;
+          Swal.showLoading();
+          subirArchivoAlmacen(file).then(res => {
+              // El `Swal.close()` va SIEMPRE: el spinner lo abrió esta función y
+              // dejarlo girando ante un fallo es lo que hacía parecer que el
+              // sistema "no deja" subir (BUG-0009).
+              Swal.close();
+              if (res && res.success) {
+                  const colName = String(uploadingCell.value.col).toUpperCase();
+                  if (isMediaColumn(colName) || colName === 'REQUISITOR') {
+                      const currentVal = uploadingCell.value.row[uploadingCell.value.col] || '';
+                      uploadingCell.value.row[uploadingCell.value.col] = currentVal ? currentVal + '\n' + res.fileUrl : res.fileUrl;
+                  } else {
+                      uploadingCell.value.row[uploadingCell.value.col] = res.fileUrl;
+                  }
+                  saveRow(uploadingCell.value.row);
+              } else {
+                  Swal.fire('No se subió el archivo', (res && res.message) || 'Error desconocido', 'error');
+              }
+              e.target.value = null;
+          });
+      };
       const addResponsable = (n) => { selectedResponsables.value.push(n); staffSearch.value=''; };
       const openFileDialog = () => fileInput.value.click();
       const handleFileSelect = (e) => {
           const file = e.target.files[0];
           if(!file) return;
-          if(file.size > MAX_UPLOAD_BYTES) { Swal.fire('Error', 'El archivo es demasiado grande (máximo 35MB).', 'error'); e.target.value = null; return; }
           isUploadingFile.value=true;
-          const r = new FileReader();
-          r.onload=(ev)=>google.script.run.withSuccessHandler(res=>{
+          subirArchivoAlmacen(file).then(res => {
               isUploadingFile.value=false;
-              if(res.success){
+              if(res && res.success){
                   uploadSuccess.value=true;
                   if(currentView.value === 'PPC_DINAMICO') {
                       dynamicPpc.value.archivoUrl=res.fileUrl;
@@ -9806,9 +9895,13 @@ const filteredStaffTrackerData = computed(() => {
                       ppcData.value.archivoUrl=res.fileUrl;
                   }
                   if (currentView.value !== 'WORKORDER_FORM') Swal.fire('Archivo Subido','','success');
+              } else {
+                  // Antes este caso no mostraba nada: la subida fallaba y el
+                  // usuario seguía creyendo que el adjunto estaba puesto.
+                  Swal.fire('No se subió el archivo', (res && res.message) || 'Error desconocido', 'error');
               }
-          }).uploadFileToDrive(ev.target.result,file.type,file.name);
-          r.readAsDataURL(file);
+              e.target.value = null;
+          });
       };
       const triggerUpload = (type) => { currentUploadType.value = type; fileInput.value.click(); };
       const promptExtraData = () => { if(!ppcData.value.concepto || !selectedResponsables.value.length) return Swal.fire('Faltan datos básicos','','warning'); extraData.value = { restricciones: '', prioridades: '', riesgos: '', fechaRespuesta: '', clasificacion: '' }; showExtraModal.value = true; };
