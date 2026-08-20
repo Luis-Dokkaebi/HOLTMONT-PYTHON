@@ -227,3 +227,112 @@ def test_el_backend_acepta_lo_que_manda_el_reloj() -> None:
                                   "HR. EST. FIN": "17:30"})
     assert tarea.hora_alta == time(9, 15)
     assert tarea.hora_estimada_fin == time(17, 30)
+
+
+# ---------------------------------------------------------------------------
+# El permiso de campo: el reloj existe pero llegaba `disabled`
+# ---------------------------------------------------------------------------
+#
+# Reporte de ANTONIA_VENTAS (2026-08-20): «en mi tracker no me deja agregar
+# Hr. Est. Fin». El reloj estaba puesto, pero el `<input type="time">` lleva
+# `:disabled="!isFieldEditable(h, row)"`, y para el rol TONITA esa función
+# resuelve por lista blanca de subcadenas en cuanto la fila tiene folio.
+#
+# La lista traía `FECHA` —que casa con `FECHA_ESTIMADA_FIN`— y `ALTA` —que casa
+# de rebote con `HORA_ALTA`—, pero nada que casara con `HORA_ESTIMADA_FIN`, el
+# encabezado que rinde la API (`sheets.TASK_HEADER_MAP`). Resultado: la fecha
+# estimada de fin se podía cambiar y su hora no, en la misma fila.
+
+# Las grafías con las que la misma columna llega al navegador: la cruda de la
+# API, la del rótulo y las de las hojas viejas (`ALIAS_DE_HOJA`).
+GRAFIAS_DE_HR_EST_FIN = ["HORA_ESTIMADA_FIN", "HORA ESTIMADA FIN",
+                         "HORA ESTIMADA DE FIN", "HR. EST. FIN"]
+
+# Una fila ya dada de alta: con folio, la lista blanca del rol es lo único que
+# decide. Antes del folio todo es editable y el defecto no se ve.
+FILA_ASIGNADA = {"FOLIO": "AP-0042", "ID": "AP-0042", "ESTATUS": "ASIGNADO"}
+
+
+def _bloque_de_permisos() -> str:
+    m = re.search(r"const isFieldEditable = \(h, row\) => \{.*?\n      \};",
+                  _fuente(), re.S)
+    assert m, "no se encontró `isFieldEditable` en index.html"
+    return "const currentRole = { value: '' };\n" + m.group(0)
+
+
+def _es_editable(rol: str, encabezado: str, fila: dict) -> bool:
+    guion = f"""
+        {_bloque_de_permisos()}
+        currentRole.value = {json.dumps(rol)};
+        console.log(JSON.stringify(
+            isFieldEditable({json.dumps(encabezado)}, {json.dumps(fila)})
+        ));
+    """
+    return bool(_node(guion))
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+@pytest.mark.parametrize("encabezado", GRAFIAS_DE_HR_EST_FIN)
+def test_tonita_pone_la_hora_estimada_de_fin_en_una_actividad_asignada(
+        encabezado: str) -> None:
+    """El defecto reportado: el reloj salía `disabled` y la celda no respondía."""
+    assert _es_editable("TONITA", encabezado, FILA_ASIGNADA), (
+        f"{encabezado} quedó de solo lectura en una fila con folio; es justo "
+        "cuando se compromete a qué hora se termina la actividad"
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+def test_el_encabezado_de_la_hora_es_el_que_rinde_la_api() -> None:
+    """
+    La prueba de arriba solo vale si `HORA_ESTIMADA_FIN` es de verdad lo que
+    llega al navegador. Se comprueba contra el mapa del backend: si mañana la
+    API renombra la columna, salta aquí y no en el tracker de Toñita.
+    """
+    from api.services.sheets import TASK_HEADER_MAP
+
+    assert ("HORA_ESTIMADA_FIN", "hora_estimada_fin") in TASK_HEADER_MAP
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+@pytest.mark.parametrize("encabezado", ["CONCEPTO", "FOLIO", "CLASIFICACION"])
+def test_abrir_la_hora_no_abre_el_historial(encabezado: str) -> None:
+    """
+    El contrapeso: un `return true` al principio de la rama TONITA pasaría la
+    prueba del defecto y borraría el permiso de campo entero.
+    """
+    assert not _es_editable("TONITA", encabezado, FILA_ASIGNADA), (
+        f"{encabezado} quedó editable en una fila ya dada de alta"
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
+def test_los_roles_restringidos_no_ganan_la_hora() -> None:
+    """El cambio es del tracker de Toñita; los siete restringidos no se tocan."""
+    assert not _es_editable("ANGEL_USER", "HORA_ESTIMADA_FIN", FILA_ASIGNADA)
+
+
+# ---------------------------------------------------------------------------
+# El área pulsable
+# ---------------------------------------------------------------------------
+
+def test_el_reloj_cubre_la_celda_entera() -> None:
+    """
+    Segunda mitad del reporte: «agrandar el hitbox para darle click a esa celda».
+
+    El envoltorio se había escrito con `width:100%; height:100%`. Un porcentaje
+    de altura dentro de un `<td>` no tiene contra qué resolverse —el hijo no
+    aporta altura, porque las dos capas van absolutas— así que el área pulsable
+    se quedaba en la altura del contenido, no en la de la fila, que en este
+    tracker crece con el `<textarea>` de CONCEPTO.
+
+    La fecha ya lo hace bien (`position:absolute; inset:0`): se ancla al `<td>`,
+    que es `position:relative` (`.table-excel td`). Aquí se copia ese anclaje.
+    """
+    m = re.search(r'<div v-else-if="esColumnaDeHora\(h\)" style="([^"]*)"', _fuente())
+    assert m, "no se encontró el envoltorio de la celda de hora"
+    estilo = m.group(1).replace(" ", "")
+    assert "position:absolute" in estilo and "inset:0" in estilo, (
+        "el envoltorio de la hora tiene que anclarse al <td> para que el reloj "
+        f"abarque toda la celda; hoy es: {m.group(1)!r}"
+    )
