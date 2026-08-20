@@ -38,7 +38,13 @@
     :root { --sidebar-w: 260px; --sidebar-mini: 65px; --primary: #1c1c1c; --accent: #3699ff; --bg-body: #f3f6f9; }
     body { font-family: 'Roboto', sans-serif; background: var(--bg-body); margin: 0; overflow: hidden; font-size: 13px; }
 
-    input[type="date"]::-webkit-calendar-picker-indicator {
+    /* Chrome solo abre el selector nativo sobre este pseudo-elemento —el
+       iconito de ~15 px del borde derecho—, no sobre el resto del campo. Se
+       estira hasta cubrir el input entero para que la celda se pueda pulsar
+       por cualquier punto. La hora comparte la regla: sin ella el reloj abría
+       solo desde ese rincón (reporte de ANTONIA_VENTAS, 2026-08-20). */
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="time"]::-webkit-calendar-picker-indicator {
         position: absolute;
         top: 0;
         left: 0;
@@ -3075,7 +3081,7 @@
                              <div style="position:absolute; inset:0; display:flex; align-items:center; padding-left:4px; font-size:12px; pointer-events:none; color: #000 !important;">{{ formatDisplayDate(row[h]) }}</div>
                              <input type="date" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;" :disabled="!isFieldEditable(h, row)" :value="toIsoDate(row[h])" @input="updateDateFromPicker($event, row, h)">
                          </div>
-                         <div v-else-if="esColumnaDeHora(h)" style="position:relative; width:100%; height:100%;">
+                         <div v-else-if="esColumnaDeHora(h)" style="position:absolute; inset:0; width:100%; height:100%;">
                              <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:11px; pointer-events:none;">{{ formatDisplayTime(row[h]) }}</div>
                              <input type="time" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;" :disabled="!isFieldEditable(h, row)" :value="toTimeValue(row[h])" @input="updateTimeFromPicker($event, row, h)">
                          </div>
@@ -8045,7 +8051,15 @@ const filteredStaffTrackerData = computed(() => {
               // no casa con el encabezado real, así que la celda se volvía de
               // solo lectura en cuanto la fila recibía folio — justo cuando la
               // actividad queda asignada y hay que anotar la restricción.
-              const allowed = ['FECHA', 'FECHA VISITA', 'FECHA ALTA', 'FECHA INICIO', 'ALTA', 'F. VISITA', 'F_VISITA', 'F. INICIO', 'F_INICIO', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', 'ARCHIVO', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'ENTREGA', 'VENDEDOR', 'RESPONSABLE', 'CORREO', 'CARPETA', 'INFO CLIENTE', 'CORREOS', 'CARPETAS', 'AREA', 'COMENTARIOS', 'RESTRICCIONES', 'REQUISITOR'];
+              const allowed = ['FECHA', 'FECHA VISITA', 'FECHA ALTA', 'FECHA INICIO', 'ALTA', 'F. VISITA', 'F_VISITA', 'F. INICIO', 'F_INICIO', 'ESTATUS', 'STATUS', 'AVANCE', 'AVANCE %', 'ARCHIVO', 'COTIZACION', 'F2', 'LAYOUT', 'TIMELINE', 'ENTREGA', 'VENDEDOR', 'RESPONSABLE', 'CORREO', 'CARPETA', 'INFO CLIENTE', 'CORREOS', 'CARPETAS', 'AREA', 'COMENTARIOS', 'RESTRICCIONES', 'REQUISITOR',
+                               // La hora estimada de fin. La lista casa por subcadena
+                               // y ninguna entrada llegaba a `HORA_ESTIMADA_FIN`, que es
+                               // el encabezado que rinde la API (`sheets.TASK_HEADER_MAP`):
+                               // `FECHA` abría la fecha estimada de fin y su hora quedaba
+                               // de solo lectura en la misma fila. Van las cuatro grafías
+                               // con las que la columna llega (`ALIAS_DE_HOJA`).
+                               'HORA_ESTIMADA_FIN', 'HORA ESTIMADA FIN',
+                               'HORA ESTIMADA DE FIN', 'HR. EST. FIN'];
               return allowed.some(a => hUp.includes(a));
           }
           return true;
