@@ -122,6 +122,9 @@ class EstadoAgente(TypedDict, total=False):
     filas: List[Dict[str, Any]]
     resultado: str
     error: str
+    # Si el error admite que el modelo reescriba la consulta. `False` corta el
+    # bucle de auto-corrección: ver `ruta_tras_ejecutar`.
+    reintentable: bool
     intentos: int
     respuesta: str
 
@@ -371,6 +374,29 @@ def nodo_generar_sql(estado: Dict[str, Any], llm: Any, esquema: Esquema) -> Dict
     return {"sql": extraer_sql(crudo), "error": "", "resultado": "", "intentos": intentos}
 
 
+def _es_reintentable(exc: Exception) -> bool:
+    """
+    Si tiene sentido pedirle al modelo que reescriba la consulta.
+
+    Un `relation "tasks" does not exist` o un error de sintaxis sí: el modelo
+    puede corregirlos viendo el mensaje. Que falte la función RPC, o que la
+    clave no tenga permiso para llamarla, **no**: no hay SQL que arregle eso, y
+    reintentar solo gasta tres llamadas al modelo para acabar diciendo lo mismo
+    que ya se sabía en la primera.
+    """
+    from backend.core.errors import BackendError
+
+    try:
+        from backend.core.engines.postgrest import ErrorDeConfiguracion
+    except ImportError:  # pragma: no cover - el motor REST siempre está
+        return True
+
+    if isinstance(exc, ErrorDeConfiguracion):
+        return False
+    # Un fallo de red hacia la base tampoco lo arregla otro SQL.
+    return not (isinstance(exc, BackendError) and "red" in str(exc).lower())
+
+
 def nodo_ejecutar_sql(estado: Dict[str, Any],
                       ejecutar: Optional[Callable[[str], List[Dict[str, Any]]]],
                       esquema: Esquema) -> Dict[str, Any]:
@@ -393,9 +419,12 @@ def nodo_ejecutar_sql(estado: Dict[str, Any],
     try:
         filas = list(ejecutar(acotar(sql)) or [])
     except Exception as exc:  # noqa: BLE001 - el error vuelve al modelo para el reintento
-        return {"error": f"La consulta falló en la base: {exc}", "filas": [], "resultado": ""}
+        return {"error": f"La consulta falló en la base: {exc}",
+                "filas": [], "resultado": "",
+                "reintentable": _es_reintentable(exc)}
 
-    return {"filas": filas, "resultado": formatear_filas(filas), "error": ""}
+    return {"filas": filas, "resultado": formatear_filas(filas), "error": "",
+            "reintentable": True}
 
 
 def formatear_filas(filas: List[Dict[str, Any]]) -> str:
@@ -418,10 +447,18 @@ def formatear_filas(filas: List[Dict[str, Any]]) -> str:
 
 
 def ruta_tras_ejecutar(estado: Dict[str, Any]) -> str:
-    """Con error y intentos de sobra se reintenta; si no, se redacta."""
-    if estado.get("error") and int(estado.get("intentos", 1)) < MAX_INTENTOS:
-        return "generar"
-    return "responder"
+    """
+    Con error reintentable e intentos de sobra se reintenta; si no, se redacta.
+
+    `reintentable` es lo que separa "el modelo escribió mal el SQL" de "falta
+    algo por instalar". Sin esa distinción, un fallo de configuración cuesta
+    tres llamadas al modelo y acaba en el mismo mensaje que la primera.
+    """
+    if not estado.get("error"):
+        return "responder"
+    if estado.get("reintentable") is False:
+        return "responder"
+    return "generar" if int(estado.get("intentos", 1)) < MAX_INTENTOS else "responder"
 
 
 def nodo_responder(estado: Dict[str, Any], llm: Any) -> Dict[str, Any]:
@@ -550,11 +587,14 @@ ENV_DSN_AGENTE = "AGENTE_SQL_DATABASE_URL"
 _MOTORES: Dict[str, Any] = {}
 
 MENSAJE_SIN_BASE = (
-    "El agente no puede consultar la base en este despliegue. La aplicación usa "
-    f"el motor PostgREST, que no ejecuta SQL directo. Define {ENV_DSN_AGENTE} con "
-    "la conexión de solo lectura (formato "
-    "postgresql+psycopg://USUARIO:CLAVE@HOST:6543/postgres). El resto del "
-    "módulo sigue funcionando."
+    "El agente no tiene por dónde consultar la base. Hay dos caminos y basta "
+    "con uno: (1) ejecutar `docs/DDL_AGENTE_SQL.sql` una vez en el SQL Editor "
+    "de Supabase, que no necesita ninguna variable nueva y usa las claves que "
+    "la aplicación ya tiene; o (2) definir "
+    f"{ENV_DSN_AGENTE} con una conexión de solo lectura (formato "
+    "postgresql+psycopg://USUARIO:CLAVE@HOST:6543/postgres). "
+    "GET /api/agente/diagnostico dice cuál falta. El resto del módulo sigue "
+    "funcionando."
 )
 
 
@@ -571,6 +611,64 @@ def _motor_dedicado(dsn: str) -> Optional[Any]:
             print(f"[agente_sql] No se pudo abrir {ENV_DSN_AGENTE}: {exc}")
             return None
     return _MOTORES[dsn]
+
+
+def diagnostico() -> Dict[str, Any]:
+    """
+    Qué le falta al agente para funcionar, sin gastar una llamada al modelo.
+
+    Existe porque este módulo tiene tres dependencias de despliegue —clave del
+    modelo, conexión a la base y función RPC instalada— y cuando falla una, el
+    usuario solo ve "no pude consultar". Sin esto, averiguar cuál de las tres es
+    cuesta una ronda de mensajes con quien escribió el código; con esto, se abre
+    la ruta y se lee.
+
+    Cada comprobación se hace de verdad —se llama a la base con un `SELECT 1`—,
+    no se mira si la variable está definida: una variable puesta con un valor
+    equivocado se ve exactamente igual que una puesta bien.
+    """
+    from backend.core.engine import construir_engine
+    from backend.core.errors import BackendError
+
+    partes: Dict[str, Any] = {"modelo": {}, "base": {}, "consulta": {}}
+
+    clave = os.environ.get("GROQ_API_KEY", "").strip()
+    partes["modelo"] = {
+        "ok": bool(clave) and llm_disponible() is not None,
+        "detalle": "GROQ_API_KEY configurada" if clave else "Falta GROQ_API_KEY.",
+    }
+
+    dsn = os.environ.get(ENV_DSN_AGENTE, "").strip()
+    try:
+        motor = construir_engine()
+        nombre_motor = motor.nombre
+        partes["base"] = {
+            "ok": True,
+            "motor": nombre_motor,
+            "dsn_propio": bool(dsn),
+            "detalle": (f"Conexión propia del agente ({ENV_DSN_AGENTE})." if dsn
+                        else f"Motor de la aplicación: {nombre_motor}."),
+        }
+    except BackendError as exc:
+        partes["base"] = {"ok": False, "motor": None, "dsn_propio": bool(dsn),
+                          "detalle": str(exc)}
+        partes["consulta"] = {"ok": False, "detalle": "Sin motor no se puede comprobar."}
+        return {"success": False, "listo": False, **partes}
+
+    ejecutor = ejecutor_disponible()
+    if ejecutor is None:
+        partes["consulta"] = {"ok": False, "detalle": MENSAJE_SIN_BASE}
+    else:
+        # Un SELECT sin tabla: comprueba el canal entero (permiso, función RPC,
+        # red) sin depender de que exista ninguna tabla concreta.
+        try:
+            ejecutor("SELECT 1 AS ok")
+            partes["consulta"] = {"ok": True, "detalle": "La base respondió."}
+        except Exception as exc:  # noqa: BLE001
+            partes["consulta"] = {"ok": False, "detalle": str(exc)}
+
+    listo = all(p.get("ok") for p in partes.values())
+    return {"success": True, "listo": listo, **partes}
 
 
 def ejecutor_disponible() -> Optional[Callable[[str], List[Dict[str, Any]]]]:

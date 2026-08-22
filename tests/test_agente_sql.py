@@ -458,13 +458,84 @@ def test_el_motor_en_memoria_no_ejecuta_sql_y_lo_dice():
         MemoryEngine().consulta_cruda("SELECT 1")
 
 
-def test_el_motor_postgrest_no_ejecuta_sql_y_dice_qué_falta():
-    from backend.core.engines.postgrest import PostgrestEngine
+def test_el_motor_postgrest_ejecuta_por_rpc():
+    """
+    CAMBIO DE CONTRATO (justificado en el PR): antes esto lanzaba "PostgREST no
+    puede ejecutar SQL directo". Era cierto para SQL arbitrario, pero PostgREST
+    sí puede **llamar funciones**, y `docs/DDL_AGENTE_SQL.sql` crea una que
+    ejecuta el SELECT. Se conserva la prueba con la aserción invertida en vez de
+    borrarla, para que quede escrito qué cambió y por qué.
+    """
+    from backend.core.engines import postgrest as pg
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave-de-prueba")
+    llamadas = []
+    motor._pedir = lambda metodo, ruta, cuerpo=None, prefer="": (
+        llamadas.append((metodo, ruta, cuerpo)) or [{"n": 7}])
+
+    assert motor.consulta_cruda("SELECT count(*) AS n FROM tasks") == [{"n": 7}]
+    assert llamadas == [("POST", f"rpc/{pg.FUNCION_AGENTE}",
+                         {"consulta": "SELECT count(*) AS n FROM tasks"})]
+
+
+def test_si_falta_la_funcion_rpc_se_dice_que_ejecutar():
+    """
+    El error tiene que nombrar el archivo. "PGRST202: function not found" es
+    verdad y no le sirve a nadie para arreglarlo.
+    """
+    from backend.core.engines import postgrest as pg
     from backend.core.errors import ErrorDeMotor
 
-    motor = PostgrestEngine("https://ejemplo.supabase.co", "clave-de-prueba")
-    with pytest.raises(ErrorDeMotor, match="DATABASE_URL"):
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+
+    def _no_existe(metodo, ruta, cuerpo=None, prefer=""):
+        raise ErrorDeMotor("PostgREST POST falló", codigo="PGRST202", estado=404)
+
+    motor._pedir = _no_existe
+
+    with pytest.raises(pg.ErrorDeConfiguracion, match="DDL_AGENTE_SQL.sql"):
         motor.consulta_cruda("SELECT 1")
+
+
+def test_si_la_clave_no_tiene_permiso_se_dice_cual_usar():
+    """
+    El DDL concede la función solo a `service_role`. Con la clave publicable el
+    404/403 es indistinguible de "la función no existe" si no se traduce.
+    """
+    from backend.core.engines import postgrest as pg
+    from backend.core.errors import ErrorDeMotor
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+
+    def _sin_permiso(metodo, ruta, cuerpo=None, prefer=""):
+        raise ErrorDeMotor("PostgREST POST falló", codigo="42501", estado=403)
+
+    motor._pedir = _sin_permiso
+
+    with pytest.raises(pg.ErrorDeConfiguracion, match="clave de servicio"):
+        motor.consulta_cruda("SELECT 1")
+
+
+def test_un_error_de_sql_por_rpc_no_se_disfraza_de_configuracion():
+    """
+    Un `relation "tasks" does not exist` SÍ lo puede arreglar el modelo
+    reescribiendo. Traducirlo a error de configuración cortaría el bucle de
+    auto-corrección justo cuando sirve.
+    """
+    from backend.core.engines import postgrest as pg
+    from backend.core.errors import ErrorDeMotor
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+
+    def _sql_malo(metodo, ruta, cuerpo=None, prefer=""):
+        raise ErrorDeMotor('relation "tsaks" does not exist',
+                           codigo="42P01", estado=400)
+
+    motor._pedir = _sql_malo
+
+    with pytest.raises(ErrorDeMotor) as capturado:
+        motor.consulta_cruda("SELECT * FROM tsaks")
+    assert not isinstance(capturado.value, pg.ErrorDeConfiguracion)
 
 
 def test_sin_motor_configurado_el_ejecutor_es_none_y_no_lanza(monkeypatch):
@@ -869,13 +940,15 @@ def _entorno_de_produccion(monkeypatch) -> None:
     monkeypatch.setenv("SUPABASE_KEY", "clave-de-prueba")
 
 
-def test_con_postgrest_no_se_devuelve_un_ejecutor_roto(monkeypatch):
+def test_con_postgrest_hay_ejecutor_por_rpc(monkeypatch):
     """
-    La regresión, en una línea: con PostgREST el ejecutor es `None`, no una
-    función que va a lanzar en cuanto se use.
+    CAMBIO DE CONTRATO: antes esto era `None` y el módulo quedaba inservible en
+    el despliegue real, que usa PostgREST. Ahora hay ejecutor —el RPC—; que la
+    función esté instalada o no lo dice `consulta_cruda` con un error que nombra
+    el archivo, y ese error NO es reintentable.
     """
     _entorno_de_produccion(monkeypatch)
-    assert ag.ejecutor_disponible() is None
+    assert ag.ejecutor_disponible() is not None
 
 
 def test_sin_base_no_se_llama_al_modelo_ni_una_vez(monkeypatch):
@@ -883,7 +956,9 @@ def test_sin_base_no_se_llama_al_modelo_ni_una_vez(monkeypatch):
     El coste real del fallo: tres llamadas al LLM para un error de
     configuración que se conocía antes de la primera.
     """
-    _entorno_de_produccion(monkeypatch)
+    for variable in ("AGENTE_SQL_DATABASE_URL", "DATABASE_URL", "SUPABASE_URL",
+                     "SUPABASE_KEY", "BACKEND_ENGINE"):
+        monkeypatch.delenv(variable, raising=False)
     from fastapi.testclient import TestClient
 
     from api.main import app
@@ -896,7 +971,7 @@ def test_sin_base_no_se_llama_al_modelo_ni_una_vez(monkeypatch):
         "/api/agente/consulta", json={"pregunta": "cuántas tareas hay"}).json()
 
     assert respuesta["success"] is False
-    assert ag.ENV_DSN_AGENTE in respuesta["message"]
+    assert "DDL_AGENTE_SQL.sql" in respuesta["message"]
     assert llamadas == []
 
 
@@ -938,16 +1013,28 @@ def test_el_motor_dedicado_se_reutiliza_entre_peticiones(monkeypatch):
     assert list(ag._MOTORES) == [DSN_DE_PRUEBA]
 
 
-def test_un_dsn_ilegible_no_tumba_el_modulo(monkeypatch):
-    """Se cae al motor de la aplicación y, si tampoco sirve, se dice."""
+def test_un_dsn_ilegible_cae_al_motor_de_la_aplicacion(monkeypatch):
+    """
+    Un DSN mal escrito no puede dejar el módulo muerto si hay otro camino: se
+    avisa por log y se sigue por el RPC de PostgREST.
+    """
     _entorno_de_produccion(monkeypatch)
     monkeypatch.setenv(ag.ENV_DSN_AGENTE, "esto-no-es-un-dsn")
+    assert ag.ejecutor_disponible() is not None
+
+
+def test_sin_ningun_motor_configurado_no_hay_ejecutor(monkeypatch):
+    """El caso en que de verdad no hay por dónde: ni DSN propio ni motor."""
+    for variable in (ag.ENV_DSN_AGENTE, "DATABASE_URL", "SUPABASE_URL",
+                     "SUPABASE_KEY", "BACKEND_ENGINE"):
+        monkeypatch.delenv(variable, raising=False)
     assert ag.ejecutor_disponible() is None
 
 
 @pytest.mark.parametrize("modulo,clase,esperado", [
     ("backend.core.engines.sqlalchemy_engine", "SqlAlchemyEngine", True),
-    ("backend.core.engines.postgrest", "PostgrestEngine", False),
+    # PostgREST puede, pero solo a través de la función RPC del DDL.
+    ("backend.core.engines.postgrest", "PostgrestEngine", True),
     ("backend.core.engines.memoria", "MemoryEngine", False),
 ])
 def test_cada_motor_declara_si_puede_ejecutar_sql_crudo(modulo, clase, esperado):
@@ -958,3 +1045,176 @@ def test_cada_motor_declara_si_puede_ejecutar_sql_crudo(modulo, clase, esperado)
     import importlib
 
     assert getattr(importlib.import_module(modulo), clase).soporta_sql_crudo is esperado
+
+
+# ======================================================================
+# 11. Un fallo de configuración no cuesta tres llamadas al modelo
+# ======================================================================
+
+
+def _error_de_configuracion():
+    from backend.core.engines.postgrest import ErrorDeConfiguracion
+
+    return ErrorDeConfiguracion("Falta ejecutar docs/DDL_AGENTE_SQL.sql")
+
+
+def test_un_error_de_configuracion_no_se_reintenta():
+    """
+    La diferencia que justifica todo el mecanismo: reescribir el SQL no instala
+    una función que falta. Reintentar solo gasta llamadas para acabar diciendo
+    lo mismo que ya se sabía en la primera.
+    """
+    llm = LLMFalso(["```sql\nSELECT folio FROM tasks\n```", "Falta configurar algo."])
+
+    def _falta_la_funcion(sql):
+        raise _error_de_configuracion()
+
+    resultado = ag.ejecutar("x", TASKS, llm=llm, ejecutar_sql=_falta_la_funcion)
+
+    assert resultado["success"] is False
+    assert resultado["intentos"] == 1          # una, no tres
+    assert "DDL_AGENTE_SQL.sql" in resultado["message"]
+
+
+def test_un_error_de_sql_si_se_reintenta():
+    """
+    La otra mitad: un error que el modelo SÍ puede arreglar sigue reintentando.
+    Sin esta prueba, cortar el bucle de más se vería igual de bien.
+    """
+    llm = LLMFalso([
+        "```sql\nSELECT columna_mala FROM tasks\n```",
+        "```sql\nSELECT folio FROM tasks\n```",
+        "Listo.",
+    ])
+    intentos = {"n": 0}
+
+    def _falla_una_vez(sql):
+        intentos["n"] += 1
+        if intentos["n"] == 1:
+            raise RuntimeError('column "columna_mala" does not exist')
+        return [{"folio": "AV-1"}]
+
+    resultado = ag.ejecutar("x", TASKS, llm=llm, ejecutar_sql=_falla_una_vez)
+    assert resultado["success"] is True and resultado["intentos"] == 2
+
+
+def test_el_router_corta_el_bucle_con_la_marca():
+    """La regla, aislada del grafo."""
+    assert ag.ruta_tras_ejecutar(
+        {"error": "x", "intentos": 1, "reintentable": False}) == "responder"
+    assert ag.ruta_tras_ejecutar(
+        {"error": "x", "intentos": 1, "reintentable": True}) == "generar"
+    assert ag.ruta_tras_ejecutar(
+        {"error": "", "intentos": 1}) == "responder"
+
+
+def test_un_fallo_de_red_tampoco_se_reintenta():
+    from backend.core.errors import ErrorDeMotor
+
+    assert ag._es_reintentable(ErrorDeMotor("Fallo de red hacia PostgREST: x")) is False
+    assert ag._es_reintentable(RuntimeError("syntax error at or near")) is True
+
+
+# ======================================================================
+# 12. El diagnóstico
+# ======================================================================
+# Existe porque el módulo tiene tres dependencias de despliegue y, cuando falla
+# una, el usuario solo ve "no pude consultar". Averiguar cuál costaba una ronda
+# de mensajes con quien escribió el código. Eso ya pasó tres veces.
+
+
+def test_el_diagnostico_dice_que_falta_la_clave_del_modelo(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    _entorno_de_produccion(monkeypatch)
+
+    informe = ag.diagnostico()
+    assert informe["modelo"]["ok"] is False
+    assert "GROQ_API_KEY" in informe["modelo"]["detalle"]
+    assert informe["listo"] is False
+
+
+def test_el_diagnostico_dice_que_falta_el_ddl(monkeypatch):
+    """
+    Con el motor en pie pero la función sin instalar, el informe tiene que
+    nombrar el archivo — que es la única parte accionable.
+    """
+    _entorno_de_produccion(monkeypatch)
+    monkeypatch.setattr(ag, "ejecutor_disponible",
+                        lambda: (_ for _ in ()).throw(AssertionError("no usar")))
+
+    def _falta(sql):
+        raise _error_de_configuracion()
+
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: _falta)
+
+    informe = ag.diagnostico()
+    assert informe["base"]["ok"] is True
+    assert informe["consulta"]["ok"] is False
+    assert "DDL_AGENTE_SQL.sql" in informe["consulta"]["detalle"]
+    assert informe["listo"] is False
+
+
+def test_el_diagnostico_dice_listo_cuando_todo_responde(monkeypatch):
+    _entorno_de_produccion(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY", "clave")
+    monkeypatch.setattr(ag, "llm_disponible", lambda: LLMFalso(["ok"]))
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: (lambda sql: [{"ok": 1}]))
+
+    informe = ag.diagnostico()
+    assert informe["listo"] is True
+    assert informe["consulta"]["ok"] is True
+
+
+def test_el_diagnostico_no_llama_al_modelo(monkeypatch):
+    """
+    Un diagnóstico que gasta una llamada al modelo no se puede pulsar dos veces
+    seguidas sin pensárselo, y entonces no se pulsa.
+    """
+    _entorno_de_produccion(monkeypatch)
+    invocaciones = []
+
+    class LLMQueCuenta(LLMFalso):
+        def invoke(self, mensajes):
+            invocaciones.append(1)
+            return super().invoke(mensajes)
+
+    monkeypatch.setenv("GROQ_API_KEY", "clave")
+    monkeypatch.setattr(ag, "llm_disponible", lambda: LLMQueCuenta(["x"]))
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: (lambda sql: []))
+
+    ag.diagnostico()
+    assert invocaciones == []
+
+
+def test_el_diagnostico_comprueba_la_base_de_verdad(monkeypatch):
+    """
+    Se ejecuta un `SELECT 1`, no se mira si la variable está definida: una
+    variable puesta con un valor equivocado se ve igual que una puesta bien.
+    """
+    _entorno_de_produccion(monkeypatch)
+    ejecutados = []
+    monkeypatch.setattr(ag, "ejecutor_disponible",
+                        lambda: (lambda sql: ejecutados.append(sql) or []))
+
+    ag.diagnostico()
+    assert len(ejecutados) == 1 and "SELECT 1" in ejecutados[0]
+
+
+def test_el_diagnostico_sin_motor_no_lanza(monkeypatch):
+    for variable in (ag.ENV_DSN_AGENTE, "DATABASE_URL", "SUPABASE_URL",
+                     "SUPABASE_KEY", "BACKEND_ENGINE"):
+        monkeypatch.delenv(variable, raising=False)
+
+    informe = ag.diagnostico()
+    assert informe["base"]["ok"] is False
+    assert informe["listo"] is False
+
+
+def test_la_ruta_de_diagnostico_responde(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    _entorno_de_produccion(monkeypatch)
+    cuerpo = TestClient(app).get("/api/agente/diagnostico").json()
+    assert set(cuerpo) >= {"listo", "modelo", "base", "consulta"}

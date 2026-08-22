@@ -30,6 +30,46 @@ PAGINA = 1000
 TIEMPO_ESPERA = 30
 
 
+# Nombre de la función de solo lectura que el Agente de Consultas llama por RPC.
+# La crea `docs/DDL_AGENTE_SQL.sql`. Es una constante y no una variable de
+# entorno a propósito: el nombre lo fija ese archivo, y tener que mantenerlos
+# sincronizados en dos sitios es una forma de romperlo sin enterarse.
+FUNCION_AGENTE = "agente_sql_consulta"
+
+# Códigos con los que PostgREST dice "esa función no existe". Se distinguen de
+# un error de SQL porque tienen arreglos opuestos: uno se corrige ejecutando un
+# archivo, el otro reescribiendo la consulta. Confundirlos hace que el bucle de
+# auto-corrección del agente gaste tres llamadas al modelo intentando reescribir
+# un SQL que estaba bien.
+CODIGOS_FUNCION_AUSENTE = frozenset({"PGRST202", "PGRST203", "42883"})
+
+
+class ErrorDeConfiguracion(ErrorDeMotor):
+    """
+    Falta algo por instalar o configurar; reescribir la consulta no lo arregla.
+
+    Existe para que `api/services/agente_sql.py` NO reintente: es la diferencia
+    entre gastar tres llamadas al modelo y decir de una vez qué hay que hacer.
+    """
+
+
+def _traducir_error_de_rpc(exc: ErrorDeMotor) -> ErrorDeMotor:
+    """Convierte 'la función no existe' en un error accionable; el resto pasa igual."""
+    if exc.codigo in CODIGOS_FUNCION_AUSENTE or exc.estado == 404:
+        return ErrorDeConfiguracion(
+            f"La función {FUNCION_AGENTE} no existe en la base. Ejecuta "
+            "`docs/DDL_AGENTE_SQL.sql` en el SQL Editor de Supabase (una sola "
+            "vez); no hace falta ninguna variable de entorno nueva.",
+            codigo=exc.codigo, detalle=exc.detalle, estado=exc.estado)
+    if exc.estado in (401, 403):
+        return ErrorDeConfiguracion(
+            f"La clave configurada no tiene permiso para ejecutar {FUNCION_AGENTE}. "
+            "El DDL la concede solo a `service_role`: revisa que SUPABASE_KEY sea "
+            "la clave de servicio y no la publicable.",
+            codigo=exc.codigo, detalle=exc.detalle, estado=exc.estado)
+    return exc
+
+
 class PostgrestEngine:
     """Implementación de `DataEngine` contra `/rest/v1`."""
 
@@ -38,10 +78,11 @@ class PostgrestEngine:
     # una sola sentencia y por tanto atómico; varias tablas en un mismo flujo
     # no lo son. El repositorio de tareas está escrito para no necesitarlo.
     soporta_transacciones = False
-    # PostgREST no expone un canal para SQL arbitrario. Se declara en vez de
-    # dejar que `consulta_cruda` lance: quien pregunta si puede, tiene que poder
-    # saberlo SIN llamarla.
-    soporta_sql_crudo = False
+    # Puede, pero solo a través de la función RPC de `docs/DDL_AGENTE_SQL.sql`.
+    # Se declara `True` porque la capacidad existe; que la función esté instalada
+    # o no es configuración del despliegue, y `consulta_cruda` lo dice con un
+    # error que nombra el archivo a ejecutar.
+    soporta_sql_crudo = True
 
     def __init__(self, url: str, key: str, tiempo_espera: int = TIEMPO_ESPERA):
         self.base = url.rstrip("/") + "/rest/v1"
@@ -205,14 +246,37 @@ class PostgrestEngine:
 
     def consulta_cruda(self, sql: str, *, tiempo_maximo_ms: int = 8000) -> List[Dict[str, Any]]:
         """
-        No existe: PostgREST no expone un canal para SQL arbitrario.
+        Ejecuta un SELECT ya validado a través de la función RPC del agente.
 
-        Se declara igual —y falla con un mensaje que dice qué hacer— porque la
-        alternativa es que `api/services/agente_sql.py` reciba un `AttributeError`
-        y el usuario vea "El agente no pudo completar la consulta" sin saber que
-        lo que falta es una variable de entorno.
+        PostgREST no tiene un canal para SQL arbitrario, pero sí para llamar
+        funciones. `docs/DDL_AGENTE_SQL.sql` crea una declarada `STABLE`, y de
+        ahí sale la garantía de solo lectura que importa: PostgreSQL **prohíbe**
+        modificar datos dentro de una función no volátil, y lo impone el
+        ejecutor. El guardarraíl de texto de `agente_sql.validar_sql` sigue
+        delante; esta es la capa que no depende de que un regex esté bien
+        escrito.
+
+        El tiempo máximo lo fija la propia función (`set local
+        statement_timeout`), no esta llamada: viaja con la definición, así que no
+        se puede saltar desde el cliente. `tiempo_maximo_ms` se acepta para
+        cumplir el protocolo y se ignora a propósito.
+
+        **Por qué existe, pudiendo conectar directo a Postgres.** Porque el
+        despliegue usa PostgREST: `AGENTE_SQL_DATABASE_URL` es la alternativa y
+        tiene prioridad, pero exige una credencial nueva. Este camino funciona
+        con las `SUPABASE_URL`/`SUPABASE_KEY` que la aplicación ya tiene.
         """
+        try:
+            resultado = self._pedir(
+                "POST", f"rpc/{FUNCION_AGENTE}", {"consulta": sql})
+        except ErrorDeMotor as exc:
+            raise _traducir_error_de_rpc(exc) from exc
+
+        # La función devuelve `jsonb`: una lista de objetos, o `[]`.
+        if resultado is None:
+            return []
+        if isinstance(resultado, list):
+            return [f for f in resultado if isinstance(f, dict)]
         raise ErrorDeMotor(
-            "El motor PostgREST no puede ejecutar SQL directo: el agente de "
-            "consultas necesita DATABASE_URL (motor sqlalchemy)."
-        )
+            f"La función {FUNCION_AGENTE} devolvió {type(resultado).__name__}, "
+            "se esperaba una lista.")
