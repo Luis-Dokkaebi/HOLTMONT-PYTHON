@@ -354,6 +354,96 @@ la variable no debe alcanzar. El envío usa `api/services/correo.py`; no hay un
 segundo camino.
 
 
+### 3.10 Agente de Consultas (`/api/agente`) — REST real
+
+Traduce una pregunta en español a SQL sobre `tasks` o `quotes`, la ejecuta en una
+transacción de **solo lectura** y redacta la respuesta. Es el notebook
+`AgenteSQL_task_quotes_correo.ipynb` portado; las diferencias con el original
+están en el docstring de `api/services/agente_sql.py`.
+
+**Quién lo ve.** Solo `ADMIN` (por rol) y quien lleve la bandera `agente_sql` en
+su perfil — hoy `ANTONIO_SALAZAR`, decisión del dueño (2026-08-22). Es la puerta
+más estrecha de las tres banderas aditivas y por un motivo concreto: el agente
+lee `tasks` y `quotes` **completas**, sin filtrar por hoja, de modo que quien lo
+abre ve el trabajo de todos los departamentos. Ver `_ve_agente_sql` en
+`api/main.py` y `tests/test_rbac_config.py`.
+
+#### La consulta
+
+| Método y ruta | Entrada | Salida |
+|---|---|---|
+| `POST /api/agente/consulta` | `{pregunta, esquema}` | `{success, respuesta, sql, filas, intentos, esquema}` |
+
+`esquema` es `tasks` o `quotes`; cualquier otro valor devuelve `success: false`
+con la lista de los válidos. **Las copias `tasks_rows_sql` y `quotes_rows_sql`
+del notebook no se consultan**: el agente lee las tablas que escribe la
+aplicación, para que no responda con una foto de cuando alguien copió los datos.
+
+`sql` viaja siempre en la respuesta y la vista lo enseña. No es depuración: sin
+la consulta a la vista, una cifra que el modelo se inventó y una que contó la
+base se leen igual.
+
+**Tres capas de defensa, en orden de fuerza:**
+
+1. El **rol de solo lectura** de la base y `SET TRANSACTION READ ONLY` en
+   `SqlAlchemyEngine.consulta_cruda`. Es la única garantía real: un regex sobre
+   SQL generado por un modelo se puede rodear; un rol sin permiso de escritura,
+   no.
+2. `statement_timeout` (8 s), para que una consulta mal cruzada falle rápido en
+   vez de colgar la petición.
+3. El **guardarraíl de texto** (`agente_sql.validar_sql`): solo `SELECT`/`WITH`,
+   una sola sentencia, sin verbos de escritura, sin catálogos del servidor y
+   **solo sobre la tabla del esquema pedido**. Esa última comprobación es nueva
+   frente al notebook, que verificaba que fuera un SELECT pero no *qué* se leía:
+   `SELECT * FROM auth.users` pasaba.
+
+El resultado se acota a 40 filas **dentro del SQL**, no después en memoria.
+
+**Auto-corrección.** Si la base rechaza la consulta, el error vuelve al modelo y
+se reintenta, hasta tres veces. A partir de ahí se explica el fallo en vez de
+seguir gastando llamadas.
+
+#### Los correos, con una persona en medio
+
+| Método y ruta | Entrada | Salida |
+|---|---|---|
+| `POST /api/agente/areas` | `{respuesta}` | `{success, areas, destinatarios}` |
+| `POST /api/agente/borradores` | `{pregunta, respuesta, areas}` | `{success, borradores}` |
+| `POST /api/agente/borrador` | `{area, borrador, cambio, respuesta}` | `{success, borrador}` |
+| `POST /api/agente/enviar` | `{borradores, destinos, copia, notas}` | `{success, enviados, rechazados}` |
+
+Es `flujo_hitl_correos()` del notebook —un `while True` con seis `input()`—
+partido en cuatro llamadas sin estado en el servidor. Los borradores viven en el
+navegador de quien los revisa y vuelven en el paso 4: lo que se manda es
+exactamente lo que esa persona leyó.
+
+**Lista blanca de destinatarios.** Solo se puede escribir a las direcciones del
+organigrama y a las que declare `AGENTE_SQL_DESTINATARIOS`. El notebook mandaba a
+cualquier dirección tecleada, lo que convierte la plataforma en un relay para
+sacar `tasks` y `quotes` firmadas con la cuenta de la empresa. Una dirección
+fuera de la lista **frena el lote entero** y se devuelve en `rechazados`; no se
+filtra en silencio, porque quien pulsa enviar tiene que enterarse.
+
+**No hay BCC.** `api/services/correo.py` pone todos los receptores en `To`: un
+"BCC" ahí sería visible. `copia` es una copia visible y se llama como lo que es.
+
+**Inyección de prompt.** El resultado de la consulta entra al modelo y de ahí
+sale texto que puede acabar en un correo. `comentarios`, `comentarios_semana` y
+`concepto` son texto libre que captura cualquier usuario del Tracker. Los prompts
+marcan esos datos como datos, pero la defensa que sostiene esto es que **ningún
+correo sale sin que una persona lo lea y lo apruebe**. El cuerpo se escapa como
+HTML antes de mandarse.
+
+**Degradación.** Sin `GROQ_API_KEY` o sin `DATABASE_URL`, las rutas devuelven
+`{success: false, message}` con HTTP 200 y el resto de la aplicación sigue en
+pie. Nunca un 500.
+
+**Deuda conocida.** Estas rutas no repiten la comprobación de permisos: como el
+resto de `/api/legacy/*` y `/api/geo/*`, la autorización vive en `/api/config`,
+que decide qué módulos se pintan. Un cliente que llame directo a la ruta la
+alcanza. Es deuda de toda la API, no de este módulo, y cerrarla es un `Depends`
+de sesión transversal.
+
 ---
 
 ## 4. Integraciones externas

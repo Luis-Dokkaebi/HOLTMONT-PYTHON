@@ -463,3 +463,93 @@ def test_el_modulo_de_prospeccion_declara_el_tipo_que_el_frontend_sabe_abrir():
     assert geo["type"] == "geo_prospect_view"
     assert geo["label"] == "Prospección"
     assert geo["icon"] == "fa-map-marked-alt"
+
+
+# --- Agente de Consultas ----------------------------------------------
+# La tercera bandera aditiva, y la más cerrada de las tres. El motivo está en
+# `_ve_agente_sql`: `soporte` enseña tickets y `prospeccion` enseña un catálogo
+# publico del INEGI, pero el agente lee `tasks` y `quotes` ENTERAS —el trabajo
+# de todos los departamentos, sin filtrar por hoja— y de ahi puede salir un
+# correo a un tercero.
+#
+# Decision del dueño (2026-08-22): ADMIN por rol y ANTONIO_SALAZAR por bandera.
+# Nadie mas, ni siquiera ADMIN_CONTROL. Eso ultimo es lo que estas pruebas
+# fijan: es la lectura que uno esperaria —quien administra el control ve todo—
+# y sin prueba se colaria en el proximo cambio.
+
+MODULO_AGENTE = "AGENTE_SQL"
+
+
+def _ve_agente(role, username=""):
+    return MODULO_AGENTE in [m["id"] for m in config(role, username)["specialModules"]]
+
+
+@pytest.mark.parametrize("rol,cuenta", [
+    ("ADMIN", "LUIS_CARLOS"),
+    ("STAFF_USER", "ANTONIO_SALAZAR"),   # entra por la bandera, no por el rol
+])
+def test_solo_admin_y_la_cuenta_con_bandera_ven_el_agente(rol, cuenta):
+    assert _ve_agente(rol, cuenta)
+
+
+@pytest.mark.parametrize("rol,cuenta", [
+    ("ADMIN_CONTROL", "JAIME_OLIVO"),    # ve prospeccion y tickets; el agente NO
+    ("ADMIN_CONTROL", "DIMAS_RAMOS"),
+    ("PPC_ADMIN", "JESUS_CANTU"),
+    ("TONITA", "ANTONIA_VENTAS"),
+    ("WORKORDER_USER", "PREWORK_ORDER"),
+    ("STAFF_USER", "TERESA_GARZA"),
+    ("STAFF_USER", "RAMIRO_RODRIGUEZ"),
+    ("STAFF_USER", "JUDITH_ECHAVARRIA"),
+])
+def test_el_resto_no_ve_el_agente(rol, cuenta):
+    assert not _ve_agente(rol, cuenta)
+
+
+def test_admin_control_ve_prospeccion_pero_no_el_agente():
+    """
+    La distincion explicita entre las dos banderas. Copiar `_ve_prospeccion`
+    tal cual —que incluye ADMIN_CONTROL— habria abierto el agente a dos cuentas
+    mas sin que nadie lo decidiera.
+    """
+    assert _ve_geo("ADMIN_CONTROL", "JAIME_OLIVO")
+    assert not _ve_agente("ADMIN_CONTROL", "JAIME_OLIVO")
+
+
+def test_un_rol_desconocido_no_hereda_el_agente():
+    """
+    El `return` final del endpoint lo alcanzan ADMIN **y** cualquier rol sin
+    rama propia. Es el camino por el que STAFF_USER heredaba la configuracion
+    de ADMIN; el modulo mas sensible del sistema no puede colarse por ahi.
+    """
+    assert not _ve_agente("ROL_QUE_NADIE_DEFINIO", "LUIS_CARLOS")
+
+
+def test_sin_username_el_agente_no_se_concede_por_rol_staff():
+    """Un cliente viejo que solo mande `role` degrada a menos permisos, no a mas."""
+    assert not _ve_agente("STAFF_USER")
+
+
+def test_la_base_puede_conceder_la_bandera_del_agente(monkeypatch):
+    """
+    `profiles` manda sobre la semilla: el dueño abre el modulo a otra cuenta
+    editando la tabla, sin desplegar codigo.
+    """
+    organigrama.reset_cache_perfiles()
+    monkeypatch.setattr(organigrama, "_filas_profiles", lambda: [
+        {"username": "TERESA_GARZA", "role": "STAFF_USER", "dept": "PRECIOS UNITARIOS",
+         "agente_sql": True},
+    ])
+    assert _ve_agente("STAFF_USER", "TERESA_GARZA")
+
+
+def test_el_modulo_del_agente_declara_el_tipo_que_el_frontend_sabe_abrir():
+    """
+    R9. `index.html` enruta por `m.type` en `openModule`; un tipo que la cadena
+    de `else if` no contempla hace que el clic no haga nada, sin error en
+    consola. Ya paso con `work_order_form`.
+    """
+    agente = next(m for m in config("ADMIN", "LUIS_CARLOS")["specialModules"]
+                  if m["id"] == MODULO_AGENTE)
+    assert agente["type"] == "agente_sql_view"
+    assert agente["label"] == "Agente de Consultas"

@@ -118,6 +118,36 @@ class ApiService {
         return ApiService._geoPost('/api/geo/agente', payload);
     }
 
+    // --- Agente de Consultas (/api/agente) -------------------------------
+    // Reutilizan `_geoPost`: es un POST con JSON y una respuesta con `success`,
+    // exactamente la misma forma. Duplicarlo con otro nombre solo daría dos
+    // sitios donde arreglar el manejo de error de red.
+
+    /** Pregunta en lenguaje natural sobre `tasks` o `quotes`. */
+    static async agenteConsulta(payload) {
+        return ApiService._geoPost('/api/agente/consulta', payload);
+    }
+
+    /** Los departamentos que menciona una respuesta del agente. */
+    static async agenteAreas(payload) {
+        return ApiService._geoPost('/api/agente/areas', payload);
+    }
+
+    /** Un borrador de correo por área, para revisarlos antes de mandarlos. */
+    static async agenteBorradores(payload) {
+        return ApiService._geoPost('/api/agente/borradores', payload);
+    }
+
+    /** Aplica un cambio a UN borrador; los demás no se tocan. */
+    static async agenteCambioBorrador(payload) {
+        return ApiService._geoPost('/api/agente/borrador', payload);
+    }
+
+    /** Manda los correos ya aprobados por una persona. */
+    static async agenteEnviar(payload) {
+        return ApiService._geoPost('/api/agente/enviar', payload);
+    }
+
     /** La solicitud de cotización. Hoy vuelve bloqueada: falta el aviso legal. */
     static async geoSolicitarCotizacion(payload) {
         return ApiService._geoPost('/api/geo/solicitar_cotizacion', payload);

@@ -198,3 +198,45 @@ class SqlAlchemyEngine:
                 raise
             finally:
                 self._conexion = None
+
+    # --- consulta de solo lectura para el agente SQL --------------------
+
+    def consulta_cruda(
+        self,
+        sql: str,
+        *,
+        tiempo_maximo_ms: int = 8000,
+    ) -> List[Dict[str, Any]]:
+        """
+        Ejecuta un SELECT ya validado y devuelve las filas como diccionarios.
+
+        Existe para `api/services/agente_sql.py`, que traduce preguntas en
+        lenguaje natural a SQL. El texto lo escribe un modelo, así que esta
+        función asume lo peor y pone las dos defensas que **no** dependen de
+        analizar la cadena:
+
+        * `SET TRANSACTION READ ONLY`, que hace que Postgres rechace cualquier
+          escritura aunque el rol tuviera permiso. El guardarraíl de texto del
+          agente se puede rodear; esto no.
+        * `statement_timeout`, porque una consulta generada puede cruzar la
+          tabla consigo misma sin querer y dejar la petición colgada hasta que
+          el runtime la mate. Con el límite, falla en segundos y el error vuelve
+          al agente, que reintenta.
+
+        Abre siempre su propia conexión y nunca reutiliza la de `transaccion()`:
+        marcar como de solo lectura una transacción que está escribiendo la
+        rompería a media operación.
+        """
+        from sqlalchemy import text
+
+        try:
+            with self._engine.connect() as conexion:
+                with conexion.begin():
+                    conexion.execute(text("SET TRANSACTION READ ONLY"))
+                    conexion.execute(
+                        text(f"SET LOCAL statement_timeout = {int(tiempo_maximo_ms)}")
+                    )
+                    filas = conexion.execute(text(sql)).mappings()
+                    return [dict(fila) for fila in filas]
+        except Exception as exc:
+            raise ErrorDeMotor(f"La consulta de solo lectura falló: {exc}") from exc

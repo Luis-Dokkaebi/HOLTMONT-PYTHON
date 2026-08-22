@@ -368,6 +368,134 @@ def api_geo_solicitar_cotizacion(req: GeoCotizacionRequest):
         req.nombre or req.establecimiento_id, req.destinatario, req.asunto, req.mensaje)
 
 
+# ======================================================================
+# AGENTE DE CONSULTAS — /api/agente
+# ======================================================================
+# Traduce una pregunta en español a SQL sobre `tasks` o `quotes`, la ejecuta en
+# una transacción de solo lectura y redacta la respuesta. Después, opcionalmente,
+# arma correos por área para que una persona los revise y los mande.
+#
+# Quién lo ve se decide en `_ve_agente_sql` (ADMIN y ANTONIO_SALAZAR). Estas
+# rutas NO repiten esa comprobación y hay que decirlo en voz alta: igual que el
+# resto de `/api/legacy/*` y `/api/geo/*`, la autorización de este backend vive
+# en `/api/config`, que es quien decide qué módulos se pintan. Un cliente que
+# llame directo a la ruta la alcanza. Es deuda conocida de toda la API, no algo
+# que este módulo introduzca, y cerrarla es un cambio transversal (un `Depends`
+# de sesión para todas las rutas) que no cabe en este PR.
+#
+# Todas devuelven `success: false` con el motivo en vez de lanzar 500: sin
+# GROQ_API_KEY o sin DATABASE_URL el módulo se degrada, no tumba la aplicación.
+
+
+class AgenteConsultaRequest(BaseModel):
+    """La pregunta y sobre qué tabla se responde."""
+
+    pregunta: str
+    esquema: str = "tasks"
+
+
+class AgenteAreasRequest(BaseModel):
+    respuesta: str
+
+
+class AgenteBorradoresRequest(BaseModel):
+    pregunta: str = ""
+    respuesta: str
+    areas: List[str]
+
+
+class AgenteCambioRequest(BaseModel):
+    area: str
+    borrador: Dict[str, str]
+    cambio: str
+    respuesta: str = ""
+
+
+class AgenteEnvioRequest(BaseModel):
+    """Los borradores que la persona ya leyó, y a quién van."""
+
+    borradores: Dict[str, Dict[str, str]]
+    destinos: Dict[str, str]
+    copia: List[str] = []
+    notas: str = ""
+
+
+@app.post("/api/agente/consulta")
+def api_agente_consulta(req: AgenteConsultaRequest):
+    """
+    Responde una pregunta en lenguaje natural sobre `tasks` o `quotes`.
+
+    Devuelve también el SQL que ejecutó. No es un detalle de depuración: quien
+    lee la respuesta tiene derecho a comprobar de dónde salió el número, y sin
+    la consulta a la vista una cifra inventada por el modelo es indistinguible
+    de una contada por la base.
+    """
+    from api.services import agente_sql, agente_sql_esquemas
+
+    esquema = agente_sql_esquemas.esquema(req.esquema)
+    if esquema is None:
+        return {"success": False, "message":
+                f"No existe el esquema {req.esquema!r}. "
+                f"Disponibles: {agente_sql_esquemas.claves_disponibles()}."}
+
+    return agente_sql.ejecutar(
+        req.pregunta, esquema,
+        llm=agente_sql.llm_disponible(),
+        ejecutar_sql=agente_sql.ejecutor_disponible())
+
+
+@app.post("/api/agente/areas")
+def api_agente_areas(req: AgenteAreasRequest):
+    """Los departamentos que menciona una respuesta del agente."""
+    from api.services import agente_sql, agente_sql_correo
+
+    areas = agente_sql_correo.detectar_areas(req.respuesta, agente_sql.llm_disponible())
+    return {"success": True, "areas": areas,
+            "destinatarios": agente_sql_correo.destinatarios_permitidos()}
+
+
+@app.post("/api/agente/borradores")
+def api_agente_borradores(req: AgenteBorradoresRequest):
+    """Un borrador de correo por área, para que una persona los revise."""
+    from api.services import agente_sql, agente_sql_correo
+
+    borradores = agente_sql_correo.generar_borradores(
+        req.pregunta, req.respuesta, req.areas, agente_sql.llm_disponible())
+    return {"success": bool(borradores), "borradores": borradores}
+
+
+@app.post("/api/agente/borrador")
+def api_agente_borrador_cambio(req: AgenteCambioRequest):
+    """
+    Aplica un cambio a UN borrador. Los demás no se tocan.
+
+    Si el modelo falla, devuelve `success: false` y el borrador original: es
+    preferible dejarlo como estaba a sustituirlo por algo peor sin avisar.
+    """
+    from api.services import agente_sql, agente_sql_correo
+
+    nuevo = agente_sql_correo.aplicar_cambio(
+        req.area, req.borrador, req.cambio, req.respuesta, agente_sql.llm_disponible())
+    if nuevo is None:
+        return {"success": False, "borrador": req.borrador,
+                "message": f"No se pudo aplicar el cambio a {req.area!r}; se mantiene igual."}
+    return {"success": True, "borrador": nuevo}
+
+
+@app.post("/api/agente/enviar")
+def api_agente_enviar(req: AgenteEnvioRequest):
+    """
+    Manda los correos aprobados, solo a direcciones de la lista blanca.
+
+    Es el único paso que sale de la empresa, y por eso es el único que exige
+    que el cliente mande el texto exacto que la persona vio en pantalla.
+    """
+    from api.services import agente_sql_correo
+
+    return agente_sql_correo.enviar(
+        req.borradores, req.destinos, copia=req.copia, notas=req.notas)
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -391,6 +519,25 @@ def _ve_prospeccion(role: str, cuenta: str) -> bool:
     )
 
 
+def _ve_agente_sql(role: str, cuenta: str) -> bool:
+    """
+    Si esta cuenta ve el módulo del Agente de Consultas.
+
+    Es la puerta **más cerrada** de las tres banderas aditivas, y a propósito:
+    `soporte` enseña tickets y `prospeccion` enseña un catálogo público del
+    INEGI, pero el agente lee `tasks` y `quotes` enteras —el trabajo de todos
+    los departamentos, sin filtrar por hoja— y de ahí puede salir un correo a
+    un tercero. Por eso aquí no basta con ser administrador de control: solo
+    `ADMIN` por rol, más quien lleve la bandera explícita.
+
+    Decisión del dueño (2026-08-22): ADMIN y ANTONIO_SALAZAR, nadie más de
+    momento. Abrirlo es añadir `"agente_sql": True` a un perfil; cerrarlo es
+    quitarlo. Una bandera por cuenta se audita y se revoca; una regla derivada
+    del departamento, no.
+    """
+    return bool(organigrama.perfil(cuenta).get("agente_sql")) or role == "ADMIN"
+
+
 def _con_prospeccion(modulos: List[Dict[str, Any]], geo_module: Dict[str, Any],
                      visible: bool) -> List[Dict[str, Any]]:
     """
@@ -403,6 +550,20 @@ def _con_prospeccion(modulos: List[Dict[str, Any]], geo_module: Dict[str, Any],
     rol la llaman sin añadir una sola bifurcación al contador.
     """
     return [*modulos, geo_module] if visible else list(modulos)
+
+
+def _con_agente(modulos: List[Dict[str, Any]], agente_module: Dict[str, Any],
+                visible: bool) -> List[Dict[str, Any]]:
+    """
+    Agrega el módulo del Agente de Consultas si esta cuenta lo ve.
+
+    Gemelo de `_con_prospeccion`, y vive fuera de `api_get_system_config` por
+    la misma razón de puerta: esa función ya está en complejidad C (16) y la
+    regla dice que una función existente sale igual o mejor, nunca peor
+    (RESTRICCIONES_EXTREMAS.md §5). Con la decisión aquí, las ramas de rol la
+    llaman sin añadir una sola bifurcación al contador.
+    """
+    return [*modulos, agente_module] if visible else list(modulos)
 
 
 @app.get("/api/config")
@@ -460,6 +621,12 @@ def api_get_system_config(
     geo_module = { "id": "PROSPECCION_GEO", "label": "Prospección", "icon": "fa-map-marked-alt",
                    "color": "#20c997", "type": "geo_prospect_view" }
     ve_prospeccion = _ve_prospeccion(role, cuenta)
+    # Agente de consultas en lenguaje natural sobre `tasks` y `quotes`. Ver
+    # `_ve_agente_sql` para por qué esta puerta es más estrecha que las otras
+    # dos banderas aditivas.
+    agente_module = { "id": "AGENTE_SQL", "label": "Agente de Consultas",
+                      "icon": "fa-comments", "color": "#0d6efd", "type": "agente_sql_view" }
+    ve_agente_sql = _ve_agente_sql(role, cuenta)
     ppc_modules = [ ppc_module_master, ppc_module_weekly ]
 
     if role == 'TONITA':
@@ -521,7 +688,8 @@ def api_get_system_config(
             "directory": full_directory,
             # Solo con la bandera `prospeccion` en el perfil. El STAFF_USER
             # genérico no la trae y no tiene por qué llevarse el directorio.
-            "specialModules": _con_prospeccion(modulos, geo_module, ve_prospeccion),
+            "specialModules": _con_agente(_con_prospeccion(modulos, geo_module, ve_prospeccion),
+                                          agente_module, ve_agente_sql),
             "accessProjects": False,
             "canSeeBancoJuntas": False,
             "canManageTickets": puede_gestionar_tickets,
@@ -557,12 +725,12 @@ def api_get_system_config(
             "allDepartments": ALL_DEPTS,
             "staff": full_directory,
             "directory": full_directory,
-            "specialModules": _con_prospeccion([
+            "specialModules": _con_agente(_con_prospeccion([
                 { "id": "PPC_DINAMICO", "label": "Tracker", "icon": "fa-layer-group", "color": "#e83e8c", "type": "ppc_dynamic_view" },
                 *ppc_modules,
                 { "id": "MIRROR_TONITA", "label": "Monitor Toñita", "icon": "fa-eye", "color": "#0dcaf0", "type": "mirror_staff", "target": "ANTONIA_VENTAS" },
                 { "id": "ADMIN_TRACKER", "label": "Control", "icon": "fa-clipboard-list", "color": "#6f42c1", "type": "mirror_staff", "target": "ADMINISTRADOR" },
-            ], geo_module, ve_prospeccion),
+            ], geo_module, ve_prospeccion), agente_module, ve_agente_sql),
             "accessProjects": True,
             "canSeeBancoJuntas": True,
             "canManageTickets": puede_gestionar_tickets,
@@ -579,6 +747,7 @@ def api_get_system_config(
         default_modules.append({ "id": "OBSIDIAN_GRAPH", "label": "Grafo de Conocimiento",
                                  "icon": "fa-project-diagram", "color": "#8b5cf6", "type": "obsidian_graph_view" })
         default_modules = _con_prospeccion(default_modules, geo_module, ve_prospeccion)
+        default_modules = _con_agente(default_modules, agente_module, ve_agente_sql)
 
     return {
         "departments": ALL_DEPTS,
