@@ -38,6 +38,10 @@ class PostgrestEngine:
     # una sola sentencia y por tanto atómico; varias tablas en un mismo flujo
     # no lo son. El repositorio de tareas está escrito para no necesitarlo.
     soporta_transacciones = False
+    # PostgREST no expone un canal para SQL arbitrario. Se declara en vez de
+    # dejar que `consulta_cruda` lance: quien pregunta si puede, tiene que poder
+    # saberlo SIN llamarla.
+    soporta_sql_crudo = False
 
     def __init__(self, url: str, key: str, tiempo_espera: int = TIEMPO_ESPERA):
         self.base = url.rstrip("/") + "/rest/v1"

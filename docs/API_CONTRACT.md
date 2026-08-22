@@ -434,9 +434,30 @@ marcan esos datos como datos, pero la defensa que sostiene esto es que **ningún
 correo sale sin que una persona lo lea y lo apruebe**. El cuerpo se escapa como
 HTML antes de mandarse.
 
-**Degradación.** Sin `GROQ_API_KEY` o sin `DATABASE_URL`, las rutas devuelven
-`{success: false, message}` con HTTP 200 y el resto de la aplicación sigue en
-pie. Nunca un 500.
+#### De qué conexión sale el SQL
+
+El agente **no usa el motor de la aplicación**. Necesita `AGENTE_SQL_DATABASE_URL`,
+un DSN propio y de solo lectura, y solo cae al motor de la aplicación si este
+declara `soporta_sql_crudo` (hoy, únicamente `SqlAlchemyEngine`).
+
+Son dos variables y no una a propósito:
+
+* `DATABASE_URL` la lee `construir_engine()` para **toda** la aplicación.
+  Definirla para encender el agente cambiaría de PostgREST a SQLAlchemy el
+  tracker, las cotizaciones y todas las escrituras. El despliegue actual corre
+  PostgREST.
+* El DSN del agente debe apuntar a un usuario **sin permiso de escritura**
+  (`agentesql_readonly`). El DSN de la aplicación escribe; el del agente no debe.
+
+`soporta_sql_crudo` se pregunta **antes** de llamar a `consulta_cruda`, no se
+descubre provocando la excepción. `PostgrestEngine` tiene el método —lanza con el
+motivo—, así que comprobarlo con `getattr` devolvía un ejecutor que se sabía
+roto, y el bucle de auto-corrección gastaba tres llamadas al modelo reintentando
+un fallo de configuración conocido desde antes de la primera. Pasó en producción.
+
+**Degradación.** Sin `GROQ_API_KEY` o sin una conexión utilizable, las rutas
+devuelven `{success: false, message}` con HTTP 200 —diciendo qué variable falta—
+y el resto de la aplicación sigue en pie. Nunca un 500.
 
 **Deuda conocida.** Estas rutas no repiten la comprobación de permisos: como el
 resto de `/api/legacy/*` y `/api/geo/*`, la autorización vive en `/api/config`,

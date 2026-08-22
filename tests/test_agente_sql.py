@@ -765,18 +765,15 @@ def test_se_avisa_cuando_las_filas_se_recortaron():
     assert texto.count("\n") == ag.TECHO_FILAS
 
 
-def test_con_motor_en_memoria_el_ejecutor_existe_pero_falla_al_usarse(monkeypatch):
+def test_con_motor_en_memoria_no_hay_ejecutor(monkeypatch):
     """
-    `BACKEND_ENGINE=memoria` sí expone `consulta_cruda`; lo que hace es lanzar.
-    El agente convierte ese fallo en un mensaje, no en una excepción que suba.
+    `BACKEND_ENGINE=memoria` expone `consulta_cruda`, pero declara
+    `soporta_sql_crudo = False`. Devolver un ejecutor que se sabe roto es lo que
+    hacía que el bucle de auto-corrección gastara tres llamadas al modelo.
     """
+    monkeypatch.delenv(ag.ENV_DSN_AGENTE, raising=False)
     monkeypatch.setenv("BACKEND_ENGINE", "memoria")
-    ejecutor = ag.ejecutor_disponible()
-    assert ejecutor is not None
-
-    llm = LLMFalso(["```sql\nSELECT folio FROM tasks\n```"] * 3 + ["No hubo base."])
-    resultado = ag.ejecutar("x", TASKS, llm=llm, ejecutar_sql=ejecutor)
-    assert resultado["success"] is False
+    assert ag.ejecutor_disponible() is None
 
 
 def test_con_una_clave_falsa_de_groq_el_llm_no_tumba_el_modulo(monkeypatch):
@@ -832,3 +829,132 @@ def test_un_elemento_que_no_es_objeto_se_ignora_al_armar_borradores():
 
 def test_aplicar_cambio_sobre_algo_que_no_es_un_borrador_devuelve_none():
     assert correos.aplicar_cambio("RH", None, "cambia", "d", LLMFalso(["{}"])) is None
+
+
+# ======================================================================
+# 10. De qué conexión sale el SQL  (regresión del fallo en producción)
+# ======================================================================
+# El despliegue real usa PostgREST, no SQLAlchemy. `ejecutor_disponible`
+# comprobaba con `getattr` que existiera `consulta_cruda` y `PostgrestEngine`
+# la tiene —lanzando—, así que devolvía un ejecutor roto: el usuario vio
+# "El motor PostgREST no puede ejecutar SQL directo" DESPUÉS de que el bucle
+# de auto-corrección gastara tres llamadas al modelo.
+#
+# Dos arreglos, y una prueba por cada uno:
+#   1. `soporta_sql_crudo` se pregunta antes de llamar.
+#   2. `AGENTE_SQL_DATABASE_URL` da al agente su propia conexión de solo
+#      lectura, sin cambiarle el motor a toda la aplicación.
+
+# DSN con el dialecto real. `create_engine` no abre ninguna conexión al
+# construirse, así que esto ejerce el cableado sin tocar ninguna base — y con
+# el mismo dialecto que producción: SQLite rechaza `pool_size`, así que un
+# `sqlite://` habría "probado" un camino que en Postgres no existe.
+DSN_DE_PRUEBA = "postgresql+psycopg://lector:clave@base.invalido:6543/postgres"
+
+
+@pytest.fixture(autouse=True)
+def _sin_motores_cacheados():
+    """El caché de motores es de módulo; sin limpiarlo, una prueba filtra a la otra."""
+    ag._MOTORES.clear()
+    yield
+    ag._MOTORES.clear()
+
+
+def _entorno_de_produccion(monkeypatch) -> None:
+    """PostgREST y nada más: el despliegue tal como está hoy."""
+    monkeypatch.delenv(ag.ENV_DSN_AGENTE, raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("BACKEND_ENGINE", raising=False)
+    monkeypatch.setenv("SUPABASE_URL", "https://ejemplo.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "clave-de-prueba")
+
+
+def test_con_postgrest_no_se_devuelve_un_ejecutor_roto(monkeypatch):
+    """
+    La regresión, en una línea: con PostgREST el ejecutor es `None`, no una
+    función que va a lanzar en cuanto se use.
+    """
+    _entorno_de_produccion(monkeypatch)
+    assert ag.ejecutor_disponible() is None
+
+
+def test_sin_base_no_se_llama_al_modelo_ni_una_vez(monkeypatch):
+    """
+    El coste real del fallo: tres llamadas al LLM para un error de
+    configuración que se conocía antes de la primera.
+    """
+    _entorno_de_produccion(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    llamadas = []
+    monkeypatch.setattr(ag, "llm_disponible",
+                        lambda: llamadas.append(1) or LLMFalso(["no debería usarse"]))
+
+    respuesta = TestClient(app).post(
+        "/api/agente/consulta", json={"pregunta": "cuántas tareas hay"}).json()
+
+    assert respuesta["success"] is False
+    assert ag.ENV_DSN_AGENTE in respuesta["message"]
+    assert llamadas == []
+
+
+def test_el_dsn_propio_del_agente_da_un_ejecutor(monkeypatch):
+    _entorno_de_produccion(monkeypatch)
+    monkeypatch.setenv(ag.ENV_DSN_AGENTE, DSN_DE_PRUEBA)
+    assert ag.ejecutor_disponible() is not None
+
+
+def test_el_dsn_propio_gana_sobre_el_motor_de_la_aplicacion(monkeypatch):
+    """
+    El agente lee por SU conexión aunque la aplicación tenga una utilizable.
+
+    No es un capricho: el DSN de la aplicación tiene permiso de escritura y el
+    del agente apunta a `agentesql_readonly`. Que el agente prefiera el suyo es
+    lo que hace verdadera la frase "un rol sin permiso de escritura no se puede
+    rodear" del docstring del módulo.
+    """
+    monkeypatch.delenv("BACKEND_ENGINE", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://app:clave@host:5432/postgres")
+    monkeypatch.setenv(ag.ENV_DSN_AGENTE, DSN_DE_PRUEBA)
+
+    ejecutor = ag.ejecutor_disponible()
+    assert ejecutor is not None
+    # El ejecutor es el del motor dedicado, no el de la aplicación.
+    assert ejecutor.__self__ is ag._MOTORES[DSN_DE_PRUEBA]
+
+
+def test_el_motor_dedicado_se_reutiliza_entre_peticiones(monkeypatch):
+    """
+    Un `create_engine` por petición deja un pool colgando en cada llamada; en un
+    proceso largo eso agota las conexiones de la base.
+    """
+    _entorno_de_produccion(monkeypatch)
+    monkeypatch.setenv(ag.ENV_DSN_AGENTE, DSN_DE_PRUEBA)
+
+    ag.ejecutor_disponible()
+    ag.ejecutor_disponible()
+    assert list(ag._MOTORES) == [DSN_DE_PRUEBA]
+
+
+def test_un_dsn_ilegible_no_tumba_el_modulo(monkeypatch):
+    """Se cae al motor de la aplicación y, si tampoco sirve, se dice."""
+    _entorno_de_produccion(monkeypatch)
+    monkeypatch.setenv(ag.ENV_DSN_AGENTE, "esto-no-es-un-dsn")
+    assert ag.ejecutor_disponible() is None
+
+
+@pytest.mark.parametrize("modulo,clase,esperado", [
+    ("backend.core.engines.sqlalchemy_engine", "SqlAlchemyEngine", True),
+    ("backend.core.engines.postgrest", "PostgrestEngine", False),
+    ("backend.core.engines.memoria", "MemoryEngine", False),
+])
+def test_cada_motor_declara_si_puede_ejecutar_sql_crudo(modulo, clase, esperado):
+    """
+    La capacidad se declara en la clase, no se descubre llamando y viendo qué
+    pasa. Un motor nuevo tiene que decidirlo a propósito.
+    """
+    import importlib
+
+    assert getattr(importlib.import_module(modulo), clase).soporta_sql_crudo is esperado

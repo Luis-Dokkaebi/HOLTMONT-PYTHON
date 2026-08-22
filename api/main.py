@@ -438,10 +438,19 @@ def api_agente_consulta(req: AgenteConsultaRequest):
                 f"No existe el esquema {req.esquema!r}. "
                 f"Disponibles: {agente_sql_esquemas.claves_disponibles()}."}
 
+    # Se resuelve el ejecutor ANTES de llamar al modelo. Sin base no hay consulta
+    # que valga, y el bucle de auto-corrección gastaría tres llamadas al LLM
+    # reintentando un fallo de configuración que ya se conocía. Pasó en
+    # producción: el despliegue usa PostgREST y el usuario vio el error de la
+    # base tres veces.
+    ejecutor = agente_sql.ejecutor_disponible()
+    if ejecutor is None:
+        return {"success": False, "message": agente_sql.MENSAJE_SIN_BASE}
+
     return agente_sql.ejecutar(
         req.pregunta, esquema,
         llm=agente_sql.llm_disponible(),
-        ejecutar_sql=agente_sql.ejecutor_disponible())
+        ejecutar_sql=ejecutor)
 
 
 @app.post("/api/agente/areas")
