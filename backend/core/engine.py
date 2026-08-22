@@ -70,6 +70,21 @@ class DataEngine(Protocol):
         """DELETE con filtros de igualdad. Sin filtros no borra nada: lanza."""
         ...
 
+    def consulta_cruda(
+        self, sql: str, *, tiempo_maximo_ms: int = 8000
+    ) -> List[Dict[str, Any]]:
+        """
+        SELECT ya validado, en una transacción de solo lectura y con tiempo máximo.
+
+        Lo usa `api/services/agente_sql.py`, donde el SQL lo escribe un modelo
+        de lenguaje. Está en el protocolo aunque **solo SqlAlchemyEngine lo
+        implemente de verdad**: los otros dos lanzan `ErrorDeMotor` con el
+        motivo. Declararlo aquí y no dejarlo como un atributo suelto es lo que
+        obliga a que un motor nuevo decida a propósito qué hace con él, en vez
+        de heredar un `AttributeError`.
+        """
+        ...
+
     @contextmanager
     def transaccion(self) -> Iterator["DataEngine"]:
         """Contexto transaccional. En PostgREST no hay tal cosa y se documenta."""

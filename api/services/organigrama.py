@@ -139,7 +139,12 @@ PERFILES: Dict[str, Dict[str, Any]] = {
     "ROCIO_CASTRO": {"role": "STAFF_USER", "label": "Rocio Castro Covarrubias", "email": "", "staff_name": "ROCIO ABIGAIL CASTRO COVARRUBIAS", "dept": "FINANZAS", "seller": False},
     "GERALDINE_MARTINEZ": {"role": "STAFF_USER", "label": "Geraldine Marie Martinez Hernandez", "email": "", "staff_name": "GERALDINE MARTINEZ HERNANDEZ", "dept": "PRECIOS UNITARIOS", "seller": False},
     "CESAR_EDUARDO_GARCIA": {"role": "STAFF_USER", "label": "Cesar Eduardo Garcia Avalos", "email": "", "staff_name": "CESAR EDUARDO GARCIA AVALOS", "dept": "CONSTRUCCION", "seller": False},
-    "ANTONIO_SALAZAR": {"role": "STAFF_USER", "label": "Antonio Salazar", "email": "", "staff_name": "ANTONIO SALAZAR", "dept": "GENERAL", "seller": False, "soporte": True, "prospeccion": True},
+    # `agente_sql` es la tercera bandera aditiva. Solo la lleva esta cuenta:
+    # el agente de consultas lee `tasks` y `quotes` COMPLETAS, sin filtrar por
+    # hoja, así que quien lo ve ve el trabajo de todos los departamentos —y
+    # puede pedir que se redacte un correo con eso—. Decisión del dueño
+    # (2026-08-22): de momento solo ADMIN (por rol) y ANTONIO_SALAZAR.
+    "ANTONIO_SALAZAR": {"role": "STAFF_USER", "label": "Antonio Salazar", "email": "", "staff_name": "ANTONIO SALAZAR", "dept": "GENERAL", "seller": False, "soporte": True, "prospeccion": True, "agente_sql": True},
     # Baja (2026-08): se retiró de `USER_DB` en Apps Script y no se migra a
     # `profiles`, así que no puede entrar a ninguna de las dos plataformas. Su
     # casilla se conserva aquí porque el organigrama lo registra en GENERAL y
@@ -252,8 +257,10 @@ def _perfil_desde_base(clave: str) -> Optional[Dict[str, Any]]:
             #
             #   `soporte`     -> la vista de tickets de bug
             #   `prospeccion` -> el módulo del mapa del DENUE
+            #   `agente_sql`  -> el agente de consultas en lenguaje natural
             "soporte": _bandera_aditiva(fila, base, "soporte"),
             "prospeccion": _bandera_aditiva(fila, base, "prospeccion"),
+            "agente_sql": _bandera_aditiva(fila, base, "agente_sql"),
         }
     return None
 

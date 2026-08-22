@@ -14,6 +14,9 @@ import pytest
 from pydantic import ValidationError
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from api.services import agente_sql
+from api.services import agente_sql_correo as agente_correo
+from api.services import agente_sql_esquemas as agente_esquemas
 from api.services import prospeccion
 from api.services import tracker_store
 from api.services import work_order
@@ -1243,3 +1246,109 @@ def _sigue_sin_marcar(contexto: Dict[str, Any]) -> None:
     """
     with pytest.raises(ProspectoNoEncontrado):
         contexto["prospectos"].obtener(contexto["denue_id"])
+
+
+# ----------------------------------------------------------------------
+# Agente de Consultas: la lista blanca de destinatarios y el guardarrail SQL
+# ----------------------------------------------------------------------
+# `tests/test_agente_sql.py` prueba lo mismo por unidad. Estos escenarios
+# existen porque son las dos reglas del modulo que una persona que no programa
+# tiene que poder leer y aprobar: a quien se le puede escribir, y que el agente
+# no escriba en la base.
+
+
+@given(parsers.parse('que el directorio de la empresa incluye "{direccion}"'))
+def _directorio_incluye(contexto: Dict[str, Any], direccion: str, monkeypatch) -> None:
+    monkeypatch.delenv(agente_correo.ENV_DESTINATARIOS, raising=False)
+    monkeypatch.setenv("SMTP_HOST", "smtp.ejemplo.com")
+    assert direccion in agente_correo.destinatarios_permitidos()
+
+    contexto["correos_enviados"] = []
+    monkeypatch.setattr(
+        "api.services.correo.enviar",
+        lambda **kw: contexto["correos_enviados"].append(kw) or {"success": True},
+    )
+
+
+@given("que el servidor de correo no está configurado")
+def _sin_servidor_de_correo(monkeypatch) -> None:
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+
+
+@given(parsers.parse('un borrador aprobado para el área "{area}"'))
+def _borrador_aprobado(contexto: Dict[str, Any], area: str) -> None:
+    contexto["borradores"] = {
+        area: {"asunto": f"Reporte de {area}", "cuerpo": "Cuerpo revisado por una persona."}
+    }
+    contexto["area"] = area
+
+
+@when(parsers.parse('se intenta mandarlo a "{destino}"'))
+def _mandar_a(contexto: Dict[str, Any], destino: str) -> None:
+    contexto["envio"] = agente_correo.enviar(
+        contexto["borradores"], {contexto["area"]: destino})
+
+
+@when(parsers.parse('se intenta mandarlo a "{destino}" con copia a "{copia}"'))
+def _mandar_con_copia(contexto: Dict[str, Any], destino: str, copia: str) -> None:
+    contexto["envio"] = agente_correo.enviar(
+        contexto["borradores"], {contexto["area"]: destino}, copia=[copia])
+
+
+@then("no se manda ningún correo")
+def _no_se_manda_nada(contexto: Dict[str, Any]) -> None:
+    assert contexto["envio"]["success"] is False
+    assert contexto["correos_enviados"] == []
+
+
+@then(parsers.parse("se manda {cantidad:d} correo"))
+def _se_mandan_correos(contexto: Dict[str, Any], cantidad: int) -> None:
+    assert contexto["envio"]["success"] is True
+    assert len(contexto["correos_enviados"]) == cantidad
+
+
+@then(parsers.parse('el correo llega a "{destino}"'))
+def _el_correo_llega_a(contexto: Dict[str, Any], destino: str) -> None:
+    assert contexto["correos_enviados"][0]["destinatarios"] == [destino]
+
+
+@then(parsers.parse('el motivo menciona "{fragmento}"'))
+def _el_motivo_menciona(contexto: Dict[str, Any], fragmento: str) -> None:
+    """
+    Que el motivo NOMBRE la direccion rechazada es la mitad de la regla: sin
+    eso, quien pulso enviar sabe que algo fallo pero no cual de los correos.
+    """
+    assert fragmento in contexto["envio"]["message"]
+
+
+@given("que el agente consulta la tabla de actividades")
+def _agente_sobre_actividades(contexto: Dict[str, Any]) -> None:
+    contexto["esquema"] = agente_esquemas.ESQUEMAS["tasks"]
+    contexto["sql_ejecutado"] = []
+
+
+@when(parsers.parse('el modelo propone la consulta "{consulta}"'))
+def _el_modelo_propone(contexto: Dict[str, Any], consulta: str) -> None:
+    estado = {"sql": consulta, "intentos": 1}
+    contexto["resultado_nodo"] = agente_sql.nodo_ejecutar_sql(
+        estado,
+        lambda sql: contexto["sql_ejecutado"].append(sql) or [],
+        contexto["esquema"],
+    )
+
+
+@then("la consulta se rechaza antes de tocar la base")
+def _rechazada_antes_de_tocar_la_base(contexto: Dict[str, Any]) -> None:
+    assert "BLOQUEO" in contexto["resultado_nodo"]["error"]
+    assert contexto["sql_ejecutado"] == []
+
+
+@then("la consulta se ejecuta contra la base")
+def _se_ejecuta(contexto: Dict[str, Any]) -> None:
+    assert contexto["resultado_nodo"]["error"] == ""
+    assert len(contexto["sql_ejecutado"]) == 1
+
+
+@then("la consulta que llega a la base trae un límite de filas")
+def _trae_limite(contexto: Dict[str, Any]) -> None:
+    assert contexto["sql_ejecutado"][0].rstrip().endswith(str(agente_sql.TECHO_FILAS))

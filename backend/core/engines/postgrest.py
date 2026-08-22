@@ -198,3 +198,17 @@ class PostgrestEngine:
                 return json.loads(respuesta.read().decode("utf-8"))
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise ErrorDeMotor(f"No se pudo leer el esquema de PostgREST: {exc}") from exc
+
+    def consulta_cruda(self, sql: str, *, tiempo_maximo_ms: int = 8000) -> List[Dict[str, Any]]:
+        """
+        No existe: PostgREST no expone un canal para SQL arbitrario.
+
+        Se declara igual —y falla con un mensaje que dice qué hacer— porque la
+        alternativa es que `api/services/agente_sql.py` reciba un `AttributeError`
+        y el usuario vea "El agente no pudo completar la consulta" sin saber que
+        lo que falta es una variable de entorno.
+        """
+        raise ErrorDeMotor(
+            "El motor PostgREST no puede ejecutar SQL directo: el agente de "
+            "consultas necesita DATABASE_URL (motor sqlalchemy)."
+        )

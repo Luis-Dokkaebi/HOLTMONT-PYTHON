@@ -249,3 +249,18 @@ class MemoryEngine:
             raise
         finally:
             self._respaldo = None
+
+    def consulta_cruda(self, sql: str, *, tiempo_maximo_ms: int = 8000) -> List[Dict[str, Any]]:
+        """
+        No existe: este motor guarda listas de diccionarios, no habla SQL.
+
+        Escribir aquí un intérprete de SQL de juguete sería peor que no tener
+        nada: las pruebas del agente medirían ese intérprete y no Postgres, que
+        es justo el "simular lo que se está probando" que prohíbe la Directiva
+        Cero (RESTRICCIONES_EXTREMAS.md §2). Las pruebas del agente inyectan su
+        propio ejecutor en la frontera, que es donde va el doble.
+        """
+        raise ErrorDeMotor(
+            "El motor en memoria no ejecuta SQL: es el doble de pruebas. "
+            "Para el agente de consultas hace falta DATABASE_URL."
+        )
