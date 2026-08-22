@@ -104,6 +104,8 @@ class MemoryEngine:
 
     nombre = "memoria"
     soporta_transacciones = True
+    # Este motor guarda listas de diccionarios; no habla SQL. Ver `consulta_cruda`.
+    soporta_sql_crudo = False
 
     def __init__(self, datos: Optional[Dict[str, List[Dict[str, Any]]]] = None):
         self.datos: Dict[str, List[Dict[str, Any]]] = copy.deepcopy(datos or {})

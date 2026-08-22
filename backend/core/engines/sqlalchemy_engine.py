@@ -24,6 +24,8 @@ class SqlAlchemyEngine:
 
     nombre = "sqlalchemy"
     soporta_transacciones = True
+    # El único motor que puede ejecutar el SQL que genera `api/services/agente_sql.py`.
+    soporta_sql_crudo = True
 
     def __init__(self, database_url: str, tamano_pool: int = 5, max_desborde: int = 5):
         try:

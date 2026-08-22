@@ -32,6 +32,10 @@ class DataEngine(Protocol):
 
     nombre: str
     soporta_transacciones: bool
+    # Si el motor puede ejecutar SQL arbitrario de solo lectura (`consulta_cruda`).
+    # Se pregunta ANTES de llamarla: un motor que no puede tiene que poder
+    # decirlo sin que haya que provocar la excepción para enterarse.
+    soporta_sql_crudo: bool
 
     def select(
         self,

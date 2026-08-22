@@ -540,15 +540,73 @@ def llm_disponible() -> Any:
         return None
 
 
+# Conexión propia del agente: un DSN de **solo lectura**, separado del motor de
+# la aplicación. Ver `ejecutor_disponible` para el porqué.
+ENV_DSN_AGENTE = "AGENTE_SQL_DATABASE_URL"
+
+# Motores ya construidos, por DSN. Un `create_engine` por petición deja un pool
+# de conexiones colgando en cada llamada; en un proceso largo eso agota la base.
+# En serverless el proceso muere igualmente y la caché no estorba.
+_MOTORES: Dict[str, Any] = {}
+
+MENSAJE_SIN_BASE = (
+    "El agente no puede consultar la base en este despliegue. La aplicación usa "
+    f"el motor PostgREST, que no ejecuta SQL directo. Define {ENV_DSN_AGENTE} con "
+    "la conexión de solo lectura (formato "
+    "postgresql+psycopg://USUARIO:CLAVE@HOST:6543/postgres). El resto del "
+    "módulo sigue funcionando."
+)
+
+
+def _motor_dedicado(dsn: str) -> Optional[Any]:
+    """El `SqlAlchemyEngine` del DSN del agente, o `None` si no se pudo montar."""
+    if dsn not in _MOTORES:
+        from backend.core.engines.sqlalchemy_engine import SqlAlchemyEngine
+
+        try:
+            # Pool mínimo: el agente hace una consulta por pregunta, no un flujo
+            # constante, y en serverless cada proceso abriría su propio pool.
+            _MOTORES[dsn] = SqlAlchemyEngine(dsn, tamano_pool=1, max_desborde=2)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[agente_sql] No se pudo abrir {ENV_DSN_AGENTE}: {exc}")
+            return None
+    return _MOTORES[dsn]
+
+
 def ejecutor_disponible() -> Optional[Callable[[str], List[Dict[str, Any]]]]:
     """
-    La función que ejecuta SQL de solo lectura, o `None` si no hay motor.
+    La función que ejecuta SQL de solo lectura, o `None` si no hay por dónde.
 
-    Se resuelve aquí y no dentro del agente porque el agente no sabe —ni debe
-    saber— que existe una base de datos.
+    Busca en dos sitios, y el orden importa:
+
+    1. **`AGENTE_SQL_DATABASE_URL`**, una conexión propia del agente.
+    2. El motor de la aplicación, **solo si declara `soporta_sql_crudo`**.
+
+    **Por qué una conexión propia y no `DATABASE_URL` a secas.** `DATABASE_URL`
+    no es del agente: `construir_engine()` la lee para TODA la aplicación, así
+    que ponerla para encender este módulo cambiaría de PostgREST a SQLAlchemy el
+    tracker, las cotizaciones y todas las escrituras. Encender una consulta no
+    puede costar migrar el motor de la aplicación entera.
+
+    Y hay una segunda razón, mejor: ese DSN debe apuntar a un usuario **de solo
+    lectura** (`agentesql_readonly`), que es la garantía real de que el SQL que
+    escribe un modelo no puede modificar nada. El DSN de la aplicación tiene
+    permiso de escritura; el del agente no debe tenerlo.
+
+    **Por qué se pregunta `soporta_sql_crudo` en vez de llamar y ver.**
+    `PostgrestEngine` *tiene* el método `consulta_cruda` —lanza con el motivo—,
+    así que un `getattr` devolvía un ejecutor que se sabía roto. El resultado en
+    producción fue gastar tres llamadas al modelo reintentando un error de
+    configuración que se conocía desde antes de la primera.
     """
     from backend.core.engine import construir_engine
     from backend.core.errors import BackendError
+
+    dsn = os.environ.get(ENV_DSN_AGENTE, "").strip()
+    if dsn:
+        motor = _motor_dedicado(dsn)
+        if motor is not None:
+            return motor.consulta_cruda
 
     try:
         motor = construir_engine()
@@ -556,8 +614,8 @@ def ejecutor_disponible() -> Optional[Callable[[str], List[Dict[str, Any]]]]:
         print(f"[agente_sql] Sin motor de datos: {exc}")
         return None
 
-    consulta = getattr(motor, "consulta_cruda", None)
-    if consulta is None:
-        print(f"[agente_sql] El motor {motor.nombre} no soporta consultas SQL directas.")
+    if not getattr(motor, "soporta_sql_crudo", False):
+        print(f"[agente_sql] El motor {motor.nombre} no ejecuta SQL directo; "
+              f"define {ENV_DSN_AGENTE}.")
         return None
-    return consulta
+    return motor.consulta_cruda
