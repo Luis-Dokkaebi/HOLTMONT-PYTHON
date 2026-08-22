@@ -131,6 +131,57 @@ class EstadoAgente(TypedDict, total=False):
 # ----------------------------------------------------------------------
 
 
+def _fin_del_literal(texto: str, inicio: int, n: int) -> int:
+    """
+    Dónde cierra el literal que empieza en `inicio`, o `n` si no cierra.
+
+    `''` dentro de un literal es una comilla escapada, no el final: sin esa
+    regla, `'O''Brien'` se parte en dos y la mitad de la consulta pasa a
+    interpretarse como SQL.
+    """
+    j = inicio + 1
+    while j < n:
+        if texto[j] == "'":
+            if texto[j:j + 2] == "''":
+                j += 2
+                continue
+            return j
+        j += 1
+    return n
+
+
+def _siguiente_tramo(texto: str, i: int, n: int):
+    """
+    El tramo especial que empieza en `i`, o `None` si ahí hay un carácter normal.
+
+    Devuelve `(fin, para_ejecutar, para_analizar)`. Está separado de `escanear`
+    para que el bucle quede con una sola decisión y no con cinco: son cuatro
+    reglas léxicas independientes y leerlas juntas cuesta más que leerlas
+    sueltas.
+    """
+    par = texto[i:i + 2]
+
+    if par == "--":                                      # comentario de línea
+        salto = texto.find("\n", i)
+        return (n if salto == -1 else salto), " ", " "
+
+    if par == "/*":                                      # comentario de bloque
+        cierre = texto.find("*/", i + 2)
+        return (n if cierre == -1 else cierre + 2), " ", " "
+
+    if texto[i] == "'":                                  # literal de texto
+        fin = _fin_del_literal(texto, i, n)
+        return fin + 1, texto[i:min(fin + 1, n)], "''"
+
+    if texto[i] == '"':                                  # identificador citado
+        cierre = texto.find('"', i + 1)
+        fin = n if cierre == -1 else cierre
+        fragmento = texto[i:min(fin + 1, n)]
+        return fin + 1, fragmento, fragmento
+
+    return None
+
+
 def escanear(sql: str) -> tuple:
     """
     Recorre el SQL una vez y devuelve `(ejecutable, analizable)`.
@@ -155,41 +206,16 @@ def escanear(sql: str) -> tuple:
     i, n = 0, len(texto)
 
     while i < n:
-        c = texto[i]
-        par = texto[i:i + 2]
-
-        if par == "--":                                  # comentario de línea
-            salto = texto.find("\n", i)
-            i = n if salto == -1 else salto
-            ejecutable.append(" ")
-            analizable.append(" ")
-        elif par == "/*":                                # comentario de bloque
-            cierre = texto.find("*/", i + 2)
-            i = n if cierre == -1 else cierre + 2
-            ejecutable.append(" ")
-            analizable.append(" ")
-        elif c == "'":                                   # literal de texto
-            j = i + 1
-            while j < n:
-                if texto[j] == "'":
-                    if texto[j:j + 2] == "''":           # comilla escapada
-                        j += 2
-                        continue
-                    break
-                j += 1
-            ejecutable.append(texto[i:min(j + 1, n)])
-            analizable.append("''")
-            i = j + 1
-        elif c == '"':                                   # identificador citado
-            j = texto.find('"', i + 1)
-            j = n if j == -1 else j
-            ejecutable.append(texto[i:min(j + 1, n)])
-            analizable.append(texto[i:min(j + 1, n)])
-            i = j + 1
-        else:
-            ejecutable.append(c)
-            analizable.append(c)
+        tramo = _siguiente_tramo(texto, i, n)
+        if tramo is None:                       # carácter corriente
+            ejecutable.append(texto[i])
+            analizable.append(texto[i])
             i += 1
+            continue
+        fin, para_ejecutar, para_analizar = tramo
+        ejecutable.append(para_ejecutar)
+        analizable.append(para_analizar)
+        i = fin
 
     return "".join(ejecutable).strip(), "".join(analizable).strip()
 

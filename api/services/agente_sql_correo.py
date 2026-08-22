@@ -231,6 +231,38 @@ def _borrador_de_respaldo(area: str, respuesta: str) -> Dict[str, str]:
     }
 
 
+def _borradores_del_modelo(pregunta: str, respuesta: str, areas: List[str],
+                           llm: Any) -> Dict[str, Dict[str, str]]:
+    """
+    Los borradores que el modelo sí devolvió bien formados. Puede faltar alguno.
+
+    Vive aparte de `generar_borradores` para que allí quede solo la regla de
+    negocio —siempre hay un borrador por área pedida— y aquí la tolerancia al
+    formato: el modelo devuelve a veces un array de cadenas, o un área con un
+    nombre que no coincide, y eso es ruido de parseo, no negocio.
+    """
+    if llm is None:
+        return {}
+
+    datos = _json_del_llm(llm, PROMPT_BORRADORES.format(
+        pregunta=pregunta, respuesta=respuesta, areas=areas), r"\[.*\]")
+    if not isinstance(datos, list):
+        return {}
+
+    por_nombre = {normalizar(a): a for a in areas}
+    borradores: Dict[str, Dict[str, str]] = {}
+    for elemento in datos:
+        if not isinstance(elemento, dict):
+            continue
+        clave = por_nombre.get(normalizar(elemento.get("area")))
+        if clave and clave not in borradores:
+            borradores[clave] = {
+                "asunto": str(elemento.get("asunto") or f"Reporte - {clave}").strip(),
+                "cuerpo": str(elemento.get("cuerpo") or "").strip(),
+            }
+    return borradores
+
+
 def generar_borradores(pregunta: str, respuesta: str, areas: List[str],
                        llm: Any) -> Dict[str, Dict[str, str]]:
     """
@@ -245,20 +277,7 @@ def generar_borradores(pregunta: str, respuesta: str, areas: List[str],
     if not pedidas:
         return {}
 
-    borradores: Dict[str, Dict[str, str]] = {}
-    if llm is not None:
-        datos = _json_del_llm(llm, PROMPT_BORRADORES.format(
-            pregunta=pregunta, respuesta=respuesta, areas=pedidas), r"\[.*\]")
-        por_nombre = {normalizar(a): a for a in pedidas}
-        for elemento in datos if isinstance(datos, list) else []:
-            if not isinstance(elemento, dict):
-                continue
-            clave = por_nombre.get(normalizar(elemento.get("area")))
-            if clave and clave not in borradores:
-                borradores[clave] = {
-                    "asunto": str(elemento.get("asunto") or f"Reporte - {clave}").strip(),
-                    "cuerpo": str(elemento.get("cuerpo") or "").strip(),
-                }
+    borradores = _borradores_del_modelo(pregunta, respuesta, pedidas, llm)
 
     for area in pedidas:
         if not borradores.get(area, {}).get("cuerpo"):
@@ -321,6 +340,35 @@ def _a_html(cuerpo: str) -> str:
     )
 
 
+def _enviar_uno(area: str, borrador: Dict[str, str], destino: str,
+                copia: List[str], notas: str) -> Dict[str, Any]:
+    """
+    Manda el correo de un área y devuelve qué pasó con él.
+
+    Un área sin destinatario se reporta como fallo pero **no aborta el lote**:
+    las demás sí se pueden mandar, y frenarlas todas por un campo vacío obligaría
+    a rehacer la revisión entera.
+    """
+    if not destino:
+        return {"area": area, "success": False,
+                "message": "Sin destinatario para esta área."}
+
+    from api.services import correo
+
+    cuerpo = str(borrador.get("cuerpo") or "")
+    if str(notas or "").strip():
+        cuerpo += f"\n\nNotas adicionales:\n{notas.strip()}"
+
+    resultado = correo.enviar(
+        asunto=str(borrador.get("asunto") or f"Reporte - {area}"),
+        html=_a_html(cuerpo),
+        destinatarios=[destino] + list(copia),
+    )
+    return {"area": area, "destinatario": destino,
+            "success": bool(resultado.get("success")),
+            "message": resultado.get("message", "")}
+
+
 def enviar(borradores: Dict[str, Dict[str, str]], destinos: Dict[str, str],
            copia: Any = None, notas: str = "") -> Dict[str, Any]:
     """
@@ -359,26 +407,10 @@ def enviar(borradores: Dict[str, Dict[str, str]], destinos: Dict[str, str],
             "enviados": [], "rechazados": sorted(set(rechazadas)),
         }
 
-    enviados: List[Dict[str, Any]] = []
-    for area, borrador in (borradores or {}).items():
-        destino = str(destinos.get(area) or "").strip()
-        if not destino:
-            enviados.append({"area": area, "success": False,
-                             "message": "Sin destinatario para esta área."})
-            continue
-
-        cuerpo = str(borrador.get("cuerpo") or "")
-        if str(notas or "").strip():
-            cuerpo += f"\n\nNotas adicionales:\n{notas.strip()}"
-
-        resultado = correo.enviar(
-            asunto=str(borrador.get("asunto") or f"Reporte - {area}"),
-            html=_a_html(cuerpo),
-            destinatarios=[destino] + comunes,
-        )
-        enviados.append({"area": area, "destinatario": destino,
-                         "success": bool(resultado.get("success")),
-                         "message": resultado.get("message", "")})
+    enviados = [
+        _enviar_uno(area, borrador, str(destinos.get(area) or "").strip(), comunes, notas)
+        for area, borrador in (borradores or {}).items()
+    ]
 
     return {
         "success": bool(enviados) and all(e["success"] for e in enviados),
