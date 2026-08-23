@@ -55,7 +55,7 @@ FUENTE_SIN_WEB = "sin_web"
 TIPO_ANALISIS = "analisis"
 TIPO_CORREO = "correo"
 
-MODELO = "llama-3.3-70b-versatile"
+MODELO = "openai/gpt-oss-120b"
 
 # Recorte del texto que se le manda al LLM. 400 KB de HTML convertido a texto no
 # caben en la ventana de contexto y no hacen falta: lo que describe a un negocio
