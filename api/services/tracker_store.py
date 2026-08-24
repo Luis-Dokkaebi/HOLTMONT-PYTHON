@@ -23,6 +23,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
+from api.modelos_llm import MODELOS_GEMINI
 from api.services import asignacion
 from api.services import tracker_rules as rules
 from backend.services import auditoria
@@ -31,7 +32,11 @@ MAKE_WEBHOOK_ENV = "MAKE_WEBHOOK_URL"
 GEMINI_KEY_ENV = "GEMINI_API_KEY"
 GEMINI_MODEL_ENV = "GEMINI_MODEL"
 
-# Catálogo de modelos, en orden de preferencia. Es una lista y no una constante
+# Catálogo de modelos, en orden de preferencia. Vive en `api/modelos_llm.py`
+# porque `api/paperclip_agents.py` pide el mismo modelo por otro camino, y un
+# identificador copiado en dos archivos se migra en uno.
+#
+# Es una lista y no una constante
 # porque Google **retira modelos**: `gemini-1.5-flash`, que era el valor fijo de
 # este archivo (y de `METRICS_CONFIG.geminiModel` en `CODIGO.js`), responde 404
 # en `v1beta` para las API keys emitidas después de su retiro. El síntoma para
@@ -44,7 +49,7 @@ GEMINI_MODEL_ENV = "GEMINI_MODEL"
 #
 # `GEMINI_MODEL` en el entorno antepone un modelo a la lista, para fijar uno
 # nuevo sin tocar el código.
-GEMINI_MODELS: List[str] = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+GEMINI_MODELS: List[str] = list(MODELOS_GEMINI)
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_TIMEOUT_S = 30

@@ -1023,6 +1023,112 @@ def test_un_dsn_ilegible_cae_al_motor_de_la_aplicacion(monkeypatch):
     assert ag.ejecutor_disponible() is not None
 
 
+# --- El esquema del DSN ------------------------------------------------
+#
+# El DSN que Supabase entrega en su panel ("Connection string" del pooler)
+# empieza por `postgresql://`, sin driver. SQLAlchemy resuelve ese esquema al
+# dialecto por defecto, `psycopg2`, que este proyecto NO instala:
+# `requirements.txt` declara `psycopg[binary]>=3.1`, la versión 3.
+#
+# El resultado era el peor de los posibles: `ModuleNotFoundError: No module
+# named 'psycopg2'` dentro de `_motor_dedicado`, que lo captura, lo imprime en
+# un log que nadie mira y devuelve `None`. El agente caía al motor de la
+# aplicación y contestaba "no tengo por dónde consultar la base" — es decir,
+# el mensaje de "falta configurar la variable" con la variable ya configurada.
+#
+# Pedirle al usuario que escriba `postgresql+psycopg://` es pedirle que
+# recuerde un detalle del driver para pegar una cadena que el proveedor le da
+# hecha. El esquema se normaliza aquí.
+
+
+def test_el_dsn_del_panel_de_supabase_da_un_ejecutor(monkeypatch):
+    """
+    La cadena tal como la copia un humano del panel de Supabase, sin `+psycopg`.
+
+    Antes de este arreglo devolvía el ejecutor de PostgREST (o `None`): el DSN
+    se descartaba en silencio por un `ModuleNotFoundError` de psycopg2.
+    """
+    _entorno_de_produccion(monkeypatch)
+    dsn = "postgresql://lector:clave@base.invalido:6543/postgres"
+    monkeypatch.setenv(ag.ENV_DSN_AGENTE, dsn)
+
+    ejecutor = ag.ejecutor_disponible()
+    assert ejecutor is not None
+    assert ejecutor.__self__ is ag._MOTORES[dsn]
+
+
+def test_el_dsn_sin_driver_gana_sobre_el_motor_de_la_aplicacion(monkeypatch):
+    """
+    La garantía de solo lectura no puede depender de cómo se escribió el
+    esquema: si el DSN del agente se descarta, el agente lee por el motor de la
+    aplicación, que sí tiene permiso de escritura.
+    """
+    monkeypatch.delenv("BACKEND_ENGINE", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://app:clave@host:5432/postgres")
+    dsn = "postgresql://agentesql_readonly:clave@base.invalido:6543/postgres"
+    monkeypatch.setenv(ag.ENV_DSN_AGENTE, dsn)
+
+    ejecutor = ag.ejecutor_disponible()
+    assert ejecutor.__self__ is ag._MOTORES[dsn]
+
+
+@pytest.mark.parametrize("dsn,esperado", [
+    # Lo que da el panel de Supabase.
+    ("postgresql://u:c@h:6543/postgres", "postgresql+psycopg"),
+    # El alias histórico de Heroku, que SQLAlchemy 2.x ya no resuelve.
+    ("postgres://u:c@h:6543/postgres", "postgresql+psycopg"),
+    # Un driver escrito a propósito se respeta: quien lo pone sabe lo que hace.
+    ("postgresql+psycopg://u:c@h:6543/postgres", "postgresql+psycopg"),
+    ("postgresql+psycopg2://u:c@h:6543/postgres", "postgresql+psycopg2"),
+    # Otro motor no se toca.
+    ("sqlite://", "sqlite"),
+])
+def test_el_esquema_del_dsn_se_normaliza_al_driver_instalado(dsn, esperado):
+    """
+    Se comprueba el `drivername` que queda en el motor, no el texto de entrada:
+    lo que decide qué paquete importa SQLAlchemy es la URL ya resuelta.
+    """
+    from backend.core.engines.sqlalchemy_engine import normalizar_dsn
+
+    from sqlalchemy.engine.url import make_url
+
+    assert make_url(normalizar_dsn(dsn)).drivername == esperado
+
+
+def test_normalizar_un_dsn_ilegible_no_lanza():
+    """
+    `normalizar_dsn` no valida: quien valida es `create_engine`, que ya tiene
+    un `except` alrededor en `_motor_dedicado`. Una cadena que no es un DSN
+    sale igual que entró y falla donde ya se sabía fallar.
+    """
+    from backend.core.engines.sqlalchemy_engine import normalizar_dsn
+
+    assert normalizar_dsn("esto-no-es-un-dsn") == "esto-no-es-un-dsn"
+    assert normalizar_dsn("") == ""
+
+
+def test_el_dsn_normalizado_llega_a_create_engine(monkeypatch):
+    """
+    La prueba de que la normalización viaja hasta SQLAlchemy y no se queda en
+    una variable local: se espía `create_engine` en su frontera.
+    """
+    import sqlalchemy
+
+    from backend.core.engines.sqlalchemy_engine import SqlAlchemyEngine
+
+    vistos = []
+    original = sqlalchemy.create_engine
+
+    def espia(url, **kwargs):
+        vistos.append(url)
+        return original(url, **kwargs)
+
+    monkeypatch.setattr(sqlalchemy, "create_engine", espia)
+    SqlAlchemyEngine("postgresql://u:c@h:6543/postgres")
+
+    assert vistos == ["postgresql+psycopg://u:c@h:6543/postgres"]
+
+
 def test_sin_ningun_motor_configurado_no_hay_ejecutor(monkeypatch):
     """El caso en que de verdad no hay por dónde: ni DSN propio ni motor."""
     for variable in (ag.ENV_DSN_AGENTE, "DATABASE_URL", "SUPABASE_URL",

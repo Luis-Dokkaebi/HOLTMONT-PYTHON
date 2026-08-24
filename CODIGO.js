@@ -311,12 +311,25 @@ const NOTIFIER_CONFIG = {
   domain: "holtmont.com"
 };
 
+// Identificador del modelo de Gemini, escrito una sola vez en este archivo.
+//
+// Google RETIRA modelos: el valor anterior (la serie 1.5 de flash) responde 404 en
+// v1beta a las API keys emitidas despues de su retiro. El sintoma era "Error al
+// consultar Gemini" con una key valida, sin ninguna pista de que el problema
+// fuera el nombre del modelo. Estaba copiado en dos sitios (aqui y en
+// transcribirConGemini), asi que la retirada rompio las dos funciones.
+//
+// El equivalente en Python es api/modelos_llm.py (MODELOS_GEMINI), que ademas
+// degrada al siguiente del catalogo cuando el 404 es del modelo. Apps Script no
+// tiene esa cascada: si Google retira este, se cambia este renglon.
+const GEMINI_MODEL = "gemini-2.5-flash";
+
 // --- AGENTE DE MÉTRICAS DE COTIZACIONES ---
 const METRICS_CONFIG = {
   geminiKeyProperty: "GEMINI_API_KEY",
   lastReportProperty: "LAST_QUOTE_AGENT_REPORT",
   kpiSheetName: "KPI_COTIZACIONES",
-  geminiModel: "gemini-1.5-flash",
+  geminiModel: GEMINI_MODEL,
   slaLimits: { "A": 3, "AA": 14, "AAA": 30 }
 };
 
@@ -3619,10 +3632,16 @@ function apiSaveHabitLog(habitData) {
  * Jutsu de Transcripción con Gemini Flash
  */
 function transcribirConGemini(base64Audio, mimeType) {
-  // IMPORTANTE: Reemplazar con la API Key real del proyecto
-  const API_KEY = "AIzaSyA7Lv551Quq7lMCynU7kRq9T1_MIaK6kkc";
+  // La key sale de las Propiedades del Script, como en callGeminiForMetrics.
+  // Antes estaba escrita aqui en claro: cualquiera con acceso de lectura al
+  // repositorio podia gastarla, y rotarla obligaba a un despliegue del codigo.
+  const API_KEY = PropertiesService.getScriptProperties()
+    .getProperty(METRICS_CONFIG.geminiKeyProperty);
+  if (!API_KEY) {
+    return "Error: falta GEMINI_API_KEY en las Propiedades del Script. Configurala desde el dashboard.";
+  }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${API_KEY}`;
 
   const payload = {
     contents: [{

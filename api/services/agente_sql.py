@@ -594,8 +594,8 @@ MENSAJE_SIN_BASE = (
     "con uno: (1) ejecutar `docs/DDL_AGENTE_SQL.sql` una vez en el SQL Editor "
     "de Supabase, que no necesita ninguna variable nueva y usa las claves que "
     "la aplicación ya tiene; o (2) definir "
-    f"{ENV_DSN_AGENTE} con una conexión de solo lectura (formato "
-    "postgresql+psycopg://USUARIO:CLAVE@HOST:6543/postgres). "
+    f"{ENV_DSN_AGENTE} con una conexión de solo lectura: la cadena del panel "
+    "de Supabase sirve tal cual (postgresql://USUARIO:CLAVE@HOST:6543/postgres). "
     "GET /api/agente/diagnostico dice cuál falta. El resto del módulo sigue "
     "funcionando."
 )

@@ -18,6 +18,46 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 from backend.core.errors import ErrorDeMotor
 
+# El driver de PostgreSQL que este proyecto instala: `psycopg[binary]>=3.1`
+# (`requirements.txt`), es decir psycopg **3**. La versión 2 no está declarada
+# en ninguna parte y no se instala.
+DRIVER_POSTGRES = "psycopg"
+
+# Los esquemas que un humano escribe cuando copia una cadena de conexión, y que
+# SQLAlchemy NO resuelve al driver instalado:
+#
+# * `postgresql://` es lo que entrega el panel de Supabase en "Connection
+#   string". SQLAlchemy lo manda al dialecto por defecto, `psycopg2`, y la
+#   conexión muere con `ModuleNotFoundError: No module named 'psycopg2'`.
+# * `postgres://` es el alias histórico de Heroku. SQLAlchemy 2.x lo retiró:
+#   `Can't load plugin: sqlalchemy.dialects:postgres`.
+#
+# Ninguno de los dos errores habla de la causa real —el esquema de la URL—, y
+# los dos aparecen envueltos en un `except` que solo deja una línea en el log.
+# El síntoma que llega al usuario es "no hay conexión a la base" con la
+# variable de entorno perfectamente puesta.
+#
+# Se normalizan aquí y no en cada llamador porque el que impone el driver es
+# este archivo: es el único que construye el `create_engine`.
+ESQUEMAS_SIN_DRIVER = ("postgresql", "postgres")
+
+
+def normalizar_dsn(database_url: str) -> str:
+    """
+    El DSN con el driver de Postgres explícito, si hacía falta ponerlo.
+
+    No valida nada: una cadena que no es un DSN sale igual que entró y falla
+    más adelante, en `create_engine`, que es donde el error trae contexto. Un
+    esquema que ya nombra driver (`postgresql+psycopg2://`) se respeta: quien
+    lo escribió sabe lo que quiere, y sobrescribirlo sería adivinar.
+    """
+    esquema, separador, resto = database_url.partition("://")
+    if not separador or "+" in esquema:
+        return database_url
+    if esquema.lower() not in ESQUEMAS_SIN_DRIVER:
+        return database_url
+    return f"postgresql+{DRIVER_POSTGRES}://{resto}"
+
 
 class SqlAlchemyEngine:
     """Implementación de `DataEngine` contra Postgres directo."""
@@ -37,7 +77,7 @@ class SqlAlchemyEngine:
             ) from exc
 
         self._engine = create_engine(
-            database_url,
+            normalizar_dsn(database_url),
             pool_size=tamano_pool,
             max_overflow=max_desborde,
             # Una conexión que el pooler cerró de su lado revive como error en
