@@ -53,6 +53,31 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
 #
 # Para correr a proposito contra una base real (una verificacion manual, no la
 # suite): HOLTMONT_TEST_ALLOW_DB=1. No lo pongas en CI.
+#
+# Las credenciales se dejan PRESENTES Y VACIAS, no se sacan. Los dos motivos
+# estan comprobados en tests/test_aislamiento_de_produccion.py:
+#
+# * Vacias porque todo el codigo las lee con `os.environ.get(clave, "").strip()`
+#   —lo documenta backend/core/config.py y lo verifica test_api_contract.py—,
+#   asi que una cadena vacia ya significa "no configurada".
+# * Presentes porque `api/main.py` ejecuta `load_env_file(".env")` al importarse,
+#   y ese cargador solo salta las claves QUE YA ESTAN. Sacarlas las convertia en
+#   huecos que `.env` rellenaba con los valores de produccion: la proteccion se
+#   desactivaba justo por haber actuado.
+#
+# AGENTE_SQL_DATABASE_URL entra en la lista aunque no sea del motor de la
+# aplicacion, y es la mas importante de las cuatro: agente_sql.ejecutor_disponible()
+# la lee directa y la prefiere sobre construir_engine(), de modo que el
+# BACKEND_ENGINE=memoria de aqui abajo —lo que salva a todo lo demas— no la
+# alcanza. Con un `.env` lleno, tests/test_agente_sql.py abria un pool real
+# contra Supabase.
+CREDENCIALES_DE_PRODUCCION = (
+    "SUPABASE_URL",
+    "SUPABASE_KEY",
+    "DATABASE_URL",
+    "AGENTE_SQL_DATABASE_URL",
+)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _sin_base_de_produccion():
@@ -61,16 +86,19 @@ def _sin_base_de_produccion():
         return
 
     guardadas = {
-        clave: os.environ.pop(clave, None)
-        for clave in ("SUPABASE_URL", "SUPABASE_KEY", "DATABASE_URL")
+        clave: os.environ.get(clave) for clave in CREDENCIALES_DE_PRODUCCION
     }
+    for clave in CREDENCIALES_DE_PRODUCCION:
+        os.environ[clave] = ""
     os.environ["BACKEND_ENGINE"] = "memoria"
     try:
         yield
     finally:
         os.environ.pop("BACKEND_ENGINE", None)
         for clave, valor in guardadas.items():
-            if valor is not None:
+            if valor is None:
+                os.environ.pop(clave, None)
+            else:
                 os.environ[clave] = valor
 
 
