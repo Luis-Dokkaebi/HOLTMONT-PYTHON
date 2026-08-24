@@ -24,6 +24,8 @@ try:
 except ImportError:
     ChatGroq = None
 
+from api.modelos_llm import MODELO_GROQ
+
 
 # --- CONFIGURATION ---
 MAX_ITERATIONS = 2
@@ -215,7 +217,7 @@ def process_audio(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
     if ChatGroq is None:
         return {"success": False, "message": "Falta langchain_groq"}
 
-    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2, api_key=groq_api_key)
+    llm = ChatGroq(model=MODELO_GROQ, temperature=0.2, api_key=groq_api_key)
 
     # If tavily is not configured, we'll use a dummy or skip
     tavily_tool = None

@@ -19,6 +19,8 @@ try:
 except ImportError:
     ChatGoogleGenerativeAI = None
 
+from api.modelos_llm import MODELO_GROQ
+
 # --- PYDANTIC SCHEMAS FOR STRUCTURED EXTRACTION ---
 class LaborItem(BaseModel):
     category: str = Field(description="Rol o puesto de la persona (Ej. Operario, Ingeniero, Albañil)")
@@ -883,7 +885,7 @@ def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
         return {"success": False, "error": "Falta la librería langchain_groq o langchain_google_genai"}
 
     # Groq is strictly used for JSON formatting / Tool calling (Structured Outputs)
-    llm_structured = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2, api_key=groq_api_key)
+    llm_structured = ChatGroq(model=MODELO_GROQ, temperature=0.2, api_key=groq_api_key)
     
     # Use Gemini for heavy text processing to save tokens. Fallback to Groq if missing.
     if gemini_key and ChatGoogleGenerativeAI is not None:
