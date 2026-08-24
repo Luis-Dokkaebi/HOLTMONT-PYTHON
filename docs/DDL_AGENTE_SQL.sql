@@ -62,8 +62,11 @@
 --
 -- =====================================================================
 
--- El rol de solo lectura. `nologin`: no es una cuenta, es un contenedor de
--- permisos para que la función corra dentro de él.
+-- =====================================================================
+-- Agente de Consultas — canal de lectura sobre PostgREST
+-- =====================================================================
+
+-- 1. Rol de solo lectura
 do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'agente_sql_lector') then
@@ -72,60 +75,28 @@ begin
 end
 $$;
 
-grant usage on schema public to agente_sql_lector;
+-- Permite a postgres gestionar y transferir objetos a este rol
+grant agente_sql_lector to postgres;
 
--- SOLO estas dos tablas, y solo SELECT. Si mañana el agente debe leer una
--- tabla más, se añade aquí a propósito: que ampliar su alcance exija una línea
--- explícita es la mitad del control.
-grant select on public.tasks  to agente_sql_lector;
-grant select on public.quotes to agente_sql_lector;
+-- Postgres exige USAGE y CREATE en el esquema para que un rol pueda ser dueño de una función en él
+grant usage, create on schema public to agente_sql_lector;
 
--- Que no pueda crear nada en el esquema, ni siquiera una tabla temporal suya.
-revoke create on schema public from agente_sql_lector;
+-- 2. Permisos explícitos SOLO sobre tus tablas reales
+grant select on public.tasks_rows_sql  to agente_sql_lector;
+grant select on public.quotes_rows_sql to agente_sql_lector;
 
+-- 3. Función de ejecución RPC segura
 create or replace function public.agente_sql_consulta(consulta text)
 returns jsonb
 language plpgsql
-stable                      -- cierra el caso directo; NO es la garantía (ver arriba)
-security definer            -- corre como `agente_sql_lector`: ESTA es la garantía
--- `search_path` fijo: sin esto, quien llama puede anteponer un esquema suyo y
--- cambiar a qué tabla se refiere un nombre dentro de la función. Con
--- `SECURITY DEFINER` eso deja de ser una molestia y pasa a ser un agujero.
+stable
+security definer
 set search_path = public, pg_temp
--- NO hay techo de tiempo aquí, y conviene que se lea por qué en vez de que
--- alguien lo añada creyendo que faltaba.
---
--- Se probaron las tres formas contra PostgreSQL 16.13 y NINGUNA funciona:
---
---   STABLE   + atributo `set statement_timeout`  -> pg_sleep(15) termina
---   VOLATILE + atributo `set statement_timeout`  -> pg_sleep(15) termina
---   VOLATILE + `set local` dentro del cuerpo     -> pg_sleep(15) termina
---   ALTER ROLE agente_sql_lector SET ...         -> pg_sleep(15) termina
---
--- El motivo es el mismo en los cuatro: `statement_timeout` se arma cuando
--- ARRANCA la sentencia externa, y cambiarlo a mitad no rearma el temporizador.
--- La función ya está dentro de esa sentencia cuando podría tocarlo.
---
--- Dónde sí se puede poner, si se quiere:
---
---   alter role service_role set statement_timeout = '8s';
---
--- ...pero eso afecta a TODAS las peticiones del backend, no solo a las del
--- agente, así que es una decisión del dueño y no un valor por defecto que se
--- cuela en un archivo de instalación.
---
--- Qué acota mientras tanto: `agente_sql.acotar()` envuelve toda consulta en un
--- LIMIT antes de mandarla. Y el camino alternativo —`AGENTE_SQL_DATABASE_URL`,
--- con SQLAlchemy— sí impone el tiempo máximo, porque ahí el `SET LOCAL` va en
--- una sentencia aparte antes del SELECT y el temporizador se arma a tiempo
--- (medido: `canceling statement due to statement timeout`).
 as $$
 declare
   resultado jsonb;
 begin
-  -- Comprobación de solo lectura, redundante con `STABLE` a propósito:
-  -- si algún día alguien cambia la volatilidad de la función por descuido, esto
-  -- sigue en pie. Una defensa que depende de una sola línea no es una defensa.
+  -- Guardarraíl de solo lectura
   if consulta !~* '^\s*(select|with)\s' then
     raise exception 'Solo se permiten consultas SELECT o WITH';
   end if;
@@ -137,27 +108,21 @@ begin
 end;
 $$;
 
--- El dueño es lo que hace que `security definer` reduzca privilegios en vez de
--- elevarlos. Sin esta línea la función correría como quien la creó —normalmente
--- `postgres`— y sería exactamente la puerta trasera que dice no ser.
+-- 4. Asignar propiedad al rol restringido (reducción de privilegios)
 alter function public.agente_sql_consulta(text) owner to agente_sql_lector;
 
 comment on function public.agente_sql_consulta(text) is
-  'Canal de solo lectura del Agente de Consultas (api/services/agente_sql.py). '
-  'Corre como el rol agente_sql_lector, que solo tiene SELECT sobre tasks y '
-  'quotes. Ver docs/DDL_AGENTE_SQL.sql.';
+  'Canal de solo lectura del Agente de Consultas. '
+  'Corre como agente_sql_lector, con SELECT sobre tasks_rows_sql y quotes_rows_sql.';
 
--- Solo el backend. `anon` es la clave que viaja al navegador y `authenticated`
--- es cualquiera con sesión: ni uno ni otro debe poder ejecutar SQL, aunque sea
--- de lectura, porque la tabla `tasks` es el trabajo de todos los departamentos.
+-- 5. Restricción de acceso exclusivo a service_role (backend)
 revoke all on function public.agente_sql_consulta(text) from public;
 revoke all on function public.agente_sql_consulta(text) from anon;
 revoke all on function public.agente_sql_consulta(text) from authenticated;
 grant execute on function public.agente_sql_consulta(text) to service_role;
 
--- PostgREST cachea el esquema; sin esto la función tarda en aparecer en la API.
+-- 6. Recargar caché de PostgREST
 notify pgrst, 'reload schema';
-
 -- =====================================================================
 -- COMPROBACIÓN
 -- =====================================================================
