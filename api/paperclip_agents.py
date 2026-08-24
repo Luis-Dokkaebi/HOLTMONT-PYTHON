@@ -19,7 +19,7 @@ try:
 except ImportError:
     ChatGoogleGenerativeAI = None
 
-from api.modelos_llm import MODELO_GROQ
+from api.modelos_llm import MODELO_GEMINI, MODELO_GROQ
 
 # --- PYDANTIC SCHEMAS FOR STRUCTURED EXTRACTION ---
 class LaborItem(BaseModel):
@@ -889,7 +889,8 @@ def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
     
     # Use Gemini for heavy text processing to save tokens. Fallback to Groq if missing.
     if gemini_key and ChatGoogleGenerativeAI is not None:
-        llm_text = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.3, google_api_key=gemini_key)
+        llm_text = ChatGoogleGenerativeAI(
+            model=MODELO_GEMINI, temperature=0.3, google_api_key=gemini_key)
     else:
         print("Aviso: GEMINI_API_KEY no detectada. Usando Groq para todos los agentes.")
         llm_text = llm_structured
