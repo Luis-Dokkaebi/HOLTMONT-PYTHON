@@ -26,6 +26,7 @@ import re
 import unicodedata
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import unquote
 
 BUCKET_ENV = "SUPABASE_BUCKET"
 BUCKET_POR_DEFECTO = "archivos"
@@ -36,6 +37,26 @@ BUCKET_POR_DEFECTO = "archivos"
 # UPDATE/DELETE, Postgres deniega por default).
 BUCKET_EVIDENCIA_ENV = "SUPABASE_BUCKET_TICKETS"
 BUCKET_EVIDENCIA_POR_DEFECTO = "ticket-evidencia"
+
+# Cuánto vive la URL con la que el navegador abre una evidencia.
+#
+# Reporte del 2026-08-24: al abrir "Evidencia 1" desde el panel de tickets el
+# navegador mostraba, en vez de la imagen,
+# `{"statusCode":"404","error":"Bucket not found","code":"NoSuchBucket"}`.
+#
+# La causa NO era que faltara el bucket: es que la evidencia se guardaba con la
+# URL que devuelve `get_public_url`, y ese endpoint
+# (`/storage/v1/object/public/<bucket>/...`) solo sirve buckets **públicos**.
+# `ticket-evidencia` es privado a propósito (docs/DDL_PENDIENTE.sql §5), y para
+# un bucket que existe pero no es público Storage responde exactamente ese
+# `NoSuchBucket` — el mismo cuerpo que si no existiera, de ahí la confusión.
+#
+# El arreglo no es hacer público el bucket (eso publicaría la evidencia de
+# todos los reportes a quien adivine la ruta) sino leerla con URL firmada, que
+# se emite en el momento de abrir el archivo y caduca sola. Cinco minutos
+# alcanzan para abrir o descargar el adjunto y no dejan un enlace vivo si la
+# URL se reenvía por chat.
+SEGUNDOS_URL_FIRMADA = 300
 
 # Mismo orden de magnitud que `MAX_UPLOAD_BYTES` de `index.html` (35 MB) para
 # los adjuntos del tracker; el video de un bug suele pesar más que una foto.
@@ -224,6 +245,11 @@ def subir_evidencia_ticket(folio: Any, data: Any, tipo: Any = None, nombre: Any 
     except Exception as exc:
         return {"success": False, "message": f"No se pudo subir la evidencia: {exc}"}
 
+    # `fileUrl` se sigue devolviendo con la forma pública porque es lo que hay
+    # guardado en los tickets viejos y lo que `verificar_evidencia` sabe leer:
+    # sirve de identificador estable del objeto, **no** de enlace para abrirlo.
+    # Para abrirlo está `url_firmada_evidencia`, y `path` es lo que hace que la
+    # lectura no dependa de saber descomponer una URL.
     return {"success": True, "fileUrl": url, "path": ruta, "sha256": sha256, "mime": mime}
 
 
@@ -255,7 +281,7 @@ def verificar_evidencia(file_url: Any, sha256_esperado: Any) -> Dict[str, Any]:
     if not sb_manager.is_configured:
         return {"estado": "indeterminado", "mensaje": "Supabase no está configurado."}
 
-    ruta = _ruta_desde_url(file_url, bucket_evidencia())
+    ruta = _ruta_de_evidencia(file_url)
     if not ruta:
         return {"estado": "indeterminado",
                 "mensaje": "La URL no corresponde al bucket de evidencia."}
@@ -272,6 +298,86 @@ def verificar_evidencia(file_url: Any, sha256_esperado: Any) -> Dict[str, Any]:
     return {"estado": "alterada", "ruta": ruta,
             "sha256_esperado": esperado, "sha256_actual": actual,
             "mensaje": "El contenido cambió desde que se subió."}
+
+
+def _ruta_de_evidencia(referencia: Any) -> Optional[str]:
+    """
+    Ruta del objeto dentro del bucket de evidencia, venga como venga.
+
+    En `bug_tickets.evidencia[]` conviven tres formas, y las tres tienen que
+    resolver porque los tickets ya guardados no se reescriben (esa es la regla
+    central del módulo):
+
+    * la ruta pelada (`2026/AGOSTO/BUG-0001/clip-1234.mp4`) — lo que desde este
+      cambio se guarda en el campo `path`;
+    * la URL con forma pública (`.../object/public/ticket-evidencia/<ruta>`) —
+      lo que se guardó en `url` hasta ahora, y que el navegador no puede abrir
+      porque el bucket es privado;
+    * una URL firmada (`.../object/sign/ticket-evidencia/<ruta>?token=...`), por
+      si alguna quedó copiada en la base.
+
+    Cualquier otra cosa —una URL del bucket `archivos`, por ejemplo— devuelve
+    `None`: firmar a ciegas la ruta de otro bucket daría acceso a archivos que
+    no son evidencia de este ticket.
+    """
+    texto = str(referencia or "").strip()
+    if not texto:
+        return None
+
+    # Ruta pelada: ni esquema ni la marca de un endpoint de Storage.
+    if "://" not in texto and "/object/" not in texto:
+        return texto.lstrip("/") or None
+
+    nombre = bucket_evidencia()
+    for marca in (f"/object/public/{nombre}/", f"/object/sign/{nombre}/", f"/object/{nombre}/"):
+        if marca in texto:
+            ruta = unquote(texto.split(marca, 1)[1].split("?", 1)[0])
+            return ruta or None
+    return None
+
+
+def url_firmada_evidencia(referencia: Any, expira_en: int = SEGUNDOS_URL_FIRMADA) -> Dict[str, Any]:
+    """
+    URL temporal con la que el navegador sí puede abrir un adjunto.
+
+    Es la lectura que faltaba: el bucket de evidencia es privado, así que la
+    URL guardada en el ticket no abre nada (ver `SEGUNDOS_URL_FIRMADA`). Aquí
+    se pide una firma nueva cada vez, con caducidad, en vez de guardar un
+    enlace permanente.
+
+    Devuelve `{success, url, ruta, expira_en}` o `{success: False, message}`
+    con la causa en un mensaje que diga qué hacer — que es lo que no tenía el
+    `NoSuchBucket` crudo que veía el usuario.
+    """
+    from api.services.supabase_manager import sb_manager
+
+    if not sb_manager.is_configured:
+        return {"success": False,
+                "message": "Supabase no está configurado: no hay de dónde leer la evidencia."}
+
+    ruta = _ruta_de_evidencia(referencia)
+    if not ruta:
+        return {"success": False,
+                "message": "La referencia guardada no corresponde al bucket de evidencia."}
+
+    try:
+        firma = sb_manager.client.storage.from_(bucket_evidencia()).create_signed_url(ruta, expira_en)
+    except Exception as exc:  # noqa: BLE001
+        # Aquí es donde asoma el bucket que de verdad falta: si
+        # `ticket-evidencia` no está creado en el proyecto, Storage responde
+        # `Bucket not found` y el mensaje lo dice con el nombre y el remedio.
+        return {"success": False,
+                "message": f"No se pudo abrir la evidencia del bucket "
+                           f"{bucket_evidencia()!r}: {exc}"}
+
+    if isinstance(firma, dict):
+        url = str(firma.get("signedURL") or firma.get("signedUrl") or firma.get("signed_url") or "")
+    else:
+        url = str(firma or "")
+    if not url:
+        return {"success": False, "message": "Storage no devolvió URL firmada para la evidencia."}
+
+    return {"success": True, "url": url, "ruta": ruta, "expira_en": expira_en}
 
 
 def subir(data: Any, tipo: Any = None, nombre: Any = None,
