@@ -77,6 +77,7 @@ class TaskRepository:
         self.settings = settings or cargar_settings()
         self._indice_hojas: Optional[Dict[str, str]] = None
         self._personas: Optional[Dict[str, str]] = None
+        self._filas_por_folio: Dict[str, List[Dict[str, Any]]] = {}
 
     # --- resolución de nombre de hoja -----------------------------------
 
@@ -126,6 +127,7 @@ class TaskRepository:
     def invalidar_caches(self) -> None:
         self._indice_hojas = None
         self._personas = None
+        self._filas_por_folio = {}
 
     # --- lectura --------------------------------------------------------
 
@@ -233,24 +235,95 @@ class TaskRepository:
 
         Para los folios con iniciales de persona las dos claves ya coinciden,
         así que esto no cambia nada donde nada estaba roto.
+
+        **Mi fila manda sobre la original.** Si en alguna de mis hojas ya existe
+        una fila de este folio, se escribe en ESA, venga la petición marcada
+        como copia o no. Sin esta regla, editar desde el tracker propio una
+        actividad que me asignaron —que no es una copia nueva, es un guardado
+        normal— resolvía a la clave global y el upsert aterrizaba en la fila
+        original, la de quien me la asignó: el guardado contestaba "Guardado
+        exitoso", mi fila se quedaba igual y al recargar volvían el avance y las
+        restricciones viejos. Es el defecto que reportó ALFONSO CORREA
+        (BUG-0015) sobre los renglones 3 al 7 de su Tracker.
         """
         from api.services.asignacion import clave_de_copia
 
         global_ = compute_dedupe_key(folio, sheet_name)
-        if not global_ or "::" in global_ or not como_copia:
+        if not global_ or "::" in global_:
             return global_
 
-        try:
-            existentes = self.engine.select(
-                TABLA, columnas=["dedupe_key", "source_sheet"],
-                donde={CLAVE_UPSERT: global_})
-        except Exception:  # noqa: BLE001 - sin base, manda la clave histórica
+        existentes = self._filas_con_folio(folio)
+        if existentes is None:  # sin base: manda la clave histórica
             return global_
 
+        mias = self._mis_hojas(sheet_name)
+        propia: Optional[str] = None
+        ajena: Optional[str] = None
         for fila in existentes:
-            if _clave_hoja(fila.get("source_sheet")) in self._mis_hojas(sheet_name):
-                return global_
-        return clave_de_copia(folio, sheet_name)
+            clave = fila.get(CLAVE_UPSERT)
+            if _clave_hoja(fila.get("source_sheet")) in mias:
+                if clave == global_:
+                    # La fila original ya es mía: conserva su clave histórica.
+                    return global_
+                if propia is None:
+                    propia = clave
+            elif clave == global_ or ajena is None:
+                ajena = clave
+        if propia:
+            return propia
+        if como_copia:
+            return clave_de_copia(folio, sheet_name)
+        # Ninguna fila mía: se edita la que ya existe —desde el PPC maestro se
+        # actualiza la del responsable, no se estrena otra— y `_completar_obligatorias`
+        # le conserva su `source_sheet`. La clave global solo se devuelve cuando
+        # el folio no está en la base todavía.
+        return ajena or global_
+
+    def _filas_con_folio(self, folio: Any) -> Optional[List[Dict[str, Any]]]:
+        """
+        Filas que ya existen con ese folio: clave, hoja y folio.
+
+        `None` significa "no se pudo preguntar" (sin base), y quien llama
+        responde con la clave histórica en vez de inventar una identidad.
+
+        Se cachea por folio y `_precargar_folios` lo llena de una sola consulta
+        para todo el lote: "Guardar Todo" manda la tabla entera y una consulta
+        por renglón convertiría un guardado de 50 filas en 50 viajes a la base.
+        """
+        clave = str(folio or "").strip()
+        if not clave:
+            return []
+        if clave in self._filas_por_folio:
+            return self._filas_por_folio[clave]
+        try:
+            filas = list(self.engine.select(
+                TABLA, columnas=["dedupe_key", "source_sheet", "folio"],
+                donde={"folio": clave}))
+        except Exception:  # noqa: BLE001 - sin base, no hay nada que resolver
+            return None
+        self._filas_por_folio[clave] = filas
+        return filas
+
+    def _precargar_folios(self, folios: Iterable[Any]) -> None:
+        """Una sola consulta para todos los folios del lote. Ver `_filas_con_folio`."""
+        pendientes = sorted({
+            str(f).strip() for f in folios
+            if str(f or "").strip() and str(f).strip() not in self._filas_por_folio
+        })
+        if not pendientes:
+            return
+        try:
+            filas = list(self.engine.select(
+                TABLA, columnas=["dedupe_key", "source_sheet", "folio"],
+                donde_en={"folio": pendientes}))
+        except Exception:  # noqa: BLE001 - `_filas_con_folio` volverá a intentarlo
+            return
+        for pendiente in pendientes:
+            self._filas_por_folio[pendiente] = []
+        for fila in filas:
+            clave = str(fila.get("folio") or "").strip()
+            if clave in self._filas_por_folio:
+                self._filas_por_folio[clave].append(fila)
 
     def _mis_hojas(self, sheet_name: str) -> set:
         """
@@ -358,6 +431,11 @@ class TaskRepository:
         if not tareas:
             return []
 
+        # Una sola consulta para saber qué filas ya existen con estos folios:
+        # `resolver_clave` la necesita renglón por renglón para no escribir la
+        # fila de otra persona.
+        self._precargar_folios(getattr(t, "folio", None) for t in tareas)
+
         filas = [f for f in (self.preparar_fila(t, sheet_name, como_copia) for t in tareas) if f]
         if not filas:
             return []
@@ -373,6 +451,13 @@ class TaskRepository:
                 guardadas.extend(
                     self.engine.upsert(TABLA, grupo, en_conflicto=CLAVE_UPSERT)
                 )
+
+        # El lote pudo estrenar filas: lo cacheado sobre esos folios ya no
+        # describe la base. Un mismo guardado escribe varias hojas (espejo,
+        # papa caliente, reverse sync) con este mismo repositorio.
+        for fila in filas:
+            self._filas_por_folio.pop(str(fila.get("folio") or "").strip(), None)
+
         return [TaskRead.model_validate(f) for f in guardadas]
 
     def _validar_altas(
