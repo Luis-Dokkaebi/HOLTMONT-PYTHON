@@ -1352,3 +1352,86 @@ def _se_ejecuta(contexto: Dict[str, Any]) -> None:
 @then("la consulta que llega a la base trae un límite de filas")
 def _trae_limite(contexto: Dict[str, Any]) -> None:
     assert contexto["sql_ejecutado"][0].rstrip().endswith(str(agente_sql.TECHO_FILAS))
+
+
+# ----------------------------------------------------------------------
+# Lo que capturo se guarda en la fila que yo veo (BUG-0015)
+# ----------------------------------------------------------------------
+
+@given(parsers.parse('que "{quien}" le asignó a "{persona}" la actividad "{folio}"'))
+def _actividad_asignada(contexto: Dict[str, Any], quien: str, persona: str,
+                        folio: str) -> None:
+    """
+    Las dos filas de la misma actividad: la de quien asignó, con la clave global
+    del folio, y la copia de quien la recibió, con clave propia por hoja.
+    """
+    concepto = "REUNION CON EL ING GERARDO BENITO"
+    contexto["folio"] = folio
+    contexto["persona"] = persona
+    contexto["concepto"] = concepto
+    contexto["motor"] = MemoryEngine({
+        "tasks": [
+            {"id": "11111111-1111-1111-1111-111111111111", "dedupe_key": folio,
+             "folio": folio, "source_sheet": quien, "concepto": concepto,
+             "assignee_raw": persona, "avance": 0.0, "status": "ASIGNADO",
+             "restricciones": ""},
+            {"id": "22222222-2222-2222-2222-222222222222",
+             "dedupe_key": f"{persona}::{folio}", "folio": folio,
+             "source_sheet": persona, "concepto": concepto,
+             "assignee_raw": persona, "avance": 0.0, "status": "ASIGNADO",
+             "restricciones": ""},
+        ],
+        "quotes": [], "people": [], "plan_semanal": [],
+        "task_involucrados": [], "system_log": [],
+    })
+
+
+@when(parsers.parse(
+    '"{persona}" le pone {avance:d} % de avance y la restricción "{restriccion}"'))
+def _captura_avance_y_restriccion(contexto: Dict[str, Any], persona: str,
+                                  avance: int, restriccion: str,
+                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tracker_store, "_persistencia",
+                        lambda: PersistenciaTracker(contexto["motor"]))
+    monkeypatch.setattr(tracker_store, "read_values",
+                        lambda hoja: [["FOLIO", "CONCEPTO", "AVANCE %",
+                                       "RESTRICCIONES", "STATUS"]])
+    contexto["respuesta"] = tracker_store.save_tracker_batch(
+        persona,
+        [{"FOLIO": contexto["folio"], "CONCEPTO": contexto["concepto"],
+          "AVANCE %": avance, "RESTRICCIONES": restriccion, "STATUS": "ASIGNADO"}],
+        username=persona.replace(" ", "_"),
+    )
+
+
+def _fila_de(contexto: Dict[str, Any], hoja: str) -> Dict[str, Any]:
+    filas = [f for f in contexto["motor"].select("tasks")
+             if f.get("source_sheet") == hoja and f.get("folio") == contexto["folio"]]
+    assert filas, f"no hay fila de {contexto['folio']} en la hoja {hoja!r}"
+    return filas[0]
+
+
+@then(parsers.parse('su tracker muestra {avance:d} % de avance en "{folio}"'))
+def _su_tracker_muestra_el_avance(contexto: Dict[str, Any], avance: int,
+                                  folio: str) -> None:
+    assert contexto["respuesta"]["success"] is True, contexto["respuesta"].get("message")
+    fila = _fila_de(contexto, contexto["persona"])
+    assert float(fila["avance"]) == float(avance)
+
+
+@then(parsers.parse('su tracker muestra la restricción "{restriccion}"'))
+def _su_tracker_muestra_la_restriccion(contexto: Dict[str, Any],
+                                       restriccion: str) -> None:
+    assert _fila_de(contexto, contexto["persona"])["restricciones"] == restriccion
+
+
+@then(parsers.parse('la fila de "{hoja}" conserva su restricción vacía'))
+def _la_otra_fila_no_se_toca(contexto: Dict[str, Any], hoja: str) -> None:
+    assert _fila_de(contexto, hoja)["restricciones"] == ""
+
+
+@then(parsers.parse('existen {cuantas:d} filas con el folio "{folio}"'))
+def _cuantas_filas_con_el_folio(contexto: Dict[str, Any], cuantas: int,
+                                folio: str) -> None:
+    filas = [f for f in contexto["motor"].select("tasks") if f.get("folio") == folio]
+    assert len(filas) == cuantas, [f["dedupe_key"] for f in filas]

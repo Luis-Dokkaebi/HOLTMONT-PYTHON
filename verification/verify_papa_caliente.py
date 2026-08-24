@@ -377,16 +377,34 @@ def _invariantes(motor: MemoryEngine) -> List[Dict[str, Any]]:
     micro = _microtareas(motor)
     claves = [f.get("dedupe_key") for f in micro]
     conceptos = [f.get("concepto") for f in micro]
+    hojas = [f.get("source_sheet") for f in micro]
 
     from api.services import asignacion
 
     comprobaciones = [
         (
             "Cada copia tiene identidad propia por hoja",
-            "`clave_de_copia` da `<hoja>::<folio>`, así que las tres filas del "
-            "mismo folio conviven sin colapsarse en el upsert.",
-            len(set(claves)) == len(claves) and len(claves) >= 3,
-            {"dedupe_keys": claves},
+            "`clave_de_copia` da `<hoja>::<folio>`: una fila por trabajador "
+            "delegado, en su propia hoja, sin colapsarse en el upsert y sin "
+            "que ninguna se quede con la clave global del folio.",
+            # Dos trabajadores delegados, dos filas. La condición pedía tres, y
+            # la tercera era una fila espuria con la clave global `AV-3250` que
+            # aparecía cuando Miguel guardaba su propia microtarea: sin fila
+            # suya con esa clave, el upsert insertaba otra en vez de escribir la
+            # que ya tenía —y su 100 % no llegaba nunca a la fila que él ve—.
+            # Es el mismo defecto que BUG-0015 y se arregló en
+            # `TaskRepository.resolver_clave`.
+            len(set(claves)) == len(claves) == 2
+            and set(hojas) == {MIGUEL, ROLANDO}
+            and FOLIO not in claves,
+            {"dedupe_keys": claves, "hojas": hojas},
+        ),
+        (
+            "El trabajador cierra su microtarea en su propia fila",
+            "Rolando pone 100 % desde su tracker y el avance queda en la fila "
+            "que él ve, no en la de otra persona ni en una fila nueva.",
+            all(float(f.get("avance") or 0) == 100.0 for f in micro),
+            {"avances": {f.get("source_sheet"): f.get("avance") for f in micro}},
         ),
         (
             "El 100 % de una fase no cierra la cotización",

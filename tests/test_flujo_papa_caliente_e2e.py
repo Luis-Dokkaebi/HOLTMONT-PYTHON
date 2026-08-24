@@ -124,13 +124,17 @@ def test_cerrada_la_fase_anterior_ya_se_delega_la_siguiente(recorrido):
 
 def test_todas_las_invariantes_del_flujo_se_cumplen(recorrido):
     """
-    Las seis propiedades que el trazador comprueba contra el estado final: las
-    cinco del recorrido más la del destino, que barre a los nueve vendedores.
+    Las siete propiedades que el trazador comprueba contra el estado final: las
+    seis del recorrido más la del destino, que barre a los nueve vendedores.
     Se afirman con nombre para que un fallo diga cuál se rompió.
+
+    La sexta —«El trabajador cierra su microtarea en su propia fila»— entró con
+    el arreglo de BUG-0015: el 100 % que ponía cada trabajador desde su tracker
+    no aterrizaba en la fila que él ve.
     """
     incumplidas = [i["nombre"] for i in recorrido["invariantes"] if not i["cumple"]]
     assert not incumplidas, f"invariantes rotas: {incumplidas}"
-    assert len(recorrido["invariantes"]) == 6
+    assert len(recorrido["invariantes"]) == 7
 
 
 def test_ningun_vendedor_recibe_su_fase_en_quotes(recorrido):
