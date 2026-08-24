@@ -453,6 +453,20 @@ def api_agente_consulta(req: AgenteConsultaRequest):
         ejecutar_sql=ejecutor)
 
 
+@app.get("/api/agente/diagnostico")
+def api_agente_diagnostico():
+    """
+    Qué le falta al agente para funcionar. No llama al modelo.
+
+    Tres dependencias de despliegue —clave del modelo, conexión a la base y
+    función RPC instalada— y cuando falla una el usuario solo ve "no pude
+    consultar". Esta ruta dice cuál, con el texto del error de la base tal cual.
+    """
+    from api.services import agente_sql
+
+    return agente_sql.diagnostico()
+
+
 @app.post("/api/agente/areas")
 def api_agente_areas(req: AgenteAreasRequest):
     """Los departamentos que menciona una respuesta del agente."""
