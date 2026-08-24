@@ -52,11 +52,14 @@ import os
 import re
 from typing import Any, Callable, Dict, List, Optional, TypedDict
 
+from api.modelos_llm import MODELO_GROQ
 from api.services.agente_sql_esquemas import TABLAS_PERMITIDAS, Esquema
 
 # Modelo por defecto, el mismo con el que se afinaron los prompts del notebook.
-# Se puede cambiar por entorno sin tocar código.
-MODELO = os.environ.get("AGENTE_SQL_MODELO", "").strip() or "openai/gpt-oss-120b"
+# `AGENTE_SQL_MODELO` lo cambia solo para este agente; sin él se usa el del
+# resto del proyecto (`api/modelos_llm.py`), que también se puede fijar por
+# entorno. Así el identificador vive en un único sitio.
+MODELO = os.environ.get("AGENTE_SQL_MODELO", "").strip() or MODELO_GROQ
 
 # Reintentos de generación de SQL. Tres es lo del notebook: el primer intento
 # falla por sintaxis, el segundo con el error a la vista suele acertar, y a

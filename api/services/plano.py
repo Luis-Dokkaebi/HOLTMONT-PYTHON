@@ -37,6 +37,7 @@ import unicodedata
 from html import escape
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from api.modelos_llm import MODELO_GROQ
 from api.paperclip_agents import (
     ArchitectExtraction,
     DoorOpening,
@@ -507,7 +508,7 @@ def llm_disponible() -> Any:
         return None
     try:
         return paperclip_agents.ChatGroq(
-            model="llama-3.3-70b-versatile", temperature=0.2, api_key=clave)
+            model=MODELO_GROQ, temperature=0.2, api_key=clave)
     except Exception as exc:  # noqa: BLE001
         print(f"[plano] No se pudo construir el LLM: {exc}")
         return None

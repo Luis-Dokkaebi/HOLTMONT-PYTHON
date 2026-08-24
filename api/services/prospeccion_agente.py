@@ -44,6 +44,8 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Dict, Optional, TypedDict
 
+from api.modelos_llm import MODELO_GROQ
+
 # Los tres orígenes posibles del texto, más la ausencia. Van al contrato
 # (`fuente` en la respuesta) porque distinguen un análisis fundado de una
 # conjetura.
@@ -55,7 +57,7 @@ FUENTE_SIN_WEB = "sin_web"
 TIPO_ANALISIS = "analisis"
 TIPO_CORREO = "correo"
 
-MODELO = "openai/gpt-oss-120b"
+MODELO = MODELO_GROQ
 
 # Recorte del texto que se le manda al LLM. 400 KB de HTML convertido a texto no
 # caben en la ventana de contexto y no hacen falta: lo que describe a un negocio

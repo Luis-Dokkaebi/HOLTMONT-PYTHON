@@ -21,6 +21,8 @@ try:
 except ImportError:
     ChatGroq = None
 
+from api.modelos_llm import MODELO_GROQ
+
 # --- DATA MODELS ---
 
 class ItemPersonal(BaseModel):
@@ -214,7 +216,7 @@ def extraer_informacion(api_key: str, texto: str) -> dict:
     try:
         llm = ChatGroq(
             api_key=api_key,
-            model="llama-3.3-70b-versatile",
+            model=MODELO_GROQ,
             temperature=0,
             max_tokens=None,
             timeout=None,
