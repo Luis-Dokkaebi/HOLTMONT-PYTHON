@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from backend.core.engine import DataEngine, construir_engine
@@ -332,6 +333,67 @@ def verificar_evidencia_del_ticket(
     }
 
 
+@router.get("/tickets/{folio}/evidencia/{indice}")
+def abrir_evidencia_del_ticket(
+    folio: str,
+    indice: int,
+    repo: TicketRepository = Depends(obtener_repositorio),
+) -> RedirectResponse:
+    """
+    Abre el adjunto número `indice` del ticket: redirige a una URL firmada.
+
+    Existe porque hasta ahora el panel enlazaba directo la URL guardada en
+    `evidencia[].url`, que tiene forma pública (`/object/public/...`) mientras
+    que el bucket de evidencia es **privado** a propósito
+    (docs/DDL_PENDIENTE.sql §5). El resultado, en pantalla, era
+    `{"statusCode":"404","error":"Bucket not found","code":"NoSuchBucket"}` en
+    vez de la imagen — y no había forma de ver la evidencia de ningún ticket.
+
+    La alternativa —hacer público el bucket— se descarta: publicaría la
+    evidencia de todos los reportes a quien adivine la ruta. Aquí la firma se
+    emite en el momento y caduca en `storage.SEGUNDOS_URL_FIRMADA`.
+
+    El redirect (307) en vez de un JSON con la URL es deliberado: así el
+    enlace del panel es un `<a href>` normal y un `<img src>` funciona sin
+    JavaScript, y el archivo viaja del navegador a Storage sin pasar por esta
+    función — un video de 50 MB no cabe en la respuesta de una serverless.
+
+    Qué NO arregla, dicho en voz alta: esta ruta no comprueba quién llama, igual
+    que el resto de la API (ver la nota de `api/main.py` sobre la autorización
+    que vive solo en `/api/config`). Quien pueda listar tickets ya veía la URL
+    del adjunto, así que esto no abre nada nuevo — y una firma de cinco minutos
+    expone menos que la URL permanente que se guardaba antes—, pero cerrar esa
+    puerta es un `Depends` de sesión para toda la API, no un cambio de aquí.
+    """
+    from api.services import storage
+
+    try:
+        ticket = repo.obtener(folio)
+    except TicketNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BackendError as exc:
+        raise _fallo_de_motor(exc) from exc
+
+    evidencia = list(ticket.evidencia or [])
+    if indice < 0 or indice >= len(evidencia):
+        raise HTTPException(
+            status_code=404,
+            detail=f"El ticket {folio} no tiene evidencia número {indice}.",
+        )
+
+    item = evidencia[indice]
+    firma = storage.url_firmada_evidencia(item.get("path") or item.get("url"))
+    if not firma.get("success"):
+        # 502 y no 404: el ticket y el adjunto existen; lo que falló es
+        # Storage. El mensaje trae el nombre del bucket, que es lo que hace
+        # falta saber si lo que pasa es que nunca se creó.
+        raise HTTPException(status_code=502, detail=firma.get("message") or "No se pudo abrir la evidencia.")
+
+    # 307 y no 302: preserva el método y, sobre todo, deja claro que la URL
+    # de destino es temporal y no se debe cachear como permanente.
+    return RedirectResponse(url=firma["url"], status_code=307)
+
+
 @router.post("/tickets/{folio}/evidencia")
 def agregar_evidencia(
     folio: str,
@@ -352,6 +414,11 @@ def agregar_evidencia(
 
     item = {
         "url": subida["fileUrl"],
+        # Ruta del objeto dentro del bucket. `url` tiene forma pública pero el
+        # bucket es privado, así que esa URL NO abre el archivo (Storage
+        # responde `NoSuchBucket`); quien lo abre es
+        # `/tickets/{folio}/evidencia/{indice}`, que firma esta ruta al vuelo.
+        "path": subida.get("path") or "",
         "tipo": subida["mime"],
         "sha256": subida["sha256"],
         "subido_en": datetime.now(timezone.utc).isoformat(),

@@ -674,6 +674,258 @@ def test_sin_hash_guardado_no_se_finge_una_verificacion(monkeypatch):
     assert storage.verificar_evidencia(URL_EVIDENCIA, None)["estado"] == "sin_hash"
 
 
+# --- Storage: leer la evidencia (URL firmada) -------------------------------
+#
+# El bug del 2026-08-24: al abrir "Evidencia 1" el navegador mostraba
+# `{"statusCode":"404","error":"Bucket not found","code":"NoSuchBucket"}`. La
+# evidencia se guardaba con la URL de `get_public_url`, que solo sirve buckets
+# públicos, y `ticket-evidencia` es privado a propósito. Estas pruebas fijan la
+# lectura por URL firmada, que es lo que sí abre un bucket privado.
+
+
+class _AlmacenQueFirma(_AlmacenFalso):
+    """Almacén falso que además sabe firmar, como el real."""
+
+    def __init__(self, respuesta=None, error=None):
+        super().__init__()
+        self.firmadas = []
+        self._respuesta = respuesta
+        self._error = error
+
+    def create_signed_url(self, ruta, expira_en):
+        self.firmadas.append((self._bucket, ruta, expira_en))
+        if self._error is not None:
+            raise self._error
+        if self._respuesta is not None:
+            return self._respuesta
+        url = f"https://supabase.local/storage/v1/object/sign/{self._bucket}/{ruta}?token=T"
+        return {"signedURL": url, "signedUrl": url}
+
+
+def _manager_que_firma(respuesta=None, error=None):
+    falso = _ManagerFalso()
+    almacen = _AlmacenQueFirma(respuesta=respuesta, error=error)
+
+    class _C:
+        storage = almacen
+
+    falso.client = _C()
+    return falso
+
+
+RUTA_EVIDENCIA = "2026/AGOSTO/BUG-0001/v.png"
+
+
+def test_la_evidencia_se_lee_con_url_firmada_no_con_la_publica(monkeypatch):
+    """
+    La prueba del bug: partiendo de la URL pública guardada en el ticket, lo
+    que se le entrega al navegador es una URL **firmada**. La pública no abre
+    porque el bucket es privado, y ese era el `NoSuchBucket` de la pantalla.
+    """
+    falso = _manager_que_firma()
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", falso)
+
+    r = storage.url_firmada_evidencia(URL_EVIDENCIA)
+
+    assert r["success"] is True
+    assert "/object/sign/ticket-evidencia/" in r["url"]
+    assert "/object/public/" not in r["url"]
+    assert falso.client.storage.firmadas == [
+        ("ticket-evidencia", RUTA_EVIDENCIA, storage.SEGUNDOS_URL_FIRMADA)
+    ]
+
+
+def test_la_url_firmada_se_puede_pedir_con_la_ruta_guardada(monkeypatch):
+    """Los adjuntos nuevos guardan `path`: no hace falta descomponer una URL."""
+    falso = _manager_que_firma()
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", falso)
+
+    r = storage.url_firmada_evidencia(RUTA_EVIDENCIA)
+
+    assert r["success"] is True
+    assert falso.client.storage.firmadas[0][1] == RUTA_EVIDENCIA
+
+
+def test_la_url_firmada_caduca(monkeypatch):
+    """Una firma sin caducidad sería el bucket público por la puerta de atrás."""
+    falso = _manager_que_firma()
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", falso)
+
+    r = storage.url_firmada_evidencia(RUTA_EVIDENCIA, expira_en=60)
+
+    assert r["expira_en"] == 60
+    assert falso.client.storage.firmadas[0][2] == 60
+    assert storage.SEGUNDOS_URL_FIRMADA <= 3600, "una firma de más de una hora deja de ser temporal"
+
+
+def test_no_se_firma_la_ruta_de_otro_bucket(monkeypatch):
+    """Firmar a ciegas daría acceso a archivos que no son de este ticket."""
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_que_firma())
+    otra = "https://x.supabase.co/storage/v1/object/public/archivos/2026/AGOSTO/cot.pdf"
+
+    r = storage.url_firmada_evidencia(otra)
+
+    assert r["success"] is False
+    assert "no corresponde" in r["message"]
+
+
+def test_si_el_bucket_no_existe_el_mensaje_lo_dice_con_su_nombre(monkeypatch):
+    """
+    El otro origen posible del mismo `NoSuchBucket`: que el bucket nunca se
+    creara. El mensaje tiene que nombrarlo, o el arreglo no es accionable.
+    """
+    monkeypatch.setattr(
+        "api.services.supabase_manager.sb_manager",
+        _manager_que_firma(error=RuntimeError("Bucket not found")),
+    )
+
+    r = storage.url_firmada_evidencia(RUTA_EVIDENCIA)
+
+    assert r["success"] is False
+    assert "ticket-evidencia" in r["message"]
+    assert "Bucket not found" in r["message"]
+
+
+def test_sin_supabase_configurado_no_se_finge_una_url(monkeypatch):
+    class _Apagado:
+        is_configured = False
+
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _Apagado())
+    r = storage.url_firmada_evidencia(RUTA_EVIDENCIA)
+    assert r["success"] is False
+    assert "no está configurado" in r["message"]
+
+
+def test_una_referencia_vacia_no_firma_nada(monkeypatch):
+    """Un adjunto guardado sin `url` ni `path` no puede resolver a un objeto."""
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_que_firma())
+    assert storage.url_firmada_evidencia("")["success"] is False
+    assert storage.url_firmada_evidencia(None)["success"] is False
+
+
+def test_una_firma_devuelta_como_texto_tambien_sirve(monkeypatch):
+    """`create_signed_url` devuelve un dict, pero la forma del cliente de
+    Supabase ha cambiado antes; un string no debe romper la lectura."""
+    url = "https://supabase.local/storage/v1/object/sign/ticket-evidencia/x.png?token=T"
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager",
+                        _manager_que_firma(respuesta=url))
+    assert storage.url_firmada_evidencia(RUTA_EVIDENCIA)["url"] == url
+
+
+def test_una_firma_vacia_se_reporta_como_fallo(monkeypatch):
+    """Storage puede responder 200 con `signedURL: null`; eso no es una URL."""
+    monkeypatch.setattr(
+        "api.services.supabase_manager.sb_manager",
+        _manager_que_firma(respuesta={"signedURL": None, "signedUrl": None}),
+    )
+    assert storage.url_firmada_evidencia(RUTA_EVIDENCIA)["success"] is False
+
+
+def test_la_verificacion_tambien_acepta_la_ruta_guardada(monkeypatch):
+    """`verificar_evidencia` resuelve la ruta con el mismo criterio que la
+    lectura: los adjuntos nuevos traen `path` y los viejos solo `url`."""
+    contenido = b"contenido original del video"
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(contenido))
+    r = storage.verificar_evidencia(RUTA_EVIDENCIA, hashlib.sha256(contenido).hexdigest())
+    assert r["estado"] == "intacta"
+
+
+# --- El endpoint que abre la evidencia --------------------------------------
+
+
+def _subir_evidencia_falsa(monkeypatch, cliente, path=RUTA_EVIDENCIA):
+    monkeypatch.setattr(
+        storage, "subir_evidencia_ticket",
+        lambda folio, data, tipo, nombre: {
+            "success": True, "fileUrl": URL_EVIDENCIA, "path": path,
+            "mime": "image/png", "sha256": "a" * 64,
+        },
+    )
+    cliente.post("/api/v2/tickets",
+                 json={"ticket": {"modulo": "T", "descripcion": "X"}, "reportado_por": "X"})
+    return cliente.post("/api/v2/tickets/BUG-0001/evidencia",
+                        json={"data": "data:image/png;base64,AAAA", "type": "image/png", "name": "v.png"})
+
+
+def test_el_adjunto_guarda_la_ruta_ademas_de_la_url(cliente, monkeypatch):
+    """Sin `path`, abrir el archivo dependería de saber descomponer la URL."""
+    respuesta = _subir_evidencia_falsa(monkeypatch, cliente)
+    adjunto = respuesta.json()["data"]["evidencia"][0]
+    assert adjunto["path"] == RUTA_EVIDENCIA
+    assert adjunto["url"] == URL_EVIDENCIA
+
+
+def test_el_endpoint_de_evidencia_redirige_a_la_url_firmada(cliente, monkeypatch):
+    _subir_evidencia_falsa(monkeypatch, cliente)
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_que_firma())
+
+    respuesta = cliente.get("/api/v2/tickets/BUG-0001/evidencia/0", follow_redirects=False)
+
+    assert respuesta.status_code == 307
+    assert "/object/sign/ticket-evidencia/" in respuesta.headers["location"]
+
+
+def test_el_endpoint_de_evidencia_devuelve_404_si_no_hay_ese_adjunto(cliente, monkeypatch):
+    _subir_evidencia_falsa(monkeypatch, cliente)
+    respuesta = cliente.get("/api/v2/tickets/BUG-0001/evidencia/7", follow_redirects=False)
+    assert respuesta.status_code == 404
+
+
+def test_el_endpoint_de_evidencia_devuelve_404_si_el_ticket_no_existe(cliente):
+    respuesta = cliente.get("/api/v2/tickets/BUG-9999/evidencia/0", follow_redirects=False)
+    assert respuesta.status_code == 404
+
+
+def test_el_endpoint_de_evidencia_no_se_come_la_ruta_de_verificacion(cliente, monkeypatch):
+    """`/evidencia/verificacion` y `/evidencia/{indice}` comparten prefijo: el
+    orden de las rutas importa y esta prueba lo fija."""
+    _subir_evidencia_falsa(monkeypatch, cliente)
+    monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(b"x"))
+    respuesta = cliente.get("/api/v2/tickets/BUG-0001/evidencia/verificacion")
+    assert respuesta.status_code == 200
+    assert respuesta.json()["success"] is True
+
+
+def test_el_endpoint_de_evidencia_explica_el_fallo_de_storage(cliente, monkeypatch):
+    """Lo que el usuario veía era el JSON crudo de Storage; ahora sale con
+    el nombre del bucket y sin fingir que el adjunto no existe (404)."""
+    _subir_evidencia_falsa(monkeypatch, cliente)
+    monkeypatch.setattr(
+        "api.services.supabase_manager.sb_manager",
+        _manager_que_firma(error=RuntimeError("Bucket not found")),
+    )
+
+    respuesta = cliente.get("/api/v2/tickets/BUG-0001/evidencia/0", follow_redirects=False)
+
+    assert respuesta.status_code == 502
+    assert "ticket-evidencia" in respuesta.json()["detail"]
+
+
+def test_abrir_evidencia_traduce_el_fallo_del_motor(cliente_motor_roto):
+    """Si la base no responde, el enlace no puede terminar en un JSON crudo."""
+    respuesta = cliente_motor_roto.get("/api/v2/tickets/BUG-0001/evidencia/0",
+                                       follow_redirects=False)
+    assert respuesta.status_code in (502, 503)
+    assert not any(pista in respuesta.json()["detail"] for pista in CRUDO)
+
+
+def test_el_panel_de_tickets_pide_la_evidencia_por_la_api():
+    """
+    Regresión de la causa raíz en el front: el panel enlazaba `e.url` —la URL
+    pública de un bucket privado— y por eso no se veía ninguna evidencia.
+    """
+    import os
+
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(raiz, "index.html"), encoding="utf-8") as fh:
+        html = fh.read()
+
+    assert "encodeURIComponent(t.folio) + '/evidencia/' + i" in html, \
+        "el panel debe pedir la evidencia por la API, que es quien la firma"
+    assert "escaparHtml(e.url)" not in html, \
+        "enlazar e.url directo es el bug: esa URL no abre un bucket privado"
+
+
 def test_una_url_de_otro_bucket_no_se_da_por_buena(monkeypatch):
     monkeypatch.setattr("api.services.supabase_manager.sb_manager", _manager_con(b"x"))
     otra = "https://x.supabase.co/storage/v1/object/public/archivos/2026/AGOSTO/cot.pdf"

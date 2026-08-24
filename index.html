@@ -12630,7 +12630,9 @@ function iniciarDictadoNativo(campoDestinoId) {
   .ts-pill.est-NO_ES_BUG { background: #e2e2e2; color: #555; }
   .ts-card .ts-desc { margin: 8px 0 4px; white-space: pre-wrap; }
   .ts-card .ts-meta { color: #777; font-size: 11px; }
-  .ts-card .ts-evidencia a { display: inline-block; margin: 4px 6px 0 0; font-size: 11px; }
+  .ts-card .ts-evidencia a { display: inline-block; margin: 4px 6px 0 0; font-size: 11px; vertical-align: top; }
+  /* Las imagenes se ven en la propia tarjeta; el resto (video) queda como enlace. */
+  .ts-card .ts-evidencia img { display: block; max-width: 140px; max-height: 90px; border: 1px solid #ddd; border-radius: 4px; }
   .ts-card .ts-resolver { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .ts-card .ts-resolver select { border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
   .ts-card .ts-resolver input[type=text] { flex: 1; min-width: 160px; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
@@ -12688,8 +12690,25 @@ function iniciarDictadoNativo(campoDestinoId) {
   }
 
   function tarjetaDeTicket(t) {
+    // El enlace NO apunta a `e.url`. Esa URL tiene forma publica
+    // (`/object/public/...`) pero el bucket de evidencia es privado a
+    // proposito, asi que al abrirla el navegador mostraba
+    // {"statusCode":"404","error":"Bucket not found","code":"NoSuchBucket"}
+    // en lugar del archivo -- ninguna evidencia de ningun ticket se podia ver.
+    // Se pide por la API, que firma la ruta al vuelo y redirige
+    // (backend/routers/tickets.py::abrir_evidencia_del_ticket).
     var evidenciaHtml = (t.evidencia || []).map(function (e, i) {
-      return '<a href="' + escaparHtml(e.url) + '" target="_blank" rel="noopener">Evidencia ' + (i + 1) + '</a>';
+      var enlace = (window.API_BASE_URL || '') + '/api/v2/tickets/' +
+        encodeURIComponent(t.folio) + '/evidencia/' + i;
+      var esImagen = String((e && e.tipo) || '').indexOf('image/') === 0;
+      // La etiqueta va SIEMPRE, tambien bajo la miniatura: si la firma falla o
+      // el archivo ya no esta, la imagen se rompe y sin texto el enlace
+      // quedaria invisible -- justo el sintoma que se esta arreglando.
+      var etiqueta = 'Evidencia ' + (i + 1) + (e && e.tipo ? ' (' + escaparHtml(e.tipo) + ')' : '');
+      var cuerpo = esImagen
+        ? '<img src="' + escaparHtml(enlace) + '" alt="' + etiqueta + '" loading="lazy">' + etiqueta
+        : etiqueta;
+      return '<a href="' + escaparHtml(enlace) + '" target="_blank" rel="noopener">' + cuerpo + '</a>';
     }).join('');
 
     var opciones = ESTATUS.map(function (e) {

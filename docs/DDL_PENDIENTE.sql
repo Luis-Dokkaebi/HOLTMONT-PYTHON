@@ -180,6 +180,16 @@ GRANT SELECT, INSERT, UPDATE ON public.bug_tickets TO service_role;
 -- `api/services/storage.py::MIME_EVIDENCIA_PERMITIDOS`, así que un cambio en
 -- uno de los dos lados hay que reflejarlo en el otro.
 --
+-- ⚠️ SI EL BUCKET NO ESTÁ CREADO, la evidencia no se puede ver: Storage
+-- responde `{"statusCode":"404","error":"Bucket not found",...}` al abrirla.
+-- Ese mismo cuerpo sale cuando el bucket SÍ existe pero se pide por la URL
+-- pública (`/object/public/...`), que solo sirve buckets públicos — fue la
+-- causa del reporte del 2026-08-24. Por eso la plataforma ya no enlaza esa
+-- URL: la lectura va por `GET /api/v2/tickets/{folio}/evidencia/{indice}`,
+-- que emite una URL **firmada** y temporal contra este bucket privado. Si al
+-- abrir un adjunto sale un 502 nombrando `ticket-evidencia`, lo que falta es
+-- crear el bucket aquí.
+--
 -- Solo dos políticas. La ausencia de las otras dos ES la restricción para las
 -- claves `anon` y `authenticated`: sin política de UPDATE o DELETE, Storage
 -- deniega por default.
