@@ -75,6 +75,9 @@ begin
 end
 $$;
 
+-- Permite al usuario 'postgres' asignar la propiedad de la función a este rol
+grant agente_sql_lector to postgres;
+
 grant usage on schema public to agente_sql_lector;
 
 -- 2. Permisos explícitos SOLO sobre tus tablas reales
