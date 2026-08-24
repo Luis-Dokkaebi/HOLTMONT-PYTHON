@@ -75,17 +75,15 @@ begin
 end
 $$;
 
--- Permite al usuario 'postgres' asignar la propiedad de la función a este rol
+-- Permite a postgres gestionar y transferir objetos a este rol
 grant agente_sql_lector to postgres;
 
-grant usage on schema public to agente_sql_lector;
+-- Postgres exige USAGE y CREATE en el esquema para que un rol pueda ser dueño de una función en él
+grant usage, create on schema public to agente_sql_lector;
 
 -- 2. Permisos explícitos SOLO sobre tus tablas reales
 grant select on public.tasks_rows_sql  to agente_sql_lector;
 grant select on public.quotes_rows_sql to agente_sql_lector;
-
--- Que no pueda crear nada en el esquema
-revoke create on schema public from agente_sql_lector;
 
 -- 3. Función de ejecución RPC segura
 create or replace function public.agente_sql_consulta(consulta text)
