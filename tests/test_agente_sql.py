@@ -521,6 +521,13 @@ def test_un_error_de_sql_por_rpc_no_se_disfraza_de_configuracion():
     Un `relation "tasks" does not exist` SÍ lo puede arreglar el modelo
     reescribiendo. Traducirlo a error de configuración cortaría el bucle de
     auto-corrección justo cuando sirve.
+
+    CORRECCIÓN MEDIDA: esta prueba fingía `estado=400` para un `42P01`, y ese
+    404/400 no es un detalle. PostgREST **no** devuelve 400 para
+    `undefined_table`: devuelve **404** (`pgErrorStatus` en `PostgREST/Error.hs`
+    mapea `42P01` y `42883` a `status404`). Con el 400 inventado la prueba
+    pasaba y el bug seguía vivo en producción; ver
+    `test_una_tabla_que_no_existe_no_se_reporta_como_funcion_rpc_ausente`.
     """
     from backend.core.engines import postgrest as pg
     from backend.core.errors import ErrorDeMotor
@@ -529,13 +536,123 @@ def test_un_error_de_sql_por_rpc_no_se_disfraza_de_configuracion():
 
     def _sql_malo(metodo, ruta, cuerpo=None, prefer=""):
         raise ErrorDeMotor('relation "tsaks" does not exist',
-                           codigo="42P01", estado=400)
+                           codigo="42P01", estado=404)
 
     motor._pedir = _sql_malo
 
     with pytest.raises(ErrorDeMotor) as capturado:
         motor.consulta_cruda("SELECT * FROM tsaks")
     assert not isinstance(capturado.value, pg.ErrorDeConfiguracion)
+
+
+def test_una_tabla_que_no_existe_no_se_reporta_como_funcion_rpc_ausente():
+    """
+    El fallo que se midió en producción, reproducido.
+
+    La función RPC estaba instalada y respondía en el SQL Editor, pero la
+    interfaz insistía con «La función agente_sql_consulta no existe en la base.
+    Ejecuta docs/DDL_AGENTE_SQL.sql». El motivo: la consulta de dentro nombraba
+    una tabla que no existe, PostgREST devuelve **404** para `42P01`, y la
+    traducción miraba solo el estado. Un mensaje que manda ejecutar un archivo
+    ya ejecutado deja al usuario sin salida.
+
+    El error tiene que llegar con el nombre de la relación, que es lo único que
+    permite arreglarlo (y lo que el bucle de auto-corrección le enseña al
+    modelo en el siguiente intento).
+    """
+    from backend.core.engines import postgrest as pg
+    from backend.core.errors import ErrorDeMotor
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+    cuerpo = ('{"code":"42P01","details":null,"hint":null,'
+              '"message":"relation \\"tasks\\" does not exist"}')
+
+    def _tabla_ausente(metodo, ruta, cuerpo_=None, prefer=""):
+        raise ErrorDeMotor(f"PostgREST POST {ruta} respondió 404",
+                           codigo="42P01", detalle=cuerpo, estado=404)
+
+    motor._pedir = _tabla_ausente
+
+    with pytest.raises(ErrorDeMotor) as capturado:
+        motor.consulta_cruda("SELECT count(*) AS n FROM tasks")
+    assert not isinstance(capturado.value, pg.ErrorDeConfiguracion)
+    assert "DDL_AGENTE_SQL.sql" not in str(capturado.value)
+    assert "42P01" in capturado.value.codigo
+
+
+def test_una_funcion_que_invento_el_modelo_tampoco_se_disfraza():
+    """
+    `42883` también vuelve con 404, y casi siempre es del SQL de dentro.
+
+    Si el modelo escribe `select fecha_bonita(fecha_alta) from tasks`, eso lo
+    arregla reescribiendo la consulta. Cortar el bucle ahí y mandar ejecutar un
+    DDL es mandar al usuario a arreglar lo que no está roto.
+    """
+    from backend.core.engines import postgrest as pg
+    from backend.core.errors import ErrorDeMotor
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+
+    def _funcion_inventada(metodo, ruta, cuerpo=None, prefer=""):
+        raise ErrorDeMotor(f"PostgREST POST {ruta} respondió 404",
+                           codigo="42883",
+                           detalle='{"code":"42883","message":"function '
+                                   'fecha_bonita(date) does not exist"}',
+                           estado=404)
+
+    motor._pedir = _funcion_inventada
+
+    with pytest.raises(ErrorDeMotor) as capturado:
+        motor.consulta_cruda("SELECT fecha_bonita(fecha_alta) FROM tasks")
+    assert not isinstance(capturado.value, pg.ErrorDeConfiguracion)
+
+
+def test_un_42883_que_nombra_la_funcion_del_agente_si_es_configuracion():
+    """
+    La otra cara: si la que no existe es **nuestra** función RPC, el consejo de
+    ejecutar el DDL es exactamente el correcto.
+
+    Pasa cuando la caché de esquema de PostgREST está al día pero la función se
+    borró después, o cuando nunca se ejecutó el archivo. Se distingue por el
+    nombre en el cuerpo del error, no por el estado, que es el mismo 404.
+    """
+    from backend.core.engines import postgrest as pg
+    from backend.core.errors import ErrorDeMotor
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+
+    def _sin_funcion(metodo, ruta, cuerpo=None, prefer=""):
+        raise ErrorDeMotor(f"PostgREST POST {ruta} respondió 404",
+                           codigo="42883",
+                           detalle='{"code":"42883","message":"function '
+                                   'public.agente_sql_consulta(text) does not '
+                                   'exist"}',
+                           estado=404)
+
+    motor._pedir = _sin_funcion
+
+    with pytest.raises(pg.ErrorDeConfiguracion, match="DDL_AGENTE_SQL.sql"):
+        motor.consulta_cruda("SELECT 1")
+
+
+def test_un_404_sin_cuerpo_sigue_siendo_la_ruta_rpc_que_falta():
+    """
+    Un 404 sin `code` es PostgREST diciendo que la ruta no está: ahí sí falta
+    ejecutar el archivo. Es el caso que la traducción original acertaba, y no
+    puede perderse al arreglar los otros.
+    """
+    from backend.core.engines import postgrest as pg
+    from backend.core.errors import ErrorDeMotor
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+
+    def _ruta_ausente(metodo, ruta, cuerpo=None, prefer=""):
+        raise ErrorDeMotor(f"PostgREST POST {ruta} respondió 404", estado=404)
+
+    motor._pedir = _ruta_ausente
+
+    with pytest.raises(pg.ErrorDeConfiguracion, match="DDL_AGENTE_SQL.sql"):
+        motor.consulta_cruda("SELECT 1")
 
 
 def test_sin_motor_configurado_el_ejecutor_es_none_y_no_lanza(monkeypatch):
@@ -1296,6 +1413,13 @@ def test_el_diagnostico_comprueba_la_base_de_verdad(monkeypatch):
     """
     Se ejecuta un `SELECT 1`, no se mira si la variable está definida: una
     variable puesta con un valor equivocado se ve igual que una puesta bien.
+
+    AMPLIADA: antes exigía `len(ejecutados) == 1`. Ese uno era justo el
+    agujero — `SELECT 1` no nombra ninguna tabla, así que pasaba en una base
+    donde no existía ni una de las del agente y el informe decía "listo"
+    mientras cada pregunta fallaba. Ahora se comprueba también cada tabla; la
+    intención de la prueba (medir, no leer variables) es la misma y por eso se
+    conserva en vez de reemplazarse.
     """
     _entorno_de_produccion(monkeypatch)
     ejecutados = []
@@ -1303,7 +1427,57 @@ def test_el_diagnostico_comprueba_la_base_de_verdad(monkeypatch):
                         lambda: (lambda sql: ejecutados.append(sql) or []))
 
     ag.diagnostico()
-    assert len(ejecutados) == 1 and "SELECT 1" in ejecutados[0]
+    assert "SELECT 1" in ejecutados[0]
+    for esq in esquemas.ESQUEMAS.values():
+        assert any(f"FROM {esq.tabla} " in sql for sql in ejecutados[1:]), (
+            f"el diagnóstico no comprobó la tabla {esq.tabla}")
+
+
+def test_el_diagnostico_nombra_la_tabla_que_no_se_puede_leer(monkeypatch):
+    """
+    El fallo que trajo este cambio, visto desde el diagnóstico.
+
+    Con las tablas del despliegue llamándose `tasks_rows_sql`, el agente pedía
+    `tasks` y todo lo que llegaba a pantalla era «La función
+    agente_sql_consulta no existe en la base». El diagnóstico tiene que decir
+    la otra mitad: qué tabla es, y las dos salidas posibles.
+    """
+    _entorno_de_produccion(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY", "clave")
+    monkeypatch.setattr(ag, "llm_disponible", lambda: LLMFalso(["ok"]))
+
+    def _sin_tabla(sql):
+        if "FROM tasks " in sql:
+            raise RuntimeError('relation "tasks" does not exist')
+        return [{"ok": 1}]
+
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: _sin_tabla)
+
+    informe = ag.diagnostico()
+    assert informe["consulta"]["ok"] is True       # el canal RPC sí responde
+    assert informe["tablas"]["ok"] is False
+    assert informe["listo"] is False
+    detalle = informe["tablas"]["por_esquema"]["tasks"]["detalle"]
+    assert "tasks" in detalle
+    assert "AGENTE_SQL_TABLA_TASKS" in detalle
+    assert "DDL_AGENTE_SQL.sql" in detalle
+
+
+def test_el_diagnostico_no_comprueba_tablas_si_el_canal_no_responde(monkeypatch):
+    """
+    Sin canal, cada sonda de tabla es otra llamada condenada a fallar con el
+    mismo error. Se dice una vez y se para.
+    """
+    _entorno_de_produccion(monkeypatch)
+
+    def _falta(sql):
+        raise _error_de_configuracion()
+
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: _falta)
+
+    informe = ag.diagnostico()
+    assert informe["tablas"]["ok"] is False
+    assert informe["tablas"]["por_esquema"] == {}
 
 
 def test_el_diagnostico_sin_motor_no_lanza(monkeypatch):
@@ -1324,3 +1498,69 @@ def test_la_ruta_de_diagnostico_responde(monkeypatch):
     _entorno_de_produccion(monkeypatch)
     cuerpo = TestClient(app).get("/api/agente/diagnostico").json()
     assert set(cuerpo) >= {"listo", "modelo", "base", "consulta"}
+
+
+# ----------------------------------------------------------------------
+# El nombre real de las tablas (AGENTE_SQL_TABLA_*)
+# ----------------------------------------------------------------------
+# Por qué existe esta configuración y no un nombre fijo: hay despliegues donde
+# `tasks`/`quotes` todavía no están y lo cargado son los volcados del notebook
+# (`tasks_rows_sql`, `quotes_rows_sql`). Con el nombre fijo, el agente pedía una
+# tabla inexistente y el 404 resultante se leía como «falta la función RPC».
+
+
+def test_sin_variable_el_agente_sigue_consultando_las_tablas_de_la_app(monkeypatch):
+    """
+    El valor por defecto no se mueve.
+
+    Es la decisión documentada del módulo —la aplicación escribe en `tasks`, y
+    una copia suelta contesta con datos viejos sin avisar—, así que encender la
+    salida de emergencia no puede cambiársela a quien no la pidió.
+    """
+    for variable in esquemas.ENV_TABLA.values():
+        monkeypatch.delenv(variable, raising=False)
+
+    construidos = esquemas._construir_esquemas()
+    assert construidos["tasks"].tabla == "tasks"
+    assert construidos["quotes"].tabla == "quotes"
+
+
+def test_la_variable_cambia_la_tabla_del_prompt_y_de_la_lista_blanca(monkeypatch):
+    """
+    Las tres cosas se mueven juntas o no sirve de nada.
+
+    El nombre viaja al prompt (para que el modelo escriba el FROM correcto) y a
+    la lista blanca de `validar_sql` (para que no lo rechace). Cambiar solo una
+    deja al agente generando SQL que él mismo bloquea.
+    """
+    monkeypatch.setenv("AGENTE_SQL_TABLA_TASKS", "tasks_rows_sql")
+
+    tareas = esquemas._construir_esquemas()["tasks"]
+    assert tareas.tabla == "tasks_rows_sql"
+    assert "tasks_rows_sql" in tareas.prompt_sistema()
+
+    permitidas = frozenset({tareas.tabla})
+    assert ag.validar_sql("SELECT count(*) FROM tasks_rows_sql", permitidas) == ""
+    # Y la de antes deja de estar permitida: la lista blanca es UNA tabla.
+    assert "BLOQUEO" in ag.validar_sql("SELECT count(*) FROM tasks", permitidas)
+
+
+def test_un_nombre_de_tabla_con_sql_dentro_se_ignora(monkeypatch, capsys):
+    """
+    El valor de la variable acaba dentro de un `FROM` y dentro de la lista
+    blanca. Si no fuera un identificador limpio, la lista blanca dejaría de ser
+    una lista blanca.
+
+    Se ignora y se avisa, en vez de usarlo o de tumbar el módulo: es la única
+    de las tres salidas que no empeora nada.
+    """
+    monkeypatch.setenv("AGENTE_SQL_TABLA_TASKS", "tasks; drop table quotes")
+
+    assert esquemas._construir_esquemas()["tasks"].tabla == "tasks"
+    assert "no es un nombre de tabla válido" in capsys.readouterr().out
+
+
+def test_un_nombre_de_tabla_vacio_no_borra_el_valor_por_defecto(monkeypatch):
+    """Una variable definida pero vacía es una variable sin definir."""
+    monkeypatch.setenv("AGENTE_SQL_TABLA_QUOTES", "   ")
+    assert esquemas._construir_esquemas()["quotes"].tabla == "quotes"

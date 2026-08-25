@@ -306,3 +306,100 @@ def test_el_ddl_es_idempotente(base):
         "select proname from pg_proc where proname='agente_sql_consulta';")
     # `create or replace` + el `do $$ ... if not exists` del rol.
     assert base("select count(*) from pg_roles where rolname='agente_sql_lector';") == "1"
+
+
+# ======================================================================
+# Lo que pasa cuando el array de tablas y la base no coinciden
+# ======================================================================
+# El fallo que trajo estas pruebas: alguien cambió los `grant select` a las
+# tablas de su base (`tasks_rows_sql`), una de ellas no existía con ese nombre,
+# y el archivo abortó entero. Como el SQL Editor de Supabase ejecuta todo en una
+# transacción, no quedó instalado NADA — pero el error que se leía en la
+# interfaz seguía siendo «la función no existe», que manda a ejecutar el archivo
+# que acaba de fallar. El bucle se cierra sobre sí mismo.
+
+
+def _ddl_con_tablas(*tablas: str) -> str:
+    """El DDL con otro array de tablas. El resto del archivo, intacto."""
+    texto = DDL.read_text(encoding="utf-8")
+    original = "array['tasks', 'quotes']"
+    assert original in texto, "cambió el array de tablas del DDL"
+    nuevo = "array[" + ", ".join(f"'{t}'" for t in tablas) + "]"
+    return texto.replace(original, nuevo, 1)
+
+
+def test_una_tabla_inexistente_avisa_pero_no_tumba_la_instalacion(base):
+    """
+    Avisar y seguir, no abortar.
+
+    Abortar deja al usuario sin función Y sin pista: el mensaje que ve en la
+    interfaz le dice que ejecute este archivo, que es justo lo que acaba de
+    hacer. Con el aviso, el informe del final le dice qué tabla no está.
+    """
+    salida = base(_ddl_con_tablas("tasks", "quotes", "tabla_que_no_existe"))
+
+    assert "tabla_que_no_existe" in salida
+    assert "NO existe" in salida
+    # Y lo importante: lo demás quedó instalado.
+    assert base("select proname from pg_proc "
+                "where proname='agente_sql_consulta';") == "agente_sql_consulta"
+    assert base("select has_table_privilege('agente_sql_lector', "
+                "'tasks', 'SELECT');") == "t"
+
+
+def test_el_informe_final_dice_que_tablas_puede_leer_el_agente(base):
+    """
+    La fila que contesta "ya ejecuté el DDL y sigue fallando".
+
+    Se mide sobre los permisos reales (`has_table_privilege`), no sobre lo que
+    el archivo pretendía conceder: si el array no coincide con la base, esta
+    fila lo enseña.
+    """
+    salida = base(DDL.read_text(encoding="utf-8"))
+
+    assert "Tablas que el agente puede leer" in salida
+    assert "tasks" in salida and "quotes" in salida
+    assert "Función instalada" in salida
+    assert "service_role puede ejecutarla" in salida
+
+
+def test_el_rol_no_se_queda_con_el_create_que_necesito_para_ser_dueno(base):
+    """
+    El paso 2 le presta CREATE sobre `public` porque `ALTER FUNCTION ... OWNER
+    TO` lo exige; el paso 6 se lo quita. Si el préstamo se quedara puesto, el
+    rol "de solo lectura" podría crear tablas, vistas y funciones en `public` —
+    y una función suya la ejecutaría el propio canal del agente.
+    """
+    assert base("select has_schema_privilege('agente_sql_lector', "
+                "'public', 'CREATE');") == "f"
+    # El préstamo tiene que seguir funcionando: reinstalar no puede fallar.
+    base(DDL.read_text(encoding="utf-8"))
+    assert base(
+        "select r.rolname from pg_proc p join pg_roles r on r.oid = p.proowner "
+        "where p.proname = 'agente_sql_consulta';") == "agente_sql_lector"
+
+
+def test_el_informe_avisa_del_rls_que_dejaria_al_agente_sin_filas(base):
+    """
+    La única avería de este archivo que NO da error.
+
+    `service_role` tiene BYPASSRLS; `agente_sql_lector` no. Una tabla con RLS
+    encendida y sin política para él devuelve **cero filas sin fallar**: el
+    canal en verde, el diagnóstico diciendo "listo" y el agente contestando
+    "no encontré datos" a todas las preguntas. Un cero silencioso es
+    indistinguible de un dato real para quien lo lee, así que tiene que salir
+    en el informe.
+    """
+    assert "✅ ninguna" in base(DDL.read_text(encoding="utf-8"))
+
+    base("alter table quotes enable row level security;")
+    try:
+        salida = base(DDL.read_text(encoding="utf-8"))
+        assert "RLS que dejaría al agente sin filas" in salida
+        assert "⚠️ quotes" in salida
+        # Y se mide de verdad: con RLS y sin política, el rol no ve nada.
+        assert _consultar(base, "select folio from quotes") == "[]"
+    finally:
+        base("alter table quotes disable row level security;")
+
+    assert "✅ ninguna" in base(DDL.read_text(encoding="utf-8"))

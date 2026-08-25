@@ -19,7 +19,11 @@ redactar la respuesta— y cambian cinco cosas, todas por una razón:
 
 3. **Consulta las tablas de la aplicación**, `tasks` y `quotes`, no las copias
    `tasks_rows_sql` / `quotes_rows_sql`. Una copia suelta responde con datos de
-   cuando se copió, y nadie se entera.
+   cuando se copió, y nadie se entera. Ese sigue siendo el valor por defecto;
+   `AGENTE_SQL_TABLA_TASKS` / `AGENTE_SQL_TABLA_QUOTES` lo cambian para los
+   despliegues donde esas tablas todavía no existen, y tienen que coincidir con
+   los `grant select` de `docs/DDL_AGENTE_SQL.sql`
+   (ver `agente_sql_esquemas.tabla_de`).
 
 4. **El SQL se acota antes de ejecutarse.** El notebook hacía `fetchall()` de
    todo y recortaba a 40 filas *después*, ya en memoria: una consulta sin
@@ -661,6 +665,8 @@ def diagnostico() -> Dict[str, Any]:
     ejecutor = ejecutor_disponible()
     if ejecutor is None:
         partes["consulta"] = {"ok": False, "detalle": MENSAJE_SIN_BASE}
+        partes["tablas"] = {"ok": False, "detalle": "Sin canal no se pueden comprobar.",
+                            "por_esquema": {}}
     else:
         # Un SELECT sin tabla: comprueba el canal entero (permiso, función RPC,
         # red) sin depender de que exista ninguna tabla concreta.
@@ -670,8 +676,55 @@ def diagnostico() -> Dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             partes["consulta"] = {"ok": False, "detalle": str(exc)}
 
+        partes["tablas"] = (_diagnostico_de_tablas(ejecutor)
+                            if partes["consulta"]["ok"]
+                            else {"ok": False, "por_esquema": {},
+                                  "detalle": "El canal no responde; se comprueban después."})
+
     listo = all(p.get("ok") for p in partes.values())
     return {"success": True, "listo": listo, **partes}
+
+
+def _diagnostico_de_tablas(ejecutor: Callable[[str], List[Dict[str, Any]]]) -> Dict[str, Any]:
+    """
+    Si cada tabla del agente existe y el canal puede leerla.
+
+    **Esta comprobación es la que faltaba y costó el fallo que la trajo.** El
+    `SELECT 1` de arriba pasa aunque no exista ni una tabla, porque no nombra
+    ninguna: mide el canal, no los datos. Con solo esa medida, un despliegue
+    donde las tablas se llamaban `tasks_rows_sql`/`quotes_rows_sql` daba
+    "diagnóstico correcto" y el agente fallaba en cada pregunta.
+
+    Falla por tabla y no en bloque a propósito: saber que `tasks` responde y
+    `quotes` no es media respuesta ya dada.
+    """
+    from api.services.agente_sql_esquemas import ENV_TABLA, ESQUEMAS
+
+    por_esquema: Dict[str, Any] = {}
+    for clave, esq in ESQUEMAS.items():
+        try:
+            ejecutor(f"SELECT 1 AS ok FROM {esq.tabla} LIMIT 1")
+            por_esquema[clave] = {"tabla": esq.tabla, "ok": True,
+                                  "detalle": f"`{esq.tabla}` se puede leer."}
+        except Exception as exc:  # noqa: BLE001
+            variable = ENV_TABLA.get(clave, "")
+            por_esquema[clave] = {
+                "tabla": esq.tabla, "ok": False,
+                "detalle": (
+                    f"No se pudo leer `{esq.tabla}`: {exc} — o la tabla no "
+                    f"existe con ese nombre (define {variable} con el que "
+                    f"tenga en tu base), o el rol `agente_sql_lector` no tiene "
+                    f"SELECT sobre ella (añade el GRANT en "
+                    f"`docs/DDL_AGENTE_SQL.sql` y vuelve a ejecutarlo)."),
+            }
+
+    faltan = sorted(c for c, r in por_esquema.items() if not r["ok"])
+    return {
+        "ok": not faltan,
+        "por_esquema": por_esquema,
+        "detalle": ("Todas las tablas del agente responden." if not faltan
+                    else f"No se pueden leer: {', '.join(faltan)}."),
+    }
 
 
 def ejecutor_disponible() -> Optional[Callable[[str], List[Dict[str, Any]]]]:
