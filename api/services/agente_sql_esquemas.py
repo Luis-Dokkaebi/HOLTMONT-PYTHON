@@ -28,6 +28,8 @@ el tipo de dato y que su autor midió sobre los datos reales.
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -257,6 +259,55 @@ class Esquema:
         )
 
 
+# ----------------------------------------------------------------------
+# Cómo se llama cada tabla EN TU BASE
+# ----------------------------------------------------------------------
+# Por defecto, las que escribe la aplicación: `tasks` y `quotes`. El valor por
+# defecto no cambia, y el motivo está arriba en el docstring del módulo: una
+# copia suelta responde con los datos de cuando se copió y nadie se entera.
+#
+# Existe la variable porque hay despliegues donde esas tablas todavía no están
+# —la migración desde Sheets no ha corrido— y lo único cargado son los volcados
+# del notebook (`tasks_rows_sql`, `quotes_rows_sql`). Sin esta salida, el agente
+# pide `tasks`, PostgreSQL responde `42P01` y PostgREST lo devuelve como 404,
+# que `backend/core/engines/postgrest.py` traducía a «la función RPC no existe»:
+# el usuario acababa reinstalando un DDL que ya estaba puesto.
+#
+# Lo que la variable NO hace: ampliar lo que el agente puede leer. Sigue siendo
+# UNA tabla por esquema, y esa tabla es la lista blanca de `validar_sql`.
+ENV_TABLA: Dict[str, str] = {
+    "tasks": "AGENTE_SQL_TABLA_TASKS",
+    "quotes": "AGENTE_SQL_TABLA_QUOTES",
+}
+
+# Identificador de PostgreSQL sin comillas: lo que se puede pegar en un `FROM`
+# sin escapar nada. Se valida porque este nombre viaja a tres sitios donde un
+# valor raro no es un error tipográfico sino un agujero: el prompt del modelo,
+# la lista blanca de `validar_sql` y el SQL que acaba ejecutándose. Sin esquema
+# y sin comillas a propósito: el DDL fija `search_path = public, pg_temp`, así
+# que un `otro_esquema.tabla` no serviría de nada salvo para confundir.
+_IDENTIFICADOR = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
+
+def tabla_de(clave: str, por_defecto: str) -> str:
+    """
+    El nombre real de la tabla del esquema `clave`, o `por_defecto`.
+
+    Un valor que no sea un identificador limpio se **ignora y se avisa**, en vez
+    de usarse o de tumbar el módulo. Es la única de las tres opciones que no
+    empeora nada: usarlo mete texto sin validar en la lista blanca, y lanzar
+    deja la aplicación entera sin arrancar por una variable mal escrita.
+    """
+    crudo = os.environ.get(ENV_TABLA.get(clave, ""), "").strip().lower()
+    if not crudo:
+        return por_defecto
+    if not _IDENTIFICADOR.match(crudo):
+        print(f"[agente_sql] {ENV_TABLA[clave]}={crudo!r} no es un nombre de "
+              f"tabla válido; se usa {por_defecto!r}.")
+        return por_defecto
+    return crudo
+
+
 def _construir_esquemas() -> Dict[str, Esquema]:
     """
     Se arma al importar, leyendo los tipos de `backend/schemas/`.
@@ -270,7 +321,7 @@ def _construir_esquemas() -> Dict[str, Esquema]:
     return {
         "tasks": Esquema(
             clave="tasks",
-            tabla="tasks",
+            tabla=tabla_de("tasks", "tasks"),
             etiqueta="las actividades del Tracker",
             tipos=dict(TIPOS_TASKS),
             notas=NOTAS_TASKS,
@@ -278,7 +329,7 @@ def _construir_esquemas() -> Dict[str, Esquema]:
         ),
         "quotes": Esquema(
             clave="quotes",
-            tabla="quotes",
+            tabla=tabla_de("quotes", "quotes"),
             etiqueta="las cotizaciones de las hojas de ventas",
             tipos=dict(TIPOS_QUOTES),
             notas=NOTAS_QUOTES,

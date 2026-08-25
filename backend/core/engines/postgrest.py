@@ -36,12 +36,73 @@ TIEMPO_ESPERA = 30
 # sincronizados en dos sitios es una forma de romperlo sin enterarse.
 FUNCION_AGENTE = "agente_sql_consulta"
 
-# Códigos con los que PostgREST dice "esa función no existe". Se distinguen de
-# un error de SQL porque tienen arreglos opuestos: uno se corrige ejecutando un
-# archivo, el otro reescribiendo la consulta. Confundirlos hace que el bucle de
-# auto-corrección del agente gaste tres llamadas al modelo intentando reescribir
-# un SQL que estaba bien.
-CODIGOS_FUNCION_AUSENTE = frozenset({"PGRST202", "PGRST203", "42883"})
+# Códigos con los que **PostgREST** dice "esa función no está en mi caché de
+# esquema". Son suyos, no de PostgreSQL, y por eso son inequívocos: si aparecen,
+# la llamada RPC no llegó ni a ejecutarse.
+CODIGOS_FUNCION_AUSENTE = frozenset({"PGRST202", "PGRST203"})
+
+# `undefined_function` de PostgreSQL. Ambiguo a propósito: lo levanta tanto una
+# función que el modelo se inventó dentro del SELECT como la nuestra si se
+# borró. Se resuelve mirando de qué función habla el cuerpo del error, nunca el
+# estado HTTP. Ver `_falta_la_funcion_del_agente`.
+CODIGO_FUNCION_INDEFINIDA = "42883"
+
+
+def _falta_la_funcion_del_agente(exc: ErrorDeMotor) -> bool:
+    """
+    Si el 404 significa "hay que ejecutar el DDL" y no "reescribe la consulta".
+
+    **El estado HTTP no sirve para decidirlo, y creer que sí fue el bug.**
+    PostgREST traduce a 404 tanto sus propios `PGRST202`/`PGRST203` como los
+    `42P01` (tabla inexistente) y `42883` (función inexistente) que levanta
+    PostgreSQL al ejecutar el SELECT de dentro —está en `pgErrorStatus`, en
+    `PostgREST/Error.hs`—. Con la regla vieja (`exc.estado == 404`), un
+    `relation "tasks" does not exist` salía por pantalla como «La función
+    agente_sql_consulta no existe en la base. Ejecuta docs/DDL_AGENTE_SQL.sql»,
+    con la función instalada y respondiendo. El usuario ejecutaba el archivo,
+    no cambiaba nada, y no había pista de por dónde seguir.
+
+    Los tres casos que sí son configuración:
+
+    * `PGRST202`/`PGRST203`: PostgREST no encontró la función, o no supo elegir
+      entre dos con el mismo nombre.
+    * Un 404 **sin `code`**: no hubo cuerpo JSON que analizar, así que el que
+      falta es el propio camino `/rest/v1/rpc/...`.
+    * Un `42883` cuyo mensaje nombra a `agente_sql_consulta`: la función se
+      borró después de que PostgREST cargara su caché.
+
+    Todo lo demás es error de la consulta y vuelve tal cual, para que el bucle
+    de auto-corrección se lo pueda enseñar al modelo.
+    """
+    if exc.codigo in CODIGOS_FUNCION_AUSENTE:
+        return True
+    if exc.estado != 404:
+        return False
+    if not exc.codigo:
+        return True
+    # Solo el cuerpo del error, nunca `str(exc)`: el texto lleva la ruta
+    # `rpc/agente_sql_consulta` siempre, así que buscar ahí el nombre da
+    # verdadero también cuando la función que falta es una que inventó el
+    # modelo. Medido: la prueba de la función inventada pasaba a configuración.
+    return (exc.codigo == CODIGO_FUNCION_INDEFINIDA
+            and FUNCION_AGENTE in (exc.detalle or ""))
+
+
+def _codigo_y_mensaje(detalle: str) -> tuple:
+    """
+    `(code, message)` del cuerpo de error de PostgREST; `("", "")` si no es JSON.
+
+    Un cuerpo no-JSON no es excepcional: un 502 del balanceador o una página de
+    error del proxy llegan como HTML. Por eso se devuelve el par vacío en vez de
+    lanzar: el estado HTTP ya viaja aparte y sigue sirviendo.
+    """
+    try:
+        cuerpo = json.loads(detalle)
+    except (ValueError, TypeError):
+        return "", ""
+    if not isinstance(cuerpo, dict):
+        return "", ""
+    return str(cuerpo.get("code") or ""), str(cuerpo.get("message") or "")
 
 
 class ErrorDeConfiguracion(ErrorDeMotor):
@@ -55,7 +116,7 @@ class ErrorDeConfiguracion(ErrorDeMotor):
 
 def _traducir_error_de_rpc(exc: ErrorDeMotor) -> ErrorDeMotor:
     """Convierte 'la función no existe' en un error accionable; el resto pasa igual."""
-    if exc.codigo in CODIGOS_FUNCION_AUSENTE or exc.estado == 404:
+    if _falta_la_funcion_del_agente(exc):
         return ErrorDeConfiguracion(
             f"La función {FUNCION_AGENTE} no existe en la base. Ejecuta "
             "`docs/DDL_AGENTE_SQL.sql` en el SQL Editor de Supabase (una sola "
@@ -114,13 +175,16 @@ class PostgrestEngine:
             detalle = exc.read().decode("utf-8", "replace")[:500]
             # 23502 = not_null_violation. Es el error con el que ya tropezó la
             # normalización de estatus al escribir nulo en `tasks.status`.
-            codigo = ""
-            try:
-                codigo = str(json.loads(detalle).get("code") or "")
-            except (ValueError, AttributeError):
-                pass
+            codigo, mensaje_db = _codigo_y_mensaje(detalle)
+            # El `message` de PostgREST va en el texto, no solo en `detalle`.
+            # Lo que llega a pantalla y al reintento del agente es `str(exc)`:
+            # sin esto, un `relation "tasks" does not exist` se leía como
+            # "PostgREST POST rpc/agente_sql_consulta respondió 404", que dice
+            # que algo falló y nada de qué. Se añade al final para no romper a
+            # quien busca "respondió 404" (`backend/routers/tickets.py`).
+            resumen = f"PostgREST {metodo} {ruta} respondió {exc.code}"
             raise ErrorDeMotor(
-                f"PostgREST {metodo} {ruta} respondió {exc.code}",
+                f"{resumen}: {mensaje_db}" if mensaje_db else resumen,
                 codigo=codigo,
                 detalle=detalle,
                 estado=int(exc.code),
