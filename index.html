@@ -1855,7 +1855,42 @@
                 </div>
             </div>
 
-            <div v-if="agente.aviso" class="alert alert-warning py-2 small" id="agenteAviso">{{ agente.aviso }}</div>
+            <!-- EL AVISO, Y LO QUE HACER CON ÉL -->
+            <!-- El botón va PEGADO al aviso a propósito: el diagnóstico existía
+                 desde hace tiempo como `GET /api/agente/diagnostico`, pero solo
+                 lo alcanzaba quien supiera escribir la ruta a mano. Quien ve el
+                 error es justo quien necesita esa respuesta, y no la tenía. -->
+            <div v-if="agente.aviso" class="alert alert-warning py-2 small" id="agenteAviso">
+                <div>{{ agente.aviso }}</div>
+                <button class="btn btn-outline-secondary btn-sm mt-2" id="agenteDiagnosticoBtn"
+                        :disabled="agente.diagnosticando" @click="diagnosticarAgente()">
+                    <i class="fas fa-stethoscope me-1"></i> Ver diagnóstico
+                </button>
+                <span v-if="agente.diagnosticando" class="ms-2 text-muted">
+                    <i class="fas fa-circle-notch fa-spin"></i> comprobando…
+                </span>
+            </div>
+
+            <!-- EL DIAGNÓSTICO -->
+            <!-- Cada pieza con su ✅/❌ y el texto tal cual lo manda el backend.
+                 Resumirlo aquí volvería a perder lo único que distingue "falta
+                 el DDL" de "la tabla se llama de otra forma". -->
+            <div v-if="agente.diagnostico" class="card mb-3" id="agenteDiagnostico">
+                <div class="card-body">
+                    <h6 class="mb-3">
+                        <i class="fas fa-stethoscope me-2 text-secondary"></i>Diagnóstico del agente
+                        <span class="badge ms-2" :class="agente.diagnostico.listo ? 'bg-success' : 'bg-danger'">
+                            {{ agente.diagnostico.listo ? 'listo' : 'falta algo' }}
+                        </span>
+                    </h6>
+                    <ul class="list-unstyled mb-0 small">
+                        <li v-for="pieza in piezasDelDiagnostico" :key="pieza.nombre" class="mb-2">
+                            <strong>{{ pieza.ok ? '✅' : '❌' }} {{ pieza.nombre }}:</strong>
+                            <span style="white-space:pre-wrap;">{{ pieza.detalle }}</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
 
             <!-- LOS BORRADORES, PARA QUE UNA PERSONA LOS LEA -->
             <div v-if="agente.areas.length" class="card mb-3" id="agenteAreas">
@@ -8765,6 +8800,9 @@ const filteredStaffTrackerData = computed(() => {
       const agente = ref({
           esquema: 'tasks', pregunta: '', cargando: false,
           respuesta: '', sql: '', aviso: '',
+          // `diagnostico` es null mientras no se pida: null y "todo bien" son
+          // cosas distintas, y un objeto vacío las confundiría.
+          diagnostico: null, diagnosticando: false,
           areas: [], areasSeleccionadas: [], destinatarios: [],
           borradores: {}, destinos: {}, cambios: {},
           copia: '', notas: ''
@@ -8785,6 +8823,9 @@ const filteredStaffTrackerData = computed(() => {
           agente.value.aviso = '';
           agente.value.respuesta = '';
           agente.value.sql = '';
+          // Un diagnóstico viejo junto a un error nuevo es peor que ninguno:
+          // se lee como si describiera este intento.
+          agente.value.diagnostico = null;
           reiniciarCorreosAgente();
 
           const res = await ApiService.agenteConsulta({
@@ -8803,6 +8844,57 @@ const filteredStaffTrackerData = computed(() => {
               agente.value.aviso = (res && res.message) || 'El agente no respondió.';
           }
       };
+
+      /**
+       * Pregunta al backend cuál de las piezas del agente falta.
+       *
+       * No llama al modelo y no cuesta nada, así que se puede pulsar las veces
+       * que haga falta mientras se arregla la base: cada pulsación mide otra
+       * vez, no repinta lo de antes.
+       */
+      const diagnosticarAgente = async () => {
+          agente.value.diagnosticando = true;
+          const res = await ApiService.agenteDiagnostico();
+          agente.value.diagnosticando = false;
+          // Si la propia ruta falla —el backend caído, no la base— eso también
+          // es un diagnóstico y tiene que verse, no desaparecer.
+          agente.value.diagnostico = res || {
+              listo: false,
+              consulta: { ok: false, detalle: 'La ruta de diagnóstico no respondió.' }
+          };
+      };
+
+      /**
+       * Las piezas del diagnóstico en el orden en que se arreglan.
+       *
+       * El orden no es cosmético: sin modelo no hay SQL, sin base no hay canal,
+       * sin canal no se pueden comprobar las tablas. Empezar por la última
+       * lleva a arreglar lo que todavía no se puede medir.
+       */
+      const piezasDelDiagnostico = computed(() => {
+          const d = agente.value.diagnostico;
+          if (!d) return [];
+          const piezas = [
+              { nombre: 'Modelo (GROQ_API_KEY)', ...(d.modelo || {}) },
+              { nombre: 'Conexión a la base', ...(d.base || {}) },
+              { nombre: 'Canal de consulta (función RPC)', ...(d.consulta || {}) },
+              { nombre: 'Tablas del agente', ...(d.tablas || {}) },
+          ].filter(p => p.detalle !== undefined);
+          // El detalle por tabla se cuelga de "Tablas", que es donde se busca
+          // cuando el canal responde y las preguntas siguen sin datos.
+          const porEsquema = (d.tablas || {}).por_esquema || {};
+          Object.keys(porEsquema).forEach(clave => {
+              piezas.push({
+                  nombre: `Tabla «${clave}» (${porEsquema[clave].tabla})`,
+                  ok: porEsquema[clave].ok,
+                  detalle: porEsquema[clave].detalle
+              });
+          });
+          if (!piezas.length && d.message) {
+              piezas.push({ nombre: 'Diagnóstico', ok: false, detalle: d.message });
+          }
+          return piezas;
+      });
 
       const detectarAreasAgente = async () => {
           agente.value.cargando = true;
@@ -12225,6 +12317,7 @@ const filteredStaffTrackerData = computed(() => {
                geoEstado, geoVendedor, geoNota, geoGuardando, geoExportando, geoAgente,
                guardarProspectoGeo, consultarAgenteGeo, solicitarCotizacionGeo,
                agente, consultarAgente, detectarAreasAgente, generarBorradoresAgente,
+               diagnosticarAgente, piezasDelDiagnostico,
                aplicarCambioAgente, enviarCorreosAgente,
                exportarSeleccionGeo,
                trackerKpis, arcosDeLaDona, panoramaPlegado, alternarPanorama, clasificacionDe, esRetrasada, esUrgente, allStaffList, visibleTrackerHeaders, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentUsername, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, esColumnaDeHora, toTimeValue, formatDisplayTime, updateTimeFromPicker, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, runTrackerProductivityAgent, trackerProductivityData, isLoadingTrackerProductivity,

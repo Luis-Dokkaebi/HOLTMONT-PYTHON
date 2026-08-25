@@ -114,19 +114,74 @@ class ErrorDeConfiguracion(ErrorDeMotor):
     """
 
 
+# La ruta que comprueba las tres dependencias del agente de una vez. Va en
+# todos los mensajes de configuración porque es lo único que responde "¿cuál de
+# ellas falta?" sin abrir el panel de Supabase ni gastar una llamada al modelo.
+PISTA_DIAGNOSTICO = (
+    "Para ver cuál de las piezas falta sin adivinar, abre el diagnóstico del "
+    "agente (botón «Ver diagnóstico» junto a este aviso, o "
+    "`GET /api/agente/diagnostico`): comprueba la función, el permiso y cada "
+    "tabla por separado, y no llama al modelo."
+)
+
+# PostgREST dijo con su propio código que la función no está. El consejo de
+# ejecutar el archivo es exactamente el correcto... salvo por un matiz que este
+# texto tiene que llevar, porque es el que deja atascado a quien ya lo ejecutó:
+# el mismo PGRST202 sale cuando la función existe y la caché de esquema no se
+# ha recargado.
+MENSAJE_FUNCION_AUSENTE = (
+    f"PostgREST no encuentra la función {FUNCION_AGENTE}. Ejecuta "
+    "`docs/DDL_AGENTE_SQL.sql` en el SQL Editor de Supabase (una sola vez); no "
+    "hace falta ninguna variable de entorno nueva. Si ya lo ejecutaste y su "
+    "informe salió con ✅ en las cuatro filas, lo que falta no es el archivo "
+    "sino la caché de esquema: corre `notify pgrst, 'reload schema';` y "
+    "vuelve a intentarlo."
+)
+
+# Un 404 **sin cuerpo JSON** no lo escribió PostgREST: lo escribió lo que haya
+# delante. Decir aquí "la función no existe" es presentar una suposición como un
+# hecho, y manda a ejecutar por enésima vez un archivo que puede llevar
+# instalado desde el principio. Es la misma clase de error que ya costó el
+# arreglo de `_falta_la_funcion_del_agente`, un escalón más arriba.
+MENSAJE_RUTA_MUDA = (
+    f"La llamada a `rpc/{FUNCION_AGENTE}` devolvió 404 sin cuerpo JSON, así que "
+    "no contestó PostgREST. Hay dos causas y se distinguen mirando: (1) el "
+    "archivo `docs/DDL_AGENTE_SQL.sql` no se ha ejecutado en el SQL Editor de "
+    "Supabase; o (2) `SUPABASE_URL` no apunta al proyecto —tiene que ser "
+    "`https://<referencia>.supabase.co`, sin `/rest/v1` al final ni barra de "
+    "más—."
+)
+
+
+def _evidencia(exc: ErrorDeMotor) -> str:
+    """
+    Lo que respondió la base, entre paréntesis y sin interpretar.
+
+    Sin esto los dos mensajes de arriba son indistinguibles desde la pantalla, y
+    el usuario no puede decirle a nadie *cuál* de los dos 404 le salió. El texto
+    crudo es corto y no filtra nada: el código de PostgREST y el estado HTTP.
+    """
+    piezas = [f"HTTP {exc.estado}"] if exc.estado else []
+    if exc.codigo:
+        piezas.append(f"code {exc.codigo}")
+    return f" (la base respondió: {', '.join(piezas)}.)" if piezas else ""
+
+
 def _traducir_error_de_rpc(exc: ErrorDeMotor) -> ErrorDeMotor:
     """Convierte 'la función no existe' en un error accionable; el resto pasa igual."""
     if _falta_la_funcion_del_agente(exc):
+        # Sin `code` no hubo JSON que leer, y entonces el diagnóstico honesto es
+        # otro. Ver `MENSAJE_RUTA_MUDA`.
+        texto = MENSAJE_RUTA_MUDA if not exc.codigo else MENSAJE_FUNCION_AUSENTE
         return ErrorDeConfiguracion(
-            f"La función {FUNCION_AGENTE} no existe en la base. Ejecuta "
-            "`docs/DDL_AGENTE_SQL.sql` en el SQL Editor de Supabase (una sola "
-            "vez); no hace falta ninguna variable de entorno nueva.",
+            f"{texto}{_evidencia(exc)} {PISTA_DIAGNOSTICO}",
             codigo=exc.codigo, detalle=exc.detalle, estado=exc.estado)
     if exc.estado in (401, 403):
         return ErrorDeConfiguracion(
             f"La clave configurada no tiene permiso para ejecutar {FUNCION_AGENTE}. "
             "El DDL la concede solo a `service_role`: revisa que SUPABASE_KEY sea "
-            "la clave de servicio y no la publicable.",
+            f"la clave de servicio y no la publicable.{_evidencia(exc)} "
+            f"{PISTA_DIAGNOSTICO}",
             codigo=exc.codigo, detalle=exc.detalle, estado=exc.estado)
     return exc
 

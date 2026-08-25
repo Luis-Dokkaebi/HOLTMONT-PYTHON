@@ -403,3 +403,153 @@ def test_el_informe_avisa_del_rls_que_dejaria_al_agente_sin_filas(base):
         base("alter table quotes disable row level security;")
 
     assert "✅ ninguna" in base(DDL.read_text(encoding="utf-8"))
+
+
+# ======================================================================
+# El archivo, ejecutado en las condiciones de Supabase y no en las de un
+# PostgreSQL recién instalado
+# ======================================================================
+#
+# Todo lo de arriba instala el DDL como **superusuario**, que es justo el caso
+# en el que sus pasos 2 y 5 no hacen falta: un superusuario se salta "debes ser
+# miembro del rol destino" y es dueño de todo. Si esos pasos se rompieran, esta
+# suite seguiría en verde y el archivo abortaría en el único sitio donde se
+# ejecuta de verdad.
+#
+# Y aborta ENTERO: el SQL Editor de Supabase corre el archivo en una
+# transacción, así que un fallo en el paso 5 no deja nada instalado —ni la
+# función, ni una pista—, solo la pantalla repitiendo que hay que ejecutar el
+# DDL. Ese es exactamente el bucle que se quiere hacer imposible.
+
+PUERTO_SUPABASE = int(os.environ.get("HOLTMONT_TEST_PG_PORT_SUPA", "55434"))
+
+
+@pytest.fixture(scope="module")
+def supabase():
+    """
+    El DDL instalado en un PostgreSQL montado como el de Supabase.
+
+    Tres diferencias con el de arriba, y las tres tocan a este archivo:
+
+    * **`postgres` no es superusuario.** Es quien ejecuta el SQL Editor.
+    * **`public` es de `pg_database_owner`**, no de `postgres`; por ahí pasa el
+      `grant usage, create on schema public` del paso 2.
+    * **Existen `anon`, `authenticated` y `service_role`**, y `authenticator` es
+      miembro de los tres con `noinherit`, que es como PostgREST cambia de rol.
+
+    Devuelve `(consultar, informe)`: la función para preguntarle a la base y la
+    salida literal de la instalación.
+    """
+    initdb, pg_ctl, psql = BINARIOS
+    with tempfile.TemporaryDirectory(prefix="pg_supa_", dir="/var/tmp") as tmp:
+        datos = pathlib.Path(tmp) / "datos"
+        sock = pathlib.Path(tmp) / "sock"
+        sock.mkdir()
+        bitacora = pathlib.Path(tmp) / "servidor.log"
+        bitacora.touch()
+
+        cuenta = _cuenta_sin_privilegios()
+        if cuenta is not None:
+            subprocess.run(["chown", "-R", cuenta, tmp], check=True, capture_output=True)
+
+        # El superusuario se llama `supabase_admin`, como allí, para que
+        # `postgres` no acabe siéndolo por ser el que creó el clúster.
+        _correr([initdb, "-D", str(datos), "-U", "supabase_admin", "--auth=trust"],
+                cuenta, check=True, capture_output=True, timeout=120)
+        _correr([pg_ctl, "-D", str(datos), "-l", str(bitacora), "-o",
+                 f"-p {PUERTO_SUPABASE} -k {sock}", "-w", "start"],
+                cuenta, check=True, capture_output=True, timeout=120)
+        try:
+            def psql_como(usuario: str, *extra: str, texto: str = ""):
+                orden = [psql, "-h", str(sock), "-p", str(PUERTO_SUPABASE),
+                         "-U", usuario, "-d", "postgres", "-tA", *extra]
+                if texto:
+                    orden += ["-c", texto]
+                return _correr(orden, cuenta, capture_output=True, text=True, timeout=120)
+
+            def sql(texto: str, usuario: str = "supabase_admin",
+                    tolerar_error: bool = False) -> str:
+                proceso = psql_como(usuario, texto=texto)
+                if proceso.returncode and not tolerar_error:
+                    raise AssertionError(proceso.stderr)
+                return (proceso.stdout + proceso.stderr).strip()
+
+            sql("""
+                create role postgres nosuperuser createrole createdb login bypassrls;
+                create role anon nologin;
+                create role authenticated nologin;
+                create role service_role nologin bypassrls;
+                create role authenticator login noinherit;
+                grant anon, authenticated, service_role to authenticator;
+                alter schema public owner to pg_database_owner;
+                alter database postgres owner to postgres;
+            """)
+            sql("""
+                create table public.tasks (folio text, departamento text, avance numeric);
+                create table public.quotes (folio text, area text);
+                create table public.profiles (username text, password text);
+                insert into tasks values ('AV-1','HVAC',100),('AV-2','FINANZAS',10);
+            """, usuario="postgres")
+
+            # `--single-transaction` es lo que hace el SQL Editor, y es lo que
+            # convierte cualquier error del archivo en "no quedó nada".
+            instalacion = psql_como("postgres", "-v", "ON_ERROR_STOP=1",
+                                    "--single-transaction", "-f", str(DDL))
+            yield sql, instalacion
+        finally:
+            _correr([pg_ctl, "-D", str(datos), "-m", "immediate", "stop"],
+                    cuenta, capture_output=True, timeout=60)
+
+
+def test_el_ddl_se_instala_con_un_postgres_que_no_es_superusuario(supabase):
+    """La instalación entera, en una transacción y sin superusuario."""
+    _, instalacion = supabase
+    assert instalacion.returncode == 0, instalacion.stderr
+    # Un `returncode` 0 no basta: el archivo avisa sin abortar cuando una tabla
+    # del `array` no existe, así que puede terminar bien y dejar al agente sin
+    # nada que leer. Lo que se comprueba es el informe.
+    assert "❌" not in instalacion.stdout, instalacion.stdout
+    assert "✅ quotes, tasks" in instalacion.stdout, instalacion.stdout
+
+
+def test_la_funcion_corre_como_el_rol_de_lectura_sin_superusuario(supabase):
+    """
+    El paso 5 es el que puede fallar callado si el paso 2 no se hizo.
+
+    Sin ese `alter function ... owner to`, la función quedaría a nombre de
+    `postgres` —que en Supabase escribe en todas las tablas— y el archivo sería
+    exactamente la puerta trasera que su cabecera dice no ser, sin un solo error
+    por pantalla.
+    """
+    sql, _ = supabase
+    dueño = sql("select r.rolname from pg_proc p join pg_roles r on r.oid = p.proowner "
+                "where p.oid = to_regprocedure('public.agente_sql_consulta(text)');")
+    assert dueño == "agente_sql_lector", dueño
+
+
+def test_el_rol_no_conserva_el_create_prestado_sin_superusuario(supabase):
+    """El paso 6 devuelve el CREATE que pidió prestado el paso 2."""
+    sql, _ = supabase
+    assert sql("select has_schema_privilege('agente_sql_lector', 'public', 'CREATE');") == "f"
+
+
+def test_postgrest_no_necesita_que_authenticator_ejecute_la_funcion(supabase):
+    """
+    Deja medido por qué el DDL concede EXECUTE **solo** a `service_role`.
+
+    Es la duda que aparece cada vez que sale un `PGRST202`: «¿no habrá que
+    concedérselo también a `authenticator`, que es con quien PostgREST se
+    conecta?». La respuesta es no, y está en su código: la caché de rutas la
+    llena `allFunctions`, sin filtro de permisos, y el `has_function_privilege`
+    solo lo aplica `accessibleFuncs`, que alimenta el OpenAPI
+    (`src/PostgREST/SchemaCache.hs`).
+
+    Se fija aquí porque la conclusión es invisible desde el SQL y la tentación
+    —añadir `grant execute ... to authenticator`— abre el canal a cualquiera con
+    la clave anónima, que es justo lo que cierra el paso 7.
+    """
+    sql, _ = supabase
+    ve = ("select has_function_privilege('{}', "
+          "to_regprocedure('public.agente_sql_consulta(text)'), 'EXECUTE');")
+    assert sql(ve.format("authenticator")) == "f"
+    assert sql(ve.format("service_role")) == "t"

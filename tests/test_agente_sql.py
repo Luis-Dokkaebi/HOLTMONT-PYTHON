@@ -655,6 +655,72 @@ def test_un_404_sin_cuerpo_sigue_siendo_la_ruta_rpc_que_falta():
         motor.consulta_cruda("SELECT 1")
 
 
+def test_el_pgrst202_dice_tambien_que_puede_ser_la_cache_de_esquema():
+    """
+    El caso que deja atascado a quien YA ejecutó el archivo.
+
+    `PGRST202` significa "no está en mi caché de esquema", y la caché se queda
+    vieja: la función puede existir, con su informe en verde y sus cuatro ✅, y
+    el mensaje seguía diciendo solo "ejecuta el DDL". Quien lo lee ejecuta el
+    archivo por quinta vez, no cambia nada y se queda sin siguiente paso. La
+    salida —`notify pgrst, 'reload schema'`— tiene que estar en el texto que se
+    ve, no en un comentario del SQL que nadie vuelve a abrir.
+    """
+    from backend.core.engines import postgrest as pg
+    from backend.core.errors import ErrorDeMotor
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+
+    def _no_esta_en_la_cache(metodo, ruta, cuerpo=None, prefer=""):
+        raise ErrorDeMotor("PostgREST POST falló", codigo="PGRST202", estado=404)
+
+    motor._pedir = _no_esta_en_la_cache
+
+    with pytest.raises(pg.ErrorDeConfiguracion) as capturado:
+        motor.consulta_cruda("SELECT 1")
+
+    mensaje = str(capturado.value)
+    assert "reload schema" in mensaje
+    # La evidencia cruda: sin ella los dos 404 se leen igual en pantalla y no
+    # hay forma de decirle a nadie cuál salió.
+    assert "PGRST202" in mensaje
+    assert "diagnostico" in mensaje
+
+
+def test_un_404_sin_cuerpo_no_afirma_que_falta_la_funcion():
+    """
+    Un 404 **sin cuerpo JSON** no lo escribió PostgREST, así que no puede
+    afirmar nada sobre la función.
+
+    Es el mismo error de razonamiento que ya costó el arreglo de
+    `_falta_la_funcion_del_agente`, un escalón más arriba: allí se dedujo del
+    estado HTTP lo que solo dice el `code`; aquí se deducía de la ausencia de
+    `code` un diagnóstico concreto. Una `SUPABASE_URL` equivocada, un proxy que
+    devuelve HTML o un `/rest/v1` de más producen exactamente esta respuesta, y
+    en los tres casos ejecutar el DDL otra vez no cambia nada.
+
+    Sigue nombrando el archivo —es una de las dos causas—, pero como una de dos
+    y no como un hecho.
+    """
+    from backend.core.engines import postgrest as pg
+    from backend.core.errors import ErrorDeMotor
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+
+    def _sin_cuerpo(metodo, ruta, cuerpo=None, prefer=""):
+        raise ErrorDeMotor("PostgREST POST falló", estado=404)
+
+    motor._pedir = _sin_cuerpo
+
+    with pytest.raises(pg.ErrorDeConfiguracion) as capturado:
+        motor.consulta_cruda("SELECT 1")
+
+    mensaje = str(capturado.value)
+    assert "SUPABASE_URL" in mensaje
+    assert "DDL_AGENTE_SQL.sql" in mensaje
+    assert "no existe en la base" not in mensaje
+
+
 def test_sin_motor_configurado_el_ejecutor_es_none_y_no_lanza(monkeypatch):
     """El módulo se degrada; no tumba la aplicación."""
     for variable in ("DATABASE_URL", "SUPABASE_URL", "SUPABASE_KEY", "BACKEND_ENGINE"):
