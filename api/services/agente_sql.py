@@ -681,8 +681,92 @@ def diagnostico() -> Dict[str, Any]:
                             else {"ok": False, "por_esquema": {},
                                   "detalle": "El canal no responde; se comprueban después."})
 
+        # Solo cuando el canal falla, y solo entonces: es una llamada de red más
+        # y no hay nada que preguntar si la RPC contestó.
+        if not partes["consulta"]["ok"]:
+            catalogo = _sonda_del_catalogo(motor)
+            if catalogo is not None:
+                partes["catalogo"] = catalogo
+
     listo = all(p.get("ok") for p in partes.values())
     return {"success": True, "listo": listo, **partes}
+
+
+def _sonda_del_catalogo(motor: Any) -> Optional[Dict[str, Any]]:
+    """
+    Le pregunta al propio PostgREST qué conoce, cuando la llamada RPC falla.
+
+    **Es la comprobación que cierra el bucle del `PGRST202`.** Ese código
+    significa "no está en mi caché de esquema", y hasta aquí tenía dos salidas
+    indistinguibles desde fuera: el archivo no se ejecutó *en este proyecto*, o
+    se ejecutó y la caché está vieja. Sin poder separarlas, el consejo era
+    "prueba las dos", que es justo lo que ya se había probado.
+
+    PostgREST publica en la raíz de `/rest/v1` un documento OpenAPI con las
+    rutas que conoce, y esa lista **sale de la misma caché** que decide el 404.
+    Preguntar por ahí responde las dos cosas de una vez:
+
+    * si el documento no se puede leer, lo que está mal es `SUPABASE_URL` o
+      `SUPABASE_KEY`, y ninguna cantidad de DDL lo arregla;
+    * si se lee y `/rpc/agente_sql_consulta` **no** aparece, la función no está
+      en la base a la que apunta la aplicación —que puede no ser el proyecto
+      donde se ejecutó el archivo—;
+    * si se lee y **sí** aparece, entonces la caché conoce la función y el 404
+      viene de otro sitio.
+
+    De regalo, el documento lista las tablas que el canal ve, que es la
+    respuesta a "¿se llaman `tasks` y `quotes` en mi base?" sin abrir el panel.
+
+    Devuelve `None` para un motor que no sea PostgREST: ahí no hay catálogo que
+    consultar y una pieza vacía en pantalla es ruido.
+    """
+    from backend.core.engines.postgrest import FUNCION_AGENTE
+
+    leer_catalogo = getattr(motor, "esquema_openapi", None)
+    if leer_catalogo is None:
+        return None
+
+    try:
+        documento = leer_catalogo()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "detalle": (
+                f"No se pudo leer el catálogo de PostgREST: {exc}. Cuando la raíz "
+                "de `/rest/v1` no contesta, lo que está mal es `SUPABASE_URL` o "
+                "`SUPABASE_KEY`, no el DDL: revisa que la URL sea "
+                "`https://<referencia>.supabase.co` (sin `/rest/v1` al final) y "
+                "que la clave sea la de servicio."),
+        }
+
+    rutas = (documento or {}).get("paths") or {}
+    ruta_rpc = f"/rpc/{FUNCION_AGENTE}"
+    tablas = sorted(r.lstrip("/") for r in rutas
+                    if not r.startswith("/rpc/") and r not in ("/", ""))
+
+    if ruta_rpc in rutas:
+        return {
+            "ok": True,
+            "tablas": tablas,
+            "detalle": (
+                f"PostgREST sí conoce `{ruta_rpc}`. La función está instalada en "
+                "la base a la que apunta la aplicación y su caché está al día, "
+                "así que el fallo del canal no es que falte el DDL."),
+        }
+
+    return {
+        "ok": False,
+        "tablas": tablas,
+        "detalle": (
+            f"PostgREST NO conoce `{ruta_rpc}`, y sí conoce {len(tablas)} tabla(s): "
+            f"{', '.join(tablas) if tablas else 'ninguna'}. Como el catálogo se lee "
+            "bien, `SUPABASE_URL` y `SUPABASE_KEY` están bien y el proyecto "
+            "responde: lo que falta es la función EN ESTE proyecto. Ejecuta "
+            "`docs/DDL_AGENTE_SQL.sql` en el SQL Editor de ESTE mismo proyecto "
+            "—si lo corriste en otro, es el fallo— y, si su informe ya salía en "
+            "verde, corre `notify pgrst, 'reload schema';` para que la caché se "
+            "entere."),
+    }
 
 
 def _diagnostico_de_tablas(ejecutor: Callable[[str], List[Dict[str, Any]]]) -> Dict[str, Any]:

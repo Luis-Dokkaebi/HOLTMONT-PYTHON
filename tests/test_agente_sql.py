@@ -687,6 +687,35 @@ def test_el_pgrst202_dice_tambien_que_puede_ser_la_cache_de_esquema():
     assert "diagnostico" in mensaje
 
 
+def test_la_pista_de_postgrest_llega_al_mensaje():
+    """
+    En un `PGRST202`, el `hint` es lo más concreto que dice la base.
+
+    Cuando el nombre está bien pero la **firma** no —otro nombre de parámetro,
+    otro tipo—, PostgREST contesta "Perhaps you meant to call the function ...".
+    Esa línea identifica el fallo de una sola lectura, y la traducción la tiraba
+    al quedarse solo con el texto accionable.
+    """
+    from backend.core.engines import postgrest as pg
+    from backend.core.errors import ErrorDeMotor
+
+    motor = pg.PostgrestEngine("https://ejemplo.supabase.co", "clave")
+
+    def _otra_firma(metodo, ruta, cuerpo=None, prefer=""):
+        raise ErrorDeMotor(
+            "PostgREST POST falló", codigo="PGRST202", estado=404,
+            detalle='{"code":"PGRST202","message":"Could not find the function",'
+                    '"hint":"Perhaps you meant to call the function '
+                    'public.agente_sql_consulta(query)"}')
+
+    motor._pedir = _otra_firma
+
+    with pytest.raises(pg.ErrorDeConfiguracion) as capturado:
+        motor.consulta_cruda("SELECT 1")
+
+    assert "Perhaps you meant to call" in str(capturado.value)
+
+
 def test_un_404_sin_cuerpo_no_afirma_que_falta_la_funcion():
     """
     Un 404 **sin cuerpo JSON** no lo escribió PostgREST, así que no puede
@@ -1441,6 +1470,147 @@ def test_el_diagnostico_dice_que_falta_el_ddl(monkeypatch):
     assert informe["consulta"]["ok"] is False
     assert "DDL_AGENTE_SQL.sql" in informe["consulta"]["detalle"]
     assert informe["listo"] is False
+
+
+def _motor_con_catalogo(rutas, error=None):
+    """Un motor de mentira que solo sabe responder `esquema_openapi()`."""
+
+    class MotorFalso:
+        nombre = "postgrest"
+        soporta_sql_crudo = True
+
+        def esquema_openapi(self):
+            if error is not None:
+                raise error
+            return {"paths": rutas}
+
+    return MotorFalso()
+
+
+def test_si_el_canal_falla_se_le_pregunta_al_catalogo_de_postgrest(monkeypatch):
+    """
+    La comprobación que cierra el bucle del `PGRST202`.
+
+    Ese código dice "no está en mi caché de esquema" y tenía dos salidas
+    indistinguibles: el archivo no se ejecutó **en este proyecto**, o se ejecutó
+    y la caché está vieja. Con las dos abiertas, el consejo era "prueba las dos",
+    que es exactamente lo que ya se había probado.
+
+    El documento OpenAPI que PostgREST publica en la raíz sale de esa MISMA
+    caché, así que preguntarle separa los casos sin adivinar. Aquí la función no
+    aparece: el catálogo se lee bien —luego la URL y la clave están bien— y la
+    función no está donde la aplicación mira.
+    """
+    _entorno_de_produccion(monkeypatch)
+
+    def _falla(sql):
+        raise _error_de_configuracion()
+
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: _falla)
+    monkeypatch.setattr("backend.core.engine.construir_engine",
+                        lambda: _motor_con_catalogo({"/tasks": {}, "/quotes": {}}))
+
+    informe = ag.diagnostico()
+    catalogo = informe["catalogo"]
+    assert catalogo["ok"] is False
+    assert "NO conoce" in catalogo["detalle"]
+    # El dato que evita la quinta ejecución del archivo: el proyecto responde,
+    # así que lo que falta es la función AHÍ.
+    assert "ESTE proyecto" in catalogo["detalle"]
+    assert catalogo["tablas"] == ["quotes", "tasks"]
+
+
+def test_si_el_catalogo_si_conoce_la_funcion_el_fallo_no_es_el_ddl(monkeypatch):
+    """
+    La otra mitad, y la que evita mandar a ejecutar el archivo por costumbre.
+
+    Si `/rpc/agente_sql_consulta` está en el catálogo, la función existe donde la
+    aplicación mira y la caché la conoce. Repetir "ejecuta el DDL" ahí es mandar
+    a hacer algo que ya está hecho.
+    """
+    _entorno_de_produccion(monkeypatch)
+
+    def _falla(sql):
+        raise _error_de_configuracion()
+
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: _falla)
+    monkeypatch.setattr("backend.core.engine.construir_engine",
+                        lambda: _motor_con_catalogo(
+                            {"/tasks": {}, "/rpc/agente_sql_consulta": {}}))
+
+    informe = ag.diagnostico()
+    assert informe["catalogo"]["ok"] is True
+    assert "sí conoce" in informe["catalogo"]["detalle"]
+
+
+def test_si_no_se_lee_el_catalogo_el_culpable_es_la_url_o_la_clave(monkeypatch):
+    """
+    Cuando ni la raíz de `/rest/v1` contesta, el DDL no tiene nada que ver.
+
+    Es el caso que mandaba a ejecutar el archivo una y otra vez con
+    `SUPABASE_URL` apuntando a otro sitio: ninguna cantidad de SQL lo arregla y
+    el mensaje no lo decía.
+    """
+    _entorno_de_produccion(monkeypatch)
+
+    def _falla(sql):
+        raise _error_de_configuracion()
+
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: _falla)
+    monkeypatch.setattr("backend.core.engine.construir_engine",
+                        lambda: _motor_con_catalogo(
+                            {}, error=RuntimeError("no se pudo leer el esquema")))
+
+    informe = ag.diagnostico()
+    assert informe["catalogo"]["ok"] is False
+    assert "SUPABASE_URL" in informe["catalogo"]["detalle"]
+
+
+def test_un_motor_sin_catalogo_no_inventa_una_pieza(monkeypatch):
+    """
+    Con `AGENTE_SQL_DATABASE_URL` el motor es SQLAlchemy y no hay OpenAPI que
+    leer. Una pieza vacía en pantalla es ruido, y una que dijera ❌ sería una
+    avería inventada.
+    """
+    _entorno_de_produccion(monkeypatch)
+
+    def _falla(sql):
+        raise _error_de_configuracion()
+
+    class MotorSinCatalogo:
+        nombre = "sqlalchemy"
+        soporta_sql_crudo = True
+
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: _falla)
+    monkeypatch.setattr("backend.core.engine.construir_engine", MotorSinCatalogo)
+
+    informe = ag.diagnostico()
+    assert "catalogo" not in informe
+    assert informe["consulta"]["ok"] is False
+
+
+def test_si_el_canal_responde_no_se_pregunta_al_catalogo(monkeypatch):
+    """
+    Una llamada de red que no hace falta es una llamada de red que sobra: si la
+    RPC contestó, no hay nada que separar.
+    """
+    _entorno_de_produccion(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY", "clave")
+    monkeypatch.setattr(ag, "llm_disponible", lambda: LLMFalso(["ok"]))
+    monkeypatch.setattr(ag, "ejecutor_disponible", lambda: (lambda sql: [{"ok": 1}]))
+
+    def _no_llamar():
+        raise AssertionError("no se debe leer el catálogo con el canal en verde")
+
+    class MotorQueProtesta:
+        nombre = "postgrest"
+        soporta_sql_crudo = True
+        esquema_openapi = staticmethod(_no_llamar)
+
+    monkeypatch.setattr("backend.core.engine.construir_engine", MotorQueProtesta)
+
+    informe = ag.diagnostico()
+    assert "catalogo" not in informe
 
 
 def test_el_diagnostico_dice_listo_cuando_todo_responde(monkeypatch):
