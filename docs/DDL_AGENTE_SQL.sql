@@ -246,7 +246,40 @@ select 'Tablas que el agente puede leer',
                  where n.nspname = 'public'
                    and c.relkind in ('r', 'v', 'm', 'p', 'f')
                    and has_table_privilege('agente_sql_lector', c.oid, 'SELECT')),
-                '❌ ninguna — el array del paso 3 no coincide con tus tablas');
+                '❌ ninguna — el array del paso 3 no coincide con tus tablas')
+union all
+select 'RLS que dejaría al agente sin filas',
+       coalesce((select '⚠️ ' || string_agg(c.relname, ', ' order by c.relname)
+                 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                 where n.nspname = 'public' and c.relrowsecurity
+                   and has_table_privilege('agente_sql_lector', c.oid, 'SELECT')),
+                '✅ ninguna');
+
+-- =====================================================================
+-- LA FILA DEL RLS: POR QUÉ ESTÁ AHÍ
+-- =====================================================================
+-- Es la única avería de este archivo que **no da error**. `service_role` tiene
+-- BYPASSRLS y `agente_sql_lector` no, así que una tabla con RLS encendida y sin
+-- política para él devuelve **cero filas, sin fallar**. El agente contestaría
+-- "no encontré datos" a todas las preguntas, con el canal en verde y el
+-- diagnóstico diciendo que todo está bien.
+--
+-- Si esa fila sale con ⚠️, la salida es una política de solo lectura por tabla.
+-- Va comentada a propósito: tocar el RLS de una tabla de negocio se decide, no
+-- se hereda de un archivo de instalación. `DROP ... IF EXISTS` + `CREATE`
+-- porque PostgreSQL no admite `CREATE POLICY IF NOT EXISTS`.
+--
+--   drop policy if exists agente_sql_lector_lee on public.tasks;
+--   create policy agente_sql_lector_lee on public.tasks
+--     for select to agente_sql_lector using (true);
+--
+--   drop policy if exists agente_sql_lector_lee on public.quotes;
+--   create policy agente_sql_lector_lee on public.quotes
+--     for select to agente_sql_lector using (true);
+--
+-- `using (true)` no amplía nada: el rol ya tiene SELECT sobre esas dos tablas y
+-- solo se llega a él por la función RPC, que únicamente `service_role` ejecuta.
+-- =====================================================================
 
 -- =====================================================================
 -- SI EL INFORME SALE BIEN Y LA INTERFAZ SIGUE FALLANDO

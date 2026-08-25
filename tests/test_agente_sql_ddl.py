@@ -377,3 +377,29 @@ def test_el_rol_no_se_queda_con_el_create_que_necesito_para_ser_dueno(base):
     assert base(
         "select r.rolname from pg_proc p join pg_roles r on r.oid = p.proowner "
         "where p.proname = 'agente_sql_consulta';") == "agente_sql_lector"
+
+
+def test_el_informe_avisa_del_rls_que_dejaria_al_agente_sin_filas(base):
+    """
+    La única avería de este archivo que NO da error.
+
+    `service_role` tiene BYPASSRLS; `agente_sql_lector` no. Una tabla con RLS
+    encendida y sin política para él devuelve **cero filas sin fallar**: el
+    canal en verde, el diagnóstico diciendo "listo" y el agente contestando
+    "no encontré datos" a todas las preguntas. Un cero silencioso es
+    indistinguible de un dato real para quien lo lee, así que tiene que salir
+    en el informe.
+    """
+    assert "✅ ninguna" in base(DDL.read_text(encoding="utf-8"))
+
+    base("alter table quotes enable row level security;")
+    try:
+        salida = base(DDL.read_text(encoding="utf-8"))
+        assert "RLS que dejaría al agente sin filas" in salida
+        assert "⚠️ quotes" in salida
+        # Y se mide de verdad: con RLS y sin política, el rol no ve nada.
+        assert _consultar(base, "select folio from quotes") == "[]"
+    finally:
+        base("alter table quotes disable row level security;")
+
+    assert "✅ ninguna" in base(DDL.read_text(encoding="utf-8"))
