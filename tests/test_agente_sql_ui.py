@@ -307,3 +307,52 @@ def test_el_diagnostico_nombra_la_tabla_que_no_se_puede_leer():
             assert "`tasks` se puede leer." in panel
         finally:
             navegador.close()
+
+
+def test_el_panel_enseña_lo_que_postgrest_dice_conocer():
+    """
+    La pieza que separa "el DDL no se ejecutó aquí" de "la caché está vieja".
+
+    El backend la manda solo cuando el canal falla, así que si la vista no la
+    pinta, el dato que resuelve el `PGRST202` se pierde justo en el único caso
+    en que se produce.
+    """
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1500, "height": 950})
+        try:
+            _entrar(page, "ADMIN", "LUIS_CARLOS")
+            _doblar_respuesta_del_agente(page, {
+                "success": False, "message": "La consulta falló en la base.",
+            })
+            _doblar_diagnostico(page, {
+                "success": True,
+                "listo": False,
+                "modelo": {"ok": True, "detalle": "GROQ_API_KEY configurada"},
+                "base": {"ok": True, "motor": "postgrest", "detalle": "postgrest."},
+                "consulta": {"ok": False, "detalle": "PGRST202."},
+                "catalogo": {
+                    "ok": False,
+                    "tablas": ["quotes", "tasks"],
+                    "detalle": "PostgREST NO conoce `/rpc/agente_sql_consulta` … "
+                               "lo que falta es la función EN ESTE proyecto.",
+                },
+                "tablas": {"ok": False, "detalle": "El canal no responde.",
+                           "por_esquema": {}},
+            })
+
+            page.click(f".nav-item:has-text('{ETIQUETA}')")
+            page.fill("#agentePregunta", "lo que sea")
+            page.click("#agenteConsultarBtn")
+            page.wait_for_selector("#agenteDiagnosticoBtn", timeout=15000)
+            page.click("#agenteDiagnosticoBtn")
+
+            page.wait_for_selector("#agenteDiagnostico", timeout=15000)
+            panel = page.inner_text("#agenteDiagnostico")
+            assert "EN ESTE proyecto" in panel
+            # Las tablas que PostgREST ve responden "¿se llaman así en mi base?"
+            # sin abrir el panel de Supabase.
+            assert "Tablas que ve PostgREST" in panel
+            assert "quotes, tasks" in panel
+        finally:
+            navegador.close()

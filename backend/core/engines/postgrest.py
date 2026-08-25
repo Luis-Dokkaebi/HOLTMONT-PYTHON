@@ -153,6 +153,20 @@ MENSAJE_RUTA_MUDA = (
 )
 
 
+def _pista(detalle: str) -> str:
+    """
+    El `hint` del cuerpo de error de PostgREST, o cadena vacía.
+
+    Va aparte de `_codigo_y_mensaje` porque solo lo usan los mensajes de
+    configuración y ese par lo consume todo el motor.
+    """
+    try:
+        cuerpo = json.loads(detalle)
+    except (ValueError, TypeError):
+        return ""
+    return str(cuerpo.get("hint") or "") if isinstance(cuerpo, dict) else ""
+
+
 def _evidencia(exc: ErrorDeMotor) -> str:
     """
     Lo que respondió la base, entre paréntesis y sin interpretar.
@@ -160,11 +174,20 @@ def _evidencia(exc: ErrorDeMotor) -> str:
     Sin esto los dos mensajes de arriba son indistinguibles desde la pantalla, y
     el usuario no puede decirle a nadie *cuál* de los dos 404 le salió. El texto
     crudo es corto y no filtra nada: el código de PostgREST y el estado HTTP.
+
+    El `hint` va aquí y no se descarta porque en un `PGRST202` es lo más
+    concreto que dice la base: cuando el nombre está bien pero la **firma** no
+    —otro nombre de parámetro, otro tipo—, PostgREST contesta "Perhaps you meant
+    to call the function ...", y eso identifica el fallo de una sola lectura. La
+    traducción se queda con el texto accionable y tiraba justo esa línea.
     """
     piezas = [f"HTTP {exc.estado}"] if exc.estado else []
     if exc.codigo:
         piezas.append(f"code {exc.codigo}")
-    return f" (la base respondió: {', '.join(piezas)}.)" if piezas else ""
+    pista = _pista(exc.detalle or "")
+    if pista:
+        piezas.append(f"pista de la base: «{pista}»")
+    return f" (la base respondió: {'; '.join(piezas)}.)" if piezas else ""
 
 
 def _traducir_error_de_rpc(exc: ErrorDeMotor) -> ErrorDeMotor:

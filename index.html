@@ -8878,10 +8878,23 @@ const filteredStaffTrackerData = computed(() => {
               { nombre: 'Modelo (GROQ_API_KEY)', ...(d.modelo || {}) },
               { nombre: 'Conexión a la base', ...(d.base || {}) },
               { nombre: 'Canal de consulta (función RPC)', ...(d.consulta || {}) },
+              // Solo viene cuando el canal falló: es lo que separa "el DDL no se
+              // ejecutó en ESTE proyecto" de "la caché está vieja".
+              { nombre: 'Catálogo de PostgREST', ...(d.catalogo || {}) },
               { nombre: 'Tablas del agente', ...(d.tablas || {}) },
           ].filter(p => p.detalle !== undefined);
           // El detalle por tabla se cuelga de "Tablas", que es donde se busca
           // cuando el canal responde y las preguntas siguen sin datos.
+          // Las tablas que PostgREST dice conocer: responde "¿se llaman así en
+          // mi base?" sin abrir el panel de Supabase.
+          const vistas = (d.catalogo || {}).tablas;
+          if (vistas && vistas.length) {
+              piezas.push({
+                  nombre: 'Tablas que ve PostgREST',
+                  ok: true,
+                  detalle: vistas.join(', ')
+              });
+          }
           const porEsquema = (d.tablas || {}).por_esquema || {};
           Object.keys(porEsquema).forEach(clave => {
               piezas.push({
