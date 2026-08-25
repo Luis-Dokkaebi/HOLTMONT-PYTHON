@@ -80,6 +80,16 @@ def _doblar_respuesta_del_agente(page, cuerpo: dict) -> None:
     )
 
 
+def _doblar_diagnostico(page, cuerpo: dict) -> None:
+    """Igual que el anterior, para `GET /api/agente/diagnostico`."""
+    page.route(
+        "**/api/agente/diagnostico",
+        lambda ruta: ruta.fulfill(
+            status=200, content_type="application/json", body=__import__("json").dumps(cuerpo)
+        ),
+    )
+
+
 def test_el_modulo_aparece_para_quien_debe_y_no_para_los_demas():
     """
     Las dos mitades de la regla en la misma prueba.
@@ -190,5 +200,110 @@ def test_un_fallo_del_backend_se_dice_en_pantalla_y_no_se_finge_una_respuesta():
             page.wait_for_selector("#agenteAviso", timeout=15000)
             assert "GROQ_API_KEY" in page.inner_text("#agenteAviso")
             assert page.locator("#agenteRespuesta").count() == 0
+        finally:
+            navegador.close()
+
+
+def test_desde_el_error_se_llega_al_diagnostico_y_dice_que_pieza_falta():
+    """
+    El botón que convierte «la consulta falló» en «falta esto».
+
+    `GET /api/agente/diagnostico` existía desde antes y comprueba las cuatro
+    piezas por separado, pero solo lo alcanzaba quien supiera escribir la ruta a
+    mano. La persona que ve el aviso es exactamente la que necesita esa
+    respuesta, y no tenía forma de pedirla: releía un mensaje que dice "ejecuta
+    el DDL" con el DDL ya ejecutado, y ahí se acababa el camino.
+
+    La prueba ejerce el recorrido entero —error, botón, diagnóstico— porque cada
+    mitad por separado pasa sin que la otra exista: el backend puede responder
+    perfecto y el botón no estar en pantalla, que es justo lo que pasaba.
+    """
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1500, "height": 950})
+        try:
+            _entrar(page, "ADMIN", "LUIS_CARLOS")
+            _doblar_respuesta_del_agente(page, {
+                "success": False,
+                "message": "La consulta falló en la base: PostgREST no encuentra "
+                           "la función agente_sql_consulta.",
+            })
+            _doblar_diagnostico(page, {
+                "success": True,
+                "listo": False,
+                "modelo": {"ok": True, "detalle": "GROQ_API_KEY configurada"},
+                "base": {"ok": True, "motor": "postgrest",
+                         "detalle": "Motor de la aplicación: postgrest."},
+                "consulta": {"ok": False,
+                             "detalle": "PostgREST no encuentra la función."},
+                "tablas": {"ok": False, "detalle": "El canal no responde.",
+                           "por_esquema": {}},
+            })
+
+            page.click(f".nav-item:has-text('{ETIQUETA}')")
+            page.fill("#agentePregunta", "lo que sea")
+            page.click("#agenteConsultarBtn")
+
+            page.wait_for_selector("#agenteDiagnosticoBtn", timeout=15000)
+            page.click("#agenteDiagnosticoBtn")
+
+            page.wait_for_selector("#agenteDiagnostico", timeout=15000)
+            panel = page.inner_text("#agenteDiagnostico")
+            # Las piezas que SÍ funcionan también se enseñan: media respuesta
+            # ("algo falla") es lo que ya se tenía.
+            assert "GROQ_API_KEY configurada" in panel
+            assert "postgrest" in panel
+            assert "PostgREST no encuentra la función" in panel
+            assert "falta algo" in panel
+        finally:
+            navegador.close()
+
+
+def test_el_diagnostico_nombra_la_tabla_que_no_se_puede_leer():
+    """
+    La avería que el `SELECT 1` no ve.
+
+    El canal puede responder y el agente no encontrar nada, porque las tablas se
+    llaman de otra forma o el rol no tiene SELECT sobre ellas. El backend ya lo
+    mide por tabla; si la vista lo resume en un ❌ suelto, vuelve a perderse
+    justo el dato que dice qué hacer.
+    """
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1500, "height": 950})
+        try:
+            _entrar(page, "ADMIN", "LUIS_CARLOS")
+            _doblar_respuesta_del_agente(page, {
+                "success": False, "message": "La consulta falló en la base.",
+            })
+            _doblar_diagnostico(page, {
+                "success": True,
+                "listo": False,
+                "modelo": {"ok": True, "detalle": "GROQ_API_KEY configurada"},
+                "base": {"ok": True, "motor": "postgrest", "detalle": "postgrest."},
+                "consulta": {"ok": True, "detalle": "La base respondió."},
+                "tablas": {
+                    "ok": False,
+                    "detalle": "No se pueden leer: quotes.",
+                    "por_esquema": {
+                        "tasks": {"tabla": "tasks", "ok": True,
+                                  "detalle": "`tasks` se puede leer."},
+                        "quotes": {"tabla": "quotes", "ok": False,
+                                   "detalle": "No se pudo leer `quotes`: define "
+                                              "AGENTE_SQL_TABLA_QUOTES."},
+                    },
+                },
+            })
+
+            page.click(f".nav-item:has-text('{ETIQUETA}')")
+            page.fill("#agentePregunta", "lo que sea")
+            page.click("#agenteConsultarBtn")
+            page.wait_for_selector("#agenteDiagnosticoBtn", timeout=15000)
+            page.click("#agenteDiagnosticoBtn")
+
+            page.wait_for_selector("#agenteDiagnostico", timeout=15000)
+            panel = page.inner_text("#agenteDiagnostico")
+            assert "AGENTE_SQL_TABLA_QUOTES" in panel
+            assert "`tasks` se puede leer." in panel
         finally:
             navegador.close()

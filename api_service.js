@@ -138,6 +138,24 @@ class ApiService {
         return ApiService._geoPost('/api/agente/borradores', payload);
     }
 
+    /**
+     * Qué le falta al agente para funcionar: modelo, base, función RPC y tablas.
+     *
+     * Es GET y no POST —no cambia nada— y por eso no puede reutilizar
+     * `_geoPost`. Existe en el navegador, y no solo como ruta que alguien abre
+     * a mano, porque el aviso de error no distingue "falta ejecutar el DDL" de
+     * "la SUPABASE_URL apunta a otro sitio": esta llamada sí, y quien ve el
+     * error es justo quien necesita esa respuesta.
+     */
+    static async agenteDiagnostico() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/agente/diagnostico`);
+            return await response.json();
+        } catch (e) {
+            return { success: false, message: "Connection Error: " + e.toString() };
+        }
+    }
+
     /** Aplica un cambio a UN borrador; los demás no se tocan. */
     static async agenteCambioBorrador(payload) {
         return ApiService._geoPost('/api/agente/borrador', payload);
