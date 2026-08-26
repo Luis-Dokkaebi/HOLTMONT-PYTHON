@@ -869,8 +869,10 @@ paths:
         La respuesta trae `motivo: "aviso_legal_pendiente"` y el correo ya
         redactado en `vista_previa`, para copiarlo y mandarlo a mano.
         Cuando el texto exista, hacen falta además `GEO_CORREO_HABILITADO=1` y
-        `SMTP_HOST`. El correo sale por `api/services/correo.py`; no hay un
-        segundo camino de envío.
+        el canal de correo configurado: con Gmail bastan `SMTP_USER` y
+        `SMTP_PASSWORD` (el host se deduce), o `SMTP_HOST` explícito con
+        cualquier otro proveedor. El correo sale por `api/services/correo.py`;
+        no hay un segundo camino de envío.
       requestBody:
         required: true
         content:
