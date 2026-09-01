@@ -15,6 +15,13 @@ Característica: Prevención de tareas duplicadas
     Cuando el formulario se envía una vez
     Entonces el sistema devuelve la tarea guardada con su FOLIO asignado
 
+  Escenario: La clave interna de la base nunca se guarda como folio
+    Dado que la actividad "PROYECTO 3459 REUBICACION DE PUERTA" tiene el folio "RC-0170" y la clave interna "b90ed1a7-7c3f-4d21-9a55-1f0c2e4b8a77"
+    Y que quien la recibe estrena su tabla, que todavía no tiene ninguna fila
+    Cuando la actividad se guarda en la tabla de quien la recibe
+    Entonces la fila guardada lleva el folio "RC-0170"
+    Y la tabla de quien la recibe tiene una sola fila
+
   Escenario: Si el FOLIO se perdió, la fila se reencuentra por CONCEPTO y FECHA
     Dado que existe una tarea "REVISION DE PLANOS" con fecha "10/07/26" a cargo de "JAIME OLIVO"
     Y que esa tarea se quedó sin FOLIO por un error de escritura

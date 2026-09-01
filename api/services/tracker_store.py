@@ -252,6 +252,14 @@ def _persist_batch(sheet_name: str, tasks: List[Dict[str, Any]], skip_notify: bo
     multiplicaría las lecturas de un guardado.
     """
     persistencia = persistencia or _persistencia()
+    # La identidad de la fila en Postgres no la escribe el cliente. Se limpia
+    # aquí, que es el único punto por el que pasa TODA escritura —la del usuario,
+    # el espejo de una asignación, la papa caliente y el reverse sync—, y esos
+    # tres últimos construyen su fila copiando la de origen, `ID` incluido.
+    # Muta las filas recibidas a propósito: `save_tracker_batch` vuelve a leerlas
+    # después de que `apply_batch_update` les ponga el folio. Ver BUG-0016.
+    for task in tasks:
+        rules.limpiar_claves_tecnicas(task)
     values = _matriz_de_trabajo(sheet_name)
     result = rules.apply_batch_update(
         values, tasks, sheet_name,
@@ -587,6 +595,13 @@ def save_tracker_batch(person_name: str, tasks: List[Dict[str, Any]], username: 
     """
     if not tasks:
         return {"success": True, "data": [], "message": "Sin cambios"}
+
+    # Antes de leer un solo folio: el bloqueo por reasignación, la papa caliente
+    # y el retiro de copias preguntan por `["FOLIO", "ID"]`, así que un `ID` de
+    # Postgres en el payload los haría buscar la actividad por una clave que no
+    # es su folio. `_persist_batch` la repite sobre las filas que él recibe —es
+    # idempotente— porque también le llegan filas que no pasan por aquí.
+    tasks = [rules.limpiar_claves_tecnicas(dict(t)) for t in tasks]
 
     routing = rules.resolve_tracker_target(person_name, username)
     target = routing["sheet"]

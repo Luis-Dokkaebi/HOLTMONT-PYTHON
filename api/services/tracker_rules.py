@@ -106,6 +106,40 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
     "FECHA_TERMINO": ["FECHA TERMINO", "FECHA REAL", "TERMINO", "REALIZADO"],
 }
 
+# Alias con los que se resuelve una **columna de la matriz**, que no son los
+# mismos con los que se lee un valor del payload.
+#
+# `FOLIO` queda fuera, y esa exclusión es el arreglo de BUG-0016. `CODIGO.js`
+# (líneas 1106-1131) tampoco tiene entrada FOLIO en su diccionario de alias:
+# resuelve la columna del folio aparte, en la línea 1133
+# (`getColIdx('FOLIO') > -1 ? getColIdx('FOLIO') : getColIdx('ID')`). La entrada
+# de más que tenía el puerto a Python hacía que `get_col_idx("ID")` devolviera el
+# índice de FOLIO siempre que la matriz destino no trajera columna `ID` propia
+# —le pasa a toda hoja que se estrena, porque `_matriz_de_trabajo` la arranca con
+# `ENCABEZADOS_TAREA`—, y como `apply_batch_update` copia la fila celda por celda
+# y `ID` viaja después de `FOLIO`, el UUID de `tasks.id` **pisaba** el folio
+# bueno. La fila se guardaba con `dedupe_key = "<hoja>::<uuid>"`, el upsert no la
+# fusionaba con la original y la actividad salía duplicada en la tabla de quien
+# la recibió. Ver `tests/test_folio_no_es_la_clave_de_postgres.py`.
+_ALIAS_DE_COLUMNA: Dict[str, List[str]] = {
+    clave: alias for clave, alias in COLUMN_ALIASES.items() if clave != "FOLIO"
+}
+
+# Columnas del esquema relacional que la lectura expone al frontend (ver
+# `sheets.COLUMNAS_TECNICAS`) y que este devuelve intactas en cada guardado.
+# Ninguna es capturable: son la identidad de la fila en Postgres, no datos de la
+# actividad. `TaskWrite` ya lo declara con su `extra="forbid"`; esto lo hace
+# cumplir también en el camino legacy, donde las claves llegan con nombre de
+# encabezado.
+CLAVES_TECNICAS: frozenset = frozenset({
+    "ID", "DEDUPE_KEY", "SOURCE_SHEET", "CREATED_AT", "FOLIO_SINTETICO",
+    "ASSIGNEE_ID", "VENDEDOR_ID",
+})
+
+_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
 ARCHIVE_SEPARATOR = "TAREAS REALIZADAS"
 
 # ----------------------------------------------------------------------
@@ -310,6 +344,49 @@ def pick_task_value(task: Dict[str, Any], keys: Sequence[str]) -> Any:
         if val not in (None, ""):
             return val
     return ""
+
+
+def es_clave_de_postgres(valor: Any) -> bool:
+    """
+    ¿Este valor es un UUID de la base, y por tanto **no** es un folio?
+
+    Los folios de la casa llevan prefijo y consecutivo (`RC-0170`, `PPC-544684601`),
+    o son marcas de tiempo (`1772639658256`), o sintéticos de la migración
+    (`HOJA::ROW1604`). Ninguno tiene forma de UUID canónico. El único valor con
+    esa forma que circula por el payload es `tasks.id` / `quotes.id`, que la
+    lectura expone como columna `ID` y el frontend devuelve en cada guardado.
+
+    Se compara contra la forma canónica 8-4-4-4-12 y no contra "trae guiones":
+    `RC-0170` también los trae.
+    """
+    return bool(_UUID.match(str(valor or "").strip()))
+
+
+def limpiar_claves_tecnicas(task: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Quita del payload las columnas que son identidad de la fila en Postgres.
+
+    **Muta y devuelve la misma fila**, a propósito: `_persist_batch` la aplica
+    sobre las filas que `apply_batch_update` va a completar con el folio recién
+    asignado, y que `save_tracker_batch` vuelve a leer después para el reverse
+    sync. Copiarlas dejaría a esa segunda lectura sin el folio.
+
+    `ID` es el caso delicado y por eso se juzga por el valor y no por el nombre:
+    en las hojas de Apps Script `ID` **es** el folio (`A-1755123456789`,
+    `PPC-123`) y ahí tiene que seguir contando; en el esquema relacional es la
+    clave primaria, y como tal no la escribe el cliente. `es_clave_de_postgres`
+    distingue las dos cosas.
+
+    Los metadatos del frontend (`_tempId`, `_rowIndex`) no se tocan: son de la UI,
+    no del esquema, y `_tempId` es el candado anti doble clic del gatekeeper.
+    """
+    if not task:
+        return task
+    for clave in [c for c in list(task) if normalize_header(c) in CLAVES_TECNICAS]:
+        if normalize_header(clave) == "ID" and not es_clave_de_postgres(task[clave]):
+            continue
+        del task[clave]
+    return task
 
 
 def generate_prefix(name: Any) -> str:
@@ -1157,7 +1234,7 @@ def _build_col_resolver(headers: List[str]) -> Callable[[str], int]:
         k = normalize_header(key)
         if k in col_map:
             return col_map[k]
-        for aliases in COLUMN_ALIASES.values():
+        for aliases in _ALIAS_DE_COLUMNA.values():
             if k in aliases:
                 for alias in aliases:
                     if alias in col_map:
@@ -1215,7 +1292,13 @@ def apply_batch_update(values: List[List[Any]], tasks: List[Dict[str, Any]], she
             row.append("")
 
     get_col_idx = _build_col_resolver(headers)
+    # Paridad literal con `CODIGO.js:1133`: la columna del folio es FOLIO y, si
+    # la hoja no la tiene, ID. Se resuelve aquí y no por alias porque `ID` no es
+    # alias de FOLIO (ver `_ALIAS_DE_COLUMNA`): en el esquema relacional es la
+    # clave primaria, y dejarla caer en esta columna duplicaba la actividad.
     folio_idx = get_col_idx("FOLIO")
+    if folio_idx == -1:
+        folio_idx = get_col_idx("ID")
     concepto_idx = get_col_idx("CONCEPTO")
     fecha_idx = get_col_idx("FECHA")
     responsable_idx = get_col_idx("RESPONSABLE")
