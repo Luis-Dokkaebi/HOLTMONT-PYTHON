@@ -8122,8 +8122,19 @@ async function toggleVoiceRecording(btnElement) {
 
       const columnasDeOrden = computed(() => columnasDeOrdenDe(staffTracker.value.name));
 
+      // Las dos tablas de la vista salen de la misma hoja —COTIZACIONES EN
+      // PROCESO lee `data` y COTIZACIONES ENVIADAS PERDIDAS lee `history`, que
+      // el backend parte por la fila `TAREAS REALIZADAS`—, así que la pregunta
+      // "¿hay columna de fecha?" se contesta una sola vez sobre las dos.
+      //
+      // Mirar solo `data` no bastaba: una hoja puede quedarse sin filas en
+      // proceso (en ANTONIA_VENTAS 376 de 583 cotizaciones están archivadas) y
+      // entonces el botón habría movido `staffTrackerSortAsc`, el estado de la
+      // tabla que NO se está viendo, dejando el historial quieto.
       const ordenaPorFecha = computed(
-          () => hayFechaDeOrden(staffTracker.value.data || [], columnasDeOrden.value));
+          () => hayFechaDeOrden((staffTracker.value.data || [])
+                                    .concat(staffTracker.value.history || []),
+                                columnasDeOrden.value));
 
       // El botón "Invertir Orden" mueve el estado de la tabla que se ve: las
       // que se ordenan por fecha llevan el suyo porque arrancan ascendentes, y
@@ -8162,12 +8173,18 @@ const filteredStaffTrackerData = computed(() => {
           return filtered;
       });
 
+      // COTIZACIONES ENVIADAS PERDIDAS se ordena igual que COTIZACIONES EN
+      // PROCESO y con el mismo botón: buscar por concepto primero, ordenar
+      // después. Pedido de ANTONIA_VENTAS (BUG-0018, 2026-08-26): «¿es posible
+      // que la función de "invertir orden" funcione también en la sección de
+      // "cotizaciones enviadas perdidas"?». Antes esta tabla devolvía las filas
+      // tal como venían de la hoja y el botón no la tocaba.
       const filteredStaffTrackerHistory = computed(() => {
           if (!staffTracker.value.history) return [];
           const query = historySearchQuery.value.toLowerCase().trim();
-          if (!query) return staffTracker.value.history;
 
-          return staffTracker.value.history.filter(row => {
+          const filtered = !query ? staffTracker.value.history
+                                  : staffTracker.value.history.filter(row => {
              // Find CONCEPTO column value for this row
              const conceptoKeys = Object.keys(row).filter(k => String(k).toUpperCase() === 'CONCEPTO' || String(k).toUpperCase().includes('DESCRIP') || String(k).toUpperCase().includes('COMENTARIO'));
              for (const key of conceptoKeys) {
@@ -8177,6 +8194,15 @@ const filteredStaffTrackerData = computed(() => {
              }
              return false;
           });
+
+          if (ordenaPorFecha.value) {
+              return ordenarPorFecha(filtered, ordenFechaAsc.value, columnasDeOrden.value);
+          }
+
+          if (!staffTrackerSortAsc.value) {
+              return filtered.slice().reverse();
+          }
+          return filtered;
       });
 
       const isFieldEditable = (h, row) => {
