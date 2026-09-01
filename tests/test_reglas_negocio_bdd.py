@@ -215,6 +215,53 @@ def _devuelve_tarea_guardada(contexto: Dict[str, Any]) -> None:
 
 
 @given(parsers.parse(
+    'que la actividad "{concepto}" tiene el folio "{folio}" y la clave interna "{clave}"'
+))
+def _actividad_con_clave_interna(contexto: Dict[str, Any], concepto: str,
+                                 folio: str, clave: str) -> None:
+    """
+    La fila tal como la devuelve el frontend: con su folio y con la columna `ID`
+    que la lectura le entregó, que es la clave primaria de Postgres.
+    """
+    contexto["concepto"] = concepto
+    contexto["folio"] = folio
+    contexto["tarea"] = {
+        "FOLIO": folio, "CONCEPTO": concepto, "FECHA": "21/07/26",
+        "RESPONSABLE": "ANTONIA PINEDA LOPEZ", "ID": clave,
+    }
+
+
+@given("que quien la recibe estrena su tabla, que todavía no tiene ninguna fila")
+def _tabla_que_se_estrena(contexto: Dict[str, Any]) -> None:
+    """Una partición vacía arranca con los encabezados de `tracker_store`, sin `ID`."""
+    contexto["matriz"] = [list(tracker_store.ENCABEZADOS_TAREA)]
+    assert "ID" not in contexto["matriz"][0]
+
+
+@when("la actividad se guarda en la tabla de quien la recibe")
+def _guardar_en_la_tabla_de_quien_recibe(contexto: Dict[str, Any]) -> None:
+    resultado = apply_batch_update(
+        contexto["matriz"], [dict(contexto["tarea"])], "ANTONIA PINEDA LOPEZ")
+    contexto["matriz"] = resultado.values
+    contexto["resultado"] = resultado
+
+
+@then(parsers.parse('la fila guardada lleva el folio "{folio}"'))
+def _la_fila_lleva_el_folio(contexto: Dict[str, Any], folio: str) -> None:
+    assert contexto["resultado"].data[0]["FOLIO"] == folio
+    columna = contexto["matriz"][0].index("FOLIO")
+    assert [f[columna] for f in contexto["matriz"][1:] if str(f[columna]).strip()] == [folio]
+
+
+@then("la tabla de quien la recibe tiene una sola fila")
+def _una_sola_fila_en_la_tabla(contexto: Dict[str, Any]) -> None:
+    columna = contexto["matriz"][0].index("CONCEPTO")
+    filas = [f for f in contexto["matriz"][1:]
+             if str(f[columna]).strip().upper() == contexto["concepto"].upper()]
+    assert len(filas) == 1
+
+
+@given(parsers.parse(
     'que existe una tarea "{concepto}" con fecha "{fecha}" a cargo de "{responsable}"'
 ))
 def _tarea_existente(contexto: Dict[str, Any], concepto: str, fecha: str, responsable: str) -> None:
