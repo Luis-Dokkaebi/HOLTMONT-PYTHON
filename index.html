@@ -2071,7 +2071,7 @@
             <div v-else-if="quoteMetrics.loaded && quoteMetrics.data.totalCount === 0" class="alert alert-warning">
                 <i class="fas fa-info-circle me-2"></i>
                 No hay cotizaciones terminadas registradas para <strong>{{ qmMonthNames[qmFilters.month-1] }} {{ qmFilters.year }}</strong>.
-                <br><small>Verifica que existan filas en ANTONIA_VENTAS con <strong>F. INICIO</strong> en el mes seleccionado: el periodo se filtra por esa columna, no por F. VISITA ni por F. ENTREGA.</small>
+                <br><small>Verifica que existan filas en ANTONIA_VENTAS con <strong>FECHA INICIO</strong> en el mes seleccionado: el periodo se filtra por esa columna, no por FECHA VISITA ni por FECHA ENTREGA.</small>
             </div>
 
             <!-- CONTENIDO PRINCIPAL (cuando hay datos) -->
@@ -2357,7 +2357,7 @@
                 <div class="alert alert-info small py-2 mt-2">
                     <i class="fas fa-info-circle me-1"></i>
                     <strong>Nota:</strong> Solo se miden cotizaciones de la sección <em>TAREAS REALIZADAS</em> de ANTONIA_VENTAS.
-                    El periodo se filtra por <em>F. INICIO</em> y la duración se mide de <em>F. INICIO</em> a <em>F. ENTREGA</em>
+                    El periodo se filtra por <em>FECHA INICIO</em> y la duración se mide de <em>FECHA INICIO</em> a <em>FECHA ENTREGA</em>
                     (si no hay entrega, hasta hoy).
                     Usa <strong>EXPORTAR SHEET</strong> para guardar los resultados en la hoja <em>KPI_COTIZACIONES</em>.
                 </div>
@@ -3081,9 +3081,9 @@
                               <th class="row-num">#</th>
                               <th style="width: 200px;">CLIENTE</th>
                               <th style="width: 100px;">VENDEDOR</th>
-                              <th style="width: 80px;">F. INICIO</th>
-                              <th style="width: 80px;">F. VISITA</th>
-                              <th style="width: 80px;">F. ENTREGA</th>
+                              <th style="width: 100px;">FECHA INICIO</th>
+                              <th style="width: 100px;">FECHA VISITA</th>
+                              <th style="width: 100px;">FECHA ENTREGA</th>
                               <th style="width: auto;">MAP COT</th>
                           </tr>
                       </thead>
@@ -8268,7 +8268,11 @@ const filteredStaffTrackerData = computed(() => {
                   w = (currentUsername.value === 'ANTONIA_VENTAS') ? '350px' : '380px';
               }
           }
-          else if (currentUsername.value === 'ANTONIA_VENTAS' && (up === 'F. ENTREGA' || up === 'F_ENTREGA' || up === 'F. VISITA' || up === 'F_VISITA' || up === 'FECHA VISITA' || up === 'F. INICIO' || up === 'F_INICIO')) { w = '60px'; fs = '10px'; colColor = '#000'; }
+          // 95px es lo que mide `Fecha Entrega` —la más larga de las tres— con la
+          // Arial de 11px del encabezado. Con los 60px de antes la etiqueta
+          // completa salía recortada, tan abreviada para el usuario como el
+          // `F. entrega` que vino a sustituir (BUG-0017).
+          else if (currentUsername.value === 'ANTONIA_VENTAS' && (up === 'F. ENTREGA' || up === 'F_ENTREGA' || up === 'F. VISITA' || up === 'F_VISITA' || up === 'FECHA VISITA' || up === 'F. INICIO' || up === 'F_INICIO')) { w = '95px'; fs = '10px'; colColor = '#000'; }
 
 
           else if (up.includes('COMENTARIO') || up.includes('PREVIOS') || up.includes('OBSERVACIONES') || up.includes('RESTRICCION')) { w = '200px'; }
@@ -8326,6 +8330,15 @@ const filteredStaffTrackerData = computed(() => {
           'HORAESTIMADADEFIN': 'Hr. Est. Fin',
           'HORAESTIMADAFIN': 'Hr. Est. Fin',
           'FECHARESPUESTA': 'Fecha respuesta',
+          // BUG-0017: el cliente pidió leer la palabra completa. La columna se
+          // sigue llamando `F. VISITA` en la hoja y en la base
+          // (`QUOTE_HEADER_MAP` de api/services/sheets.py); esto es solo el
+          // rótulo. Van las dos grafías con las que llega —`F. VISITA` de la
+          // API y `F_VISITA` de las hojas viejas—, que `claveEtiqueta` reduce
+          // a la misma clave.
+          'FVISITA': 'Fecha Visita',
+          'FINICIO': 'Fecha Inicio',
+          'FENTREGA': 'Fecha Entrega',
           'HORAALTA': 'Hora',
           // Como se llaman en la hoja del original (ver `ALIAS_DE_HOJA` de
           // backend/schemas/task.py).

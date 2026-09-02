@@ -39,6 +39,15 @@ ETIQUETAS_ESPERADAS = [
     ("FECHA ESTIMADA DE FIN", "Fec. Est. Fin"),
     ("HORA_ESTIMADA_FIN", "Hr. Est. Fin"),
     ("HORA ESTIMADA DE FIN", "Hr. Est. Fin"),
+    # BUG-0017: las fechas de Cotizaciones se pidieron con la palabra completa.
+    # La API las rinde abreviadas (`QUOTE_HEADER_MAP`) y las hojas viejas usan
+    # guion bajo; las dos grafías deben rotularse igual.
+    ("F. VISITA", "Fecha Visita"),
+    ("F_VISITA", "Fecha Visita"),
+    ("F. INICIO", "Fecha Inicio"),
+    ("F_INICIO", "Fecha Inicio"),
+    ("F. ENTREGA", "Fecha Entrega"),
+    ("F_ENTREGA", "Fecha Entrega"),
     # Sin regla propia: se capitaliza y ya.
     ("CONCEPTO", "Concepto"),
     ("RIESGOS", "Riesgos"),
