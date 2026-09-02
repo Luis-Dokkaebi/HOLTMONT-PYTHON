@@ -405,6 +405,45 @@ class TestDuplicadosRestantes:
         assert dedup.duplicados_restantes(motor) == []
 
 
+class TestParticionesPorPersona:
+    """
+    Quién tiene el tracker partido en dos.
+
+    Es la pregunta que dejó BUG-0023 ("revisa que no le esté pasando a otros
+    usuarios"): mientras una persona tenga filas en dos particiones, la mitad
+    de su tabla se lee de una hoja y se escribe en la otra. El duplicado es la
+    consecuencia visible; esto enumera el riesgo aunque todavía no haya
+    duplicado ninguno.
+    """
+
+    def test_enumera_a_quien_tiene_filas_en_dos_particiones(self):
+        filas = [fila("PPC-1", CARLOS), fila("PPC-2", CARLOS),
+                 fila("GM-9", CARLOS_LARGO)]
+        rep = dedup.agrupar_particiones({f["source_sheet"] for f in filas},
+                                        {CARLOS: [CARLOS, CARLOS_LARGO]})
+
+        assert dedup.particiones_por_persona(filas, rep) == {
+            CARLOS: {CARLOS: 2, CARLOS_LARGO: 1}
+        }
+
+    def test_una_persona_con_una_sola_particion_no_sale(self):
+        filas = [fila("PPC-1", CARLOS), fila("PPC-2", CARLOS)]
+        rep = dedup.agrupar_particiones({CARLOS}, {})
+
+        assert dedup.particiones_por_persona(filas, rep) == {}
+
+    def test_dos_personas_distintas_no_son_un_tracker_partido(self):
+        filas = [fila("PPC-1", CARLOS), fila("PPC-1", "RICARDO MENDO")]
+        rep = dedup.agrupar_particiones({CARLOS, "RICARDO MENDO"}, {})
+
+        assert dedup.particiones_por_persona(filas, rep) == {}
+
+    def test_una_fila_sin_particion_no_inventa_persona(self):
+        rep = dedup.agrupar_particiones({CARLOS}, {})
+
+        assert dedup.particiones_por_persona([fila("PPC-1", "")], rep) == {}
+
+
 class TestInvolucradosDe:
     def test_los_recoge_solo_de_las_filas_que_se_van_a_borrar(self):
         borrada = PAR_DE_CARLOS[1]
@@ -491,6 +530,21 @@ class TestMain:
 
         assert dedup.main() == 1
         assert "Quedan 1 filas duplicadas" in capsys.readouterr().out
+
+    def test_particiones_lista_los_trackers_partidos_sin_escribir(self, monkeypatch, capsys):
+        motor = _MotorFalso(PAR_DE_CARLOS)
+        self._con_motor(monkeypatch, motor, ["--particiones"])
+
+        assert dedup.main() == 0
+        assert len(motor.tasks) == 2, "es un diagnóstico: no escribe"
+        salida = capsys.readouterr().out
+        assert CARLOS_LARGO in salida
+
+    def test_particiones_lo_dice_cuando_no_hay_ninguno(self, monkeypatch, capsys):
+        self._con_motor(monkeypatch, _MotorFalso([fila("PPC-1", CARLOS)]), ["--particiones"])
+
+        assert dedup.main() == 0
+        assert "una sola partición" in capsys.readouterr().out
 
     def test_verificar_pasa_con_la_base_ya_consolidada(self, monkeypatch, capsys):
         self._con_motor(monkeypatch, _MotorFalso([fila("PPC-1", CARLOS)]), ["--verificar"])

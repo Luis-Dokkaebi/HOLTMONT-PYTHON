@@ -36,6 +36,7 @@ Uso:
     python scripts/deduplicar_tareas.py                 # simulación (por defecto)
     python scripts/deduplicar_tareas.py --aplicar       # escribe en la base
     python scripts/deduplicar_tareas.py --verificar     # solo comprueba que no queden
+    python scripts/deduplicar_tareas.py --particiones   # a quién le puede pasar
 
 Requiere SUPABASE_URL y SUPABASE_KEY (lee `.env` de la raíz si existe). Antes de
 escribir deja en `scripts/respaldos/duplicados_<marca>.json` las filas completas
@@ -172,6 +173,32 @@ def _unir_por_grafia(conjuntos: "_Conjuntos", hojas: Sequence[str]) -> None:
         for b in hojas[i + 1:]:
             if _es_variante_de_grafia(a, b):
                 conjuntos.unir(a, b)
+
+
+def particiones_por_persona(
+    filas: Sequence[Dict[str, Any]], representante: Mapping[str, str]
+) -> Dict[str, Dict[str, int]]:
+    """
+    Persona -> `{partición: nº de filas}`, solo de quienes tienen más de una.
+
+    Es el diagnóstico que pidió BUG-0023: mientras alguien tenga filas en dos
+    particiones, su Tracker las **lee** de las dos (`hojas_del_tracker`) y hasta
+    el arreglo de `TaskRepository.resolver_clave` escribía en la que calculaba
+    su nombre de hoja. De ahí el "las puse al cien % y siguen igual".
+
+    Distinto de `duplicados_restantes`, que enumera el daño ya hecho —dos filas
+    del mismo folio—: esto enumera el riesgo, que existe desde la primera fila
+    guardada en la partición equivocada y no espera al duplicado.
+    """
+    conteo: Dict[str, "collections.Counter[str]"] = collections.defaultdict(collections.Counter)
+    for fila in filas:
+        hoja = str(fila.get("source_sheet") or "")
+        if not hoja:
+            continue
+        conteo[representante.get(hoja, hoja)][hoja] += 1
+    return {persona: dict(particiones)
+            for persona, particiones in sorted(conteo.items())
+            if len(particiones) > 1}
 
 
 def elegir_canonica(particiones: Sequence[str], conteos: Dict[str, int],
@@ -427,6 +454,28 @@ def _verificar(engine: Any) -> int:
     return 1
 
 
+def _particiones(engine: Any) -> int:
+    """Modo `--particiones`: quién tiene el tracker repartido en dos hojas."""
+    filas = engine.select(TABLA, columnas=["source_sheet"])
+    hojas = {str(f.get("source_sheet") or "") for f in filas}
+    alias, _ = alias_del_organigrama(hojas)
+    partidos = particiones_por_persona(filas, agrupar_particiones(hojas, alias))
+    if not partidos:
+        print(f"{VERDE}Cada persona tiene una sola partición.{FIN}")
+        return 0
+
+    print(f"{AMARILLO}{len(partidos)} personas con el tracker repartido "
+          f"en más de una partición:{FIN}\n")
+    for persona, particiones in partidos.items():
+        detalle = ", ".join(f"{hoja!r} ({n})"
+                            for hoja, n in sorted(particiones.items(),
+                                                  key=lambda par: -par[1]))
+        print(f"  {persona!r}: {detalle}")
+    print("\n  Consolídalas con --aplicar: la fila que se conserva es la de la "
+          "partición que abre su Tracker.")
+    return 0
+
+
 def _planear(engine: Any) -> List[Dict[str, Any]]:
     """Lee la base entera y devuelve el plan de consolidación."""
     filas = engine.select(TABLA, columnas=["*"])
@@ -474,6 +523,8 @@ def main() -> int:
                         help="escribe en la base (por defecto solo simula)")
     parser.add_argument("--verificar", action="store_true",
                         help="solo comprueba que no queden duplicados y sale")
+    parser.add_argument("--particiones", action="store_true",
+                        help="lista quién tiene el tracker repartido en dos hojas")
     args = parser.parse_args()
 
     cargar_env()
@@ -482,6 +533,9 @@ def main() -> int:
         print("Faltan SUPABASE_URL y SUPABASE_KEY (ver .env.example).", file=sys.stderr)
         return 2
     engine = PostgrestEngine(url, key)
+
+    if args.particiones:
+        return _particiones(engine)
 
     if args.verificar:
         return _verificar(engine)
