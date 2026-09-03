@@ -10039,12 +10039,44 @@ const filteredStaffTrackerData = computed(() => {
           if (staffTracker.value.data.length === 0) return;
           if (isSubmitting.value) return; // Prevention for double clicking and racing conditions
 
+          // BUG-0023 (ALFONSO_CORREA): «las puse al cien % y siguen igual».
+          //
+          // La regla de evidencia (Política de Registro §3.4) es la correcta y
+          // NO se toca: mientras a una fila que se cierra le falte el archivo,
+          // no se guarda nada. Lo que estaba mal era cómo se contaba. Este
+          // recorrido cortaba en la PRIMERA fila sin evidencia y nombraba solo
+          // esa, así que cerrar seis actividades de una vez costaba seis
+          // vueltas —subir archivo, guardar, descubrir la siguiente— y por el
+          // camino no se guardaba nada, ni siquiera lo que sí cumplía. Visto
+          // desde la silla de quien captura, eso es «no pasa nada».
+          //
+          // Ahora se revisan todas antes de avisar y el aviso las nombra todas,
+          // con la columna que le falta a cada una.
+          const sinEvidencia = staffTracker.value.data
+              .map(row => ({ row, validacion: validateCompletionFiles(row, staffTracker.value.headers) }))
+              .filter(par => !par.validacion.valid);
+          if (sinEvidencia.length) {
+              // El CONCEPTO viene de la base y puede traer `<` o `&`: se escapa
+              // porque el aviso se pinta como HTML para poder listarlas.
+              const escapar = (t) => String(t == null ? '' : t)
+                  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              const lineas = sinEvidencia.map(({ row, validacion }) => {
+                  const nombre = String(row.FOLIO || row.ID || row.CONCEPTO || '(sin folio)').trim();
+                  return `<li><b>${escapar(nombre)}</b> — falta ${escapar(validacion.missing)}</li>`;
+              }).join('');
+              Swal.fire({
+                  icon: 'warning',
+                  title: sinEvidencia.length === 1
+                      ? 'Falta la evidencia'
+                      : `Faltan ${sinEvidencia.length} evidencias`,
+                  html: 'Para cerrar al 100% sube al menos un archivo en la columna que se indica. '
+                      + 'Mientras falte una, no se guarda ninguna fila.'
+                      + `<ul style="text-align:left; display:inline-block; margin-top:10px;">${lineas}</ul>`
+              });
+              return;
+          }
+
           for (const row of staffTracker.value.data) {
-              const validation = validateCompletionFiles(row, staffTracker.value.headers);
-              if (!validation.valid) {
-                  Swal.fire('Falta la evidencia', `Para cerrar al 100% la tarea ${row.FOLIO || row.ID || ''} sube al menos un archivo en ${validation.missing}.`, 'warning');
-                  return;
-              }
               // Las filas en blanco no cuentan: la tabla deja añadir renglones y
               // dejarlos vacíos, y el backend los descarta antes de darles folio.
               if (controlDeAltaAplica(staffTracker.value.name)

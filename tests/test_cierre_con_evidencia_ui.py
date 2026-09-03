@@ -248,3 +248,90 @@ def test_si_la_subida_falla_la_pantalla_lo_dice_y_no_se_queda_girando():
             assert page.locator(".swal2-loader").is_visible() is False
         finally:
             navegador.close()
+
+
+# ---------------------------------------------------------------------------
+# 3. «Guardar Todo» con varias filas a las que les falta la evidencia
+# ---------------------------------------------------------------------------
+# BUG-0023 (ALFONSO_CORREA): «las celdas del 1,3,4,5,6,7 son actividades ya
+# realizadas y las puse al cien % y siguen igual».
+#
+# Medido contra la base: sus ocho filas activas no tienen archivo ni en CORREO
+# ni en CARPETA, así que la puerta de §3.4 las rechaza —correctamente— y el
+# 100 % nunca sale del navegador. Lo que estaba mal no es la regla sino cómo se
+# cuenta: `saveAllTrackerRows` cortaba en la PRIMERA fila sin evidencia,
+# nombraba solo esa y no guardaba nada. Con seis filas cerradas de golpe, la
+# persona subía un archivo, volvía a guardar, y le salía la siguiente: seis
+# vueltas para enterarse de las seis, sin que nada se guardara por el camino.
+#
+# La regla no se toca: sigue sin guardarse nada mientras falte una evidencia.
+# Lo que cambia es que el aviso las nombra TODAS de una vez.
+
+FILA_SIN_EVIDENCIA_2 = {
+    "FOLIO": "CM-0003", "CONCEPTO": "ENTREGAR REPORTE FOTOGRAFICO",
+    "RESPONSABLE": "CARLOS MENDEZ", "AVANCE": "100", "ESTATUS": "HECHO",
+    "ARCHIVO": "", "CORREO": "", "CARPETA": "",
+}
+
+GUARDAR_TODO = """() => {
+    document.querySelector('#app').__vue_app__._instance.proxy.saveAllTrackerRows();
+}"""
+
+
+def test_guardar_todo_nombra_todas_las_filas_a_las_que_les_falta_evidencia():
+    """El aviso tiene que listar las dos, no solo la primera."""
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1400, "height": 800})
+        try:
+            intentos = []
+            page.route("**/api/legacy/saveTrackerBatch",
+                       lambda route: (intentos.append(1), _responder(route, {"success": True})))
+
+            _tracker_montado(page, [dict(FILA_SIN_EVIDENCIA),
+                                    dict(FILA_CON_CARPETA),
+                                    dict(FILA_SIN_EVIDENCIA_2)])
+            page.evaluate(GUARDAR_TODO)
+            page.wait_for_selector(".swal2-popup", timeout=10000)
+
+            aviso = page.evaluate(TEXTO_DEL_AVISO)
+            assert "CM-0002" in aviso["texto"], aviso
+            assert "CM-0003" in aviso["texto"], aviso
+            assert "CM-0001" not in aviso["texto"], "esa sí trae evidencia"
+            assert intentos == [], "no se guarda nada mientras falte una evidencia"
+        finally:
+            navegador.close()
+
+
+def test_guardar_todo_dice_en_que_columnas_se_sube_la_evidencia():
+    """Nombrar la fila no basta: hay que decir dónde se sube el archivo."""
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1400, "height": 800})
+        try:
+            _tracker_montado(page, [dict(FILA_SIN_EVIDENCIA)])
+            page.evaluate(GUARDAR_TODO)
+            page.wait_for_selector(".swal2-popup", timeout=10000)
+
+            aviso = page.evaluate(TEXTO_DEL_AVISO)
+            for columna in ("ARCHIVO", "CORREO", "CARPETA"):
+                assert columna in aviso["texto"], aviso
+        finally:
+            navegador.close()
+
+
+def test_guardar_todo_no_se_traba_con_las_filas_que_si_traen_evidencia():
+    """Con la evidencia puesta, «Guardar Todo» llega a su confirmación."""
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1400, "height": 800})
+        try:
+            _tracker_montado(page, [dict(FILA_CON_CARPETA)])
+            page.evaluate(GUARDAR_TODO)
+            page.wait_for_selector(".swal2-popup", timeout=10000)
+
+            aviso = page.evaluate(TEXTO_DEL_AVISO)
+            assert "evidencia" not in (aviso["titulo"] + aviso["texto"]).lower(), aviso
+            assert "Guardar Todo" in aviso["titulo"] or "guard" in aviso["titulo"].lower(), aviso
+        finally:
+            navegador.close()

@@ -233,9 +233,6 @@ class TaskRepository:
         tarea duplicada en su tabla. Reportado por el dueño el 2026-08-14 sobre
         el tracker de Carlos Méndez.
 
-        Para los folios con iniciales de persona las dos claves ya coinciden,
-        así que esto no cambia nada donde nada estaba roto.
-
         **Mi fila manda sobre la original.** Si en alguna de mis hojas ya existe
         una fila de este folio, se escribe en ESA, venga la petición marcada
         como copia o no. Sin esta regla, editar desde el tracker propio una
@@ -245,11 +242,29 @@ class TaskRepository:
         exitoso", mi fila se quedaba igual y al recargar volvían el avance y las
         restricciones viejos. Es el defecto que reportó ALFONSO CORREA
         (BUG-0015) sobre los renglones 3 al 7 de su Tracker.
+
+        **Y manda también con folio de iniciales.** Esa regla se aplicaba solo a
+        los folios de secuencia global, porque los de iniciales (`GM-0123`,
+        `JO-0009`) ya llevan la hoja dentro de la clave y se daban por
+        resueltos sin preguntarle nada a la base. Pero "la hoja" ahí es la que
+        se calcula del nombre pedido, y una persona tiene dos particiones —la
+        de su `staff_name` y la de su `label`, que la lectura une
+        (`hojas_del_tracker`)—: si su fila vive en la otra, la clave calculada
+        no es la suya, el upsert no encuentra nada que actualizar e **inserta
+        una fila nueva**. En pantalla, la actividad que acaba de poner al 100 %
+        sigue arriba con su avance viejo y aparece una copia cerrada debajo. Es
+        el defecto que reportó ALFONSO CORREA (BUG-0023) sobre las celdas
+        1,3,4,5,6,7 de su Tracker.
+
+        Lo que **no** cambia con eso: la fila de otra persona con el mismo folio
+        de iniciales es la difusión lateral ("papa caliente") y sigue siendo
+        otra fila. Por eso `ajena` solo manda para los folios globales, que son
+        únicos en todo el sistema.
         """
         from api.services.asignacion import clave_de_copia
 
         global_ = compute_dedupe_key(folio, sheet_name)
-        if not global_ or "::" in global_:
+        if not global_:
             return global_
 
         existentes = self._filas_con_folio(folio)
@@ -271,6 +286,11 @@ class TaskRepository:
                 ajena = clave
         if propia:
             return propia
+        if "::" in global_:
+            # Folio de iniciales: la hoja va DENTRO de la clave, así que una
+            # fila ajena es otra fila y la mía se estrena con la calculada.
+            # `clave_de_copia` devolvería exactamente esta misma clave.
+            return global_
         if como_copia:
             return clave_de_copia(folio, sheet_name)
         # Ninguna fila mía: se edita la que ya existe —desde el PPC maestro se
