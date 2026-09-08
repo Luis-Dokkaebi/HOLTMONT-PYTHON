@@ -1,5 +1,36 @@
 # Instrucciones para Actualizar el Fork de Pascal Editor
 
+> **Estado: ya aplicado, y ampliado.** Los tres pasos de abajo describen el
+> parche original y se conservan como historia. El puente vive hoy en
+> `apps/editor/app/holtmont-bridge.tsx` del repositorio `holtmont-3d-editor`, y
+> hace algo más que inyectar la escena en el store:
+>
+> - **Valida antes de aplicar.** `useScene.setScene()` no valida nada: guarda el
+>   objeto tal cual. Un nodo con un campo de la forma equivocada importaba sin
+>   quejarse y reventaba después dentro de un `useFrame`, matando el bucle de
+>   render de react-three-fiber. Ese era el Plano 3D en negro. Ahora cada nodo
+>   pasa por el esquema `AnyNode` del editor
+>   (`apps/editor/lib/holtmont-import.ts`), que además rellena los valores por
+>   defecto que `setScene` no rellena.
+> - **Contesta qué pasó.** `HOLTMONT_3D_IMPORT_ACK` trae el número de nodos y la
+>   lista de descartes; `HOLTMONT_3D_IMPORT_ERROR` llega cuando la escena no
+>   deja ningún nodo en pie —y entonces la escena anterior se queda en pantalla,
+>   en vez de sustituirla por una vacía—. `index.html` muestra los dos.
+> - **Los muebles se resuelven allá.** El generador manda el nombre en
+>   `metadata.holtmontAsset` y el puente lo busca en `CATALOG_ITEMS`: el
+>   catálogo de modelos 3D vive en el editor, no aquí.
+>
+> El contrato de nodos que produce `api/paperclip_agents.py::_build_pascal_scene`
+> se comprueba en `tests/test_arquitectura_pascal_contrato.py`. Las escenas de
+> referencia del editor se regeneran con:
+>
+> ```bash
+> python scripts/generar_escenas_pascal.py ../holtmont-3d-editor/apps/editor/public/holtmont-fixtures
+> ```
+>
+> y allá se validan contra el Zod real (`bun test`) y se dibujan de verdad en un
+> navegador (`node apps/editor/scripts/holtmont-smoke.mjs`).
+
 Dado que hiciste el Fork directamente desde el repositorio original en GitHub hacia tu cuenta (`holtmont-3d-editor`), ahora mismo tienes el código de Pascal Editor intacto. Necesitamos inyectarle la comunicación para que pueda hablar con tu página web de REAL-HOLTMONT.
 
 Sigue estos 3 pasos para modificar el código de tu Fork.
