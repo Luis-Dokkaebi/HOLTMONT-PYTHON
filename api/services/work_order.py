@@ -431,6 +431,12 @@ def tareas_de_programa(
 
     El destino lo da `resolve_worker_sheet`: siempre el tracker de la persona,
     nunca su tabla de ventas, aunque venda (decisión del dueño, 2026-08-09).
+    No exige que la partición exista: quien todavía no tiene tracker lo estrena
+    con esta fila, así que una orden se puede asignar a cualquier persona.
+
+    La fila hereda de `cabecera` el folio, el área, la clasificación, la fecha
+    y `ARCHIVO` —los documentos de la orden, cotización incluida—, y aporta lo
+    suyo: concepto, responsable, fecha de entrega y estatus.
     """
     from api.services.tracker_store import resolve_worker_sheet
 
@@ -455,6 +461,14 @@ def tareas_de_programa(
                 "FECHA_RESPUESTA": fecha_respuesta,
                 "ESTATUS": "ASIGNADO",
                 "AVANCE": "",
+                # Los documentos de la orden —la cotización y los planos que el
+                # formulario junta en `archivoUrl`— acompañan a cada persona
+                # asignada. `ARCHIVO` es alias de la columna `carpeta`, que es
+                # la que el Tracker pinta como adjunto. Sin esto la fila
+                # llegaba con `carpeta = None`: quien ejecuta el trabajo veía
+                # el concepto y la fecha, y tenía que ir a pedir la cotización
+                # a quien la elaboró.
+                "ARCHIVO": cabecera.get("ARCHIVO", ""),
             }))
     return derivadas
 
@@ -827,6 +841,7 @@ def _repartir_programa(
         "AREA": task_data.get("AREA", ""),
         "CLASIFICACION": task_data.get("CLASIFICACION", ""),
         "FECHA": task_data.get("FECHA", ""),
+        "ARCHIVO": task_data.get("ARCHIVO", ""),
     }
     errores = []
     for hoja, fila in tareas_de_programa(item.get("programa"), cabecera):
