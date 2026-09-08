@@ -1,5 +1,6 @@
 """Verifica que architect_node produce JSON compatible con Pascal Editor useScene store."""
 import json
+import math
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -172,11 +173,15 @@ def test_door_and_window_nodes_created():
     window_parent = nodes[window_nodes[0]["parentId"]]
     assert window_nodes[0]["id"] in window_parent["children"]
 
-    # Check door/window fields
+    # Los huecos van en coordenadas del muro (metros desde su arranque), no en
+    # la fracción con la que razona el agente: el editor lee `position[0]`.
     d = door_nodes[0]
-    assert d["width"] == 0.9 and d["height"] == 2.1 and d["position"] == 0.5
+    assert d["width"] == 0.9 and d["height"] == 2.1
+    assert d["position"] == [2.5, 1.05, 0]      # muro 0 mide 5 m; 0.5 -> 2.5 m
+    assert d["rotation"] == [0, 0, 0] and d["side"] == "front"
     w = window_nodes[0]
-    assert w["width"] == 1.2 and w["height"] == 1.0 and w["sillHeight"] == 0.9
+    assert w["width"] == 1.2 and w["height"] == 1.0
+    assert w["position"] == [5.0, 1.4, 0]       # muro 1 mide 10 m; alfeizar 0.9 + alto/2
 
 
 def test_llm_extraction_with_doors_and_windows():
@@ -251,7 +256,7 @@ def test_multi_level_scene():
 # --- Mejora 2: Escaleras ---
 
 def test_staircase_node_created():
-    """Escalera debe existir como nodo hijo del nivel de origen."""
+    """Escalera debe existir como nodo `stair` hijo del nivel de origen."""
     walls = [
         WallSegment(start=[0, 0], end=[6, 0], level=0),
         WallSegment(start=[6, 0], end=[6, 4], level=0),
@@ -268,11 +273,18 @@ def test_staircase_node_created():
     _assert_pascal_shape(scene)
     nodes = scene["nodes"]
 
-    stair_nodes = [n for n in nodes.values() if n["type"] == "staircase"]
-    assert len(stair_nodes) == 1, f"Expected 1 staircase, got {len(stair_nodes)}"
+    # El editor llama `stair` al grupo y `stair-segment` a cada tramo; los
+    # niveles se referencian por id, no por índice.
+    stair_nodes = [n for n in nodes.values() if n["type"] == "stair"]
+    assert len(stair_nodes) == 1, f"Expected 1 stair, got {len(stair_nodes)}"
     s = stair_nodes[0]
-    assert s["fromLevel"] == 0 and s["toLevel"] == 1
-    assert s["steps"] == 12 and s["direction"] == "north"
+    levels_by_index = {n["level"]: n["id"] for n in nodes.values() if n["type"] == "level"}
+    assert s["fromLevelId"] == levels_by_index[0]
+    assert s["toLevelId"] == levels_by_index[1]
+    assert s["stepCount"] == 12 and s["stairType"] == "straight"
+    segments = [n for n in nodes.values() if n["type"] == "stair-segment"]
+    assert len(segments) == 1 and segments[0]["parentId"] == s["id"]
+    assert segments[0]["id"] in s["children"]
 
     # Debe ser hijo del nivel 0
     level_0 = next(n for n in nodes.values() if n["type"] == "level" and n["level"] == 0)
@@ -282,7 +294,7 @@ def test_staircase_node_created():
 # --- Mejora 2: Techo inclinado ---
 
 def test_gabled_roof_node_on_top_level():
-    """Techo 'gabled' debe generar nodo tipo roof en nivel superior, no ceiling."""
+    """Techo 'gabled' debe generar grupo roof + tramo en el nivel superior, no ceiling."""
     walls = [
         WallSegment(start=[-3, -2], end=[3, -2]),
         WallSegment(start=[3, -2], end=[3, 2]),
@@ -299,9 +311,14 @@ def test_gabled_roof_node_on_top_level():
     assert len(roof_nodes) == 1, "Expected 1 roof node for gabled roof"
     assert len(ceiling_nodes) == 0, "Gabled roof should replace ceiling on top level"
     r = roof_nodes[0]
-    assert r["roofType"] == "gabled"
-    assert r["pitch"] == 35.0
-    assert r["overhang"] == 0.6
+    # La forma del techo la define su tramo: el grupo solo lo posiciona.
+    segments = [n for n in nodes.values() if n["type"] == "roof-segment"]
+    assert len(segments) == 1 and segments[0]["parentId"] == r["id"]
+    seg = segments[0]
+    assert seg["roofType"] == "gable", "el editor no conoce 'gabled'"
+    assert seg["overhang"] == 0.6
+    # 35° sobre una media crujía de 2 m: la altura sale de la pendiente.
+    assert abs(seg["roofHeight"] - math.tan(math.radians(35.0)) * 2.0) < 1e-6
 
 
 def test_flat_roof_uses_ceiling_not_roof_node():
@@ -343,7 +360,7 @@ def test_wall_thickness_and_type_preserved():
 # --- Mejora 6: Mobiliario ---
 
 def test_furniture_nodes_created():
-    """Muebles deben aparecer como nodos tipo object en el nivel correcto."""
+    """Muebles deben aparecer como nodos tipo item en el nivel correcto."""
     walls = [
         WallSegment(start=[0, 0], end=[4, 0]),
         WallSegment(start=[4, 0], end=[4, 4]),
@@ -358,13 +375,17 @@ def test_furniture_nodes_created():
     _assert_pascal_shape(scene)
     nodes = scene["nodes"]
 
-    obj_nodes = [n for n in nodes.values() if n["type"] == "object"]
+    obj_nodes = [n for n in nodes.values() if n["type"] == "item"]
     assert len(obj_nodes) == 2
     names = {n["name"] for n in obj_nodes}
     assert names == {"bed", "desk"}
     bed = next(n for n in obj_nodes if n["name"] == "bed")
-    assert bed["rotation"] == [0, 0, 90.0]
-    assert bed["position"] == [1.0, 1.0, 0]
+    # El eje vertical del editor es Y: el mueble se gira sobre Y, en radianes,
+    # y se apoya en el piso del nivel.
+    assert bed["rotation"] == [0, math.radians(90.0), 0]
+    assert bed["position"] == [1.0, 0, 1.0]
+    # El catálogo de modelos vive en el editor; aquí solo viaja el nombre.
+    assert bed["metadata"]["holtmontAsset"] == "bed"
 
 
 # --- Mejora 4: Validación geométrica ---

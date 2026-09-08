@@ -12295,11 +12295,18 @@ const filteredStaffTrackerData = computed(() => {
           }
       };
 
+      // El editor avisa con `PASCAL_READY` en cuanto su puente está escuchando.
+      // Antes se mandaba el diseño tras un retraso fijo: si el motor tardaba
+      // más de la cuenta —primera carga, red lenta— el mensaje llegaba antes
+      // que el oyente y se perdía sin dejar rastro.
+      const pascalListo = Vue.ref(false);
+
       // Manda el diseño al editor Pascal. La clave del mensaje es `projectData`
       // porque es la que el fork lee (`PARCHE_PASCAL_EDITOR.md`); con `payload`
       // el canvas se queda vacío sin ningún aviso de este lado.
       //
-      // El retraso da tiempo a que el motor 3D monte su store antes del mensaje.
+      // El retraso solo se usa como red de seguridad: si por lo que sea no
+      // llegó el `PASCAL_READY`, se intenta igual pasado ese tiempo.
       const enviarDisenoAPascal = (retrasoMs) => {
           setTimeout(() => {
               const iframe = document.getElementById('pascal-editor-iframe');
@@ -12349,12 +12356,50 @@ const filteredStaffTrackerData = computed(() => {
               enviarDisenoAPascal(1000);
           } else if (newView !== 'PASCAL_DESIGNER') {
               iframeLoaded.value = false;
+              pascalListo.value = false;
           }
       });
 
       window.addEventListener('message', (event) => {
           const data = event.data;
-          if (data && data.type === 'HOLTMONT_3D_EXPORT') {
+          if (!data || !data.type) return;
+
+          if (data.type === 'PASCAL_READY') {
+              // El puente ya escucha: es el momento exacto de mandar el diseño,
+              // sin adivinar cuánto tarda en arrancar el motor 3D.
+              pascalListo.value = true;
+              if (saved3DProjectData.value && currentView.value === 'PASCAL_DESIGNER') {
+                  enviarDisenoAPascal(0);
+              }
+              return;
+          }
+
+          if (data.type === 'HOLTMONT_3D_IMPORT_ACK') {
+              // `dropped` son las piezas que el editor no supo dibujar. Antes
+              // esto no existía: el diseño llegaba incompleto y nadie se
+              // enteraba hasta ver el plano en obra.
+              const descartes = data.dropped || [];
+              console.log('Pascal aceptó el diseño:', data.nodeCount, 'nodos;', descartes.length, 'descartes', descartes);
+              if (descartes.length > 0) {
+                  Swal.fire({ icon: 'warning', title: 'El plano 3D se dibujó incompleto',
+                              html: 'El editor no pudo dibujar ' + descartes.length +
+                                    ' pieza(s) del diseño:<br><small>' +
+                                    descartes.slice(0, 5).map(d => (d.type || '?') + ': ' + d.reason).join('<br>') +
+                                    '</small>' });
+              }
+              return;
+          }
+
+          if (data.type === 'HOLTMONT_3D_IMPORT_ERROR') {
+              // Sin este aviso el síntoma era un lienzo negro sin explicación.
+              design3DStatus.value = 'ERROR';
+              console.error('Pascal rechazó el diseño:', data.reason, data.dropped);
+              Swal.fire({ icon: 'error', title: 'El editor no pudo abrir el diseño',
+                          text: 'El plano 3D no se pudo dibujar: ' + (data.reason || 'motivo desconocido') });
+              return;
+          }
+
+          if (data.type === 'HOLTMONT_3D_EXPORT') {
               // El fork manda `{ type, data, version, timestamp }`. Antes se leía
               // `payload`, que no existe: guardaba `undefined` y aun así marcaba
               // 'SAVED', o sea que la interfaz decía que sí y no había diseño.
@@ -12409,7 +12454,7 @@ const filteredStaffTrackerData = computed(() => {
       showBlueprintModal, isGeneratingBlueprint, blueprintSvg, blueprintOrigen, blueprintResumen,
       generateBlueprintFromDescription, descargarPlano2D, abrirEditor3D,
       abrirPreWorkOrder,
-      saved3DProjectData, design3DStatus, pascalEditorUrl, iframeLoaded, onIframeLoaded, download3DJson,
+      saved3DProjectData, design3DStatus, pascalEditorUrl, iframeLoaded, pascalListo, onIframeLoaded, download3DJson,
       addCertActivity, completeCertActivity, closeCertModal, resetCertPractice };
     }
   });

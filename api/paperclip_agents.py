@@ -272,6 +272,60 @@ def _gen_pascal_id(prefix: str) -> str:
     return f"{prefix}_{''.join(secrets.choice(chars) for _ in range(16))}"
 
 
+# --- Contrato con el editor 3D (holtmont-3d-editor) --------------------------
+#
+# Cada nodo que sale de aquí lo valida `AnyNode` (Zod) en el puente del editor
+# antes de llegar a `useScene.setScene()`. Los nombres y las formas de abajo no
+# son estilo: son ese esquema. Lo que no encaja se descarta allá y la escena
+# llega incompleta, así que cualquier cambio aquí se comprueba contra
+# `tests/test_arquitectura_pascal_contrato.py` y contra el test de esquema del
+# repositorio del editor (`bun test`).
+#
+# Sistema de coordenadas
+# ----------------------
+#   - Nivel: los muros viven en (x, y) metros; el editor mapea y → z.
+#   - Muro: su malla se coloca en `start` y se gira hasta alinear el eje X local
+#     con el muro. Por eso una puerta se posiciona con `[avance, altura, 0]`,
+#     donde `avance` son metros desde `start`, no una fracción.
+#   - Nivel n: el editor apila los niveles solo; no hay que sumar alturas aquí.
+
+ALTURA_MURO_POR_DEFECTO_M = 2.5
+
+# `RoofSegmentNode.roofType` del editor. Lo que el agente escriba fuera de esta
+# tabla cae en 'gable', que es el techo a dos aguas de toda la vida.
+TIPOS_DE_TECHO = {
+    "flat": "flat", "plano": "flat",
+    "gable": "gable", "gabled": "gable", "dos aguas": "gable", "a dos aguas": "gable",
+    "hip": "hip", "hipped": "hip", "cuatro aguas": "hip",
+    "shed": "shed", "un agua": "shed",
+    "gambrel": "gambrel", "mansard": "mansard", "dutch": "dutch",
+}
+
+# Radianes de giro sobre Y según el rumbo de subida de la escalera.
+RUMBOS_ESCALERA = {
+    "north": 0.0, "norte": 0.0,
+    "east": -math.pi / 2, "este": -math.pi / 2,
+    "south": math.pi, "sur": math.pi,
+    "west": math.pi / 2, "oeste": math.pi / 2,
+}
+
+# Huella de un escalón: lo que avanza la escalera por peldaño.
+HUELLA_ESCALON_M = 0.28
+
+
+def _acotar(valor: float, minimo: float, maximo: float) -> float:
+    """Deja `valor` dentro de [minimo, maximo] aunque el intervalo esté invertido."""
+    if maximo < minimo:
+        return minimo
+    return max(minimo, min(maximo, valor))
+
+
+def _longitud_muro(muro: WallSegment) -> float:
+    dx = muro.end[0] - muro.start[0]
+    dy = muro.end[1] - muro.start[1]
+    return math.sqrt(dx * dx + dy * dy)
+
+
 def _build_pascal_scene(
     walls: List[WallSegment],
     ceiling_height: float = 2.5,
@@ -282,7 +336,7 @@ def _build_pascal_scene(
     furniture: Optional[List[FurnitureItem]] = None,
     num_levels: int = 1,
 ) -> dict:
-    """Construye un JSON válido para useScene.setState() de Pascal Editor."""
+    """Construye la escena que consume `useScene.setScene()` del editor Pascal."""
     doors = doors or []
     windows = windows or []
     staircases = staircases or []
@@ -290,19 +344,21 @@ def _build_pascal_scene(
     if roof is None:
         roof = RoofConfig()
 
+    altura_muro = ceiling_height if ceiling_height and ceiling_height > 0 else ALTURA_MURO_POR_DEFECTO_M
+
     site_id = _gen_pascal_id("site")
     building_id = _gen_pascal_id("building")
 
-    # --- Determine full level set ---
+    # --- Conjunto completo de niveles ---
     wall_levels = {w.level for w in walls}
     all_level_indices = sorted(set(range(num_levels)) | wall_levels)
     top_level_idx = max(all_level_indices)
     level_id_map = {lvl: _gen_pascal_id("level") for lvl in all_level_indices}
 
-    # --- Pre-generate wall IDs (global index) ---
+    # --- Ids de muro por índice global ---
     wall_id_list = [_gen_pascal_id("wall") for _ in walls]
 
-    # --- Per-level bounding coordinates ---
+    # --- Coordenadas envolventes por nivel ---
     xs_by_level: dict = {lvl: [] for lvl in all_level_indices}
     ys_by_level: dict = {lvl: [] for lvl in all_level_indices}
     for w in walls:
@@ -319,7 +375,7 @@ def _build_pascal_scene(
         mn_y, mx_y = (min(ys), max(ys)) if ys else (g_min_y, g_max_y)
         return [[mn_x, mx_y], [mn_x, mn_y], [mx_x, mn_y], [mx_x, mx_y]]
 
-    # --- Wall nodes ---
+    # --- Muros ---
     wall_nodes: dict = {}
     for i, w in enumerate(walls):
         wid = wall_id_list[i]
@@ -335,65 +391,122 @@ def _build_pascal_scene(
             "start": list(w.start),
             "end": list(w.end),
             "thickness": w.thickness,
+            "height": altura_muro,
             "frontSide": "exterior" if w.wall_type == "exterior" else "interior",
             "backSide": "interior",
         }
 
-    # --- Opening nodes (doors + windows) — populate wall children ---
+    # --- Huecos (puertas y ventanas) ---
+    #
+    # `position` va en coordenadas locales del muro: X son metros desde `start`,
+    # Y es el centro del hueco medido desde el piso. El agente razona en
+    # fracciones del muro (0.5 = a la mitad), así que la conversión se hace
+    # aquí, que es donde se conoce la longitud real.
     opening_nodes: dict = {}
     for j, door in enumerate(doors, start=1):
-        pwid = wall_id_list[door.wall_index] if door.wall_index < len(wall_id_list) else wall_id_list[0]
+        idx = door.wall_index if door.wall_index < len(wall_id_list) else 0
+        pwid = wall_id_list[idx]
+        largo = _longitud_muro(walls[idx])
+        ancho = min(door.width, largo) if largo > 0 else door.width
+        avance = _acotar(door.position_along_wall * largo, ancho / 2, largo - ancho / 2)
         did = _gen_pascal_id("door")
         opening_nodes[did] = {
             "object": "node", "id": did, "type": "door",
             "name": f"Door {j}", "parentId": pwid,
-            "visible": True, "metadata": {}, "children": [],
-            "position": door.position_along_wall,
-            "width": door.width, "height": door.height,
+            "visible": True, "metadata": {},
+            "wallId": pwid, "side": "front",
+            "position": [avance, door.height / 2, 0],
+            "rotation": [0, 0, 0],
+            "width": ancho, "height": door.height,
         }
         wall_nodes[pwid]["children"].append(did)
 
     for k, win in enumerate(windows, start=1):
-        pwid = wall_id_list[win.wall_index] if win.wall_index < len(wall_id_list) else wall_id_list[0]
+        idx = win.wall_index if win.wall_index < len(wall_id_list) else 0
+        pwid = wall_id_list[idx]
+        largo = _longitud_muro(walls[idx])
+        ancho = min(win.width, largo) if largo > 0 else win.width
+        alto = min(win.height, altura_muro)
+        avance = _acotar(win.position_along_wall * largo, ancho / 2, largo - ancho / 2)
+        centro_y = _acotar(win.sill_height + alto / 2, alto / 2, altura_muro - alto / 2)
         wndid = _gen_pascal_id("window")
         opening_nodes[wndid] = {
             "object": "node", "id": wndid, "type": "window",
             "name": f"Window {k}", "parentId": pwid,
-            "visible": True, "metadata": {}, "children": [],
-            "position": win.position_along_wall,
-            "width": win.width, "height": win.height, "sillHeight": win.sill_height,
+            "visible": True, "metadata": {},
+            "wallId": pwid, "side": "front",
+            "position": [avance, centro_y, 0],
+            "rotation": [0, 0, 0],
+            "width": ancho, "height": alto,
         }
         wall_nodes[pwid]["children"].append(wndid)
 
-    # --- Staircase nodes ---
+    # --- Escaleras ---
+    #
+    # El editor modela una escalera como un grupo (`stair`) con tramos
+    # (`stair-segment`) dentro: el grupo sin tramos no dibuja nada. Cada
+    # escalera del agente es un tramo recto.
     staircase_nodes: dict = {}
     for m, stair in enumerate(staircases, start=1):
         from_lvl = stair.from_level if stair.from_level in level_id_map else min(all_level_indices)
-        sid = _gen_pascal_id("staircase")
+        to_lvl = stair.to_level if stair.to_level in level_id_map else from_lvl
+        peldanos = max(1, stair.steps)
+        subida = altura_muro * max(1, to_lvl - from_lvl)
+        sid = _gen_pascal_id("stair")
+        seg_id = _gen_pascal_id("sseg")
         staircase_nodes[sid] = {
-            "object": "node", "id": sid, "type": "staircase",
+            "object": "node", "id": sid, "type": "stair",
             "name": f"Staircase {m}", "parentId": level_id_map[from_lvl],
-            "visible": True, "metadata": {}, "children": [],
-            "position": list(stair.position) + [0],
-            "width": stair.width, "steps": stair.steps,
-            "direction": stair.direction,
-            "fromLevel": stair.from_level, "toLevel": stair.to_level,
+            "visible": True, "metadata": {},
+            "children": [seg_id],
+            "position": [stair.position[0], 0, stair.position[1]],
+            "rotation": RUMBOS_ESCALERA.get(str(stair.direction).lower(), 0.0),
+            "stairType": "straight",
+            "fromLevelId": level_id_map[from_lvl],
+            "toLevelId": level_id_map.get(to_lvl),
+            # El hueco en la losa del nivel de destino es lo que permite subir:
+            # sin él la escalera termina contra el piso de arriba.
+            "slabOpeningMode": "destination" if to_lvl in level_id_map and to_lvl != from_lvl else "none",
+            "width": stair.width,
+            "totalRise": subida,
+            "stepCount": peldanos,
+        }
+        staircase_nodes[seg_id] = {
+            "object": "node", "id": seg_id, "type": "stair-segment",
+            "name": f"Staircase {m} — tramo 1", "parentId": sid,
+            "visible": True, "metadata": {},
+            "position": [0, 0, 0], "rotation": 0,
+            "segmentType": "stair",
+            "width": stair.width,
+            "length": peldanos * HUELLA_ESCALON_M,
+            "height": subida,
+            "stepCount": peldanos,
+            "attachmentSide": "front",
         }
 
-    # --- Furniture nodes ---
+    # --- Muebles ---
+    #
+    # Un `item` sin `asset` no se puede dibujar, y el catálogo de modelos vive
+    # en el editor. Aquí se manda el nombre en `metadata.holtmontAsset` y el
+    # puente lo resuelve contra ese catálogo; lo que no exista se descarta allá
+    # con aviso, en vez de llegar roto a la escena.
     furniture_nodes: dict = {}
-    for n, item in enumerate(furniture, start=1):
+    for item in furniture:
         item_lvl = item.level if item.level in level_id_map else min(all_level_indices)
-        fid = _gen_pascal_id("object")
+        fid = _gen_pascal_id("item")
         furniture_nodes[fid] = {
-            "object": "node", "id": fid, "type": "object",
+            "object": "node", "id": fid, "type": "item",
             "name": item.name, "parentId": level_id_map[item_lvl],
-            "visible": True, "metadata": {}, "children": [],
-            "position": list(item.position) + [0],
-            "rotation": [0, 0, item.rotation],
+            "visible": True,
+            "metadata": {"holtmontAsset": item.name},
+            "children": [],
+            "position": [item.position[0], 0, item.position[1]],
+            "rotation": [0, math.radians(item.rotation), 0],
+            "scale": [1, 1, 1],
         }
 
-    # --- Level nodes (slab + ceiling/roof + all children) ---
+    # --- Niveles (losa + techo/cubierta + hijos) ---
+    tipo_techo = TIPOS_DE_TECHO.get(str(roof.roof_type).strip().lower(), "gable")
     level_nodes: dict = {}
     horiz_nodes: dict = {}
     for lvl in all_level_indices:
@@ -402,7 +515,8 @@ def _build_pascal_scene(
         is_top = (lvl == top_level_idx)
 
         lvl_wall_ids = [wall_id_list[i] for i, w in enumerate(walls) if w.level == lvl]
-        stair_ids = [sid for sid, sn in staircase_nodes.items() if sn["fromLevel"] == lvl]
+        stair_ids = [sid for sid, sn in staircase_nodes.items()
+                     if sn["type"] == "stair" and sn["parentId"] == lvl_id]
         furn_ids = [fid for fid, fn in furniture_nodes.items() if fn["parentId"] == lvl_id]
 
         slab_id = _gen_pascal_id("slab")
@@ -414,17 +528,10 @@ def _build_pascal_scene(
             "elevation": 0.05, "autoFromWalls": True,
         }
 
-        if is_top and roof.roof_type != "flat":
-            cover_id = _gen_pascal_id("roof")
-            horiz_nodes[cover_id] = {
-                "object": "node", "id": cover_id, "type": "roof",
-                "name": "Main Roof", "parentId": lvl_id,
-                "visible": True, "metadata": {},
-                "polygon": polygon, "holes": [],
-                "roofType": roof.roof_type, "pitch": roof.pitch,
-                "overhang": roof.overhang, "ridgeDirection": roof.ridge_direction,
-                "autoFromWalls": True,
-            }
+        cubierta_ids = [slab_id]
+        if is_top and tipo_techo != "flat":
+            cubierta_ids.extend(_nodos_de_techo(
+                lvl_id, polygon, altura_muro, tipo_techo, roof, horiz_nodes))
         else:
             cover_id = _gen_pascal_id("ceiling")
             horiz_nodes[cover_id] = {
@@ -432,17 +539,19 @@ def _build_pascal_scene(
                 "name": f"Ceiling L{lvl}", "parentId": lvl_id,
                 "visible": True, "metadata": {}, "children": [],
                 "polygon": polygon, "holes": [], "holeMetadata": [],
-                "height": ceiling_height, "autoFromWalls": True,
+                "height": altura_muro, "autoFromWalls": True,
             }
+            cubierta_ids.append(cover_id)
 
         level_nodes[lvl_id] = {
             "object": "node", "id": lvl_id, "type": "level",
-            "parentId": None, "visible": True, "metadata": {},
-            "children": lvl_wall_ids + [slab_id, cover_id] + stair_ids + furn_ids,
+            "name": f"Level {lvl}",
+            "parentId": building_id, "visible": True, "metadata": {},
+            "children": lvl_wall_ids + cubierta_ids + stair_ids + furn_ids,
             "level": lvl,
         }
 
-    # --- Site and building ---
+    # --- Terreno y edificio ---
     pad = 10
     site_polygon = {
         "type": "polygon",
@@ -455,7 +564,8 @@ def _build_pascal_scene(
     }
     building_inline = {
         "object": "node", "id": building_id, "type": "building",
-        "parentId": None, "visible": True, "metadata": {},
+        "name": "Building",
+        "parentId": site_id, "visible": True, "metadata": {},
         "children": list(level_id_map.values()),
         "position": [0, 0, 0], "rotation": [0, 0, 0],
     }
@@ -463,7 +573,10 @@ def _build_pascal_scene(
     nodes = {
         site_id: {
             "object": "node", "id": site_id, "type": "site",
+            "name": "Site",
             "parentId": None, "visible": True, "metadata": {},
+            # `SiteNode.children` son nodos completos, no ids: así lo declara el
+            # esquema del editor y así construye su escena por defecto.
             "polygon": site_polygon, "children": [building_inline],
         },
         building_id: building_inline,
@@ -476,6 +589,64 @@ def _build_pascal_scene(
     }
 
     return {"nodes": nodes, "rootNodeIds": [site_id]}
+
+
+def _nodos_de_techo(
+    lvl_id: str,
+    polygon: List[List[float]],
+    altura_muro: float,
+    tipo_techo: str,
+    roof: RoofConfig,
+    destino: dict,
+) -> List[str]:
+    """Añade el grupo `roof` y su tramo a `destino`; devuelve los ids del nivel.
+
+    El editor dibuja el techo a partir de los `roof-segment` que cuelgan del
+    grupo: un `roof` sin tramos aparece en el árbol y no se ve en la escena.
+    """
+    xs = [p[0] for p in polygon]
+    ys = [p[1] for p in polygon]
+    ancho_x = max(xs) - min(xs)
+    ancho_y = max(ys) - min(ys)
+    centro_x = (max(xs) + min(xs)) / 2
+    centro_y = (max(ys) + min(ys)) / 2
+
+    # La cumbrera de un tramo corre a lo largo de su X local. Para orientarla
+    # norte-sur se gira el grupo 90° y se intercambian las medidas.
+    norte_sur = "north" in str(roof.ridge_direction).lower() or "norte" in str(roof.ridge_direction).lower()
+    giro = math.pi / 2 if norte_sur else 0.0
+    ancho = ancho_y if norte_sur else ancho_x
+    fondo = ancho_x if norte_sur else ancho_y
+
+    pendiente = _acotar(roof.pitch, 1.0, 75.0)
+    corrida = fondo if tipo_techo == "shed" else fondo / 2
+    alto_techo = _acotar(math.tan(math.radians(pendiente)) * corrida, 0.2, 12.0)
+
+    # Faldón vertical bajo la cubierta: apoya el techo sobre el muro sin
+    # comerse la altura libre del nivel.
+    faldon = 0.2
+
+    roof_id = _gen_pascal_id("roof")
+    seg_id = _gen_pascal_id("rseg")
+    destino[roof_id] = {
+        "object": "node", "id": roof_id, "type": "roof",
+        "name": "Main Roof", "parentId": lvl_id,
+        "visible": True, "metadata": {},
+        "children": [seg_id],
+        "position": [centro_x, altura_muro - faldon, centro_y],
+        "rotation": giro,
+    }
+    destino[seg_id] = {
+        "object": "node", "id": seg_id, "type": "roof-segment",
+        "name": "Roof Segment 1", "parentId": roof_id,
+        "visible": True, "metadata": {},
+        "position": [0, 0, 0], "rotation": 0,
+        "roofType": tipo_techo,
+        "width": max(0.5, ancho), "depth": max(0.5, fondo),
+        "wallHeight": faldon, "roofHeight": alto_techo,
+        "overhang": max(0.0, roof.overhang),
+    }
+    return [roof_id]
 
 
 def _default_room_scene() -> dict:
