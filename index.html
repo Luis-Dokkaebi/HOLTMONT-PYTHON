@@ -12188,6 +12188,102 @@ const filteredStaffTrackerData = computed(() => {
           currentView.value = 'PASCAL_DESIGNER';
       };
 
+      // --- La estimación de la Agencia Paperclip, en las tablas ---------------
+      //
+      // `run_paperclip_agency` devuelve `structured_data` con la forma de
+      // `StructuredAgencyData` (api/paperclip_agents.py): cuatro listas
+      // —`requiredMaterials`, `toolsRequired`, `laborTable`,
+      // `specialEquipment`— cuyos campos se llaman igual que las columnas de
+      // estas tablas (`description`, `quantity`, `unit`, `cost`; `category`,
+      // `personnel`, `weeks`, `salary`).
+      //
+      // Aquí se leía otro JSON: `parsedData.materiales`, `.herramientas`,
+      // `.mano_de_obra`, `.equipos`, con campos `m.material`, `t.herramienta`,
+      // `m.categoria`, `e.equipo`. Ninguna de esas claves existe en la
+      // respuesta, así que los cuatro `if` daban `undefined`, no se insertaba
+      // una fila y el usuario veía «Análisis completado» sobre las tablas
+      // vacías de siempre. Un fallo mudo: sin excepción y sin consola en rojo.
+      //
+      // `activityId` marca a qué actividad pertenece la fila. Es el campo por
+      // el que filtra el modal de recursos; con cualquier otro nombre la fila
+      // existe en el arreglo y no se ve en ninguna parte.
+      const numeroPaperclip = (valor, porDefecto) => {
+          const limpio = String(valor === null || valor === undefined ? '' : valor)
+              .replace(/,/g, '').replace(/[^\d.\-]/g, '');
+          return Number.isFinite(parseFloat(limpio)) ? limpio : porDefecto;
+      };
+      const textoPaperclip = (valor) => String(valor === null || valor === undefined ? '' : valor).trim();
+      const papaCalienteVacia = () => ({ residente: '', controller: '', almacen: '', logistica: '', residenteFin: '' });
+
+      const insertarEstimacionPaperclip = (parsedData, activityId) => {
+          const marca = activityId ? { activityId: activityId } : {};
+          const insertadas = { materiales: 0, herramientas: 0, manoObra: 0, equipos: 0 };
+
+          (parsedData.requiredMaterials || []).forEach(m => {
+              const item = Object.assign({
+                  quantity: numeroPaperclip(m.quantity, '1'), unit: textoPaperclip(m.unit) || 'pz',
+                  type: '', description: textoPaperclip(m.description),
+                  cost: numeroPaperclip(m.cost, '0'), spec: '', total: 0,
+                  papaCaliente: papaCalienteVacia()
+              }, marca);
+              updateMaterialRowTotal(item);
+              requiredMaterials.value.items.push(item);
+              insertadas.materiales++;
+          });
+
+          (parsedData.toolsRequired || []).forEach(t => {
+              const item = Object.assign({
+                  quantity: numeroPaperclip(t.quantity, '1'), unit: textoPaperclip(t.unit) || 'pz',
+                  description: textoPaperclip(t.description),
+                  cost: numeroPaperclip(t.cost, '0'), total: 0,
+                  papaCaliente: papaCalienteVacia()
+              }, marca);
+              updateToolRowTotal(item);
+              toolsRequired.value.items.push(item);
+              insertadas.herramientas++;
+          });
+
+          (parsedData.laborTable || []).forEach(l => {
+              const item = Object.assign({
+                  category: textoPaperclip(l.category),
+                  salary: numeroPaperclip(l.salary, '0'),
+                  personnel: numeroPaperclip(l.personnel, '1'),
+                  // `weeks` es la duración en la unidad que estimó el agente
+                  // (hora / dia / semana); `unit` la conserva para el guardado.
+                  weeks: numeroPaperclip(l.weeks, '1'),
+                  unit: textoPaperclip(l.unit) || 'semana',
+                  overtime: '0', night: '0', weekend: '0', others: '0', total: 0,
+                  checkStatus: 'PENDING'
+              }, marca);
+              updateLaborRowTotal(item);
+              laborTable.value.items.push(item);
+              insertadas.manoObra++;
+          });
+
+          (parsedData.specialEquipment || []).forEach(e => {
+              const item = Object.assign({
+                  quantity: numeroPaperclip(e.quantity, '1'), unit: textoPaperclip(e.unit) || 'unidad',
+                  type: '', description: textoPaperclip(e.description), spec: '',
+                  days: numeroPaperclip(e.days, '1'), hours: '0',
+                  cost: numeroPaperclip(e.cost, '0'), total: 0
+              }, marca);
+              updateSpecialEquipRowTotal(item);
+              specialEquipment.value.items.push(item);
+              insertadas.equipos++;
+          });
+
+          return insertadas;
+      };
+
+      // El aviso dice lo que de verdad entró en las tablas. El bug anterior era
+      // mudo justamente porque el mensaje era fijo: «Análisis completado» sobre
+      // cero filas insertadas se ve igual que sobre veinte.
+      const resumenEstimacion = (insertadas) =>
+          `${insertadas.materiales} materiales, ${insertadas.herramientas} herramientas, `
+          + `${insertadas.manoObra} de mano de obra y ${insertadas.equipos} equipos.`;
+      const totalEstimacion = (insertadas) =>
+          insertadas.materiales + insertadas.herramientas + insertadas.manoObra + insertadas.equipos;
+
       const isActivityPaperclipRunning = Vue.ref(false);
       const isPaperclipRunning = Vue.ref(false);
       const saved3DProjectData = Vue.ref(null);
@@ -12211,27 +12307,12 @@ const filteredStaffTrackerData = computed(() => {
                   catch(e){ console.error("Error parsing Paperclip JSON:", e); }
               }
 
-              if(parsedData.mano_de_obra && parsedData.mano_de_obra.length > 0) {
-                 parsedData.mano_de_obra.forEach(m => {
-                    laborTable.value.items.push({ categoria: m.categoria || '', personal: m.personal || 1, duration: m.tiempo || 1, unit: 'dia', wage: 0, costPerHour: 0, extras: 0, nocturno: 0, finSemana: 0, others: 0, epp_6: 0, total: 0, checkStatus: 'PENDING', contextId: currentActivityContext.value.id });
-                 });
+              const insertadas = insertarEstimacionPaperclip(parsedData, currentActivityContext.value.id);
+              if (totalEstimacion(insertadas) === 0) {
+                  Swal.fire({ icon: 'warning', title: 'Agencia Paperclip', text: 'El análisis terminó pero no trajo ningún recurso que estimar: revisa el dictado de la actividad.' });
+              } else {
+                  Swal.fire({ icon: 'success', title: 'Agencia Paperclip', text: 'Estimación insertada en la actividad: ' + resumenEstimacion(insertadas), timer: 2500, showConfirmButton: false });
               }
-              if(parsedData.herramientas && parsedData.herramientas.length > 0) {
-                 parsedData.herramientas.forEach(t => {
-                    toolsRequired.value.items.push({ description: t.herramienta || '', quantity: t.cantidad || 1, unit: 'pz', cost: 0, total: 0, papaCaliente: { residente: '', controller: '', almacen: '', logistica: '', residenteFin: '' }, contextId: currentActivityContext.value.id });
-                 });
-              }
-              if(parsedData.materiales && parsedData.materiales.length > 0) {
-                 parsedData.materiales.forEach(m => {
-                    requiredMaterials.value.items.push({ description: m.material || '', quantity: m.cantidad || 1, unit: m.unidad || 'pz', cost: 0, total: 0, papaCaliente: { residente: '', controller: '', almacen: '', logistica: '', residenteFin: '' }, contextId: currentActivityContext.value.id });
-                 });
-              }
-              if(parsedData.equipos && parsedData.equipos.length > 0) {
-                 parsedData.equipos.forEach(e => {
-                    specialEquipment.value.items.push({ type: e.equipo || '', description: '', spec: '', quantity: e.cantidad || 1, unit: 'pz', days: 1, hours: 8, cost: 0, total: 0, contextId: currentActivityContext.value.id });
-                 });
-              }
-              Swal.fire({ icon: 'success', title: 'Agencia Paperclip', text: 'Análisis completado e insertado en la actividad.', timer: 2500, showConfirmButton: false });
           } catch (err) {
               alert("Error ejecutando Agencia Paperclip en actividad: " + err.message);
           } finally {
@@ -12259,27 +12340,7 @@ const filteredStaffTrackerData = computed(() => {
                   catch(e){ console.error("Error parsing Paperclip JSON:", e); }
               }
 
-              if(parsedData.mano_de_obra) {
-                 parsedData.mano_de_obra.forEach(m => {
-                    let item = { categoria: m.categoria || '', personal: m.personal || 1, duration: m.tiempo || 1, unit: 'dia', wage: 0, costPerHour: 0, extras: 0, nocturno: 0, finSemana: 0, others: 0, epp_6: 0, total: 0, checkStatus: 'PENDING' };
-                    updateLaborRowTotal(item);
-                    laborTable.value.items.push(item);
-                 });
-              }
-              if(parsedData.herramientas) {
-                 parsedData.herramientas.forEach(t => {
-                    let item = { description: t.herramienta || '', quantity: t.cantidad || 1, unit: 'pz', cost: 0, total: 0, papaCaliente: { residente: '', controller: '', almacen: '', logistica: '', residenteFin: '' } };
-                    updateToolRowTotal(item);
-                    toolsRequired.value.items.push(item);
-                 });
-              }
-              if(parsedData.materiales) {
-                 parsedData.materiales.forEach(m => {
-                    let item = { description: m.material || '', quantity: m.cantidad || 1, unit: m.unidad || 'pz', cost: m.precio_unitario || 0, total: 0, papaCaliente: { residente: '', controller: '', almacen: '', logistica: '', residenteFin: '' } };
-                    updateMaterialRowTotal(item);
-                    requiredMaterials.value.items.push(item);
-                 });
-              }
+              const insertadas = insertarEstimacionPaperclip(parsedData, null);
 
               if(result.arquitectura_3d_json) {
                   saved3DProjectData.value = result.arquitectura_3d_json;
@@ -12287,7 +12348,11 @@ const filteredStaffTrackerData = computed(() => {
                   console.log("3D Data loaded from Agent", saved3DProjectData.value);
               }
 
-              Swal.fire({ icon: 'success', title: 'Paperclip Agency', text: 'Análisis completado. Tablas de recursos y 3D actualizados.', timer: 3000 });
+              if (totalEstimacion(insertadas) === 0) {
+                  Swal.fire({ icon: 'warning', title: 'Agencia Paperclip', text: 'El análisis terminó pero no trajo ningún recurso que estimar: revisa la Descripción del Trabajo a Realizar.' });
+              } else {
+                  Swal.fire({ icon: 'success', title: 'Agencia Paperclip', text: 'Estimación insertada: ' + resumenEstimacion(insertadas), timer: 3000 });
+              }
           } catch (err) {
               alert("Error ejecutando Agencia Paperclip: " + err.message);
           } finally {
