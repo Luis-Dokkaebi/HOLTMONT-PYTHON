@@ -154,6 +154,18 @@ class PaperclipState(TypedDict):
     calculo_data: str
     precios_data: str
     structured_data: str
+    # De dónde salió el modelo 3D y qué avisar si es un supuesto. `architect_node`
+    # ya los escribía sin declararlos: LangGraph 1.2 descarta en silencio lo
+    # escrito a un canal que el esquema no nombra, así que el aviso «este plano
+    # es una habitación de ejemplo, no la del proyecto» nunca salía del grafo.
+    architect_origen: str
+    architect_aviso: str
+    # Lo estructurado se conserva además del texto: el integrador arma las
+    # tablas con estos datos y no volviendo a pedirle a un LLM que relea su
+    # propia prosa.
+    calculo_struct: str
+    precios_struct: str
+    estimacion_origen: str
     # Loop de reflexión sobre el presupuesto:
     precios_critique: str
     precios_approved: bool
@@ -830,7 +842,9 @@ def calculo_node(state: PaperclipState, llm) -> dict:
             llm, CalculoData, prompt, {"levantamiento_data": state["levantamiento_data"]}
         )
         data = _normalize_calculo(data)
-        return {"calculo_data": _calculo_to_text(data)}
+        # El texto es para los agentes; la estructura es para las tablas.
+        return {"calculo_data": _calculo_to_text(data),
+                "calculo_struct": data.model_dump_json()}
     except Exception as e:  # noqa: BLE001
         print(f"Cálculo estructurado falló ({e}). Usando prosa libre.")
         prose = ChatPromptTemplate.from_messages([
@@ -925,7 +939,8 @@ def precios_node(state: PaperclipState, llm) -> dict:
             llm, PreciosData, prompt, {"calculo_data": state["calculo_data"]}
         )
         computed = _compute_precios(data)
-        return {"precios_data": _precios_to_text(computed)}
+        return {"precios_data": _precios_to_text(computed),
+                "precios_struct": json.dumps(computed)}
     except Exception as e:  # noqa: BLE001
         print(f"Precios estructurado falló ({e}). Usando prosa libre.")
         prose = ChatPromptTemplate.from_messages([
@@ -939,6 +954,178 @@ def precios_node(state: PaperclipState, llm) -> dict:
             return {"precios_data": resp.content}
         except Exception:  # noqa: BLE001
             return {"precios_data": "Precios no disponibles por error del modelo."}
+
+# --- LA ESTIMACIÓN, ARMADA EN CÓDIGO ---------------------------------------
+#
+# Las tablas del formulario se llenaban con UNA sola llamada al LLM: el
+# Integrador releía la prosa de los agentes anteriores y volvía a extraer de
+# ella los materiales, la mano de obra, las herramientas y el equipo con el
+# esquema más grande de todo el archivo (`StructuredAgencyData`: cinco listas
+# anidadas). Si esa llamada fallaba —o devolvía las cinco listas vacías, que es
+# como un modelo se rinde— el usuario veía las tablas intactas.
+#
+# El dato ya existía estructurado antes de esa llamada: `calculo_node` produce
+# `CalculoData` y `precios_node` produce `PreciosData` con categoría, unidad,
+# cantidad y precio unitario de cada concepto. Se serializaban a markdown y se
+# tiraba la estructura. Estas funciones arman la estimación con esos datos, sin
+# LLM: si la agencia calculó un presupuesto, las tablas se llenan.
+
+def _clave(texto: str) -> str:
+    """Descripción normalizada para cruzar cálculo y precios."""
+    return re.sub(r"\s+", " ", str(texto or "").strip().lower())
+
+
+def _num(valor: float) -> str:
+    """Número a texto sin ceros de relleno: el formulario guarda cadenas."""
+    return f"{valor:g}"
+
+
+def _items_de(computed: Optional[dict], categoria: str) -> List[dict]:
+    if not computed:
+        return []
+    return list((computed.get("grupos") or {}).get(categoria) or [])
+
+
+def _materiales_de(calculo: Optional[CalculoData], computed: Optional[dict]) -> List[MaterialItem]:
+    materiales = [
+        MaterialItem(description=str(it["description"]), unit=str(it["unit"] or "pza"),
+                     quantity=_num(it["quantity"]), cost=_num(it["unit_price"]))
+        for it in _items_de(computed, "material")
+    ]
+    presupuestados = {_clave(m.description) for m in materiales}
+    materiales += [
+        MaterialItem(description=m.description, unit=m.unit or "pza",
+                     quantity=_num(_to_float(m.quantity, 1.0)), cost="0")
+        for m in (calculo.materials if calculo else [])
+        if _clave(m.description) not in presupuestados
+    ]
+    return materiales
+
+
+def _herramientas_de(computed: Optional[dict]) -> List[ToolItem]:
+    # El cálculo no lista herramienta menor: si no está en el presupuesto, no
+    # hay de dónde sacarla.
+    return [
+        ToolItem(description=str(it["description"]), unit=str(it["unit"] or "pza"),
+                 quantity=_num(it["quantity"]), cost=_num(it["unit_price"]))
+        for it in _items_de(computed, "herramienta")
+    ]
+
+
+def _equipos_de(calculo: Optional[CalculoData], computed: Optional[dict]) -> List[EquipmentItem]:
+    # `days=1`: el total de la tabla es cantidad x días x costo y la cantidad
+    # del presupuesto ya trae el tiempo dentro. Repitiendo los días aquí, el
+    # equipo se cobraría dos veces.
+    equipos = [
+        EquipmentItem(description=str(it["description"]), unit=str(it["unit"] or "unidad"),
+                      quantity=_num(it["quantity"]), days="1", cost=_num(it["unit_price"]))
+        for it in _items_de(computed, "equipo")
+    ]
+    presupuestados = {_clave(e.description) for e in equipos}
+    equipos += [
+        EquipmentItem(description=eq.description, unit="unidad",
+                      quantity=_num(_to_float(eq.quantity, 1.0)), days="1", cost="0")
+        for eq in (calculo.equipment if calculo else [])
+        if _clave(eq.description) not in presupuestados
+    ]
+    return equipos
+
+
+def _precio_del_puesto(rol: str, por_rol: dict, usados: set) -> Optional[dict]:
+    """El renglón del presupuesto que paga ese puesto, o None.
+
+    El presupuesto y el cálculo no siempre nombran igual al mismo puesto
+    ("Albañil" vs "Albañil oficial"): se acepta que uno contenga al otro antes
+    de rendirse y dejar el salario en 0.
+    """
+    exacto = por_rol.get(rol)
+    if exacto is not None:
+        return exacto
+    return next((it for clave, it in por_rol.items()
+                 if clave not in usados and (clave in rol or rol in clave)), None)
+
+
+def _mano_de_obra_de(calculo: Optional[CalculoData], computed: Optional[dict]) -> List[LaborItem]:
+    """Cruza el precio del presupuesto con la gente y el tiempo del cálculo.
+
+    La tabla del formulario multiplica salario x personal x tiempo, así que el
+    precio unitario va como salario y el personal NO se mete en el tiempo.
+    """
+    presupuesto = _items_de(computed, "mano_obra")
+    por_rol = {_clave(it["description"]): it for it in presupuesto}
+    usados: set = set()
+
+    filas: List[LaborItem] = []
+    for puesto in (calculo.labor if calculo else []):
+        precio = _precio_del_puesto(_clave(puesto.role), por_rol, usados)
+        if precio is not None:
+            usados.add(_clave(precio["description"]))
+        filas.append(LaborItem(
+            category=puesto.role, personnel=_num(_to_float(puesto.people, 1.0)),
+            unit=puesto.unit or "semana", weeks=_num(_to_float(puesto.duration, 1.0)),
+            salary=_num(precio["unit_price"]) if precio else "0"))
+
+    # Puesto que solo aparece en el presupuesto: la cantidad presupuestada es
+    # el tiempo contratado y el personal se asume en 1 para no inflar el total.
+    filas += [
+        LaborItem(category=str(it["description"]), personnel="1",
+                  unit=str(it["unit"] or "semana"), weeks=_num(it["quantity"]),
+                  salary=_num(it["unit_price"]))
+        for it in presupuesto if _clave(it["description"]) not in usados
+    ]
+    return filas
+
+
+def estimacion_desde_estructura(
+    calculo: Optional[CalculoData], computed: Optional[dict]
+) -> StructuredAgencyData:
+    """Arma las cuatro tablas del formulario con lo que ya calcularon los agentes.
+
+    `computed` es la salida de `_compute_precios`: cantidad y precio unitario ya
+    validados (> 0) y agrupados por categoría. `calculo` aporta lo que el
+    presupuesto no distingue: cuánta gente y por cuánto tiempo.
+
+    Un concepto del cálculo sin precio entra igual con costo 0: la fila visible
+    y en blanco es un pendiente que se ve; la fila ausente es el fallo mudo que
+    originó esto.
+    """
+    return StructuredAgencyData(
+        laborTable=_mano_de_obra_de(calculo, computed),
+        requiredMaterials=_materiales_de(calculo, computed),
+        toolsRequired=_herramientas_de(computed),
+        specialEquipment=_equipos_de(calculo, computed),
+        viaticosTable=[])
+
+
+def estimacion_vacia(estimacion: StructuredAgencyData) -> bool:
+    """True si no hay una sola fila que insertar en el formulario."""
+    return not (estimacion.laborTable or estimacion.requiredMaterials
+                or estimacion.toolsRequired or estimacion.specialEquipment)
+
+
+def _estimacion_del_estado(state: PaperclipState) -> Optional[StructuredAgencyData]:
+    """La estimación armada con lo estructurado del estado, o None si no alcanza."""
+    calculo = None
+    crudo_calculo = state.get("calculo_struct") or ""
+    if crudo_calculo:
+        try:
+            calculo = CalculoData.model_validate_json(crudo_calculo)
+        except Exception:  # noqa: BLE001
+            calculo = None
+
+    computed = None
+    crudo_precios = state.get("precios_struct") or ""
+    if crudo_precios:
+        try:
+            computed = json.loads(crudo_precios)
+        except (ValueError, TypeError):
+            computed = None
+
+    if calculo is None and computed is None:
+        return None
+    estimacion = estimacion_desde_estructura(calculo, computed)
+    return None if estimacion_vacia(estimacion) else estimacion
+
 
 def evaluador_node(state: PaperclipState, llm) -> dict:
     """Agente Evaluador: revisa el presupuesto (cálculo + precios) antes de integrar.
@@ -984,36 +1171,69 @@ def route_after_evaluacion(state: PaperclipState) -> str:
 
 
 def integrador_node(state: PaperclipState, llm) -> dict:
-    """Agente 4: Integrador. Extrae los recursos en formato JSON estricto."""
+    """Agente 4: Integrador. Deja la estimación en la forma que leen las tablas.
+
+    Orden deliberado:
+
+    1. **Con el presupuesto estructurado** (`estimacion_desde_estructura`), si
+       `precios_node` lo produjo. Es determinista: cantidades y precios ya
+       están validados, y las tablas se llenan sin otra llamada al modelo.
+    2. **Con el LLM**, cuando el presupuesto se quedó en prosa —`precios_node`
+       cayó a su respaldo— y sus precios solo existen en el texto. Ahora con
+       reintento (`_invoke_structured`), como el resto de los nodos.
+    3. **Con los conceptos del cálculo y costo 0**, si el modelo tampoco pudo.
+       Una tabla con los conceptos y los precios en blanco es un pendiente que
+       se ve; la tabla vacía es el fallo mudo de siempre.
+    4. **Vacía**, y dicho en voz alta: `estimacion_origen` viaja hasta el
+       formulario para que "no había nada que estimar" no se confunda con "la
+       extracción falló".
+    """
     print("--- [Agente Integrador] Estructurando JSON ---")
-    
+
+    def _salida(estimacion: StructuredAgencyData, origen: str) -> dict:
+        json_dict = estimacion.model_dump()
+        # La escena 3D viaja con la estimación: un fallo de las tablas no debe
+        # descartar el diseño que el arquitecto ya generó.
+        json_dict["arquitectura_3d_json"] = state.get("architect_data", "")
+        return {"structured_data": json.dumps(json_dict), "estimacion_origen": origen}
+
+    del_estado = _estimacion_del_estado(state)
+    if del_estado is not None and state.get("precios_struct"):
+        # Con presupuesto estructurado no hace falta el modelo: cantidades y
+        # precios ya están, validados y agrupados por categoría.
+        print(f"  -> {len(del_estado.requiredMaterials)} materiales, "
+              f"{len(del_estado.toolsRequired)} herramientas, "
+              f"{len(del_estado.laborTable)} de mano de obra, "
+              f"{len(del_estado.specialEquipment)} equipos (desde el presupuesto)")
+        return _salida(del_estado, "estructura")
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", "Eres un Analista de Datos experto. Extrae la mano de obra, materiales, equipos y herramientas de los reportes anteriores en el formato JSON estricto solicitado. Extrae explícitamente los costos unitarios, salarios y cantidades basándote en el reporte de 'Precios'. ES CRÍTICO que extraigas explícitamente y llenes SIEMPRE los campos de costos y salarios (salary, cost, costo_unitario) basándote en el reporte de Precios. Si el reporte de Precios no tiene un costo exacto, invéntate una estimación razonable del mercado y úsala. NUNCA, bajo NINGUNA circunstancia dejes cantidades o costos en 0, nulos, vacíos o ausentes en el JSON resultante."),
         ("human", "Cálculo y Diseño:\n{calculo}\n\nPrecios:\n{precios}")
     ])
-    
-    # Use structured output
-    structured_llm = llm.with_structured_output(StructuredAgencyData)
-    chain = prompt | structured_llm
-    
+
     try:
-        import json
-        result: StructuredAgencyData = chain.invoke({
-            "calculo": state["calculo_data"],
-            "precios": state["precios_data"]
-        })
-        json_dict = result.model_dump()
-        json_dict["arquitectura_3d_json"] = state.get("architect_data", "")
-        return {"structured_data": json.dumps(json_dict)}
-    except Exception as e:
-        import json
+        result: StructuredAgencyData = _invoke_structured(
+            llm, StructuredAgencyData, prompt,
+            {"calculo": state.get("calculo_data", ""), "precios": state.get("precios_data", "")},
+        )
+        if not estimacion_vacia(result):
+            return _salida(result, "llm")
+        print("El integrador devolvió las cuatro tablas vacías.")
+    except Exception as e:  # noqa: BLE001
         print(f"Error en extracción estructurada: {e}")
-        empty_data = StructuredAgencyData(laborTable=[], requiredMaterials=[], toolsRequired=[], specialEquipment=[], viaticosTable=[])
-        empty_dict = empty_data.model_dump()
-        # Preservar la escena 3D que el arquitecto ya generó: un fallo del
-        # integrador (extracción de tablas) no debe descartar el diseño.
-        empty_dict["arquitectura_3d_json"] = state.get("architect_data", "")
-        return {"structured_data": json.dumps(empty_dict)}
+
+    if del_estado is not None:
+        # El presupuesto se quedó en prosa (precios cayó a su respaldo) y el
+        # modelo tampoco pudo: entran los conceptos del cálculo con costo 0.
+        # Una tabla con los conceptos y los precios en blanco es un pendiente
+        # que se ve; la tabla vacía es el fallo mudo de siempre.
+        print("  -> estimación sin precios: los conceptos del cálculo, a capturar costo")
+        return _salida(del_estado, "estructura_sin_precios")
+
+    vacia = StructuredAgencyData(laborTable=[], requiredMaterials=[], toolsRequired=[],
+                                 specialEquipment=[], viaticosTable=[])
+    return _salida(vacia, "vacia")
 
 # --- GRAPH BUILDER ---
 def build_paperclip_graph(llm_text, llm_structured):
@@ -1072,9 +1292,14 @@ def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
         "user_request": user_request,
         "levantamiento_data": "",
         "architect_data": "",
+        "architect_origen": "",
+        "architect_aviso": "",
         "calculo_data": "",
+        "calculo_struct": "",
         "precios_data": "",
+        "precios_struct": "",
         "structured_data": "",
+        "estimacion_origen": "",
         "precios_critique": "",
         "precios_approved": False,
         "precios_revision": 0,
@@ -1091,7 +1316,14 @@ def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
             # desacoplada del integrador: así llega al frontend aunque la
             # extracción estructurada de tablas falle.
             "arquitectura_3d_json": final_state.get("architect_data", ""),
-            "structured_data": final_state.get("structured_data", "{}")
+            "structured_data": final_state.get("structured_data", "{}"),
+            # De dónde salieron las tablas: "estructura" (del presupuesto que
+            # calculó la propia agencia), "llm" (extraídas de la prosa) o
+            # "vacia" (no se pudo). El formulario lo dice en su aviso: sin este
+            # dato, "no había nada que estimar" y "la extracción falló" se ven
+            # exactamente igual desde la pantalla.
+            "estimacion_origen": final_state.get("estimacion_origen", ""),
+            "architect_aviso": final_state.get("architect_aviso", ""),
         }
     except Exception as e:
         return {"success": False, "error": f"Error ejecutando la agencia: {str(e)}"}
