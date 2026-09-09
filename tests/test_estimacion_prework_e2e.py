@@ -232,3 +232,39 @@ def test_una_estimacion_que_no_se_pudo_armar_lo_dice(pagina):
     (aviso,) = pagina.evaluate("() => window.__avisos")
     assert aviso["icon"] == "warning"
     assert "no pudo armar la estimación" in aviso["text"]
+
+
+# ----------------------------------------------------------------------
+# 4. La clave con la que corre la agencia
+# ----------------------------------------------------------------------
+# «Paperclip usa apikeys de Google, no de Groq» (el dueño, 2026-09-09). En
+# Vercel cada invocación es un proceso nuevo, así que una clave guardada desde
+# la pantalla vive en `localStorage` y solo llega al servidor si el formulario
+# la manda — como ya hacía el agente de métricas y no hacía este.
+
+def test_el_formulario_manda_la_clave_de_google_guardada(pagina):
+    pagina.evaluate(
+        "() => { localStorage.setItem('holtmont.geminiApiKey', 'AIzaDelNavegador');"
+        " window.__enviado = null;"
+        " ApiService.runPaperclipAgents = async (texto, clave) => {"
+        "   window.__enviado = { texto, clave };"
+        "   return { success: true, structured_data: '{}' }; }; }")
+    pagina.fill("#campoConcepto", DISENO)
+    pagina.click("button[title^='Ejecutar Agencia Paperclip']")
+    pagina.wait_for_function(f"() => {_app(pagina)}.isPaperclipRunning === false",
+                             timeout=20000)
+
+    enviado = pagina.evaluate("() => window.__enviado")
+    assert enviado["texto"] == DISENO
+    assert enviado["clave"] == "AIzaDelNavegador", (
+        "la agencia se quedó sin la clave de Google guardada en esta máquina")
+
+
+def test_sin_clave_guardada_el_formulario_no_se_bloquea(pagina):
+    """El despliegue con `GEMINI_API_KEY` en el entorno no necesita mandar nada:
+    el servidor resuelve la clave solo."""
+    pagina.evaluate("() => localStorage.removeItem('holtmont.geminiApiKey')")
+
+    _correr_agencia(pagina, _respuesta_de_la_agencia())
+
+    assert _fila(pagina, "requiredMaterials", "description", "Block hueco 15x20x40")

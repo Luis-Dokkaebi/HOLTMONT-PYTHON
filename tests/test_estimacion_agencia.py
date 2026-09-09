@@ -431,14 +431,17 @@ def test_las_claves_del_json_son_las_que_lee_el_formulario():
 # 5. La respuesta que sale del backend, tal como la arma `run_paperclip_agency`
 # ----------------------------------------------------------------------
 
-def correr_agencia_simulada(fallas=()) -> dict:
+def correr_agencia_simulada(fallas=(), proveedor="gemini") -> dict:
     """`run_paperclip_agency` de verdad, con el LLM simulado.
 
-    Lo único que se sustituye es el proveedor: `ChatGroq` (y la clave que exige)
-    no existen en una prueba. El grafo, el estado inicial y el ensamblado de la
-    respuesta son los de producción, así que si alguien renombra una clave del
-    JSON esta prueba —y la de navegador, que la usa— lo ven antes que el
-    usuario.
+    Lo único que se sustituye es el proveedor: ni Groq ni Gemini se pueden
+    llamar desde una prueba. El grafo, el estado inicial, la elección de
+    proveedor y el ensamblado de la respuesta son los de producción, así que si
+    alguien renombra una clave del JSON esta prueba —y la de navegador, que la
+    usa— lo ven antes que el usuario.
+
+    `proveedor` dice qué clave hay en el entorno. Por omisión "gemini", que es
+    la del despliegue real: solo clave de Google.
     """
     llm = LLMFalso(
         respuestas={
@@ -454,16 +457,22 @@ def correr_agencia_simulada(fallas=()) -> dict:
         },
         fallas=fallas)
 
+    claves = {"gemini": {"GROQ_API_KEY": "", "GEMINI_API_KEY": "AIzaDePrueba"},
+              "groq": {"GROQ_API_KEY": "gsk_de_prueba", "GEMINI_API_KEY": ""},
+              "ambos": {"GROQ_API_KEY": "gsk_de_prueba", "GEMINI_API_KEY": "AIzaDePrueba"}}[proveedor]
+
     import api.paperclip_agents as agencia
     with mock.patch.object(agencia, "ChatGroq", lambda **_kw: llm), \
-         mock.patch.object(agencia, "ChatGoogleGenerativeAI", None), \
-         mock.patch.dict(os.environ, {"GROQ_API_KEY": "prueba", "GEMINI_API_KEY": ""}):
+         mock.patch.object(agencia, "ChatGoogleGenerativeAI", lambda **_kw: llm), \
+         mock.patch.dict(os.environ, claves):
         return agencia.run_paperclip_agency(
             "Muro de block de 10 x 3 m de altura en nave industrial")
 
 
-def test_la_respuesta_del_backend_trae_la_estimacion_y_su_origen():
-    respuesta = correr_agencia_simulada()
+@pytest.mark.parametrize("proveedor", ["gemini", "groq", "ambos"])
+def test_la_respuesta_del_backend_trae_la_estimacion_y_su_origen(proveedor):
+    """Con clave de Google, con clave de Groq o con las dos: las tablas llegan."""
+    respuesta = correr_agencia_simulada(proveedor=proveedor)
 
     assert respuesta["success"] is True
     assert respuesta["estimacion_origen"] == "estructura"
@@ -492,10 +501,145 @@ def test_la_respuesta_llega_llena_aunque_se_caiga_el_integrador():
     assert datos["requiredMaterials"] and datos["toolsRequired"] and datos["laborTable"]
 
 
-def test_sin_clave_de_groq_la_agencia_lo_dice_en_vez_de_devolver_vacio():
+# ----------------------------------------------------------------------
+# 6. Con qué clave corre la agencia
+# ----------------------------------------------------------------------
+#
+# El dueño lo dijo en una línea: «Paperclip usa apikeys de Google, no de
+# Groq». Y `run_paperclip_agency` exigía `GROQ_API_KEY` antes de ejecutar un
+# solo agente:
+#
+#     {"success": False, "error": "Falta GROQ_API_KEY en el entorno"}
+#
+# En un despliegue con clave de Google y sin clave de Groq, el endpoint
+# devolvía 500 y el formulario se quedaba intacto — con Gemini configurado ahí
+# al lado, usado solo para los agentes de texto.
+
+class _LLMDeProveedor:
+    """Marca de qué proveedor salió cada LLM que arma la agencia."""
+
+    def __init__(self, proveedor):
+        self.proveedor = proveedor
+
+
+def _proveedores(groq="", gemini="", con_groq=True, con_gemini=True):
+    """Qué LLM le toca a cada mitad de la agencia con esas claves y librerías."""
     import api.paperclip_agents as agencia
-    with mock.patch.dict(os.environ, {"GROQ_API_KEY": ""}):
+    with mock.patch.object(agencia, "ChatGroq",
+                           (lambda **_kw: _LLMDeProveedor("groq")) if con_groq else None), \
+         mock.patch.object(agencia, "ChatGoogleGenerativeAI",
+                           (lambda **_kw: _LLMDeProveedor("gemini")) if con_gemini else None), \
+         mock.patch.dict(os.environ, {"GROQ_API_KEY": groq, "GEMINI_API_KEY": gemini}):
+        texto, estructurado, error = agencia._llms_disponibles()
+    return (texto.proveedor if texto else None,
+            estructurado.proveedor if estructurado else None,
+            error)
+
+
+def test_con_clave_de_google_y_sin_groq_la_agencia_corre():
+    """El caso del despliegue real: solo hay clave de Google."""
+    texto, estructurado, error = _proveedores(gemini="AIzaLoQueSea")
+
+    assert error is None, "la agencia se negó a correr teniendo clave de Google"
+    assert texto == "gemini"
+    assert estructurado == "gemini", (
+        "la salida estructurada —las tablas— seguía atada a Groq")
+
+
+def test_con_las_dos_claves_se_conserva_el_reparto_afinado():
+    """Groq formatea y Gemini escribe: es con lo que se afinaron los prompts."""
+    texto, estructurado, error = _proveedores(groq="gsk_x", gemini="AIza_x")
+
+    assert error is None
+    assert (texto, estructurado) == ("gemini", "groq")
+
+
+def test_solo_con_groq_la_agencia_sigue_corriendo_entera():
+    texto, estructurado, error = _proveedores(groq="gsk_x")
+
+    assert error is None
+    assert (texto, estructurado) == ("groq", "groq")
+
+
+def test_una_clave_sin_su_libreria_cuenta_como_ausente():
+    """Clave de Google en el entorno y `langchain_google_genai` sin instalar:
+    antes esto llegaba a construir el LLM y reventaba con un `TypeError`."""
+    texto, estructurado, error = _proveedores(gemini="AIza_x", con_gemini=False,
+                                              groq="gsk_x")
+
+    assert error is None
+    assert (texto, estructurado) == ("groq", "groq")
+
+
+def test_sin_ninguna_clave_se_nombran_las_dos():
+    """Sin clave no hay agencia, pero el mensaje tiene que decir cuál poner."""
+    _texto, _estructurado, error = _proveedores()
+
+    assert error is not None
+    assert "GEMINI_API_KEY" in error and "GROQ_API_KEY" in error
+
+
+def test_sin_ninguna_clave_la_agencia_no_finge_haber_corrido():
+    import api.paperclip_agents as agencia
+    with mock.patch.dict(os.environ, {"GROQ_API_KEY": "", "GEMINI_API_KEY": ""}):
         respuesta = agencia.run_paperclip_agency("Muro de block")
 
     assert respuesta["success"] is False
-    assert "GROQ_API_KEY" in respuesta["error"]
+    assert "GEMINI_API_KEY" in respuesta["error"]
+
+
+def test_la_clave_de_google_puede_venir_en_la_peticion():
+    """En Vercel cada invocación es un proceso nuevo: una clave guardada desde
+    la pantalla vive en el navegador, no en `os.environ`. Si el formulario la
+    manda, la agencia corre con ella."""
+    import api.paperclip_agents as agencia
+    with mock.patch.object(agencia, "ChatGroq", None), \
+         mock.patch.object(agencia, "ChatGoogleGenerativeAI",
+                           lambda **kw: _LLMDeProveedor(kw.get("google_api_key"))), \
+         mock.patch.dict(os.environ, {"GROQ_API_KEY": "", "GEMINI_API_KEY": ""}):
+        texto, estructurado, error = agencia._llms_disponibles(
+            gemini_key="AIzaDelNavegador")
+
+    assert error is None, "la clave de la petición se ignoró"
+    assert texto.proveedor == "AIzaDelNavegador"
+    assert estructurado.proveedor == "AIzaDelNavegador"
+
+
+def test_el_endpoint_pasa_la_clave_del_navegador_a_la_agencia():
+    """El contrato entre `index.html` -> `api_service.js` -> `api/main.py`."""
+    from fastapi.testclient import TestClient
+
+    import api.main as main
+    vistas = {}
+
+    def _falsa(user_request, api_key=None, gemini_key=None):
+        vistas["texto"] = user_request
+        vistas["gemini"] = gemini_key
+        return {"success": True, "structured_data": "{}"}
+
+    with mock.patch.object(main, "run_paperclip_agency", _falsa):
+        respuesta = TestClient(main.app).post(
+            "/api/run_paperclip_agency",
+            json={"text": "Muro de block", "geminiKey": "AIzaDelNavegador"})
+
+    assert respuesta.status_code == 200
+    assert vistas == {"texto": "Muro de block", "gemini": "AIzaDelNavegador"}
+
+
+def test_el_endpoint_sigue_aceptando_una_peticion_sin_clave():
+    """El despliegue que tiene `GEMINI_API_KEY` en el entorno no manda nada."""
+    from fastapi.testclient import TestClient
+
+    import api.main as main
+    vistas = {}
+
+    def _falsa(user_request, api_key=None, gemini_key=None):
+        vistas["gemini"] = gemini_key
+        return {"success": True, "structured_data": "{}"}
+
+    with mock.patch.object(main, "run_paperclip_agency", _falsa):
+        respuesta = TestClient(main.app).post(
+            "/api/run_paperclip_agency", json={"text": "Muro de block"})
+
+    assert respuesta.status_code == 200
+    assert vistas["gemini"] is None

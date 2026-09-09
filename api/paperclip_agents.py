@@ -1264,30 +1264,69 @@ def build_paperclip_graph(llm_text, llm_structured):
 
     return builder.compile()
 
-# --- MAIN EXECUTION LOGIC ---
-def run_paperclip_agency(user_request: str, api_key: str = None) -> dict:
-    groq_api_key = api_key or os.environ.get("GROQ_API_KEY")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    
-    if not groq_api_key:
-        return {"success": False, "error": "Falta GROQ_API_KEY en el entorno"}
-    
-    if ChatGroq is None:
-        return {"success": False, "error": "Falta la librería langchain_groq o langchain_google_genai"}
+def _llms_disponibles(api_key: Optional[str] = None, gemini_key: Optional[str] = None):
+    """Elige con qué proveedor corre la agencia. Devuelve (texto, estructurado, error).
 
-    # Groq is strictly used for JSON formatting / Tool calling (Structured Outputs)
-    llm_structured = ChatGroq(model=MODELO_GROQ, temperature=0.2, api_key=groq_api_key)
-    
-    # Use Gemini for heavy text processing to save tokens. Fallback to Groq if missing.
-    if gemini_key and ChatGoogleGenerativeAI is not None:
-        llm_text = ChatGoogleGenerativeAI(
-            model=MODELO_GEMINI, temperature=0.3, google_api_key=gemini_key)
-    else:
-        print("Aviso: GEMINI_API_KEY no detectada. Usando Groq para todos los agentes.")
-        llm_text = llm_structured
+    La agencia exigía `GROQ_API_KEY` y cortaba seco sin ella:
+
+        {"success": False, "error": "Falta GROQ_API_KEY en el entorno"}
+
+    Un despliegue con clave de Google y sin clave de Groq —el de esta empresa—
+    nunca llegaba a ejecutar un solo agente: el endpoint devolvía 500 y el
+    formulario mostraba el error sobre las tablas intactas. Gemini estaba ahí,
+    con su clave configurada, y solo se usaba para los agentes de texto.
+
+    Gemini también sabe hacer salida estructurada (`with_structured_output`), así
+    que hoy basta con una de las dos claves:
+
+    * Groq + Gemini -> Groq formatea (estructurado), Gemini escribe (texto).
+      Es el reparto con el que se afinaron los prompts y se conserva.
+    * Solo Gemini   -> Gemini hace las dos cosas.
+    * Solo Groq     -> Groq hace las dos cosas.
+    * Ninguna       -> se dice cuál falta, nombrando las dos.
+    """
+    groq_key = (api_key or os.environ.get("GROQ_API_KEY") or "").strip()
+    # La clave de Google puede viajar en la petición: en Vercel cada invocación
+    # es un proceso nuevo y `os.environ` no sobrevive de una a otra, así que una
+    # clave guardada desde la pantalla solo existe en el navegador (igual que en
+    # `api/legacy/quoteMetricsAgent`). Si no viene, manda la del despliegue.
+    gemini_key = (gemini_key or os.environ.get("GEMINI_API_KEY") or "").strip()
+
+    if groq_key and ChatGroq is None:
+        groq_key = ""  # Hay clave pero no librería: como si no hubiera clave.
+    if gemini_key and ChatGoogleGenerativeAI is None:
+        gemini_key = ""
+
+    if not groq_key and not gemini_key:
+        return None, None, (
+            "Falta la clave del modelo: define GEMINI_API_KEY (Google) o "
+            "GROQ_API_KEY en el entorno del despliegue.")
+
+    llm_gemini = ChatGoogleGenerativeAI(
+        model=MODELO_GEMINI, temperature=0.3, google_api_key=gemini_key
+    ) if gemini_key else None
+    llm_groq = ChatGroq(
+        model=MODELO_GROQ, temperature=0.2, api_key=groq_key
+    ) if groq_key else None
+
+    if llm_groq is None:
+        print("Aviso: sin GROQ_API_KEY. Gemini corre todos los agentes.")
+        return llm_gemini, llm_gemini, None
+    if llm_gemini is None:
+        print("Aviso: sin GEMINI_API_KEY. Groq corre todos los agentes.")
+        return llm_groq, llm_groq, None
+    return llm_gemini, llm_groq, None
+
+
+# --- MAIN EXECUTION LOGIC ---
+def run_paperclip_agency(user_request: str, api_key: str = None,
+                        gemini_key: str = None) -> dict:
+    llm_text, llm_structured, error = _llms_disponibles(api_key, gemini_key)
+    if error:
+        return {"success": False, "error": error}
 
     graph = build_paperclip_graph(llm_text, llm_structured)
-    
+
     initial_state = {
         "user_request": user_request,
         "levantamiento_data": "",

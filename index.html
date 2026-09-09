@@ -12315,7 +12315,8 @@ const filteredStaffTrackerData = computed(() => {
       const runActivityPaperclipAgents = async () => {
           isActivityPaperclipRunning.value = true;
           try {
-              const result = await ApiService.runPaperclipAgents(currentActivityContext.value.dictado);
+              const result = await ApiService.runPaperclipAgents(
+                  currentActivityContext.value.dictado, leerGeminiKeyLocal());
               console.log("Activity Paperclip Agency Result:", result);
 
               currentActivityContext.value.dictado_detalle = textoDelAnalisis(result);
@@ -12346,7 +12347,11 @@ const filteredStaffTrackerData = computed(() => {
           }
           isPaperclipRunning.value = true;
           try {
-              const result = await ApiService.runPaperclipAgents(workorderData.value.conceptoDesc);
+              // La misma clave de Google que usa el agente de métricas: la
+              // Agencia Paperclip corre con Gemini y en este despliegue la
+              // clave puede estar guardada solo en el navegador.
+              const result = await ApiService.runPaperclipAgents(
+                  workorderData.value.conceptoDesc, leerGeminiKeyLocal());
               console.log("Paperclip Agency Result:", result);
 
               const analisis = textoDelAnalisis(result);

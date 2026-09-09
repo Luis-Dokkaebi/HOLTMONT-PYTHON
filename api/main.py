@@ -106,11 +106,17 @@ from api.paperclip_agents import run_paperclip_agency
 
 class PaperclipRequest(BaseModel):
     text: str
+    # La clave de Google viaja en la petición por la misma razón que en
+    # `QuoteAgentRequest`: en Vercel cada invocación es un proceso nuevo, así
+    # que una clave guardada desde la pantalla vive en el navegador y no en
+    # `os.environ`. Si no viene, se usa la del entorno del despliegue.
+    geminiKey: Optional[str] = None
 
 @app.post("/api/run_paperclip_agency")
 async def api_run_paperclip_agency(req: PaperclipRequest):
     try:
-        result = run_paperclip_agency(user_request=req.text)
+        result = run_paperclip_agency(user_request=req.text,
+                                      gemini_key=req.geminiKey)
         if not result.get("success"):
             raise HTTPException(status_code=500, detail=result.get("error", "Error desconocido en Paperclip Agency"))
         return result
