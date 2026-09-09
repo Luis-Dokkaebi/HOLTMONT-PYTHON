@@ -335,3 +335,186 @@ def test_si_el_pdf_no_se_archiva_la_orden_se_guarda_igual_y_se_avisa():
     assert any("no se archivó" in aviso for aviso in resultado["warnings"])
     # Los documentos que ya tenía siguen intactos.
     assert tarea["ARCHIVO"] == ORDEN["archivoUrl"]
+
+
+# ----------------------------------------------------------------------
+# 5. El diagnóstico: comprobar el archivado contra el Storage real
+# ----------------------------------------------------------------------
+#
+# Las tres formas de fallar del archivado viven en la configuración del
+# despliegue y desde la pantalla se ven igual: un aviso al guardar. Aquí se
+# simula el Storage —no se puede tener uno en la suite— y se comprueba que el
+# diagnóstico las distinga, que borre lo que sube y que no filtre credenciales.
+
+class _AlmacenFalso:
+    """Lo justo de `sb_manager.client.storage.from_(bucket)` que se usa."""
+
+    def __init__(self):
+        self.borrados = []
+
+    def remove(self, rutas):
+        self.borrados.extend(rutas)
+
+
+def _diagnostico_con(subida=None, lectura=None, almacen=None, configurado=True):
+    """Corre `diagnostico_storage` con el Storage simulado."""
+    from api.services import storage
+    from api.services.supabase_manager import sb_manager
+
+    almacen = almacen or _AlmacenFalso()
+    subida = subida or {"success": True, "path": "2026/SEPTIEMBRE/DIAGNOSTICO/x.pdf",
+                        "fileUrl": "https://supabase/public/archivos/x.pdf"}
+    lectura = lectura or {"ok": True, "codigo": 200, "detalle": "El PDF se lee."}
+
+    cliente = mock.Mock()
+    cliente.storage.from_.return_value = almacen
+
+    # `is_configured` y `client` son propiedades del gestor y `client` lanza
+    # sin credenciales: se sustituyen en la clase, no en la instancia.
+    with mock.patch.object(type(sb_manager), "is_configured",
+                           property(lambda _self: configurado)), \
+         mock.patch.object(type(sb_manager), "client",
+                           property(lambda _self: cliente)), \
+         mock.patch.object(storage, "subir", lambda *a, **k: subida), \
+         mock.patch.object(cotizacion_pdf, "_leer_url", lambda _url: lectura):
+        return cotizacion_pdf.diagnostico_storage(), almacen
+
+
+def _paso(reporte, nombre):
+    encontrados = [p for p in reporte["pasos"] if p["paso"] == nombre]
+    assert encontrados, f"el diagnóstico no reportó el paso {nombre!r}"
+    return encontrados[0]
+
+
+def test_el_diagnostico_recorre_el_viaje_completo_cuando_todo_funciona():
+    reporte, almacen = _diagnostico_con()
+
+    assert reporte["ok"] is True
+    assert [p["paso"] for p in reporte["pasos"]] == [
+        "configuracion", "emision", "subida", "lectura", "borrado"]
+    assert all(p["ok"] for p in reporte["pasos"])
+    assert almacen.borrados == ["2026/SEPTIEMBRE/DIAGNOSTICO/x.pdf"], (
+        "el archivo de prueba se quedó en el bucket")
+
+
+def test_sin_credenciales_el_diagnostico_lo_dice_y_no_sube_nada():
+    reporte, almacen = _diagnostico_con(configurado=False)
+
+    assert reporte["ok"] is False
+    assert _paso(reporte, "configuracion")["ok"] is False
+    assert "SUPABASE_URL" in _paso(reporte, "configuracion")["detalle"]
+    assert almacen.borrados == []
+
+
+def test_si_el_bucket_rechaza_la_subida_el_diagnostico_para_ahi():
+    reporte, _almacen = _diagnostico_con(
+        subida={"success": False, "message": "Bucket not found"})
+
+    assert reporte["ok"] is False
+    assert _paso(reporte, "subida")["ok"] is False
+    assert "Bucket not found" in _paso(reporte, "subida")["detalle"]
+    assert not [p for p in reporte["pasos"] if p["paso"] == "lectura"]
+
+
+def test_un_bucket_privado_se_distingue_de_uno_que_no_existe():
+    """El fallo que más cuesta ver: la subida funciona y el enlace que se
+    guarda en la columna CARPETA no abre. Ya pasó con `ticket-evidencia`."""
+    reporte, almacen = _diagnostico_con(
+        lectura={"ok": False, "codigo": 404,
+                 "detalle": "La URL pública respondió 404."})
+
+    assert reporte["ok"] is False
+    assert _paso(reporte, "subida")["ok"] is True
+    assert _paso(reporte, "lectura")["ok"] is False
+    assert "público" in reporte["detalle"]
+    # Y aun así limpia lo que subió.
+    assert almacen.borrados
+
+
+def test_el_diagnostico_no_devuelve_ninguna_credencial():
+    import json as _json
+
+    with mock.patch.dict(os.environ, {"SUPABASE_URL": "https://proyecto.supabase.co",
+                                      "SUPABASE_KEY": "clave-secretisima"}):
+        reporte, _almacen = _diagnostico_con()
+
+    assert "clave-secretisima" not in _json.dumps(reporte)
+
+
+def test_la_lectura_reconoce_un_cuerpo_que_no_es_pdf():
+    """Storage contesta su error como JSON; el cuerpo dice cuál y cabe en el
+    detalle. Sin esto, un 200 con un error dentro pasaría por bueno."""
+    class _Respuesta:
+        status = 200
+
+        def read(self, _n=None):
+            return b'{"statusCode":"404","error":"Bucket not found"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    with mock.patch("urllib.request.urlopen", lambda *a, **k: _Respuesta()):
+        resultado = cotizacion_pdf._leer_url("https://supabase/public/archivos/x.pdf")
+
+    assert resultado["ok"] is False
+    assert "Bucket not found" in resultado["detalle"]
+
+
+def test_la_lectura_acepta_un_pdf_de_verdad():
+    class _Respuesta:
+        status = 200
+
+        def read(self, _n=None):
+            return b"%PDF-1.7 lo que sea"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    with mock.patch("urllib.request.urlopen", lambda *a, **k: _Respuesta()):
+        resultado = cotizacion_pdf._leer_url("https://supabase/public/archivos/x.pdf")
+
+    assert resultado["ok"] is True
+
+
+def test_el_endpoint_de_diagnostico_responde_el_reporte():
+    from fastapi.testclient import TestClient
+
+    import api.main as main
+
+    with mock.patch.object(cotizacion_pdf, "diagnostico_storage",
+                           lambda: {"ok": True, "bucket": "archivos",
+                                    "pasos": [], "detalle": "Todo bien."}):
+        respuesta = TestClient(main.app).get("/api/cotizacion/diagnostico")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["ok"] is True
+    assert respuesta.json()["bucket"] == "archivos"
+
+
+def test_el_script_de_verificacion_sale_con_uno_cuando_el_archivado_falla():
+    """`scripts/verificar_storage_cotizacion.py` es la vía sin desplegar: su
+    código de salida es lo que mira quien lo corre en una terminal."""
+    import importlib.util
+
+    ruta = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "scripts", "verificar_storage_cotizacion.py")
+    spec = importlib.util.spec_from_file_location("verificar_storage_cotizacion", ruta)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+
+    with mock.patch.object(cotizacion_pdf, "diagnostico_storage",
+                           lambda: {"ok": False, "bucket": "archivos", "detalle": "No.",
+                                    "pasos": [{"paso": "subida", "ok": False,
+                                               "detalle": "Bucket not found"}]}):
+        assert modulo.main() == 1
+
+    with mock.patch.object(cotizacion_pdf, "diagnostico_storage",
+                           lambda: {"ok": True, "bucket": "archivos", "detalle": "Si.",
+                                    "pasos": []}):
+        assert modulo.main() == 0

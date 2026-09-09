@@ -341,3 +341,135 @@ def anexar_a_documentos(archivo_url: Any, nueva_url: Any) -> str:
     if nueva and nueva not in urls:
         urls.append(nueva)
     return "\n".join(urls)
+
+
+# --- Comprobación contra el Storage real ------------------------------------
+#
+# El archivado tiene tres formas de fallar que desde la pantalla se ven igual
+# —un aviso al guardar—, y ninguna se puede reproducir en una prueba porque
+# todas viven en la configuración del despliegue:
+#
+#   1. `SUPABASE_URL` / `SUPABASE_KEY` sin definir: no se sube nada.
+#   2. El bucket no existe, o la política de acceso no permite escribir.
+#   3. El bucket existe pero es **privado**: la subida funciona, la URL pública
+#      que se guarda en la columna CARPETA no resuelve, y quien abra el adjunto
+#      recibe `{"statusCode":"404","error":"Bucket not found"}`. Ya pasó con
+#      `ticket-evidencia` (ver la nota de `SEGUNDOS_URL_FIRMADA` en
+#      `api/services/storage.py`).
+#
+# `diagnostico_storage` las distingue haciendo el viaje completo con un PDF de
+# prueba: emitir, subir, leer de vuelta por la URL pública y borrar. Es la
+# única comprobación que sirve, porque mirar si la variable está definida no
+# dice si el bucket acepta el archivo ni si el enlace se puede abrir.
+
+# Ruta fija para el archivo de prueba: siempre el mismo objeto, siempre
+# borrado al final. Sin cliente real, para no dejar basura en la carpeta de
+# nadie, y sin fecha variable, para que dos ejecuciones no acumulen objetos si
+# el borrado falla.
+CLIENTE_DE_PRUEBA = "DIAGNOSTICO"
+FOLIO_DE_PRUEBA = "DIAGNOSTICO"
+SEGUNDOS_LECTURA = 15
+
+
+def _paso(nombre: str, ok: bool, detalle: str = "", **extra: Any) -> Dict[str, Any]:
+    return {"paso": nombre, "ok": ok, "detalle": detalle, **extra}
+
+
+def _leer_url(url: str) -> Dict[str, Any]:
+    """Descarga la URL pública y dice si lo que llega es de verdad un PDF."""
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=SEGUNDOS_LECTURA) as respuesta:
+            contenido = respuesta.read(2048)
+            codigo = getattr(respuesta, "status", 200)
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "codigo": exc.code,
+                "detalle": f"La URL pública respondió {exc.code}. "
+                           f"Si el bucket es privado, Storage responde 404 "
+                           f"aunque el archivo exista."}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "codigo": 0, "detalle": f"No se pudo leer la URL: {exc}"}
+
+    if not contenido.startswith(b"%PDF-"):
+        # Storage devuelve su error como JSON con código 200 en algunos casos;
+        # el cuerpo dice cuál, y cabe entero en el detalle.
+        cuerpo = contenido[:200].decode("utf-8", "replace")
+        return {"ok": False, "codigo": codigo,
+                "detalle": f"La URL no devolvió un PDF: {cuerpo}"}
+    return {"ok": True, "codigo": codigo, "detalle": "El PDF se lee desde su URL pública."}
+
+
+def _borrar(ruta: str) -> Dict[str, Any]:
+    from api.services import storage
+    from api.services.supabase_manager import sb_manager
+
+    try:
+        sb_manager.client.storage.from_(storage.bucket()).remove([ruta])
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "detalle": f"No se pudo borrar el archivo de prueba: {exc}"}
+    return {"ok": True, "detalle": "Archivo de prueba borrado."}
+
+
+def diagnostico_storage() -> Dict[str, Any]:
+    """Viaje completo de un PDF de prueba contra el Storage configurado.
+
+    `{ok, bucket, detalle, pasos: [{paso, ok, detalle, ...}]}`. No lanza nunca y
+    no devuelve ninguna credencial. El archivo de prueba se borra al final; si
+    el borrado falla, el paso lo dice y la ruta queda a la vista para borrarlo
+    a mano.
+    """
+    from api.services import storage
+    from api.services.supabase_manager import sb_manager
+
+    pasos: List[Dict[str, Any]] = []
+    nombre_bucket = storage.bucket()
+
+    if not sb_manager.is_configured:
+        pasos.append(_paso("configuracion", False,
+                           "Faltan SUPABASE_URL / SUPABASE_KEY en el entorno: "
+                           "la cotización en PDF no se puede archivar."))
+        return {"ok": False, "bucket": nombre_bucket, "pasos": pasos,
+                "detalle": "Supabase no está configurado."}
+    pasos.append(_paso("configuracion", True, "SUPABASE_URL y SUPABASE_KEY presentes."))
+
+    orden = {"cliente": CLIENTE_DE_PRUEBA,
+             "concepto": "Comprobación del archivado de cotizaciones."}
+    try:
+        contenido = construir_pdf(orden, FOLIO_DE_PRUEBA)
+    except Exception as exc:  # noqa: BLE001
+        pasos.append(_paso("emision", False, f"No se pudo generar el PDF: {exc}"))
+        return {"ok": False, "bucket": nombre_bucket, "pasos": pasos,
+                "detalle": "El PDF no se pudo emitir."}
+    pasos.append(_paso("emision", True, "PDF de prueba generado.", bytes=len(contenido)))
+
+    subida = storage.subir(base64.b64encode(contenido).decode("ascii"),
+                           "application/pdf", nombre_de_archivo(FOLIO_DE_PRUEBA),
+                           CLIENTE_DE_PRUEBA, None)
+    if not subida.get("success"):
+        pasos.append(_paso("subida", False, _texto(subida.get("message"))))
+        return {"ok": False, "bucket": nombre_bucket, "pasos": pasos,
+                "detalle": "El archivo no se pudo subir al bucket."}
+    ruta = _texto(subida.get("path"))
+    url = _texto(subida.get("fileUrl"))
+    pasos.append(_paso("subida", True, "El PDF se subió al bucket.", ruta=ruta, url=url))
+
+    lectura = _leer_url(url)
+    pasos.append(_paso("lectura", lectura["ok"], lectura["detalle"],
+                       codigo=lectura["codigo"]))
+
+    borrado = _borrar(ruta)
+    pasos.append(_paso("borrado", borrado["ok"], borrado["detalle"], ruta=ruta))
+
+    ok = all(p["ok"] for p in pasos)
+    if ok:
+        detalle = ("El archivado funciona: la cotización en PDF se sube al bucket "
+                   f"'{nombre_bucket}' y su enlace se puede abrir.")
+    elif not lectura["ok"]:
+        detalle = (f"El PDF se sube pero su enlace no se puede abrir. Revisa que el "
+                   f"bucket '{nombre_bucket}' sea público: la columna CARPETA guarda "
+                   f"una URL pública.")
+    else:
+        detalle = "El archivado no completó el viaje; mira los pasos."
+    return {"ok": ok, "bucket": nombre_bucket, "pasos": pasos, "detalle": detalle}
