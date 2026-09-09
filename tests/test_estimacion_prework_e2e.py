@@ -374,3 +374,25 @@ def test_la_estimacion_llega_a_su_tabla_en_la_base(pagina):
     equipos = motor.select("wo_equipos")
     assert [e for e in equipos if e.get("descripcion") == "Andamio tubular"], (
         "EQUIPO ESPECIAL no llegó a `wo_equipos`")
+
+
+def test_el_formulario_manda_los_totales_del_tablero(pagina):
+    """El PDF de la cotización dice el mismo número que vio quien cotizó.
+
+    Sin estos totales en el payload, `cotizacion_pdf` tendría que recalcular la
+    utilidad por su cuenta y el 15% viviría en dos sitios que se separan con el
+    tiempo.
+    """
+    _correr_agencia(pagina, _respuesta_de_la_agencia())
+    _llenar_cabecera(pagina)
+    (orden,) = _payload_al_guardar(pagina)["payload"]
+
+    esperado = pagina.evaluate(
+        f"() => ({{ subtotal: {_app(pagina)}.dashboardSubtotal,"
+        f" utilidad: {_app(pagina)}.dashboardUtility,"
+        f" total: {_app(pagina)}.dashboardTotal }})")
+
+    assert orden["totales"]["subtotal"] == pytest.approx(esperado["subtotal"])
+    assert orden["totales"]["utilidad"] == pytest.approx(esperado["utilidad"])
+    assert orden["totales"]["total"] == pytest.approx(esperado["total"])
+    assert orden["totales"]["materiales"] == pytest.approx(MATERIALES_ESPERADO)

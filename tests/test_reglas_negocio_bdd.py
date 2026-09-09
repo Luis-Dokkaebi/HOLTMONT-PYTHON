@@ -1482,3 +1482,126 @@ def _cuantas_filas_con_el_folio(contexto: Dict[str, Any], cuantas: int,
                                 folio: str) -> None:
     filas = [f for f in contexto["motor"].select("tasks") if f.get("folio") == folio]
     assert len(filas) == cuantas, [f["dedupe_key"] for f in filas]
+
+
+# ----------------------------------------------------------------------
+# La cotización, en PDF, con la línea del tracker
+# ----------------------------------------------------------------------
+#
+# `archivoUrl` es lo que la fila guarda en `ARCHIVO`, alias de la columna
+# `carpeta` (`backend/schemas/task.py`): la del icono de nube que el dueño
+# señaló. El PDF se emite y se sube de verdad en producción; aquí se simula el
+# almacenamiento —no la emisión— porque Supabase Storage no está en las
+# pruebas, pero el documento se genera con `construir_pdf` real.
+
+URL_DEL_PDF = "https://supabase/2026/SEPTIEMBRE/ACME INDUSTRIAL/COTIZACION.pdf"
+COTIZACION_DEL_CLIENTE = "https://drive.google.com/file/d/COTIZACION-CLIENTE/view"
+
+
+@given(parsers.parse('una Pre Work Order de "{cliente}" con su estimación capturada'))
+def _una_prework_order_con_estimacion(contexto: Dict[str, Any], cliente: str) -> None:
+    contexto["orden"] = {
+        "cliente": cliente, "especialidad": "ELECTROMECANICA", "clasificacion": "AA",
+        "TRABAJO": "MANTENIMIENTO", "concepto": "Muro de block de 10 x 3 m",
+        "responsable": "LUIS PEREYRA", "archivoUrl": "",
+        "materiales": [{"quantity": "450", "unit": "pza",
+                        "description": "Block hueco 15x20x40",
+                        "cost": "18.50", "total": 8325.0}],
+        "herramientas": [{"quantity": "1", "unit": "pza",
+                          "description": "Revolvedora de 1 saco",
+                          "cost": "850", "total": 850.0}],
+        "manoObra": [{"category": "Albañil", "salary": "2800", "personnel": "3",
+                      "weeks": "2", "unit": "semana", "total": 16800.0}],
+        "equipos": [], "programa": [{"description": "Levantar muro",
+                                     "seccion": "TRABAJO",
+                                     "responsable": "CUADRILLA 1"}],
+    }
+    contexto["storage_disponible"] = True
+
+
+@given("que la orden ya trae adjunta la cotización del cliente")
+def _la_orden_trae_adjunto(contexto: Dict[str, Any]) -> None:
+    contexto["orden"]["archivoUrl"] = COTIZACION_DEL_CLIENTE
+
+
+@given("que el almacenamiento de archivos no está disponible")
+def _sin_almacenamiento(contexto: Dict[str, Any]) -> None:
+    contexto["storage_disponible"] = False
+
+
+@when("se guarda la orden")
+def _se_guarda_la_orden(contexto: Dict[str, Any], monkeypatch) -> None:
+    from api.services import cotizacion_pdf
+
+    motor = MemoryEngine({
+        "quotes": [], "tasks": [], "people": [], "plan_semanal": [],
+        "task_involucrados": [], "system_log": [], "work_orders": [],
+        "wo_materiales": [], "wo_mano_obra": [], "wo_herramientas": [],
+        "wo_equipos": [], "wo_programa": [],
+    })
+    tareas: List[Dict[str, Any]] = []
+
+    def _subir(datos, tipo, nombre, cliente, fecha):
+        # El PDF llegó hasta aquí de verdad: si `construir_pdf` fallara, este
+        # paso no se ejecutaría y el escenario fallaría por ausencia de la URL.
+        assert tipo == "application/pdf"
+        if not contexto["storage_disponible"]:
+            return {"success": False,
+                    "message": "Supabase no está configurado: el archivo NO se subió."}
+        return {"success": True, "fileUrl": URL_DEL_PDF}
+
+    def _espiar_tarea(task_data, item, item_id, active_user):
+        tareas.append(dict(task_data))
+        return []
+
+    monkeypatch.setattr("api.services.storage.subir", _subir)
+    monkeypatch.setattr(work_order, "_engine", lambda: motor)
+    monkeypatch.setattr(work_order, "_hay_base", lambda: True)
+    monkeypatch.setattr(work_order, "save_to_obsidian", lambda *a, **k: None)
+    monkeypatch.setattr(work_order, "_distribuir_tarea", _espiar_tarea)
+
+    contexto["respuesta"] = work_order.process_and_save_work_order(
+        [dict(contexto["orden"])], "PREWORK_ORDER")
+    contexto["tareas"] = tareas
+    contexto["cotizacion_pdf"] = cotizacion_pdf
+
+
+def _documentos_de_la_linea(contexto: Dict[str, Any]) -> List[str]:
+    (tarea,) = contexto["tareas"]
+    return [u for u in str(tarea.get("ARCHIVO") or "").split("\n") if u]
+
+
+@then("la línea del tracker lleva la cotización en PDF entre sus documentos")
+def _la_linea_lleva_el_pdf(contexto: Dict[str, Any]) -> None:
+    assert URL_DEL_PDF in _documentos_de_la_linea(contexto)
+
+
+@then("la tarea de cada responsable del programa también la lleva")
+def _la_tarea_derivada_lleva_el_pdf(contexto: Dict[str, Any]) -> None:
+    (tarea,) = contexto["tareas"]
+    cabecera = {"FOLIO": contexto["respuesta"]["ids"][0], "AREA": "ELECTROMECANICA",
+                "CLASIFICACION": "AA", "FECHA": "09/09/26",
+                "ARCHIVO": tarea.get("ARCHIVO", "")}
+    derivadas = work_order.tareas_de_programa(contexto["orden"]["programa"], cabecera)
+
+    assert derivadas, "el programa no derivó ninguna tarea"
+    for _persona, fila in derivadas:
+        assert URL_DEL_PDF in str(fila.get("ARCHIVO") or "")
+
+
+@then("la línea del tracker conserva la cotización del cliente")
+def _la_linea_conserva_el_adjunto(contexto: Dict[str, Any]) -> None:
+    assert COTIZACION_DEL_CLIENTE in _documentos_de_la_linea(contexto)
+
+
+@then("la orden queda guardada con su folio")
+def _la_orden_queda_guardada(contexto: Dict[str, Any]) -> None:
+    respuesta = contexto["respuesta"]
+    assert respuesta["success"] is True, respuesta.get("message")
+    assert respuesta["ids"] and respuesta["ids"][0]
+
+
+@then("el aviso dice que la cotización en PDF no se archivó")
+def _el_aviso_lo_dice(contexto: Dict[str, Any]) -> None:
+    avisos = contexto["respuesta"].get("warnings") or []
+    assert any("no se archivó" in aviso for aviso in avisos), avisos

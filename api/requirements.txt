@@ -28,6 +28,7 @@ langchain-google-genai
 langgraph
 tavily-python
 pypdf
+fpdf2>=2.8               # api/services/cotizacion_pdf.py (Python puro, ~1 MB)
 
 # Fuera a propósito: `streamlit` (app aparte, no la sirve la API),
 # `ffmpeg-python` (necesita el binario ffmpeg, que no existe en el runtime) y
