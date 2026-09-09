@@ -1264,6 +1264,30 @@ def build_paperclip_graph(llm_text, llm_structured):
 
     return builder.compile()
 
+# Nombres con los que la clave de Google puede estar puesta en el entorno.
+#
+# En el despliegue real está como `Gemini_Key` (captura del dueño, 2026-09-09) y
+# el código leía sólo `GEMINI_API_KEY`. Las variables de entorno distinguen
+# mayúsculas: `Gemini_Key` y `GEMINI_API_KEY` son dos variables distintas, así
+# que la clave estaba puesta, se veía puesta en el panel de Vercel, y para el
+# proceso no existía. El síntoma es idéntico al de no tenerla.
+#
+# El orden es el de preferencia: primero el nombre canónico, luego los que se
+# usan en la práctica.
+ALIAS_CLAVE_GEMINI = ("GEMINI_API_KEY", "Gemini_Key", "GEMINI_KEY",
+                      "GOOGLE_API_KEY", "GOOGLE_GEMINI_API_KEY")
+ALIAS_CLAVE_GROQ = ("GROQ_API_KEY", "Groq_Key", "GROQ_KEY")
+
+
+def _del_entorno(alias) -> str:
+    """El primer alias con valor, o cadena vacía."""
+    for nombre in alias:
+        valor = (os.environ.get(nombre) or "").strip()
+        if valor:
+            return valor
+    return ""
+
+
 def _llms_disponibles(api_key: Optional[str] = None, gemini_key: Optional[str] = None):
     """Elige con qué proveedor corre la agencia. Devuelve (texto, estructurado, error).
 
@@ -1285,12 +1309,12 @@ def _llms_disponibles(api_key: Optional[str] = None, gemini_key: Optional[str] =
     * Solo Groq     -> Groq hace las dos cosas.
     * Ninguna       -> se dice cuál falta, nombrando las dos.
     """
-    groq_key = (api_key or os.environ.get("GROQ_API_KEY") or "").strip()
+    groq_key = (api_key or "").strip() or _del_entorno(ALIAS_CLAVE_GROQ)
     # La clave de Google puede viajar en la petición: en Vercel cada invocación
     # es un proceso nuevo y `os.environ` no sobrevive de una a otra, así que una
     # clave guardada desde la pantalla solo existe en el navegador (igual que en
     # `api/legacy/quoteMetricsAgent`). Si no viene, manda la del despliegue.
-    gemini_key = (gemini_key or os.environ.get("GEMINI_API_KEY") or "").strip()
+    gemini_key = (gemini_key or "").strip() or _del_entorno(ALIAS_CLAVE_GEMINI)
 
     if groq_key and ChatGroq is None:
         groq_key = ""  # Hay clave pero no librería: como si no hubiera clave.
@@ -1317,6 +1341,62 @@ def _llms_disponibles(api_key: Optional[str] = None, gemini_key: Optional[str] =
         return llm_groq, llm_groq, None
     return llm_gemini, llm_groq, None
 
+
+
+def diagnostico() -> dict:
+    """Qué ve la Agencia Paperclip del despliegue donde está corriendo.
+
+    Existe porque el modo de fallo de esta agencia es mudo desde fuera: una
+    clave puesta con otro nombre (`Gemini_Key` en vez de `GEMINI_API_KEY`), una
+    librería que no entró en el bundle o un modelo retirado del catálogo se ven
+    los tres igual desde la pantalla — tablas vacías o un 500 genérico.
+
+    No llama al modelo: dice qué claves y librerías hay, con qué nombre se
+    encontró cada clave y qué modelos usaría. Nunca devuelve la clave: solo su
+    prefijo, lo justo para distinguir "no está" de "está mal pegada".
+    """
+    def _visto(alias):
+        for nombre in alias:
+            valor = (os.environ.get(nombre) or "").strip()
+            if valor:
+                return {"configurada": True, "variable": nombre,
+                        "prefijo": valor[:6] + "***"}
+        return {"configurada": False, "variable": None, "prefijo": ""}
+
+    gemini = _visto(ALIAS_CLAVE_GEMINI)
+    groq = _visto(ALIAS_CLAVE_GROQ)
+    gemini["libreria"] = ChatGoogleGenerativeAI is not None
+    groq["libreria"] = ChatGroq is not None
+    gemini["modelo"] = MODELO_GEMINI
+    groq["modelo"] = MODELO_GROQ
+
+    texto, estructurado, error = _llms_disponibles()
+    usable_gemini = gemini["configurada"] and gemini["libreria"]
+    usable_groq = groq["configurada"] and groq["libreria"]
+
+    if error:
+        detalle = error
+    elif usable_gemini and usable_groq:
+        detalle = ("Groq arma el JSON de las tablas y Gemini escribe los "
+                   "reportes: el reparto con el que se afinaron los prompts.")
+    elif usable_gemini:
+        detalle = "Sin Groq utilizable: Gemini corre todos los agentes."
+    else:
+        detalle = "Sin Gemini utilizable: Groq corre todos los agentes."
+
+    return {
+        "ok": error is None,
+        "gemini": gemini,
+        "groq": groq,
+        "detalle": detalle,
+        # `_llms_disponibles` construye los clientes de verdad: si uno de los
+        # dos no se pudo construir, aquí sale en False y no en la primera
+        # estimación que pida un usuario.
+        "agentes_de_texto": texto is not None,
+        "agentes_estructurados": estructurado is not None,
+        "variables_reconocidas": {
+            "gemini": list(ALIAS_CLAVE_GEMINI), "groq": list(ALIAS_CLAVE_GROQ)},
+    }
 
 # --- MAIN EXECUTION LOGIC ---
 def run_paperclip_agency(user_request: str, api_key: str = None,

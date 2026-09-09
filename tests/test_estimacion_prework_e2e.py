@@ -20,6 +20,7 @@ dejaba las tablas vacías y el que el dueño reportó.
 from __future__ import annotations
 
 import json
+from unittest import mock
 
 import pytest
 from playwright.sync_api import sync_playwright
@@ -268,3 +269,108 @@ def test_sin_clave_guardada_el_formulario_no_se_bloquea(pagina):
     _correr_agencia(pagina, _respuesta_de_la_agencia())
 
     assert _fila(pagina, "requiredMaterials", "description", "Block hueco 15x20x40")
+
+
+# ----------------------------------------------------------------------
+# 5. De la estimación a la base: el recorrido que cierra la cotización
+# ----------------------------------------------------------------------
+#
+# «Verifica que efectivamente coloque los datos para sacar la cotización».
+# Las tablas llenas en pantalla no son el final: al guardar, cada bloque va a
+# su tabla (`wo_materiales`, `wo_mano_obra`, `wo_herramientas`, `wo_equipos`).
+# Esta prueba recorre las tres etapas sin inventarse ninguna:
+#
+#   agencia real -> formulario real -> lo que el formulario manda a guardar
+#                -> `process_and_save_work_order` contra `MemoryEngine`.
+
+def _payload_al_guardar(page):
+    """Lo que `saveWorkOrder` manda a `apiSavePPCData`, sin llegar a la red.
+
+    El reemplazo va en el prototipo y no en `google.script.run`:
+    `withSuccessHandler` devuelve un adaptador NUEVO
+    (`api_service.js`, `new GoogleScriptRunAdapter()`), así que un parche sobre
+    la instancia se pierde en la cadena.
+    """
+    page.evaluate(
+        "() => { window.__guardado = null;"
+        " Object.getPrototypeOf(google.script.run).apiSavePPCData ="
+        "   function (payload, usuario) {"
+        "     window.__guardado = { payload, usuario };"
+        "     this._successHandler({ success: true,"
+        "                            ids: ['1001AC Electro 060826'] }); }; }")
+    page.evaluate(f"() => {_app(page)}.saveWorkOrder()")
+    page.wait_for_function(f"() => {_app(page)}.isSubmitting === false", timeout=20000)
+    return page.evaluate("() => window.__guardado")
+
+
+def _llenar_cabecera(page):
+    page.evaluate(
+        f"() => {{ const wo = {_app(page)}.workorderData;"
+        " wo.cliente = 'ACME'; wo.especialidad = 'ELECTROMECANICA';"
+        " wo.departamento = 'ELECTROMECANICA'; wo.clasificacion = 'AA';"
+        " wo.requisitor = 'TERESA GARZA'; wo.cotizador = ['LUIS PEREYRA'];"
+        " wo.tipoTrabajo = 'MANTENIMIENTO'; }")
+
+
+def test_la_estimacion_viaja_en_lo_que_el_formulario_manda_a_guardar(pagina):
+    _correr_agencia(pagina, _respuesta_de_la_agencia())
+    _llenar_cabecera(pagina)
+
+    guardado = _payload_al_guardar(pagina)
+    assert guardado is not None, "el formulario no llegó a guardar"
+    (orden,) = guardado["payload"]
+
+    descripciones = [m["description"] for m in orden["materiales"]]
+    assert "Block hueco 15x20x40" in descripciones
+    assert "Cemento gris" in descripciones
+    assert "Revolvedora de 1 saco" in [t["description"] for t in orden["herramientas"]]
+    assert "Albañil" in [fila["category"] for fila in orden["manoObra"]]
+    assert "Andamio tubular" in [e["description"] for e in orden["equipos"]]
+
+
+def test_la_estimacion_llega_a_su_tabla_en_la_base(pagina):
+    """El último tramo: cada bloque en su tabla, con folio y totales."""
+    from api.services import work_order
+    from backend.core.engines.memoria import MemoryEngine
+
+    _correr_agencia(pagina, _respuesta_de_la_agencia())
+    _llenar_cabecera(pagina)
+    (orden,) = _payload_al_guardar(pagina)["payload"]
+
+    motor = MemoryEngine({
+        "quotes": [], "tasks": [], "people": [], "plan_semanal": [],
+        "task_involucrados": [], "system_log": [], "work_orders": [],
+        "wo_materiales": [], "wo_mano_obra": [], "wo_herramientas": [],
+        "wo_equipos": [], "wo_programa": [],
+    })
+    with mock.patch.object(work_order, "_engine", lambda: motor), \
+         mock.patch.object(work_order, "_hay_base", lambda: True), \
+         mock.patch.object(work_order, "save_to_obsidian", lambda *a, **k: None), \
+         mock.patch.object(work_order, "_distribuir_tarea", lambda *a, **k: []):
+        resultado = work_order.process_and_save_work_order([orden], "PREWORK_ORDER")
+
+    assert resultado.get("success") is not False, resultado
+    (folio,) = resultado["ids"]
+
+    # `.get`: la fila de ejemplo del formulario va vacía y el motor no escribe
+    # las columnas sin valor.
+    materiales = motor.select("wo_materiales")
+    block = [m for m in materiales if m.get("descripcion") == "Block hueco 15x20x40"]
+    assert block, "MATERIALES REQUERIDOS no llegó a `wo_materiales`"
+    assert block[0]["folio"] == folio
+    assert float(block[0]["total"]) == pytest.approx(8325.0)
+
+    herramientas = motor.select("wo_herramientas")
+    assert [t for t in herramientas
+            if t.get("descripcion") == "Revolvedora de 1 saco"], (
+        "HERRAMIENTAS REQUERIDAS no llegó a `wo_herramientas`")
+
+    mano_obra = motor.select("wo_mano_obra")
+    albanil = [fila for fila in mano_obra
+               if fila.get("categoria") == "Albañil" and float(fila["salario"]) == 2800.0]
+    assert albanil, "MANO DE OBRA no llegó a `wo_mano_obra`"
+    assert float(albanil[0]["total"]) == pytest.approx(16800.0)
+
+    equipos = motor.select("wo_equipos")
+    assert [e for e in equipos if e.get("descripcion") == "Andamio tubular"], (
+        "EQUIPO ESPECIAL no llegó a `wo_equipos`")

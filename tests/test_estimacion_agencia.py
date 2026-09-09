@@ -643,3 +643,118 @@ def test_el_endpoint_sigue_aceptando_una_peticion_sin_clave():
 
     assert respuesta.status_code == 200
     assert vistas["gemini"] is None
+
+
+# ----------------------------------------------------------------------
+# 7. La clave puesta con otro nombre
+# ----------------------------------------------------------------------
+#
+# En el despliegue real la clave de Google está como `Gemini_Key` (captura del
+# dueño, 2026-09-09) y el código leía sólo `GEMINI_API_KEY`. Las variables de
+# entorno distinguen mayúsculas: la clave estaba puesta, se veía puesta en el
+# panel, y para el proceso no existía. Mismo síntoma que no tenerla.
+
+@pytest.mark.parametrize("variable", ["GEMINI_API_KEY", "Gemini_Key", "GEMINI_KEY",
+                                      "GOOGLE_API_KEY"])
+def test_la_clave_de_google_se_reconoce_con_los_nombres_que_se_usan(variable):
+    import api.paperclip_agents as agencia
+    entorno = dict.fromkeys(agencia.ALIAS_CLAVE_GEMINI, "")
+    entorno.update(dict.fromkeys(agencia.ALIAS_CLAVE_GROQ, ""))
+    entorno[variable] = "AIzaLaDelDueno"
+
+    with mock.patch.object(agencia, "ChatGroq", None), \
+         mock.patch.object(agencia, "ChatGoogleGenerativeAI",
+                           lambda **kw: _LLMDeProveedor(kw.get("google_api_key"))), \
+         mock.patch.dict(os.environ, entorno):
+        texto, estructurado, error = agencia._llms_disponibles()
+
+    assert error is None, f"la clave puesta como {variable} no se vio"
+    assert texto.proveedor == "AIzaLaDelDueno"
+    assert estructurado.proveedor == "AIzaLaDelDueno"
+
+
+def test_el_nombre_canonico_gana_a_los_alias():
+    """Con las dos puestas manda `GEMINI_API_KEY`: un alias es un rescate, no
+    una segunda fuente de verdad."""
+    import api.paperclip_agents as agencia
+    entorno = dict.fromkeys(agencia.ALIAS_CLAVE_GROQ, "")
+    entorno.update({"GEMINI_API_KEY": "AIzaCanonica", "Gemini_Key": "AIzaAlias"})
+
+    with mock.patch.object(agencia, "ChatGroq", None), \
+         mock.patch.object(agencia, "ChatGoogleGenerativeAI",
+                           lambda **kw: _LLMDeProveedor(kw.get("google_api_key"))), \
+         mock.patch.dict(os.environ, entorno):
+        texto, _estructurado, _error = agencia._llms_disponibles()
+
+    assert texto.proveedor == "AIzaCanonica"
+
+
+# ----------------------------------------------------------------------
+# 8. El diagnóstico: qué ve la agencia del despliegue
+# ----------------------------------------------------------------------
+
+def _diagnostico_con(entorno):
+    import api.paperclip_agents as agencia
+    base = dict.fromkeys(agencia.ALIAS_CLAVE_GEMINI, "")
+    base.update(dict.fromkeys(agencia.ALIAS_CLAVE_GROQ, ""))
+    base.update(entorno)
+    with mock.patch.dict(os.environ, base):
+        return agencia.diagnostico()
+
+
+def test_el_diagnostico_dice_con_que_nombre_encontro_la_clave():
+    """El dato que hacía falta y no existía en ninguna pantalla."""
+    reporte = _diagnostico_con({"Gemini_Key": "AIzaLaDelDueno"})
+
+    assert reporte["gemini"]["configurada"] is True
+    assert reporte["gemini"]["variable"] == "Gemini_Key"
+    assert reporte["ok"] is True
+
+
+def test_el_diagnostico_nunca_devuelve_la_clave():
+    reporte = _diagnostico_con({"GEMINI_API_KEY": "AIzaSecretoDeVerdad"})
+
+    entero = json.dumps(reporte)
+    assert "AIzaSecretoDeVerdad" not in entero
+    assert reporte["gemini"]["prefijo"] == "AIzaSe***"
+
+
+def test_el_diagnostico_distingue_falta_de_clave_de_falta_de_libreria():
+    import api.paperclip_agents as agencia
+
+    sin_clave = _diagnostico_con({})
+    assert sin_clave["ok"] is False
+    assert sin_clave["gemini"]["configurada"] is False
+
+    with mock.patch.object(agencia, "ChatGoogleGenerativeAI", None):
+        sin_libreria = _diagnostico_con({"GEMINI_API_KEY": "AIza_x"})
+    assert sin_libreria["gemini"]["configurada"] is True
+    assert sin_libreria["gemini"]["libreria"] is False
+
+
+def test_el_diagnostico_nombra_los_modelos_que_usaria():
+    from api.modelos_llm import MODELO_GEMINI, MODELO_GROQ
+
+    reporte = _diagnostico_con({"GEMINI_API_KEY": "AIza_x", "GROQ_API_KEY": "gsk_x"})
+
+    assert reporte["gemini"]["modelo"] == MODELO_GEMINI
+    assert reporte["groq"]["modelo"] == MODELO_GROQ
+    assert "Groq arma el JSON" in reporte["detalle"]
+
+
+def test_el_endpoint_de_diagnostico_responde_sin_llamar_al_modelo():
+    from fastapi.testclient import TestClient
+
+    import api.main as main
+    import api.paperclip_agents as agencia
+    entorno = dict.fromkeys(agencia.ALIAS_CLAVE_GEMINI, "")
+    entorno.update(dict.fromkeys(agencia.ALIAS_CLAVE_GROQ, ""))
+    entorno["Gemini_Key"] = "AIzaLaDelDueno"
+
+    with mock.patch.dict(os.environ, entorno):
+        respuesta = TestClient(main.app).get("/api/paperclip/diagnostico")
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["gemini"]["variable"] == "Gemini_Key"
+    assert "AIzaLaDelDueno" not in respuesta.text
