@@ -12284,6 +12284,27 @@ const filteredStaffTrackerData = computed(() => {
       const totalEstimacion = (insertadas) =>
           insertadas.materiales + insertadas.herramientas + insertadas.manoObra + insertadas.equipos;
 
+      // El informe de la agencia, con las claves que `run_paperclip_agency`
+      // devuelve de verdad: `levantamiento`, `calculo` y `precios`. Aquí se
+      // leía `result.estructuracion` y `result.conceptoDesc`, que el backend no
+      // manda en ninguna respuesta: el análisis se perdía entero y en silencio,
+      // igual que se perdían las tablas.
+      const textoDelAnalisis = (result) => {
+          const partes = [];
+          if (result.levantamiento) partes.push('--- Levantamiento ---\n' + result.levantamiento);
+          if (result.calculo) partes.push('--- Cálculo y Diseño ---\n' + result.calculo);
+          if (result.precios) partes.push('--- Presupuesto Estimado ---\n' + result.precios);
+          return partes.join('\n\n');
+      };
+
+      // Cero filas tiene dos causas distintas y el usuario necesita
+      // distinguirlas: no había nada que estimar, o la agencia no pudo armar la
+      // estimación. `estimacion_origen === 'vacia'` es lo segundo.
+      const avisoSinRecursos = (result, dondeEscribir) =>
+          result.estimacion_origen === 'vacia'
+              ? 'El análisis terminó pero la agencia no trajo ningún recurso: no pudo armar la estimación a partir del presupuesto. Vuelve a intentarlo o captura las tablas a mano.'
+              : 'El análisis terminó pero no trajo ningún recurso que estimar: revisa ' + dondeEscribir + '.';
+
       const isActivityPaperclipRunning = Vue.ref(false);
       const isPaperclipRunning = Vue.ref(false);
       const saved3DProjectData = Vue.ref(null);
@@ -12294,12 +12315,11 @@ const filteredStaffTrackerData = computed(() => {
       const runActivityPaperclipAgents = async () => {
           isActivityPaperclipRunning.value = true;
           try {
-              const result = await ApiService.runPaperclipAgents(currentActivityContext.value.dictado);
+              const result = await ApiService.runPaperclipAgents(
+                  currentActivityContext.value.dictado, leerGeminiKeyLocal());
               console.log("Activity Paperclip Agency Result:", result);
 
-              let textDesc = result.conceptoDesc || "";
-              if (result.estructuracion) textDesc += "\n\n--- Análisis de Ingeniería ---\n" + result.estructuracion;
-              currentActivityContext.value.dictado_detalle = textDesc;
+              currentActivityContext.value.dictado_detalle = textoDelAnalisis(result);
 
               let parsedData = {};
               if (result.structured_data) {
@@ -12309,7 +12329,7 @@ const filteredStaffTrackerData = computed(() => {
 
               const insertadas = insertarEstimacionPaperclip(parsedData, currentActivityContext.value.id);
               if (totalEstimacion(insertadas) === 0) {
-                  Swal.fire({ icon: 'warning', title: 'Agencia Paperclip', text: 'El análisis terminó pero no trajo ningún recurso que estimar: revisa el dictado de la actividad.' });
+                  Swal.fire({ icon: 'warning', title: 'Agencia Paperclip', text: avisoSinRecursos(result, 'el dictado de la actividad') });
               } else {
                   Swal.fire({ icon: 'success', title: 'Agencia Paperclip', text: 'Estimación insertada en la actividad: ' + resumenEstimacion(insertadas), timer: 2500, showConfirmButton: false });
               }
@@ -12327,11 +12347,16 @@ const filteredStaffTrackerData = computed(() => {
           }
           isPaperclipRunning.value = true;
           try {
-              const result = await ApiService.runPaperclipAgents(workorderData.value.conceptoDesc);
+              // La misma clave de Google que usa el agente de métricas: la
+              // Agencia Paperclip corre con Gemini y en este despliegue la
+              // clave puede estar guardada solo en el navegador.
+              const result = await ApiService.runPaperclipAgents(
+                  workorderData.value.conceptoDesc, leerGeminiKeyLocal());
               console.log("Paperclip Agency Result:", result);
 
-              if (result.estructuracion) {
-                  workorderData.value.conceptoDesc += "\n\n--- Análisis de Ingeniería ---\n" + result.estructuracion;
+              const analisis = textoDelAnalisis(result);
+              if (analisis) {
+                  workorderData.value.conceptoDesc += "\n\n--- Análisis de Ingeniería ---\n" + analisis;
               }
 
               let parsedData = {};
@@ -12349,7 +12374,7 @@ const filteredStaffTrackerData = computed(() => {
               }
 
               if (totalEstimacion(insertadas) === 0) {
-                  Swal.fire({ icon: 'warning', title: 'Agencia Paperclip', text: 'El análisis terminó pero no trajo ningún recurso que estimar: revisa la Descripción del Trabajo a Realizar.' });
+                  Swal.fire({ icon: 'warning', title: 'Agencia Paperclip', text: avisoSinRecursos(result, 'la Descripción del Trabajo a Realizar') });
               } else {
                   Swal.fire({ icon: 'success', title: 'Agencia Paperclip', text: 'Estimación insertada: ' + resumenEstimacion(insertadas), timer: 3000 });
               }

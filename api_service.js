@@ -15,12 +15,16 @@ if (!window.google) window.google = {};
 if (!window.google.script) window.google.script = {};
 
 class ApiService {
-    static async runPaperclipAgents(requestText) {
+    // `geminiKey` viaja igual que en el agente de métricas: en Vercel cada
+    // invocación es un proceso nuevo, así que la clave guardada desde la
+    // pantalla solo existe en este navegador. Sin ella, el servidor usa la
+    // `GEMINI_API_KEY` del despliegue.
+    static async runPaperclipAgents(requestText, geminiKey) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/run_paperclip_agency`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: requestText })
+                body: JSON.stringify({ text: requestText, geminiKey: geminiKey || '' })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || 'Error en Paperclip Agency');
@@ -662,8 +666,8 @@ class GoogleScriptRunAdapter {
         this._call(`/api/legacy/infoBankCompanies?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`);
     }
 
-    runPaperclipAgents(text) {
-        this._post('/api/run_paperclip_agency', { text: text });
+    runPaperclipAgents(text, geminiKey) {
+        this._post('/api/run_paperclip_agency', { text: text, geminiKey: geminiKey || '' });
     }
 
     apiSaveHabitLog(payload) {

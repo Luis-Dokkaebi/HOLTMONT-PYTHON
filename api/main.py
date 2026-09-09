@@ -102,20 +102,41 @@ async def serve_api_service():
         return FileResponse(path, media_type="application/javascript")
     raise HTTPException(status_code=404, detail="File not found")
 
-from api.paperclip_agents import run_paperclip_agency
+from api.paperclip_agents import (
+    run_paperclip_agency, diagnostico as paperclip_diagnostico)
 
 class PaperclipRequest(BaseModel):
     text: str
+    # La clave de Google viaja en la petición por la misma razón que en
+    # `QuoteAgentRequest`: en Vercel cada invocación es un proceso nuevo, así
+    # que una clave guardada desde la pantalla vive en el navegador y no en
+    # `os.environ`. Si no viene, se usa la del entorno del despliegue.
+    geminiKey: Optional[str] = None
 
 @app.post("/api/run_paperclip_agency")
 async def api_run_paperclip_agency(req: PaperclipRequest):
     try:
-        result = run_paperclip_agency(user_request=req.text)
+        result = run_paperclip_agency(user_request=req.text,
+                                      gemini_key=req.geminiKey)
         if not result.get("success"):
             raise HTTPException(status_code=500, detail=result.get("error", "Error desconocido en Paperclip Agency"))
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/paperclip/diagnostico")
+def api_paperclip_diagnostico():
+    """Qué ve la Agencia Paperclip del despliegue: claves, librerías y modelos.
+
+    Se abre en el navegador (`/api/paperclip/diagnostico`) y responde sin
+    llamar al modelo. Existe porque los tres fallos de configuración de esta
+    agencia —clave con otro nombre, librería fuera del bundle, modelo
+    retirado— se ven iguales desde la pantalla: tablas vacías o un 500.
+
+    No devuelve ninguna clave, solo su prefijo.
+    """
+    return paperclip_diagnostico()
+
 
 class Plano2DRequest(BaseModel):
     descripcion: str
