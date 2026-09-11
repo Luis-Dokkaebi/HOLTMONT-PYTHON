@@ -16,3 +16,10 @@ pytest-bdd>=8.1,<9
 # `ModuleNotFoundError: No module named 'openpyxl'` al recolectar, sin llegar
 # nunca a correr la suite.
 openpyxl>=3.1
+# Conversión del DENUE (INEGI) a Parquet: la usan `scripts/convertir_denue_a_parquet.py`
+# y su prueba. Llegan de todos modos como dependencia transitiva de `streamlit`,
+# pero una herramienta no debe apoyarse en lo que otra arrastra sin querer.
+# Fuera de `api/requirements.txt` a propósito: pandas + pyarrow + numpy pesan
+# 276 MB instalados y el bundle de una serverless de Vercel tope en 250 MB.
+pandas>=2.0
+pyarrow>=14.0
