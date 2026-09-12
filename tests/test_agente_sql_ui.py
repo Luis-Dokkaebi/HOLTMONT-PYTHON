@@ -30,18 +30,22 @@ BASE_URL = "http://localhost:8000"
 
 ETIQUETA = "Agente de Consultas"
 
+# Desde la fase 3 lo ve toda persona con hoja propia: ADMIN y la bandera sin
+# acotar, el resto acotado a su hoja por `agente_sql.acotar_a_la_hoja`.
 VE_EL_MODULO = [
     ("ADMIN", "LUIS_CARLOS"),
     ("STAFF_USER", "ANTONIO_SALAZAR"),   # entra por la bandera, no por el rol
+    ("STAFF_USER", "TERESA_GARZA"),      # entra por tener hoja, y va acotada
+    ("TONITA", "ANTONIA_VENTAS"),
 ]
 
-# ADMIN_CONTROL va aquí a propósito: ve Prospección y ve los tickets, así que
-# "también ve el agente" es la conclusión que uno sacaría sin leer el código.
+# Cuentas de control, sin hoja propia. Para ellas no hay "sus" filas que acotar,
+# así que enseñarles el agente sería enseñarles la tabla entera. `ADMIN_CONTROL`
+# va aquí a propósito: ve Prospección y ve los tickets, así que "también ve el
+# agente" es la conclusión que uno sacaría sin leer el código.
 NO_VE_EL_MODULO = [
     ("ADMIN_CONTROL", "JAIME_OLIVO"),
     ("PPC_ADMIN", "JESUS_CANTU"),
-    ("TONITA", "ANTONIA_VENTAS"),
-    ("STAFF_USER", "TERESA_GARZA"),
     ("WORKORDER_USER", "PREWORK_ORDER"),
 ]
 
@@ -354,5 +358,127 @@ def test_el_panel_enseña_lo_que_postgrest_dice_conocer():
             # sin abrir el panel de Supabase.
             assert "Tablas que ve PostgREST" in panel
             assert "quotes, tasks" in panel
+        finally:
+            navegador.close()
+
+
+def test_la_pantalla_dice_que_la_respuesta_es_solo_de_tus_datos():
+    """
+    Sin este aviso, "tienes 12 actividades abiertas" y "hay 12 en toda la
+    empresa" se leen exactamente igual. Va arriba de la respuesta porque leído
+    después la cifra ya se interpretó.
+    """
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1500, "height": 950})
+        try:
+            _entrar(page, "STAFF_USER", "TERESA_GARZA")
+            _doblar_respuesta_del_agente(page, {
+                "success": True,
+                "respuesta": "Tienes 12 actividades abiertas.",
+                "sql": "SELECT COUNT(*) FROM tasks",
+                "sql_ejecutado": "WITH tasks AS (SELECT * FROM public.tasks "
+                                 "WHERE source_sheet = 'TERESA GARZA')\n"
+                                 "SELECT COUNT(*) FROM tasks",
+                "alcance": "TERESA GARZA",
+                "filas": [{"count": 12}], "intentos": 1,
+            })
+
+            page.click(f".nav-item:has-text('{ETIQUETA}')")
+            page.fill("#agentePregunta", "¿cuántas tengo abiertas?")
+            page.click("#agenteConsultarBtn")
+
+            page.wait_for_selector("#agenteAlcance", timeout=15000)
+            assert "TERESA GARZA" in page.inner_text("#agenteAlcance")
+        finally:
+            navegador.close()
+
+
+def test_el_sql_que_se_ensena_es_el_que_se_ejecuto_con_el_acotado_dentro():
+    """
+    El panel enseña el SQL para que se pueda comprobar de dónde salió la cifra.
+    Si enseñara el del modelo mientras la base ejecutó otro, esa comprobación
+    sería un adorno: el SQL a la vista no explicaría el número de al lado.
+    """
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1500, "height": 950})
+        try:
+            _entrar(page, "STAFF_USER", "TERESA_GARZA")
+            _doblar_respuesta_del_agente(page, {
+                "success": True,
+                "respuesta": "Tienes 12 actividades abiertas.",
+                "sql": "SELECT COUNT(*) FROM tasks",
+                "sql_ejecutado": "WITH tasks AS (SELECT * FROM public.tasks "
+                                 "WHERE source_sheet = 'TERESA GARZA')\n"
+                                 "SELECT COUNT(*) FROM tasks",
+                "alcance": "TERESA GARZA", "filas": [{"count": 12}], "intentos": 1,
+            })
+
+            page.click(f".nav-item:has-text('{ETIQUETA}')")
+            page.fill("#agentePregunta", "¿cuántas tengo abiertas?")
+            page.click("#agenteConsultarBtn")
+            page.wait_for_selector("#agenteRespuesta", timeout=15000)
+
+            page.click("#agenteRespuesta summary")
+            page.wait_for_selector("#agenteSql", state="visible", timeout=5000)
+            sql = page.inner_text("#agenteSql")
+            assert "source_sheet = 'TERESA GARZA'" in sql
+        finally:
+            navegador.close()
+
+
+def test_al_admin_no_se_le_dice_que_ve_solo_lo_suyo():
+    """El aviso solo aparece cuando de verdad se acotó; si no, mentiría."""
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1500, "height": 950})
+        try:
+            _entrar(page, "ADMIN", "LUIS_CARLOS")
+            _doblar_respuesta_del_agente(page, {
+                "success": True, "respuesta": "Hay 120 actividades abiertas.",
+                "sql": "SELECT COUNT(*) FROM tasks", "alcance": "",
+                "filas": [{"count": 120}], "intentos": 1,
+            })
+
+            page.click(f".nav-item:has-text('{ETIQUETA}')")
+            page.fill("#agentePregunta", "¿cuántas hay abiertas?")
+            page.click("#agenteConsultarBtn")
+            page.wait_for_selector("#agenteRespuesta", timeout=15000)
+            assert page.locator("#agenteAlcance").count() == 0
+        finally:
+            navegador.close()
+
+
+def test_la_consulta_manda_la_cuenta_para_que_el_backend_la_acote():
+    """
+    Se manda la CUENTA, no la hoja. Si el navegador mandara la hoja, cualquiera
+    podría escribir la de otra persona y el acotado dejaría de acotar nada.
+    """
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1500, "height": 950})
+        try:
+            enviado = []
+
+            def responder(ruta):
+                enviado.append(ruta.request.post_data)
+                ruta.fulfill(status=200, content_type="application/json",
+                             body=__import__("json").dumps({
+                                 "success": True, "respuesta": "Tienes 12.",
+                                 "sql": "SELECT 1", "alcance": "TERESA GARZA",
+                                 "filas": [], "intentos": 1}))
+
+            page.route("**/api/agente/consulta", responder)
+            _entrar(page, "STAFF_USER", "TERESA_GARZA")
+            page.click(f".nav-item:has-text('{ETIQUETA}')")
+            page.fill("#agentePregunta", "¿cuántas tengo?")
+            page.click("#agenteConsultarBtn")
+            page.wait_for_selector("#agenteRespuesta", timeout=15000)
+
+            cuerpo = __import__("json").loads(enviado[0])
+            assert cuerpo["cuenta"] == "TERESA_GARZA"
+            assert cuerpo["role"] == "STAFF_USER"
+            assert "hoja" not in cuerpo
         finally:
             navegador.close()

@@ -126,6 +126,10 @@ class EstadoAgente(TypedDict, total=False):
 
     pregunta: str
     sql: str
+    # El SQL del modelo y el que llegó a la base dejan de ser el mismo en cuanto
+    # hay acotado por hoja. Se guardan los dos: el primero es lo que se le
+    # reenseña al modelo en el reintento, el segundo lo que justifica la cifra.
+    sql_ejecutado: str
     filas: List[Dict[str, Any]]
     resultado: str
     error: str
@@ -333,6 +337,58 @@ def acotar(sql: str, techo: int = TECHO_FILAS) -> str:
     return f"SELECT * FROM (\n{interior}\n) AS resultado_acotado LIMIT {int(techo)}"
 
 
+# Columna por la que se acota. Es la partición que ya usa toda la aplicación:
+# la clave de `quotes` es `(folio, source_sheet)` y `tasks` guarda ahí de quién
+# es la fila. No hay que crear nada para acotar por persona.
+COLUMNA_ALCANCE = "source_sheet"
+
+
+def _literal(valor: Any) -> str:
+    """El valor como literal SQL, con las comillas escapadas."""
+    return "'" + str(valor or "").replace("'", "''") + "'"
+
+
+def acotar_a_la_hoja(sql: str, tabla: str, hoja: str) -> str:
+    """
+    Antepone un CTE que sustituye `tabla` por sus filas de esa hoja.
+
+    Es la forma de acotar que **no toca el cuerpo del SQL del modelo**:
+
+        WITH tasks AS (SELECT * FROM public.tasks WHERE source_sheet = 'X')
+        SELECT departamento, COUNT(*) FROM tasks t GROUP BY 1
+
+    El CTE tapa a la tabla para todas las referencias sin calificar, vengan como
+    vengan —con alias, dentro de un GROUP BY, en una subconsulta—. La
+    alternativa evidente, pegarle un `WHERE` al final o reescribir el `FROM`,
+    produce SQL inválido en cuanto llega una consulta con una forma que no se
+    previó: con un alias (`FROM tasks t`), con un `GROUP BY` de por medio o con
+    un `UNION`. Es la misma razón por la que `acotar` envuelve en vez de
+    concatenar un `LIMIT`.
+
+    La tabla de dentro va calificada (`public.tasks`) a propósito: dentro de un
+    CTE que se llama igual que la tabla, el nombre sin calificar es justo el que
+    se presta a dos lecturas. Calificarlo no deja lugar a dudas, y de paso es la
+    forma que la lista blanca de `validar_sql` ya rechaza en el SQL del modelo,
+    de modo que nadie puede escribirla para esquivar el acotado.
+    """
+    interior = sin_comentarios(sql).strip().rstrip(";").strip()
+    alcance = (f"{tabla} AS (SELECT * FROM public.{tabla} "
+               f"WHERE {COLUMNA_ALCANCE} = {_literal(hoja)})")
+
+    # `WITH RECURSIVE` es una sola palabra clave: el CTE nuevo va DESPUÉS de
+    # `RECURSIVE`, no entre las dos. Un CTE no recursivo dentro de una lista
+    # RECURSIVE es válido; `WITH tasks AS (...), RECURSIVE ...` no lo es.
+    recursivo = re.match(r"^WITH\s+RECURSIVE\s+", interior, re.IGNORECASE)
+    if recursivo:
+        return f"WITH RECURSIVE {alcance},\n{interior[recursivo.end():]}"
+
+    con_with = re.match(r"^WITH\s+", interior, re.IGNORECASE)
+    if con_with:
+        return f"WITH {alcance},\n{interior[con_with.end():]}"
+
+    return f"WITH {alcance}\n{interior}"
+
+
 def extraer_sql(texto: str) -> str:
     """El SQL del bloque markdown que devuelve el modelo, o el texto pelado."""
     bruto = str(texto or "")
@@ -406,9 +462,30 @@ def _es_reintentable(exc: Exception) -> bool:
 
 def nodo_ejecutar_sql(estado: Dict[str, Any],
                       ejecutar: Optional[Callable[[str], List[Dict[str, Any]]]],
-                      esquema: Esquema) -> Dict[str, Any]:
+                      esquema: Esquema, hoja: str = "") -> Dict[str, Any]:
     """
-    Valida y ejecuta. Nunca ejecuta lo que no pasó por `validar_sql`.
+    Valida, acota a la hoja si toca, y ejecuta.
+
+    Nunca ejecuta lo que no pasó por `validar_sql`, y cuando hay `hoja` nunca
+    ejecuta lo que no pasó además por `acotar_a_la_hoja`. El orden importa: se
+    valida el SQL **del modelo** —la lista blanca de tablas es lo que impide que
+    escriba `public.tasks` y esquive el CTE— y solo después se acota.
+
+    **Las dos formas de rodear el acotado, y por qué ninguna hace falta
+    comprobarla aquí.** Se escribió una guarda propia para la segunda y resultó
+    ser código muerto; queda escrito para que nadie la vuelva a añadir:
+
+    1. Calificar la tabla (`FROM public.tasks`): el CTE no tapa un nombre
+       calificado. Lo rechaza la lista blanca, porque `public.tasks` no es
+       ninguna de las tablas permitidas.
+    2. Definir un CTE con el nombre de la tabla (`WITH tasks AS (...)`): el CTE
+       del modelo taparía al del acotado. También lo rechaza `validar_sql`, y
+       por un camino que no es evidente — `tablas_referenciadas` resta los
+       nombres de CTE, así que la consulta se queda sin ninguna tabla declarada
+       y cae en "no declara de qué tabla lee".
+
+    Las dos las fija `tests/test_agente_sql_alcance.py`: si alguien cambia esa
+    resta, esas pruebas se ponen en rojo y esto hay que volver a pensarlo.
     """
     if estado.get("error"):
         # Viene de un fallo del generador: no hay nada que ejecutar.
@@ -423,15 +500,17 @@ def nodo_ejecutar_sql(estado: Dict[str, Any],
         return {"error": "No hay conexión a la base de datos configurada.",
                 "filas": [], "resultado": ""}
 
+    ejecutable = acotar_a_la_hoja(sql, esquema.tabla, hoja) if hoja else sql
+
     try:
-        filas = list(ejecutar(acotar(sql)) or [])
+        filas = list(ejecutar(acotar(ejecutable)) or [])
     except Exception as exc:  # noqa: BLE001 - el error vuelve al modelo para el reintento
         return {"error": f"La consulta falló en la base: {exc}",
-                "filas": [], "resultado": "",
+                "filas": [], "resultado": "", "sql_ejecutado": ejecutable,
                 "reintentable": _es_reintentable(exc)}
 
     return {"filas": filas, "resultado": formatear_filas(filas), "error": "",
-            "reintentable": True}
+            "sql_ejecutado": ejecutable, "reintentable": True}
 
 
 def formatear_filas(filas: List[Dict[str, Any]]) -> str:
@@ -497,7 +576,7 @@ def nodo_responder(estado: Dict[str, Any], llm: Any) -> Dict[str, Any]:
 
 
 def construir_grafo(llm: Any, ejecutar: Optional[Callable[[str], List[Dict[str, Any]]]],
-                    esquema: Esquema):
+                    esquema: Esquema, hoja: str = ""):
     """
     El grafo con los colaboradores ya atados a cada nodo.
 
@@ -510,7 +589,7 @@ def construir_grafo(llm: Any, ejecutar: Optional[Callable[[str], List[Dict[str, 
 
     grafo = StateGraph(EstadoAgente)
     grafo.add_node("generar", lambda e: nodo_generar_sql(e, llm, esquema))
-    grafo.add_node("ejecutar", lambda e: nodo_ejecutar_sql(e, ejecutar, esquema))
+    grafo.add_node("ejecutar", lambda e: nodo_ejecutar_sql(e, ejecutar, esquema, hoja))
     grafo.add_node("responder", lambda e: nodo_responder(e, llm))
 
     grafo.add_edge(START, "generar")
@@ -522,8 +601,8 @@ def construir_grafo(llm: Any, ejecutar: Optional[Callable[[str], List[Dict[str, 
 
 
 def ejecutar(pregunta: str, esquema: Esquema, llm: Any = None,
-             ejecutar_sql: Optional[Callable[[str], List[Dict[str, Any]]]] = None
-             ) -> Dict[str, Any]:
+             ejecutar_sql: Optional[Callable[[str], List[Dict[str, Any]]]] = None,
+             hoja: str = "") -> Dict[str, Any]:
     """
     Corre el agente sobre una pregunta. Nunca lanza.
 
@@ -540,7 +619,7 @@ def ejecutar(pregunta: str, esquema: Esquema, llm: Any = None,
 
     inicial: Dict[str, Any] = {"pregunta": texto, "intentos": 0}
     try:
-        final = construir_grafo(llm, ejecutar_sql, esquema).invoke(inicial)
+        final = construir_grafo(llm, ejecutar_sql, esquema, hoja).invoke(inicial)
     except Exception as exc:  # noqa: BLE001
         return {"success": False,
                 "message": f"El agente no pudo completar la consulta ({exc})."}
@@ -550,9 +629,16 @@ def ejecutar(pregunta: str, esquema: Esquema, llm: Any = None,
         "success": not error,
         "respuesta": final.get("respuesta", ""),
         "sql": final.get("sql", ""),
+        # Lo que llegó a la base. Enseñar el SQL del modelo y ejecutar otro
+        # convertiría en adorno la única garantía que tiene quien lee la cifra
+        # de poder comprobar de dónde salió.
+        "sql_ejecutado": final.get("sql_ejecutado", "") or final.get("sql", ""),
         "filas": final.get("filas", []),
         "intentos": int(final.get("intentos", 0)),
         "esquema": esquema.clave,
+        # Con qué hoja se contestó. Vacío = sin acotar. Sin este dato, "tienes
+        # 3 pendientes" y "hay 3 en toda la empresa" se leen exactamente igual.
+        "alcance": str(hoja or ""),
         # `message` solo cuando hubo error: el frontend lo usa para decidir si
         # pinta la respuesta o el aviso.
         **({"message": error} if error else {}),

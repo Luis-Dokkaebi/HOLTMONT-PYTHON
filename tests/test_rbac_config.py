@@ -466,16 +466,21 @@ def test_el_modulo_de_prospeccion_declara_el_tipo_que_el_frontend_sabe_abrir():
 
 
 # --- Agente de Consultas ----------------------------------------------
-# La tercera bandera aditiva, y la más cerrada de las tres. El motivo está en
-# `_ve_agente_sql`: `soporte` enseña tickets y `prospeccion` enseña un catálogo
-# publico del INEGI, pero el agente lee `tasks` y `quotes` ENTERAS —el trabajo
-# de todos los departamentos, sin filtrar por hoja— y de ahi puede salir un
-# correo a un tercero.
+# Era la mas cerrada de las tres banderas aditivas, y el motivo estaba escrito
+# en `_ve_agente_sql`: el agente leia `tasks` y `quotes` ENTERAS —el trabajo de
+# todos los departamentos, SIN FILTRAR POR HOJA— y de ahi podia salir un correo
+# a un tercero.
 #
-# Decision del dueño (2026-08-22): ADMIN por rol y ANTONIO_SALAZAR por bandera.
-# Nadie mas, ni siquiera ADMIN_CONTROL. Eso ultimo es lo que estas pruebas
-# fijan: es la lectura que uno esperaria —quien administra el control ve todo—
-# y sin prueba se colaria en el proximo cambio.
+# CAMBIO DE POLITICA (fase 3). Ese "sin filtrar por hoja" dejo de ser cierto:
+# `agente_sql.acotar_a_la_hoja` antepone un CTE que sustituye la tabla por las
+# filas de quien pregunta, y el acotado lo impone el SQL, no el prompt. Caida la
+# premisa, cae la restriccion: el modulo lo ve toda persona con hoja propia,
+# acotada a la suya. Quien NO tiene hoja propia sigue fuera, porque para esas
+# cuentas "ver el agente" seria "verlo todo" — que es exactamente lo que estas
+# pruebas siguen fijando.
+#
+# Lo que NO cambio: ADMIN y la bandera explicita siguen viendo el total, sin
+# acotar. Eso se comprueba en `tests/test_agente_sql_alcance.py`.
 
 MODULO_AGENTE = "AGENTE_SQL"
 
@@ -488,29 +493,44 @@ def _ve_agente(role, username=""):
     ("ADMIN", "LUIS_CARLOS"),
     ("STAFF_USER", "ANTONIO_SALAZAR"),   # entra por la bandera, no por el rol
 ])
-def test_solo_admin_y_la_cuenta_con_bandera_ven_el_agente(rol, cuenta):
+def test_admin_y_la_cuenta_con_bandera_ven_el_agente_sin_acotar(rol, cuenta):
+    assert _ve_agente(rol, cuenta)
+
+
+@pytest.mark.parametrize("rol,cuenta", [
+    ("STAFF_USER", "TERESA_GARZA"),
+    ("STAFF_USER", "RAMIRO_RODRIGUEZ"),
+    ("STAFF_USER", "JUDITH_ECHAVARRIA"),
+    ("ADMIN_CONTROL", "DIMAS_RAMOS"),    # tiene hoja propia: la ve, acotada
+    ("TONITA", "ANTONIA_VENTAS"),        # su rama devolvia los modulos a mano
+])
+def test_quien_tiene_hoja_propia_ve_el_agente(rol, cuenta):
+    """
+    Fase 3: cada ejecutivo pregunta por lo suyo.
+
+    Que ademas quede acotado a su hoja no se comprueba aqui —esto es el menu—
+    sino en `tests/test_agente_sql_alcance.py`, que es donde vive la garantia.
+    """
     assert _ve_agente(rol, cuenta)
 
 
 @pytest.mark.parametrize("rol,cuenta", [
     ("ADMIN_CONTROL", "JAIME_OLIVO"),    # ve prospeccion y tickets; el agente NO
-    ("ADMIN_CONTROL", "DIMAS_RAMOS"),
     ("PPC_ADMIN", "JESUS_CANTU"),
-    ("TONITA", "ANTONIA_VENTAS"),
     ("WORKORDER_USER", "PREWORK_ORDER"),
-    ("STAFF_USER", "TERESA_GARZA"),
-    ("STAFF_USER", "RAMIRO_RODRIGUEZ"),
-    ("STAFF_USER", "JUDITH_ECHAVARRIA"),
 ])
-def test_el_resto_no_ve_el_agente(rol, cuenta):
+def test_una_cuenta_sin_hoja_propia_no_ve_el_agente(rol, cuenta):
+    """
+    Son cuentas de control, no personas con tracker. No hay "sus" filas que
+    acotar, asi que concederselo seria concederles la tabla entera.
+    """
     assert not _ve_agente(rol, cuenta)
 
 
-def test_admin_control_ve_prospeccion_pero_no_el_agente():
+def test_admin_control_sin_hoja_ve_prospeccion_pero_no_el_agente():
     """
-    La distincion explicita entre las dos banderas. Copiar `_ve_prospeccion`
-    tal cual —que incluye ADMIN_CONTROL— habria abierto el agente a dos cuentas
-    mas sin que nadie lo decidiera.
+    La distincion sigue viva despues de la fase 3: `JAIME_OLIVO` no tiene hoja
+    propia, asi que el agente no le llega ni por el rol ni por tenerlo todo.
     """
     assert _ve_geo("ADMIN_CONTROL", "JAIME_OLIVO")
     assert not _ve_agente("ADMIN_CONTROL", "JAIME_OLIVO")

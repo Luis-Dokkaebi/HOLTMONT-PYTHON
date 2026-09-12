@@ -1914,6 +1914,14 @@
             <!-- LA RESPUESTA -->
             <div v-if="agente.respuesta" class="card mb-3" id="agenteRespuesta">
                 <div class="card-body">
+                    <!-- Con qué datos se contestó. Va ARRIBA de la respuesta a
+                         propósito: leído después, la cifra ya se interpretó. -->
+                    <div v-if="agente.alcance" class="small mb-2" id="agenteAlcance">
+                        <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">
+                            <i class="fas fa-user-lock me-1"></i>
+                            Solo tus datos · {{ agente.alcance }}
+                        </span>
+                    </div>
                     <div style="white-space:pre-wrap; color:#333;">{{ agente.respuesta }}</div>
                     <!-- El SQL se enseña siempre: sin él, una cifra inventada por
                          el modelo es indistinguible de una contada por la base. -->
@@ -9012,7 +9020,10 @@ const filteredStaffTrackerData = computed(() => {
 
       const agente = ref({
           esquema: 'tasks', pregunta: '', cargando: false,
-          respuesta: '', sql: '', aviso: '',
+          // `alcance` es la hoja con la que contestó el backend. Vacío = sin
+          // acotar (ADMIN). Sin enseñarlo, "tienes 3 pendientes" y "hay 3 en
+          // toda la empresa" se leen exactamente igual.
+          respuesta: '', sql: '', alcance: '', aviso: '',
           // `diagnostico` es null mientras no se pida: null y "todo bien" son
           // cosas distintas, y un objeto vacío las confundiría.
           diagnostico: null, diagnosticando: false,
@@ -9040,6 +9051,7 @@ const filteredStaffTrackerData = computed(() => {
           agente.value.aviso = '';
           agente.value.respuesta = '';
           agente.value.sql = '';
+          agente.value.alcance = '';
           // Un diagnóstico viejo junto a un error nuevo es peor que ninguno:
           // se lee como si describiera este intento.
           agente.value.diagnostico = null;
@@ -9050,15 +9062,25 @@ const filteredStaffTrackerData = computed(() => {
           agente.value.vozRecortada = false;
           reiniciarCorreosAgente();
 
+          // La cuenta viaja para que el backend resuelva la hoja y acote la
+          // consulta. Se manda la CUENTA y no la hoja: la hoja la decide el
+          // organigrama en el servidor, y mandarla desde aquí habría dejado
+          // que cualquiera escribiera la de otra persona.
           const res = await ApiService.agenteConsulta({
               pregunta: agente.value.pregunta,
-              esquema: agente.value.esquema
+              esquema: agente.value.esquema,
+              cuenta: currentUsername.value || '',
+              role: currentRole.value || ''
           });
           agente.value.cargando = false;
 
           if (res && res.success) {
               agente.value.respuesta = res.respuesta || '';
-              agente.value.sql = res.sql || '';
+              // El SQL que DE VERDAD se ejecutó, con el acotado incluido.
+              // Enseñar el del modelo y ejecutar otro convertiría en adorno la
+              // única forma que hay de comprobar de dónde salió la cifra.
+              agente.value.sql = res.sql_ejecutado || res.sql || '';
+              agente.value.alcance = res.alcance || '';
           } else {
               // El aviso se pinta tal cual lo manda el backend: distingue
               // "falta GROQ_API_KEY" de "la consulta fue bloqueada", y un
