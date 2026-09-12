@@ -540,6 +540,32 @@ def api_agente_enviar(req: AgenteEnvioRequest):
         req.borradores, req.destinos, copia=req.copia, notas=req.notas)
 
 
+class AgenteVozRequest(BaseModel):
+    """El texto que se va a leer en voz alta."""
+
+    texto: str
+
+
+@app.post("/api/agente/voz")
+def api_agente_voz(req: AgenteVozRequest):
+    """
+    Lee en voz alta una respuesta del agente. Devuelve el WAV en base64.
+
+    El cliente manda el texto que la persona tiene en pantalla, igual que
+    `/api/agente/enviar` exige el borrador exacto que se leyó. No se re-consulta
+    la base para sintetizar: lo que suena es lo que se vio, y así no hay forma
+    de que salgan por la bocina celdas que nadie miró (ver `voz.py`).
+
+    Base64 dentro del JSON y no `Response(media_type="audio/wav")` porque el
+    frontend consume estas rutas con `ApiService._geoPost`, que espera un cuerpo
+    con `success`. Un binario suelto obligaría a una segunda forma de manejar
+    los errores de red solo para esta ruta.
+    """
+    from api.services import voz
+
+    return voz.sintetizar(req.texto, voz.sintetizador_disponible())
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str

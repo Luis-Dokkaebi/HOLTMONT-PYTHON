@@ -1852,6 +1852,26 @@
                             :disabled="agente.cargando" @click="detectarAreasAgente()">
                         <i class="fas fa-envelope me-1"></i> Preparar correos por área
                     </button>
+                    <!-- LA VOZ -->
+                    <!-- Solo lee lo que ya está pintado arriba. El audio no se
+                         pide solo: cada lectura cuesta una llamada, y nadie
+                         quiere que su tablero empiece a hablar sin pedirlo. -->
+                    <button class="btn btn-outline-primary btn-sm mt-3 ms-2" id="agenteVozBtn"
+                            :disabled="agente.leyendo" @click="leerRespuestaAgente()">
+                        <i class="fas fa-volume-up me-1"></i> Escuchar respuesta
+                    </button>
+                    <span v-if="agente.leyendo" class="small text-muted ms-2" id="agenteLeyendo">
+                        <i class="fas fa-circle-notch fa-spin"></i> generando la voz…
+                    </span>
+                    <div v-if="agente.audio" class="mt-3" id="agenteAudio">
+                        <audio :src="agente.audio" controls class="w-100"></audio>
+                        <div v-if="agente.vozRecortada" class="small text-muted mt-1" id="agenteVozRecortada">
+                            La respuesta era larga: se leyó solo el principio. El texto completo está arriba.
+                        </div>
+                    </div>
+                    <div v-if="agente.avisoVoz" class="alert alert-warning py-2 small mt-3" id="agenteAvisoVoz">
+                        {{ agente.avisoVoz }}
+                    </div>
                 </div>
             </div>
 
@@ -8816,6 +8836,10 @@ const filteredStaffTrackerData = computed(() => {
           // `diagnostico` es null mientras no se pida: null y "todo bien" son
           // cosas distintas, y un objeto vacío las confundiría.
           diagnostico: null, diagnosticando: false,
+          // La voz: `audio` es la URL de datos del WAV que devolvió el backend.
+          // Vacía mientras no se pida: no se sintetiza nada hasta que alguien
+          // pulsa, porque cada lectura cuesta una llamada al proveedor.
+          audio: '', leyendo: false, avisoVoz: '', vozRecortada: false,
           areas: [], areasSeleccionadas: [], destinatarios: [],
           borradores: {}, destinos: {}, cambios: {},
           copia: '', notas: ''
@@ -8839,6 +8863,11 @@ const filteredStaffTrackerData = computed(() => {
           // Un diagnóstico viejo junto a un error nuevo es peor que ninguno:
           // se lee como si describiera este intento.
           agente.value.diagnostico = null;
+          // Un audio de la respuesta anterior junto a una respuesta nueva se
+          // escucha como si fuera de esta. Mismo motivo que el diagnóstico.
+          agente.value.audio = '';
+          agente.value.avisoVoz = '';
+          agente.value.vozRecortada = false;
           reiniciarCorreosAgente();
 
           const res = await ApiService.agenteConsulta({
@@ -8855,6 +8884,36 @@ const filteredStaffTrackerData = computed(() => {
               // "falta GROQ_API_KEY" de "la consulta fue bloqueada", y un
               // mensaje genérico haría indistinguibles los dos casos.
               agente.value.aviso = (res && res.message) || 'El agente no respondió.';
+          }
+      };
+
+      /**
+       * Pide que la respuesta que está en pantalla se lea en voz alta.
+       *
+       * Se manda `agente.respuesta` —la prosa que redactó el modelo— y nunca
+       * las filas crudas: `comentarios` y `concepto` son texto libre que
+       * captura cualquiera en el Tracker, y una bocina leyéndolas en un evento
+       * no se puede deshacer. Ver `api/services/voz.py`.
+       */
+      const leerRespuestaAgente = async () => {
+          if (!agente.value.respuesta.trim()) return;
+          agente.value.leyendo = true;
+          agente.value.avisoVoz = '';
+          agente.value.audio = '';
+
+          const res = await ApiService.agenteVoz({ texto: agente.value.respuesta });
+          agente.value.leyendo = false;
+
+          if (res && res.success && res.audio) {
+              agente.value.audio = `data:${res.mime || 'audio/wav'};base64,${res.audio}`;
+              // Si el texto no cupo entero, se dice. Escuchar media respuesta
+              // creyéndola completa es el fallo caro de esta función.
+              agente.value.vozRecortada = !!res.recortado;
+          } else {
+              // Tal cual lo manda el backend: distingue "falta la clave" de
+              // "el proveedor devolvió un error", y un texto genérico haría
+              // indistinguibles los dos casos.
+              agente.value.avisoVoz = (res && res.message) || 'No se pudo generar la voz.';
           }
       };
 
@@ -12510,6 +12569,7 @@ const filteredStaffTrackerData = computed(() => {
                geoEstado, geoVendedor, geoNota, geoGuardando, geoExportando, geoAgente,
                guardarProspectoGeo, consultarAgenteGeo, solicitarCotizacionGeo,
                agente, consultarAgente, detectarAreasAgente, generarBorradoresAgente,
+               leerRespuestaAgente,
                diagnosticarAgente, piezasDelDiagnostico,
                aplicarCambioAgente, enviarCorreosAgente,
                exportarSeleccionGeo,
