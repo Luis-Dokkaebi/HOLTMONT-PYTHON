@@ -28,7 +28,7 @@ except ImportError:
 
 # Services
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
-from api.services import organigrama
+from api.services import organigrama, pantalla
 from api.services.asignacion import tabla_de_cotizaciones
 from api.services.work_order import process_and_save_work_order, get_next_sequence
 
@@ -1139,6 +1139,26 @@ def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):
         "history": history_tasks,
         "headers": clean_headers
     }
+
+
+@app.get("/api/pantalla")
+def api_pantalla(hoja: str = Query(..., description="Hoja del ejecutivo que se muestra")):
+    """
+    La tabla de un ejecutivo, lista para una televisión colgada. Solo lectura.
+
+    **No exige sesión, y es deliberado:** una televisión de pared no puede
+    teclear una contraseña. La puerta es la misma que ya protege `/api/data` —la
+    lista de tablas sensibles y el filtro de columnas de credencial— y por eso
+    se reutiliza esa función en vez de repetir aquí la comprobación: dos copias
+    de un control de acceso se separan con el tiempo, y la que se olvide es la
+    que deja pasar.
+
+    Quien tenga la URL ve esa hoja. Eso ya era cierto de `/api/data`; esta ruta
+    lo hace visible, no lo estrena. Si hiciera falta cerrarlo, se cierra para
+    las dos a la vez.
+    """
+    datos = get_data(sheet=hoja)
+    return pantalla.preparar(datos.get("data") or [], hoja, datetime.now())
 
 # ======================================================================
 # API LEGACY DEL TRACKER (paridad con CODIGO.js / google.script.run)

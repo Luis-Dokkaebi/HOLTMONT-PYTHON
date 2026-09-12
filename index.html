@@ -298,6 +298,35 @@
         position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center;
         background: radial-gradient(circle at center, #252525 0%, #000000 100%);
     }
+    /* ============================================================
+       PANTALLA DE McDONALD'S — televisión colgada, solo lectura
+       Los tamaños son para leerse a cuatro metros, no en un escritorio:
+       de ahí las unidades en vw y no en px. Una tabla de pared con la
+       letra del Tracker no se lee, y una que no se lee no informa.
+       ============================================================ */
+    .pantalla-tv {
+        position: fixed; inset: 0; z-index: 4000;
+        background: #0b1220; color: #e9eef7;
+        display: flex; flex-direction: column; padding: 1.5vw 2vw;
+        font-size: 1.15vw;
+    }
+    .pantalla-tv h1 { font-size: 2.6vw; font-weight: 800; margin: 0; letter-spacing: .04em; }
+    .pantalla-tv table { width: 100%; border-collapse: collapse; }
+    .pantalla-tv th {
+        font-size: 1.15vw; text-transform: uppercase; letter-spacing: .08em;
+        color: #8fa6c8; border-bottom: .25vw solid #1e3a5f; padding: .8vw .6vw; text-align: left;
+    }
+    .pantalla-tv td {
+        font-size: 1.5vw; padding: .9vw .6vw; border-bottom: 1px solid #16233a;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 22vw;
+    }
+    .pantalla-tv .pie { display: flex; justify-content: space-between; align-items: center;
+        margin-top: auto; padding-top: 1vw; font-size: 1.2vw; color: #8fa6c8; }
+    /* El aviso de datos rancios. Rojo y grande a propósito: es lo único que
+       distingue una pantalla viva de una congelada, que se ven idénticas. */
+    .pantalla-tv .rancio { color: #ff6b6b; font-weight: 700; }
+    .pantalla-tv .vacia { font-size: 2vw; color: #8fa6c8; text-align: center; padding: 6vw 0; }
+
     .login-card {
         background-color: #1c1c1c;
         padding: 40px;
@@ -901,7 +930,51 @@
 <body>
 
 <div id="app">
-  <div v-if="!isLoggedIn" class="login-overlay">
+  <!-- ============================================================ -->
+  <!-- PANTALLA DE McDONALD'S                                       -->
+  <!-- Se activa con ?pantalla=<HOJA> y NO pasa por el login: una    -->
+  <!-- televisión colgada no puede teclear una contraseña. Va antes  -->
+  <!-- del overlay de acceso porque si no, la TV mostraría el        -->
+  <!-- formulario para siempre.                                      -->
+  <!-- ============================================================ -->
+  <div v-if="pantalla.activa" class="pantalla-tv" id="pantallaTv">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+          <h1 id="pantallaTitulo">{{ pantalla.hoja }}</h1>
+          <div id="pantallaResumen">{{ pantalla.pendientes }} pendientes de {{ pantalla.total }}</div>
+      </div>
+
+      <div v-if="pantalla.error" class="vacia" id="pantallaError">{{ pantalla.error }}</div>
+
+      <table v-else-if="paginaVisible.length" id="pantallaTabla">
+          <thead>
+              <tr><th v-for="col in pantalla.columnas" :key="col">{{ col }}</th></tr>
+          </thead>
+          <tbody>
+              <tr v-for="(fila, i) in paginaVisible" :key="i">
+                  <td v-for="col in pantalla.columnas" :key="col">{{ fila[col] }}</td>
+              </tr>
+          </tbody>
+      </table>
+
+      <div v-else class="vacia" id="pantallaVacia">Sin pendientes.</div>
+
+      <div class="pie">
+          <span id="pantallaPagina">
+              Página {{ pantalla.pagina + 1 }} de {{ pantalla.paginas.length }}
+              <span v-if="pantalla.recortado"> · mostrando {{ pantalla.mostradas }} de {{ pantalla.total }}</span>
+          </span>
+          <!-- La frescura. Sin esto, una pantalla que perdió la red se ve
+               exactamente igual que una al día, y alguien decide con datos
+               de anteayer creyéndolos de ahora. -->
+          <span id="pantallaFrescura" :class="{ rancio: pantalla.rancio }">
+              <i class="fas" :class="pantalla.rancio ? 'fa-exclamation-triangle' : 'fa-circle-notch'"></i>
+              {{ pantalla.rancio ? 'SIN ACTUALIZAR desde hace' : 'actualizado hace' }}
+              {{ pantalla.segundos }} s
+          </span>
+      </div>
+  </div>
+
+  <div v-if="!isLoggedIn && !pantalla.activa" class="login-overlay">
     <div class="login-card">
       <img src="https://drive.google.com/thumbnail?id=1tmNuwauWNjOhv0JwX6ug9pzvsrBCNX7z&sz=w1000" class="login-logo" alt="Logo">
       <h3 class="fw-bold mb-4">BIENVENIDO</h3>
@@ -6772,6 +6845,113 @@ async function toggleVoiceRecording(btnElement) {
       const isRecording = ref(false);
       let recognition = null;
       const isLoggedIn = ref(false);
+
+      // ==================================================================
+      // PANTALLA DE McDONALD'S — televisión colgada, solo lectura
+      // ==================================================================
+      // Se activa con ?pantalla=<HOJA>. No pasa por el login a propósito: una
+      // TV de pared no puede teclear una contraseña, y la puerta de qué se
+      // publica vive en el backend (`/api/pantalla` reutiliza la lista de
+      // tablas sensibles de `/api/data`).
+      const PANTALLA_REFRESCO_MS = 30000;   // cada cuánto se piden datos
+      const PANTALLA_ROTACION_MS = 15000;   // cada cuánto pasa de página
+      const PANTALLA_RANCIO_S = 120;        // a partir de aquí, aviso en rojo
+      const PANTALLA_RECARGA_MS = 3600000;  // recarga completa cada hora
+
+      const pantalla = ref({
+          activa: false, hoja: '', columnas: [], paginas: [[]], pagina: 0,
+          total: 0, pendientes: 0, mostradas: 0, recortado: false,
+          // `segundos` es la EDAD de los datos, no un contador de ticks, y esa
+          // diferencia importa: un navegador estrangula los temporizadores de
+          // una pestaña que lleva horas sin mirarse — que es exactamente la
+          // situación de una televisión colgada—. Un contador que suma de uno
+          // en uno se queda corto justo cuando más falta hace, y el aviso rojo
+          // no llegaría a salir nunca. Restar contra `actualizadoEn` es inmune
+          // a eso. El reloj es el del navegador y no `generado_en` del backend
+          // porque lo que se quiere medir es "cuánto llevo sin enterarme", y
+          // comparar dos relojes distintos metería el desfase entre ambos.
+          actualizadoEn: 0, segundos: 0, rancio: false, error: ''
+      });
+
+      const paginaVisible = computed(() => {
+          const paginas = pantalla.value.paginas;
+          if (!paginas.length) return [];
+          return paginas[pantalla.value.pagina % paginas.length] || [];
+      });
+
+      /** Pide los datos de la hoja. Un fallo se dice; no se deja la tabla vieja. */
+      const refrescarPantalla = async () => {
+          try {
+              const base = window.API_BASE_URL || window.location.origin;
+              const res = await fetch(`${base}/api/pantalla?hoja=`
+                                      + encodeURIComponent(pantalla.value.hoja));
+              if (!res.ok) throw new Error(`El servidor respondió ${res.status}`);
+              const datos = await res.json();
+              pantalla.value.columnas = datos.columnas || [];
+              pantalla.value.paginas = (datos.paginas && datos.paginas.length)
+                  ? datos.paginas : [[]];
+              pantalla.value.total = datos.total || 0;
+              pantalla.value.pendientes = datos.pendientes || 0;
+              pantalla.value.recortado = !!datos.recortado;
+              pantalla.value.mostradas = pantalla.value.paginas
+                  .reduce((suma, p) => suma + p.length, 0);
+              // La página actual puede haber dejado de existir si la hoja
+              // encogió entre dos refrescos.
+              if (pantalla.value.pagina >= pantalla.value.paginas.length) {
+                  pantalla.value.pagina = 0;
+              }
+              pantalla.value.actualizadoEn = Date.now();
+              pantalla.value.segundos = 0;
+              pantalla.value.rancio = false;
+              pantalla.value.error = '';
+          } catch (e) {
+              // Los datos que ya están siguen en pantalla, pero el contador de
+              // frescura NO se reinicia: en segundos se pondrá en rojo solo.
+              // Borrar la tabla dejaría la pared en blanco por un corte de un
+              // segundo; mentir sobre su edad es peor que no tener tabla.
+              if (!pantalla.value.columnas.length) {
+                  pantalla.value.error = `No se pudo leer la hoja ${pantalla.value.hoja}: ${e.message}`;
+              }
+          }
+      };
+
+      /**
+       * Arranca la televisión si la URL lo pide. Devuelve si se activó.
+       *
+       * Los tres temporizadores son distintos a propósito: los datos se piden
+       * cada 30 s, la página rota cada 15 s (rotar solo al recibir datos dejaría
+       * la mitad de las filas sin verse nunca) y el segundero corre cada segundo
+       * para que el aviso de "sin actualizar" aparezca solo, sin esperar a la
+       * siguiente petición — que es justo la que no está llegando.
+       */
+      const arrancarPantalla = () => {
+          const hoja = new URLSearchParams(window.location.search).get('pantalla');
+          if (!hoja) return false;
+
+          pantalla.value.activa = true;
+          pantalla.value.hoja = hoja;
+          // Se siembra ANTES de la primera petición: sin esto la edad se mide
+          // contra 1970 y la pantalla nace en rojo durante un instante.
+          pantalla.value.actualizadoEn = Date.now();
+          refrescarPantalla();
+
+          setInterval(refrescarPantalla, PANTALLA_REFRESCO_MS);
+          setInterval(() => {
+              const paginas = pantalla.value.paginas.length;
+              if (paginas > 1) pantalla.value.pagina = (pantalla.value.pagina + 1) % paginas;
+          }, PANTALLA_ROTACION_MS);
+          setInterval(() => {
+              const edad = Math.round((Date.now() - pantalla.value.actualizadoEn) / 1000);
+              pantalla.value.segundos = Math.max(0, edad);
+              pantalla.value.rancio = pantalla.value.segundos > PANTALLA_RANCIO_S;
+          }, 1000);
+          // Una pestaña encendida doce horas acumula memoria y acaba muerta sin
+          // que nadie lo vea: la pared se queda con la última imagen. Recargar
+          // entera una vez por hora cuesta dos segundos de parpadeo.
+          setTimeout(() => window.location.reload(), PANTALLA_RECARGA_MS);
+          return true;
+      };
+
       const trackerProductivityData = ref(null); const isLoadingTrackerProductivity = ref(false); const loginPass = ref(''); const loginUser = ref(''); const loggingIn = ref(false); const currentUser = ref(''); const currentUsername = ref('');
       const currentRole = ref(''); // NUEVO: Estado para el rol del usuario
       const currentView = ref('DASHBOARD'); const currentDept = ref('');
@@ -10832,6 +11012,10 @@ const filteredStaffTrackerData = computed(() => {
       });
 
       onMounted(() => {
+          // Antes que nada: si la URL pide una pantalla, esto es una televisión
+          // y no hay sesión que iniciar ni calendario que refrescar.
+          if (arrancarPantalla()) return;
+
           calendarInterval.value = setInterval(() => {
               if (isLoggedIn.value && currentView.value === 'DASHBOARD') {
                   // Silent update (no loading spinner for polling)
@@ -12568,6 +12752,7 @@ const filteredStaffTrackerData = computed(() => {
                cargarCatalogoGeo, recargarGeo, limpiarSeleccionGeo, urlDeSitio,
                geoEstado, geoVendedor, geoNota, geoGuardando, geoExportando, geoAgente,
                guardarProspectoGeo, consultarAgenteGeo, solicitarCotizacionGeo,
+               pantalla, paginaVisible,
                agente, consultarAgente, detectarAreasAgente, generarBorradoresAgente,
                leerRespuestaAgente,
                diagnosticarAgente, piezasDelDiagnostico,
