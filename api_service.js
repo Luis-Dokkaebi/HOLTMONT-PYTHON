@@ -143,6 +143,17 @@ class ApiService {
     }
 
     /**
+     * Lee en voz alta una respuesta del agente. Devuelve el WAV en base64.
+     *
+     * Se manda el texto que está en pantalla, no un identificador de consulta:
+     * lo que suena tiene que ser exactamente lo que la persona leyó. Ver
+     * `api/services/voz.py` para por qué eso es una defensa y no un detalle.
+     */
+    static async agenteVoz(payload) {
+        return ApiService._geoPost('/api/agente/voz', payload);
+    }
+
+    /**
      * Qué le falta al agente para funcionar: modelo, base, función RPC y tablas.
      *
      * Es GET y no POST —no cambia nada— y por eso no puede reutilizar

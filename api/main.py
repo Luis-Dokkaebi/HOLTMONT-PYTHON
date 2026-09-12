@@ -28,7 +28,7 @@ except ImportError:
 
 # Services
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
-from api.services import organigrama
+from api.services import organigrama, pantalla
 from api.services.asignacion import tabla_de_cotizaciones
 from api.services.work_order import process_and_save_work_order, get_next_sequence
 
@@ -409,10 +409,18 @@ def api_geo_solicitar_cotizacion(req: GeoCotizacionRequest):
 
 
 class AgenteConsultaRequest(BaseModel):
-    """La pregunta y sobre qué tabla se responde."""
+    """La pregunta, sobre qué tabla se responde, y de parte de quién."""
 
     pregunta: str
     esquema: str = "tasks"
+    # Quién pregunta. El backend NO se cree la hoja que le manden: se cree la
+    # cuenta y resuelve la hoja él, contra el organigrama. Mandar la hoja desde
+    # el navegador habría dejado que cualquiera escribiera la de otro.
+    #
+    # Vacío = sin acotar, que es el comportamiento de siempre y el que usan hoy
+    # ADMIN y ANTONIO_SALAZAR.
+    cuenta: str = ""
+    role: str = ""
 
 
 class AgenteAreasRequest(BaseModel):
@@ -468,10 +476,25 @@ def api_agente_consulta(req: AgenteConsultaRequest):
     if ejecutor is None:
         return {"success": False, "message": agente_sql.MENSAJE_SIN_BASE}
 
+    # Falla cerrado: si esta cuenta tiene que ir acotada y no se le encuentra
+    # hoja para este esquema, no se responde. La alternativa —seguir sin
+    # acotar— contestaría con el trabajo de toda la empresa a quien solo
+    # preguntaba por el suyo, y la respuesta se leería igual de bien.
+    if _acota_al_agente(req.role, req.cuenta):
+        hoja = _alcance_del_agente(req.role, req.cuenta, esquema.clave)
+        if not hoja:
+            return {"success": False, "message":
+                    f"No se encontró tu tabla de {esquema.etiqueta.lower()}. "
+                    "Si vendes y ves este aviso, avisa a sistemas; mientras "
+                    "tanto no se responde, para no darte datos de otras personas."}
+    else:
+        hoja = ""
+
     return agente_sql.ejecutar(
         req.pregunta, esquema,
         llm=agente_sql.llm_disponible(),
-        ejecutar_sql=ejecutor)
+        ejecutar_sql=ejecutor,
+        hoja=hoja)
 
 
 @app.get("/api/agente/diagnostico")
@@ -540,6 +563,32 @@ def api_agente_enviar(req: AgenteEnvioRequest):
         req.borradores, req.destinos, copia=req.copia, notas=req.notas)
 
 
+class AgenteVozRequest(BaseModel):
+    """El texto que se va a leer en voz alta."""
+
+    texto: str
+
+
+@app.post("/api/agente/voz")
+def api_agente_voz(req: AgenteVozRequest):
+    """
+    Lee en voz alta una respuesta del agente. Devuelve el WAV en base64.
+
+    El cliente manda el texto que la persona tiene en pantalla, igual que
+    `/api/agente/enviar` exige el borrador exacto que se leyó. No se re-consulta
+    la base para sintetizar: lo que suena es lo que se vio, y así no hay forma
+    de que salgan por la bocina celdas que nadie miró (ver `voz.py`).
+
+    Base64 dentro del JSON y no `Response(media_type="audio/wav")` porque el
+    frontend consume estas rutas con `ApiService._geoPost`, que espera un cuerpo
+    con `success`. Un binario suelto obligaría a una segunda forma de manejar
+    los errores de red solo para esta ruta.
+    """
+    from api.services import voz
+
+    return voz.sintetizar(req.texto, voz.sintetizador_disponible())
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -578,8 +627,62 @@ def _ve_agente_sql(role: str, cuenta: str) -> bool:
     momento. Abrirlo es añadir `"agente_sql": True` a un perfil; cerrarlo es
     quitarlo. Una bandera por cuenta se audita y se revoca; una regla derivada
     del departamento, no.
+
+    **Ampliación (fase 3).** Lo ve además quien tiene hoja propia, pero
+    **acotado a ella**: sus preguntas se contestan solo con sus filas, y eso lo
+    impone el SQL (`agente_sql.acotar_a_la_hoja`), no el prompt. El párrafo de
+    arriba decía "sin filtrar por hoja" y esa era justo la razón de tenerlo
+    cerrado; con el filtro puesto, la razón se cae.
+
+    Sin hoja propia no hay nada que acotar, así que las cuentas de control
+    (`PREWORK_ORDER`, `JAIME_OLIVO`, `JESUS_CANTU`) siguen fuera: para ellas
+    "ver el agente" sería "verlo todo".
     """
-    return bool(organigrama.perfil(cuenta).get("agente_sql")) or role == "ADMIN"
+    if bool(organigrama.perfil(cuenta).get("agente_sql")) or role == "ADMIN":
+        return True
+    return bool(organigrama.perfil(cuenta).get("staff_name"))
+
+
+def _acota_al_agente(role: str, cuenta: str) -> bool:
+    """
+    Si a esta cuenta hay que acotarle las consultas a su propia hoja.
+
+    ADMIN y la bandera explícita no se acotan: su trabajo es ver el total. El
+    resto, sí.
+
+    **Una cuenta vacía tampoco se acota, y conviene explicar por qué no es un
+    agujero que se abra aquí.** `cuenta` y `role` llegan en el cuerpo de la
+    petición porque esta API no tiene sesión —deuda documentada arriba, en el
+    bloque de `/api/agente/*`—, así que quien llame a la ruta a mano y quiera
+    saltarse el acotado no necesita omitir la cuenta: le basta con mandar
+    `role="ADMIN"`. Fallar cerrado con la cuenta vacía no detendría a nadie y a
+    cambio rompería el contrato que hoy usan ADMIN y ANTONIO_SALAZAR.
+
+    Lo que este acotado sí garantiza: que la pantalla de cada ejecutivo
+    responda con sus filas y no con las de toda la empresa, y que eso lo
+    imponga el SQL y no la buena voluntad del modelo. Convertirlo en un control
+    de acceso es el `Depends` de sesión que le falta a la API entera.
+    """
+    if role == "ADMIN" or not str(cuenta or "").strip():
+        return False
+    return not organigrama.perfil(cuenta).get("agente_sql")
+
+
+def _alcance_del_agente(role: str, cuenta: str, clave_esquema: str) -> str:
+    """
+    La hoja con la que se contestan las preguntas de esta cuenta.
+
+    Cadena vacía = sin acotar. Ojo con el par de casos que NO son el mismo
+    nombre: las actividades de una persona viven en `<NOMBRE>` y sus
+    cotizaciones en `<NOMBRE> (VENTAS)`, salvo Antonia, cuyo core de ventas es
+    `ANTONIA_VENTAS` (AGENTS.md §3). Por eso el esquema es un parámetro y no se
+    deduce aquí un nombre con un sufijo pegado.
+    """
+    if not _acota_al_agente(role, cuenta):
+        return ""
+    if str(clave_esquema) == "quotes":
+        return organigrama.hoja_de_cotizaciones(cuenta)
+    return str(organigrama.perfil(cuenta).get("staff_name") or "")
 
 
 def _con_prospeccion(modulos: List[Dict[str, Any]], geo_module: Dict[str, Any],
@@ -679,7 +782,7 @@ def api_get_system_config(
             "allDepartments": ALL_DEPTS,
             "staff": [ { "name": "ANTONIA_VENTAS", "dept": "VENTAS" } ],
             "directory": full_directory,
-            "specialModules": [
+            "specialModules": _con_agente([
                 # Su tracker personal es una hoja distinta de la tabla maestra
                 # de ventas: `ANTONIA PINEDA LOPEZ` vs `ANTONIA_VENTAS`. Faltaba
                 # y con él faltaba el acceso a sus propias tareas.
@@ -688,7 +791,7 @@ def api_get_system_config(
                   "type": "mirror_staff", "target": "ANTONIA PINEDA LOPEZ" },
                 ppc_module_master,
                 ppc_module_weekly,
-            ],
+            ], agente_module, ve_agente_sql),
             "accessProjects": False,
             "canSeeBancoJuntas": False,
             "canManageTickets": puede_gestionar_tickets,
@@ -1113,6 +1216,26 @@ def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):
         "history": history_tasks,
         "headers": clean_headers
     }
+
+
+@app.get("/api/pantalla")
+def api_pantalla(hoja: str = Query(..., description="Hoja del ejecutivo que se muestra")):
+    """
+    La tabla de un ejecutivo, lista para una televisión colgada. Solo lectura.
+
+    **No exige sesión, y es deliberado:** una televisión de pared no puede
+    teclear una contraseña. La puerta es la misma que ya protege `/api/data` —la
+    lista de tablas sensibles y el filtro de columnas de credencial— y por eso
+    se reutiliza esa función en vez de repetir aquí la comprobación: dos copias
+    de un control de acceso se separan con el tiempo, y la que se olvide es la
+    que deja pasar.
+
+    Quien tenga la URL ve esa hoja. Eso ya era cierto de `/api/data`; esta ruta
+    lo hace visible, no lo estrena. Si hiciera falta cerrarlo, se cierra para
+    las dos a la vez.
+    """
+    datos = get_data(sheet=hoja)
+    return pantalla.preparar(datos.get("data") or [], hoja, datetime.now())
 
 # ======================================================================
 # API LEGACY DEL TRACKER (paridad con CODIGO.js / google.script.run)

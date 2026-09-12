@@ -311,6 +311,35 @@ def _nombres_de_la_cuenta(datos: Dict[str, Any]) -> List[str]:
     return nombres
 
 
+def hoja_de_cotizaciones(username: Any) -> str:
+    """
+    Partición de `quotes` de la persona, o cadena vacía si no vende.
+
+    No es `nombre_de_hoja` con un sufijo pegado, porque hay dos excepciones que
+    importan:
+
+    * **Antonia.** Su tabla de cotizaciones es `ANTONIA_VENTAS`, el core de
+      ventas, y su tracker es `ANTONIA PINEDA LOPEZ` (AGENTS.md §3). Darle
+      "ANTONIA PINEDA LOPEZ (VENTAS)" la dejaría preguntando contra una
+      partición que no existe.
+    * **Quien no vende.** Devuelve cadena vacía y no el nombre de su tracker:
+      acotar `quotes` por una hoja que ahí no existe respondería siempre cero,
+      y "no tengo cotizaciones" no es lo mismo que "esta pregunta no es para
+      ti". Quien llama decide qué hacer con el vacío; lo que no puede es
+      quedarse sin acotar.
+    """
+    clave = clave_usuario(username)
+    datos = perfil(clave)
+    if not datos:
+        return ""
+    if clave == "ANTONIA_VENTAS":
+        return "ANTONIA_VENTAS"
+    if not datos.get("seller"):
+        return ""
+    hoja = nombre_de_hoja(clave)
+    return f"{hoja} (VENTAS)" if hoja else ""
+
+
 def hojas_de_persona(nombre: Any) -> tuple:
     """
     Hojas de tracker que corresponden a una persona, la canónica primero.
