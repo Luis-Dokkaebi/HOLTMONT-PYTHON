@@ -10750,7 +10750,20 @@ const filteredStaffTrackerData = computed(() => {
                 RESPONSABLE: Array.isArray(i.responsable) ? i.responsable.join(', ') : i.responsable
             })),
             checkList: JSON.parse(JSON.stringify(workorderData.value.checkList)),
-            additionalCosts: JSON.parse(JSON.stringify(additionalCosts.value))
+            additionalCosts: JSON.parse(JSON.stringify(additionalCosts.value)),
+            // Los totales del tablero viajan con la orden porque el PDF de la
+            // cotización (api/services/cotizacion_pdf.py) tiene que decir el
+            // mismo número que vio quien cotizó. Recalcularlos allá duplicaría
+            // el 15% de utilidad en dos sitios que se separan con el tiempo.
+            totales: {
+                materiales: materialsTotal.value,
+                herramientas: toolsTotal.value,
+                manoObra: laborTableTotal.value,
+                equipos: specialEquipTotal.value,
+                subtotal: dashboardSubtotal.value,
+                utilidad: dashboardUtility.value,
+                total: dashboardTotal.value
+            }
         };
 
         google.script.run.withSuccessHandler(res => {

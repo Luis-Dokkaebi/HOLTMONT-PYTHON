@@ -138,6 +138,24 @@ def api_paperclip_diagnostico():
     return paperclip_diagnostico()
 
 
+@app.get("/api/cotizacion/diagnostico")
+def api_cotizacion_diagnostico():
+    """Comprueba, contra el Storage real, que la cotización se pueda archivar.
+
+    Hace el viaje completo con un PDF de prueba —emitir, subir, leer de vuelta
+    por su URL pública y borrar— porque las tres formas de fallar del archivado
+    viven en la configuración del despliegue y desde la pantalla se ven igual:
+    un aviso al guardar. Mirar si la variable de entorno está definida no dice
+    si el bucket acepta el archivo ni si el enlace se puede abrir.
+
+    Escribe y borra un solo objeto de prueba, siempre el mismo, bajo
+    `AÑO/MES/DIAGNOSTICO/`. No devuelve ninguna credencial.
+    """
+    from api.services import cotizacion_pdf
+
+    return cotizacion_pdf.diagnostico_storage()
+
+
 class Plano2DRequest(BaseModel):
     descripcion: str
 
