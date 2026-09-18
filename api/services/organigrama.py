@@ -154,6 +154,166 @@ PERFILES: Dict[str, Dict[str, Any]] = {
 }
 
 
+# --- Fichas de persona: nombre completo, puesto y foto ----------------
+# Transcripción del documento de RH "FOTOS CON PUESTO DE TRABAJO" (31 fichas).
+# La clave es el **nombre del organigrama** (`INITIAL_DIRECTORY[*]["name"]`,
+# columna `nombre` de `people`), no la cuenta: la misma persona puede tener dos
+# cuentas (`SAIRA`/`ZAIRA_AGUILAR`) o ninguna, y el directorio se pinta con
+# gente que no entra al sistema.
+#
+# Tres campos y ninguno es redundante:
+#
+#   `nombre` — el nombre completo **como lo escribe RH**, con acentos y con los
+#              segundos nombres que la semilla recorta ("Liliana Martinez
+#              Ibarra" -> "Liliana Aylin Martínez Ibarra"). Es para mostrar; el
+#              canónico para abrir un tracker sigue siendo la clave.
+#   `puesto` — el puesto tal cual aparece en el documento. No se traduce ni se
+#              normaliza: "Compras" y "Coordinador Electromecanica" están así en
+#              el original y `tests/test_fichas_personal.py` lo verifica contra
+#              la misma transcripción.
+#   `foto`   — ruta pública servida por `/fotos/<archivo>` (api/static/fotos).
+#              El nombre del archivo es la única lista blanca del endpoint: lo
+#              que no está aquí no se sirve.
+#
+# Quien no aparece en el documento (LUIS CARLOS, JUAN JOSE SANCHEZ, DANIELA
+# CASTRO, CESAR GOMEZ, ANTONIO SALAZAR y las cuentas de control) simplemente no
+# tiene ficha: la vista cae a la inicial del nombre, como antes.
+FICHAS: Dict[str, Dict[str, str]] = {
+    "DIMAS ELIEL RAMOS GARCIA": {
+        "nombre": "Dimas Eliel Ramos García",
+        "puesto": "Coordinador de Recursos Humanos",
+        "foto": "/fotos/dimas-eliel-ramos-garcia.jpg"},
+    "LAURA EDITH HUERTA ROCHA": {
+        "nombre": "Laura Edith Huerta Rocha",
+        "puesto": "Especialista en Nominas",
+        "foto": "/fotos/laura-edith-huerta-rocha.jpg"},
+    "FRANCISCO SANCHEZ SERNA": {
+        "nombre": "Francisco Sánchez Serna",
+        "puesto": "Auxiliar Recursos Humanos",
+        "foto": "/fotos/francisco-sanchez-serna.jpg"},
+    "LILIANA AYLIN MARTINEZ IBARRA": {
+        "nombre": "Liliana Aylin Martínez Ibarra",
+        "puesto": "Auxiliar Recursos Humanos",
+        "foto": "/fotos/liliana-aylin-martinez-ibarra.jpg"},
+    "SONIA GARCIA PEREZ": {
+        "nombre": "Sonia Pérez García",
+        "puesto": "Compras",
+        "foto": "/fotos/sonia-garcia-perez.jpg"},
+    "VANESSA DE LARA": {
+        "nombre": "Vanessa Rodríguez de Lara",
+        "puesto": "Auxiliar de compras",
+        "foto": "/fotos/vanessa-de-lara.jpg"},
+    "JUDITH ECHAVARRIA": {
+        "nombre": "Cristian Judith Echavarria Rodríguez",
+        "puesto": "Compras",
+        "foto": "/fotos/judith-echavarria.jpg"},
+    "ANGEL SALINAS": {
+        "nombre": "José Ángel Salinas Ramírez",
+        "puesto": "Diseño",
+        "foto": "/fotos/angel-salinas.jpg"},
+    "EDGAR URIMAR LOPEZ MALDONADO": {
+        "nombre": "Edgar Urimar López Maldonado",
+        "puesto": "Calculo Estructural",
+        "foto": "/fotos/edgar-urimar-lopez-maldonado.jpg"},
+    "TERESA GARZA": {
+        "nombre": "María Teresa Hernández Garza",
+        "puesto": "Precios Unitarios",
+        "foto": "/fotos/teresa-garza.jpg"},
+    "GERALDINE MARTINEZ HERNANDEZ": {
+        "nombre": "Geraldine Marie Martínez Hernández",
+        "puesto": "Auxiliar Técnico en precios unitarios",
+        "foto": "/fotos/geraldine-martinez-hernandez.jpg"},
+    "EDUARDO BENITEZ": {
+        "nombre": "Eduardo Israel Benitez García",
+        "puesto": "Coordinador de Limpieza y Jardinería",
+        "foto": "/fotos/eduardo-benitez.jpg"},
+    "CARLOS MENDEZ": {
+        "nombre": "Carlos Méndez Urbina",
+        "puesto": "Calidad",
+        "foto": "/fotos/carlos-mendez.jpg"},
+    "ROLANDO MORENO": {
+        "nombre": "Jesús Rolando Moreno Pérez",
+        "puesto": "Auxiliar Administrativo HVAC",
+        "foto": "/fotos/rolando-moreno.jpg"},
+    "EMILIANO ARREDONDO GOMEZ": {
+        "nombre": "Emiliano Arredondo Gómez",
+        "puesto": "Técnico HVAC",
+        "foto": "/fotos/emiliano-arredondo-gomez.jpg"},
+    "JEHU MARTINEZ": {
+        "nombre": "Martínez Montes Jehu Arsenio",
+        "puesto": "Auxiliar Administrativo Electromecánica",
+        "foto": "/fotos/jehu-martinez.jpg"},
+    "MIGUEL GALLARDO": {
+        "nombre": "Miguel Ángel Gallardo Jaramillo",
+        "puesto": "Coordinador Electromecanica",
+        "foto": "/fotos/miguel-gallardo.jpg"},
+    "SEBASTIAN PADILLA": {
+        "nombre": "Erick Sebastián Padilla Carrillo",
+        "puesto": "Ventas Electromecánica",
+        "foto": "/fotos/sebastian-padilla.jpg"},
+    "EDUARDO TERAN": {
+        "nombre": "Jesús Eduardo Teran García",
+        "puesto": "Coordinador de presupuestos",
+        "foto": "/fotos/eduardo-teran.jpg"},
+    "ANTONIA PINEDA LOPEZ": {
+        "nombre": "Antonia Pineda López",
+        "puesto": "Auxiliar de presupuestos",
+        "foto": "/fotos/antonia-pineda-lopez.jpg"},
+    "EDUARDO MANZANARES": {
+        "nombre": "Eduardo Manzanares Sanchez",
+        "puesto": "Coordinador HVAC",
+        "foto": "/fotos/eduardo-manzanares.jpg"},
+    "RAMIRO RODRIGUEZ": {
+        "nombre": "Ramiro Rodríguez Escalante",
+        "puesto": "Ventas construcción",
+        "foto": "/fotos/ramiro-rodriguez.jpg"},
+    "RUBI MORENO RODRIGUEZ": {
+        "nombre": "Rubi Arelly Moreno Rodríguez",
+        "puesto": "Supervisor de Seguridad",
+        "foto": "/fotos/rubi-moreno-rodriguez.jpg"},
+    "JAIME OLIVO": {
+        "nombre": "Jaime Antonio Olivo Guerrero",
+        "puesto": "Superintendente de construcción",
+        "foto": "/fotos/jaime-olivo.jpg"},
+    "RICARDO MENDO": {
+        "nombre": "Ricardo Alonso Mendo Morales",
+        "puesto": "Residente de obra",
+        "foto": "/fotos/ricardo-mendo.jpg"},
+    "ALFONSO CORREA": {
+        "nombre": "Alfonso Correa de Leon",
+        "puesto": "Supervisor de Obra",
+        "foto": "/fotos/alfonso-correa.jpg"},
+    "CESAR EDUARDO GARCIA AVALOS": {
+        "nombre": "Cesar Eduardo García Avalos",
+        "puesto": "Supervisor de Obra",
+        "foto": "/fotos/cesar-eduardo-garcia-avalos.jpg"},
+    "JUANA MARIA RODRIGUEZ JUAREZ": {
+        "nombre": "Juana María Rodríguez Juarez",
+        "puesto": "Coordinador de Finanzas",
+        "foto": "/fotos/juana-maria-rodriguez-juarez.jpg"},
+    "ROCIO ABIGAIL CASTRO COVARRUBIAS": {
+        "nombre": "Rocio Abigail Castro Covarrubias",
+        "puesto": "Facturación",
+        "foto": "/fotos/rocio-abigail-castro-covarrubias.jpg"},
+    "ZAIRA YAZMIN AGUILAR AGUILON": {
+        "nombre": "Zaira Yazmin Aguilar Aguilon",
+        "puesto": "Auxiliar de finanzas",
+        "foto": "/fotos/zaira-yazmin-aguilar-aguilon.jpg"},
+    "DANIA LIZBETH GONZALEZ LORES": {
+        "nombre": "Dania Lizbeth González Lores",
+        "puesto": "Auxiliar de finanzas",
+        "foto": "/fotos/dania-lizbeth-gonzalez-lores.jpg"},
+}
+
+# Lista blanca del endpoint `/fotos/<archivo>`: los nombres de archivo que
+# `FICHAS` referencia y nada más. Se deriva del catálogo en vez de leer el
+# directorio para que agregar un archivo suelto a `api/static/fotos` no lo
+# publique solo.
+FOTOS_PUBLICAS = frozenset(
+    ficha["foto"].rsplit("/", 1)[-1] for ficha in FICHAS.values()
+)
+
+
 # --- Resolución de perfil ----------------------------------------------
 # El original hacía `USER_DB[String(username).toUpperCase().trim()] || {}` en
 # línea, dentro de `getSystemConfig`. Aquí se aísla porque además hay que
@@ -181,9 +341,76 @@ def perfil(username: Any) -> Dict[str, Any]:
 
     desde_base = _perfil_desde_base(clave)
     if desde_base:
-        return desde_base
+        return _con_ficha(desde_base)
 
-    return dict(PERFILES.get(clave, {}))
+    base = PERFILES.get(clave)
+    if base is None:
+        return {}
+    return _con_ficha(dict(base))
+
+
+def ficha(nombre: Any) -> Dict[str, str]:
+    """
+    Nombre completo, puesto y foto de una persona, por cualquiera de sus nombres.
+
+    Primero la clave del catálogo (el nombre del organigrama) y, si no, los
+    alias de `ALIAS_DE_FICHA`: `people` en producción tiene a la misma persona
+    escrita de varias formas ("CARLOS MENDEZ" y "CARLOS MENDEZ URBINA", "JAIME
+    OLIVO" e "INGE OLIVO") y las dos filas pintan tarjeta.
+
+    Devuelve `{}` para quien no tiene ficha —el documento de RH cubre 31
+    personas y `people` tiene 54 filas—, así que la vista siempre debe poder
+    caer a la inicial.
+    """
+    clave = _clave_nombre(nombre)
+    if not clave:
+        return {}
+    if clave in FICHAS:
+        return dict(FICHAS[clave])
+    return dict(FICHAS.get(ALIAS_DE_FICHA.get(clave, ""), {}))
+
+
+def _con_ficha(datos: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Agrega `nombre`, `puesto` y `foto` a un perfil ya resuelto.
+
+    La ficha se busca por `staff_name` —el nombre del organigrama, que es la
+    clave del catálogo— y solo si falta, por `label`: las cuentas de control
+    (`JAIME_OLIVO`, `JESUS_CANTU`) no tienen hoja y `label` es lo único que las
+    nombra.
+
+    Lo que ya traiga `datos` manda sobre el catálogo: `profiles` es lo que el
+    dueño puede editar sin desplegar, y la transcripción de RH es el respaldo.
+    `nombre` cae a `label` para que la vista nunca se quede sin qué mostrar.
+    """
+    f = ficha(datos.get("staff_name") or datos.get("label"))
+    return {
+        **datos,
+        "nombre": datos.get("nombre") or f.get("nombre", "") or datos.get("label", ""),
+        "puesto": datos.get("puesto") or f.get("puesto", ""),
+        "foto": datos.get("foto") or f.get("foto", ""),
+    }
+
+
+def enriquecer_directorio(personas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Suma a cada fila del directorio su ficha: nombre completo, puesto y foto.
+
+    **`name` no se toca.** Es el nombre canónico con el que se abre el tracker
+    de la persona y el que está guardado en `source_sheet`; sustituirlo por el
+    nombre con acentos estrenaría una partición vacía (misma trampa que
+    documenta `_nombres_de_la_cuenta`). `nombre` es solo para mostrar.
+    """
+    return [
+        {
+            **persona,
+            "nombre": persona.get("nombre") or ficha(persona.get("name")).get("nombre", "")
+            or persona.get("name", ""),
+            "puesto": persona.get("puesto") or ficha(persona.get("name")).get("puesto", ""),
+            "foto": persona.get("foto") or ficha(persona.get("name")).get("foto", ""),
+        }
+        for persona in personas
+    ]
 
 
 # `profiles` se lee una vez por proceso: `/api/config` resuelve varios perfiles
@@ -239,6 +466,12 @@ def _perfil_desde_base(clave: str) -> Optional[Dict[str, Any]]:
             "email": fila.get("email") or base.get("email", ""),
             "staff_name": fila.get("staff_name") or base.get("staff_name", ""),
             "dept": fila.get("dept") or base.get("dept", ""),
+            # Las tres columnas de la ficha. Si la tabla no las tiene —hoy no
+            # las tiene— llegan vacías y `_con_ficha` las rellena con la
+            # transcripción de RH; si mañana se agregan, la base manda.
+            "nombre": fila.get("nombre") or base.get("nombre", ""),
+            "puesto": fila.get("puesto") or base.get("puesto", ""),
+            "foto": fila.get("foto") or base.get("foto", ""),
             # `seller` se suma, no se sustituye: si la semilla marca a alguien
             # como vendedor, una fila de `profiles` que traiga la columna
             # apagada no puede quitarle el módulo. Es el mismo accidente que ya
@@ -477,3 +710,51 @@ def validar_credenciales(username: Any, password: Any) -> Optional[Dict[str, Any
             "seller": bool(fila.get("seller", semilla.get("seller", False))),
         }
     return None
+
+
+# --- Alias: los otros nombres con los que `people` llama a la misma persona ---
+#
+# El catálogo se indexa por el nombre del organigrama, pero la tabla real no es
+# tan limpia: tiene 54 filas para 38 personas y la misma gente aparece con el
+# nombre completo, con "INGE" delante o con una errata. Cada una de esas filas
+# pinta su tarjeta en el directorio, y sin alias saldría sin foto ni puesto.
+#
+# Esto **no** deduplica `people` ni toca el nombre canónico: solo dice qué ficha
+# mostrar para cada texto. Unir las filas es otra tarea, y más delicada, porque
+# `source_sheet` guarda tareas contra esos mismos textos.
+ALIAS_MANUALES: Dict[str, str] = {
+    # Fila -> clave de FICHAS.  El motivo va al lado: sin él esta tabla se
+    # vuelve un cajón donde cualquiera puede meter una suposición.
+    "DIMAS RAMOS": "DIMAS ELIEL RAMOS GARCIA",          # cuenta DIMAS_RAMOS
+    "ROCIO CASTRO": "ROCIO ABIGAIL CASTRO COVARRUBIAS",  # cuenta ROCIO_CASTRO
+    # Errata en la base: le falta la "S" final a COVARRUBIAS.
+    "ROCIO ABIGAIL CASTRO COVARRUBIA": "ROCIO ABIGAIL CASTRO COVARRUBIAS",
+    "INGE OLIVO": "JAIME OLIVO",                        # cuenta INGE_OLIVO
+    "INGE GALLARDO": "MIGUEL GALLARDO",                 # único Gallardo del organigrama
+    "EDGAR LOPEZ": "EDGAR URIMAR LOPEZ MALDONADO",      # cuenta EDGAR_LOPEZ de USER_DB
+    # Fila duplicada, con un "2" pegado al final del nombre.
+    "CESAR EDUARDO GARCIA AVALOS2": "CESAR EDUARDO GARCIA AVALOS",
+}
+
+
+def _alias_desde_los_perfiles() -> Dict[str, str]:
+    """
+    El `label` de cada cuenta apunta a la ficha de su hoja.
+
+    Se deriva en vez de escribirse a mano porque ya existe la relación: el
+    selector de involucrados ofrece los `label` de `people` ("MARIA TERESA
+    HERNANDEZ GARZA") mientras el tracker se llama como el `staff_name`
+    ("TERESA GARZA"). Es la misma dualidad que documenta `hoja_canonica`, y
+    dejarla derivada evita que las dos listas se separen con el tiempo.
+    """
+    derivados: Dict[str, str] = {}
+    for datos in PERFILES.values():
+        hoja = _clave_nombre(datos.get("staff_name"))
+        etiqueta = _clave_nombre(datos.get("label"))
+        if hoja in FICHAS and etiqueta and etiqueta not in FICHAS:
+            derivados.setdefault(etiqueta, hoja)
+    return derivados
+
+
+# Los manuales al final: una fila real de la base gana a una derivada.
+ALIAS_DE_FICHA: Dict[str, str] = {**_alias_desde_los_perfiles(), **ALIAS_MANUALES}

@@ -737,6 +737,11 @@ def api_get_system_config(
         {**persona, "sales": bool(tabla_de_cotizaciones(persona.get("name")))}
         for persona in full_directory
     ]
+    # Nombre completo, puesto y foto de cada persona (organigrama.FICHAS). Va
+    # aquí y no en `get_directory_from_db` a propósito: `/api/config` es quien
+    # pinta el directorio, y el resto de consumidores (el resync, por ejemplo)
+    # compara por `name` y no debe cargar con campos de presentación.
+    full_directory = organigrama.enriquecer_directorio(full_directory)
     cuenta = organigrama.clave_usuario(username)
 
     # `soporte` es una bandera aditiva, igual que `seller`: no reemplaza el
@@ -1720,6 +1725,31 @@ _PUBLIC_FILES = {
     "api_service.js": "application/javascript",
     "workorder_form.html": "text/html; charset=utf-8",
 }
+
+
+# Fotos del personal (api/static/fotos), servidas por `/fotos/<archivo>`.
+#
+# La lista blanca es `organigrama.FOTOS_PUBLICAS`, derivada del catálogo de
+# fichas: un archivo suelto en el directorio no se publica solo, y un nombre
+# con "../" no está en el catálogo, así que no hay travesía posible. Es la
+# misma decisión que `_PUBLIC_FILES` de abajo, por el mismo motivo.
+_DIR_FOTOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "fotos")
+
+
+@app.get("/fotos/{archivo}")
+async def serve_foto_personal(archivo: str):
+    if archivo not in organigrama.FOTOS_PUBLICAS:
+        raise HTTPException(status_code=404, detail="File not found")
+    ruta = os.path.join(_DIR_FOTOS, archivo)
+    if not os.path.exists(ruta):
+        raise HTTPException(status_code=404, detail="File not found")
+    # `max-age` largo: la foto de alguien no cambia y el directorio se pinta en
+    # cada entrada al módulo. Si se reemplaza un archivo, cambia el despliegue.
+    return FileResponse(
+        ruta,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.get("/{filename}")

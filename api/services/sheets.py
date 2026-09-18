@@ -681,7 +681,17 @@ def get_directory_from_db():
             directory.append({
                 "name": name,
                 "dept": (row.get("departamento") or "GENERAL").strip(),
-                "type": (row.get("tipo_hoja") or "ESTANDAR").strip()
+                "type": (row.get("tipo_hoja") or "ESTANDAR").strip(),
+                # Ficha de la persona, si la tabla la tiene. Hoy `people` puede
+                # no traer estas columnas: entonces llegan vacías y
+                # `organigrama.enriquecer_directorio` las rellena con la
+                # transcripción de RH. Cuando existan, la base manda, que es lo
+                # que permite cambiarle la foto a alguien sin desplegar.
+                # `nombre_completo` y no `nombre`: esa columna ya está tomada
+                # por el nombre canónico (el de la hoja del tracker).
+                "nombre": (row.get("nombre_completo") or "").strip(),
+                "puesto": (row.get("puesto") or "").strip(),
+                "foto": (row.get("foto") or "").strip(),
             })
     return directory
 
