@@ -395,6 +395,21 @@
         border-top-width: 8px !important;
         filter: brightness(1.02);
     }
+    /* Foto de la persona en la tarjeta del directorio. `object-fit: cover`
+       porque las fotos de RH vienen en tamanos distintos (de 72x96 a 400x267):
+       sin el, una foto apaisada saldria deformada. `.staff-foto-inicial` es el
+       respaldo para quien no tiene foto, con la misma caja para que la
+       cuadricula no brinque. */
+    .staff-foto {
+        width: 72px; height: 72px; border-radius: 50%; object-fit: cover;
+        object-position: top center; display: block; margin: 0 auto;
+        background: #e9ecef; border: 2px solid rgba(0,0,0,0.05);
+    }
+    .staff-foto-inicial {
+        display: flex; align-items: center; justify-content: center;
+        font-weight: bold; font-size: 1.6rem;
+    }
+    .staff-puesto { font-size: 11px; line-height: 1.2; }
     .chip-container { border: 1px solid #ccc; background: white; padding: 2px; display: flex; flex-wrap: wrap; gap: 2px; min-height: 100%; align-items: center; }
     .user-chip { background: #e8f0fe; border: 1px solid #d2e3fc; border-radius: 4px; padding: 0 4px; font-size: 11px; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
     .file-input-hidden { display: none; }
@@ -2593,8 +2608,11 @@
           <div class="row g-2">
             <div class="col-md-3" v-for="p in filteredStaff" :key="p.name">
               <div class="staff-card h-100" @click="openStaffTracker(p)" :style="{borderTop: '4px solid ' + (currentDeptData.color || '#3699ff')}">
-                <div class="mb-2 fw-bold" :style="{color: currentDeptData.color || '#555'}" style="font-size:1.2rem">{{p.name.charAt(0)}}</div>
-                <div class="small fw-bold">{{p.name}}</div>
+                <img v-if="p.foto && !fotosRotas[p.foto]" :src="p.foto" :alt="p.nombre || p.name"
+                     class="staff-foto mb-2" loading="lazy" @error="fotosRotas[p.foto] = true">
+                <div v-else class="staff-foto staff-foto-inicial mb-2" :style="{color: currentDeptData.color || '#555'}">{{p.name.charAt(0)}}</div>
+                <div class="small fw-bold">{{p.nombre || p.name}}</div>
+                <div v-if="p.puesto" class="text-muted staff-puesto">{{p.puesto}}</div>
               </div>
             </div>
           </div>
@@ -7103,6 +7121,9 @@ async function toggleVoiceRecording(btnElement) {
       const calendarInterval = ref(null);
 
       const searchQuery = ref(''); const isCompact = ref(false);
+      // Fotos que el navegador no pudo cargar, por ruta. Sin esto la tarjeta
+      // se queda con el hueco de la imagen rota en vez de caer a la inicial.
+      const fotosRotas = Vue.reactive({});
       const showPassword = ref(false); // NUEVA VARIABLE PARA TOGGLE PASSWORD
       const currentTheme = ref('light');
 
@@ -12780,7 +12801,7 @@ const filteredStaffTrackerData = computed(() => {
                diagnosticarAgente, piezasDelDiagnostico,
                aplicarCambioAgente, enviarCorreosAgente,
                exportarSeleccionGeo,
-               trackerKpis, arcosDeLaDona, panoramaPlegado, alternarPanorama, clasificacionDe, esRetrasada, esUrgente, allStaffList, visibleTrackerHeaders, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentUsername, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, esColumnaDeHora, toTimeValue, formatDisplayTime, updateTimeFromPicker, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, runTrackerProductivityAgent, trackerProductivityData, isLoadingTrackerProductivity,
+               trackerKpis, arcosDeLaDona, panoramaPlegado, alternarPanorama, clasificacionDe, esRetrasada, esUrgente, allStaffList, visibleTrackerHeaders, focusReqInput, syncReqToMat, addMeal, getMeals, isHabitDone, toggleHabit, promptAddHabit, loadPersonalAgenda, filteredDailyTasks, saveActivity, toggleActivityStatus, showNewActivityModal, newActivity, selectedDailyDay, personalAgenda, renderPersonalCharts, deleteFile, isLoggedIn, loginPass, loginUser, loggingIn, doLogin, logout, currentUser, currentUsername, currentRole, currentView, config, staffTracker, weeklyPlanData, searchQuery, fotosRotas, goHome, selectDept, openStaffTracker, reloadStaffTracker, goBackToDept, saveRow, addNewRow, openModule, filteredStaff, getTrafficStyle, ppcData, isSubmitting, selectedResponsables, staffSearch, filteredDirectory, addResponsable, promptExtraData, confirmAddToQueue, activityQueue, submitBatch, clearQueue, pageTitle, openFileDialog, handleFileSelect, fileInput, isUploadingFile, uploadSuccess, closeIframe, showExtraModal, extraData, priorityOpts, riskOpts, salesStaff, cellFileInput, openCellUpload, handleCellFile, toIsoDate, updateDateFromPicker, formatDisplayDate, esColumnaDeHora, toTimeValue, formatDisplayTime, updateTimeFromPicker, isMediaColumn, getColumnStyle, getHeaderLabel, isCol, isFieldEditable, deptStats, currentDeptData, currentModuleId, currentDept, ppcExistingData, dynamicPpc, saveDynamicPPC, getFechaRespuestaStyle, getFechaInicioTrafficStyle, syncQueueToBackend, isCompact, toggleSidebar, loadWeeklyPlan, weeklyStats, savePPCV3Row, selectedWeek, availableWeeks, filteredWeeklyData, projectCards, activeProjectsList, projectSubFolders, openFolderContent, toggleExpand, showPpcSelectorModal, openPpcProjectSelector, ppcMode, selectPpcProject, createNewProject, newProject, currentPpcProject, loadCascadeTree, showSubProjectModal, currentTargetSite, newSubProject, openAddSubProject, createSubProject, openProjectTask, projectTasks, refreshProjectTasks, addNewProjectTask, saveProjectRow, isRecording, toggleDictation, runTrackerProductivityAgent, trackerProductivityData, isLoadingTrackerProductivity,
       ecgData, loadEcgData, renderEcgCharts, toInitials, showPassword, currentTheme, toggleTheme, availableSpecialties, filterSpecialty, filterCompliance, kpiData, loadKPIData, loadExecutiveSummary, executiveSummaryData, activeTrackerTab, trackerSubView, switchTrackerTab, loadTrackerData, getAvatarUrl, workorderData, saveWorkOrder, currentWorkorderId, addWorkorderItem, removeWorkorderItem, formatCurrency, workorderTypes, generatedFolio, vehicleData, vehicleControlData, vehicleControlData2, showWorkOrderLogic, triggerUpload,
       openInvolucradosSelector,
       saveAllTrackerRows,
