@@ -310,3 +310,176 @@ def test_la_tarjeta_del_directorio_pinta_foto_nombre_y_puesto():
     # Respaldo: sin foto (o con la foto rota) se sigue viendo la inicial.
     assert "staff-foto-inicial" in bloque
     assert "fotosRotas" in bloque
+
+
+# --- La ficha en la base ------------------------------------------------
+# `people` y `profiles` son la fuente viva; `FICHAS` es la semilla. Estas
+# pruebas cubren las dos piezas que conectan una con otra: el paso de las
+# columnas desde `people` al directorio, y el guion de migración que las llena.
+def test_el_directorio_pasa_la_ficha_que_traiga_people(monkeypatch):
+    from api.services import sheets
+
+    class _Base:
+        def select(self, tabla, filters=None):
+            return [{
+                "nombre": "TERESA GARZA",
+                "departamento": "PRECIOS UNITARIOS",
+                "tipo_hoja": "HIBRIDO",
+                "nombre_completo": "Ma. Teresa Hernández Garza",
+                "puesto": "Jefa de Precios Unitarios",
+                "foto": "https://ejemplo.supabase.co/storage/v1/object/public/fotos-personal/t.jpg",
+            }]
+
+    monkeypatch.setattr(sheets, "sb_manager", _Base())
+    fila = sheets.get_directory_from_db()[0]
+    assert fila["name"] == "TERESA GARZA"
+    assert fila["nombre"] == "Ma. Teresa Hernández Garza"
+    assert fila["puesto"] == "Jefa de Precios Unitarios"
+    assert fila["foto"].endswith("/fotos-personal/t.jpg")
+
+
+def test_people_sin_esas_columnas_sigue_funcionando(monkeypatch):
+    """
+    Hoy la tabla no las tiene. El directorio no puede romperse por eso: las
+    columnas llegan vacías y la transcripción de RH las rellena después.
+    """
+    from api.services import sheets
+
+    class _Base:
+        def select(self, tabla, filters=None):
+            return [{"nombre": "TERESA GARZA", "departamento": "PRECIOS UNITARIOS",
+                     "tipo_hoja": "HIBRIDO"}]
+
+    monkeypatch.setattr(sheets, "sb_manager", _Base())
+    fila = sheets.get_directory_from_db()[0]
+    assert fila["nombre"] == ""
+    assert enriquecer_directorio([fila])[0]["nombre"] == "María Teresa Hernández Garza"
+
+
+def test_lo_que_trae_la_base_le_gana_a_la_transcripcion():
+    """El dueño edita la base sin desplegar; el repositorio no le pisa el cambio."""
+    fila = {"name": "TERESA GARZA", "dept": "PRECIOS UNITARIOS",
+            "nombre": "Ma. Tere", "puesto": "Jefa de área", "foto": "https://x/y.jpg"}
+    salida = enriquecer_directorio([fila])[0]
+    assert salida["nombre"] == "Ma. Tere"
+    assert salida["puesto"] == "Jefa de área"
+    assert salida["foto"] == "https://x/y.jpg"
+
+
+def _migrar():
+    import scripts.migrar_fichas_personal as migrar
+
+    return migrar
+
+
+def test_importar_el_guion_de_migracion_no_lee_credenciales(monkeypatch):
+    """
+    R7: importar un módulo no puede conectar a producción. Las credenciales se
+    leen dentro de `main()` (`cargar_env`), nunca al importar.
+    """
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    migrar = _migrar()
+    assert os.environ.get("SUPABASE_URL") is None
+    assert callable(migrar.cargar_env)
+
+
+def test_el_guion_sube_las_31_fotos_del_catalogo():
+    migrar = _migrar()
+    subida = migrar.fotos_a_subir()
+    assert len(subida) == len(FICHAS)
+    assert all(ruta.exists() for _, ruta in subida)
+    assert {archivo for archivo, _ in subida} == set(FOTOS_PUBLICAS)
+
+
+def test_el_plan_de_people_solo_toca_a_quien_tiene_ficha():
+    migrar = _migrar()
+    filas = [
+        {"id": "1", "nombre": "TERESA GARZA"},
+        {"id": "2", "nombre": "DANIELA CASTRO"},   # sin ficha: no se toca
+    ]
+    plan = migrar.plan_people(filas, "https://proyecto.supabase.co")
+    assert [p["nombre"] for p in plan] == ["TERESA GARZA"]
+    assert plan[0]["nombre_completo"] == "María Teresa Hernández Garza"
+    assert plan[0]["puesto"] == "Precios Unitarios"
+    assert plan[0]["foto"] == ("https://proyecto.supabase.co/storage/v1/object/public/"
+                               "fotos-personal/teresa-garza.jpg")
+
+
+def test_el_plan_de_profiles_resuelve_igual_que_el_perfil():
+    """
+    Por `staff_name` cuando lo hay y por `label` para las cuentas de control,
+    que es lo que hace `organigrama._con_ficha`. Si divergieran, la base y la
+    semilla mostrarían puestos distintos para la misma persona.
+    """
+    migrar = _migrar()
+    filas = [
+        {"username": "TERESA_GARZA", "staff_name": "TERESA GARZA"},
+        {"username": "JAIME_OLIVO", "staff_name": "", "label": "Jaime Olivo"},
+        {"username": "LUIS_CARLOS", "staff_name": "LUIS CARLOS"},  # sin ficha
+    ]
+    plan = {p["username"]: p for p in migrar.plan_profiles(filas, "https://proyecto.supabase.co")}
+    assert set(plan) == {"TERESA_GARZA", "JAIME_OLIVO"}
+    assert plan["JAIME_OLIVO"]["puesto"] == "Superintendente de construcción"
+    assert plan["JAIME_OLIVO"]["foto"].endswith("/fotos-personal/jaime-olivo.jpg")
+
+
+def test_las_columnas_que_faltan_se_detectan_de_una_fila_real():
+    migrar = _migrar()
+    assert migrar.columnas_faltantes("people", {"nombre": "X"}) == [
+        "foto", "nombre_completo", "puesto"]
+    completa = {"nombre": "X", "nombre_completo": "", "puesto": "", "foto": ""}
+    assert migrar.columnas_faltantes("people", completa) == []
+
+
+def test_el_sql_que_propone_es_repetible():
+    """`IF NOT EXISTS`: correrlo dos veces no puede fallar ni borrar nada."""
+    migrar = _migrar()
+    sql = migrar.sql_para_crear("profiles", ["foto", "puesto"])
+    assert sql.startswith("ALTER TABLE public.profiles")
+    assert sql.count("ADD COLUMN IF NOT EXISTS") == 2
+    assert "DROP" not in sql.upper()
+
+
+# --- Alias -------------------------------------------------------------
+# `people` en producción tiene 54 filas para 38 personas: la misma gente
+# escrita de varias formas. Sin alias, esas filas pintan tarjeta sin foto.
+def test_el_label_de_una_cuenta_encuentra_la_ficha_de_su_hoja():
+    """"CARLOS MENDEZ URBINA" (label) y "CARLOS MENDEZ" (hoja) son la misma persona."""
+    assert ficha("CARLOS MENDEZ URBINA") == ficha("CARLOS MENDEZ") != {}
+    assert ficha("MARIA TERESA HERNANDEZ GARZA") == ficha("TERESA GARZA") != {}
+    assert ficha("JESUS ROLANDO MORENO PEREZ") == ficha("ROLANDO MORENO") != {}
+
+
+@pytest.mark.parametrize("fila,esperado", sorted(organigrama.ALIAS_MANUALES.items()))
+def test_cada_alias_manual_apunta_a_una_ficha_real(fila, esperado):
+    assert esperado in FICHAS, f"{fila} apunta a {esperado}, que no está en el catálogo"
+    assert ficha(fila) == FICHAS[esperado]
+
+
+def test_ningun_alias_tapa_una_ficha_de_verdad():
+    """
+    Si un alias coincidiera con una clave del catálogo, estaría redirigiendo a
+    alguien que ya tiene ficha propia: dos personas con la misma cara.
+    """
+    chocan = sorted(set(organigrama.ALIAS_DE_FICHA) & set(FICHAS))
+    assert not chocan, f"alias que pisan una clave real: {chocan}"
+
+
+def test_los_alias_derivados_salen_de_los_perfiles():
+    derivados = organigrama._alias_desde_los_perfiles()
+    etiquetas = {
+        organigrama._clave_nombre(d.get("label")): organigrama._clave_nombre(d.get("staff_name"))
+        for d in organigrama.PERFILES.values()
+    }
+    for etiqueta, hoja in derivados.items():
+        assert etiquetas.get(etiqueta) == hoja
+        assert hoja in FICHAS
+
+
+@pytest.mark.parametrize("basura", ["ALTO", "ASIGNADO", "VENDEDOR", "11:06:00"])
+def test_las_filas_basura_de_people_no_reciben_ficha(basura):
+    """
+    La tabla real tiene filas que no son personas (un estatus, una hora). No
+    pueden acabar con la cara de alguien pegada.
+    """
+    assert ficha(basura) == {}

@@ -351,13 +351,23 @@ def perfil(username: Any) -> Dict[str, Any]:
 
 def ficha(nombre: Any) -> Dict[str, str]:
     """
-    Nombre completo, puesto y foto de una persona del organigrama.
+    Nombre completo, puesto y foto de una persona, por cualquiera de sus nombres.
 
-    Se busca por el nombre del directorio, que es la clave de `FICHAS`. Devuelve
-    `{}` para quien no tiene ficha: el documento de RH cubre 31 personas y el
-    directorio tiene más, así que la vista siempre debe poder caer a la inicial.
+    Primero la clave del catálogo (el nombre del organigrama) y, si no, los
+    alias de `ALIAS_DE_FICHA`: `people` en producción tiene a la misma persona
+    escrita de varias formas ("CARLOS MENDEZ" y "CARLOS MENDEZ URBINA", "JAIME
+    OLIVO" e "INGE OLIVO") y las dos filas pintan tarjeta.
+
+    Devuelve `{}` para quien no tiene ficha —el documento de RH cubre 31
+    personas y `people` tiene 54 filas—, así que la vista siempre debe poder
+    caer a la inicial.
     """
-    return dict(FICHAS.get(_clave_nombre(nombre), {}))
+    clave = _clave_nombre(nombre)
+    if not clave:
+        return {}
+    if clave in FICHAS:
+        return dict(FICHAS[clave])
+    return dict(FICHAS.get(ALIAS_DE_FICHA.get(clave, ""), {}))
 
 
 def _con_ficha(datos: Dict[str, Any]) -> Dict[str, Any]:
@@ -700,3 +710,51 @@ def validar_credenciales(username: Any, password: Any) -> Optional[Dict[str, Any
             "seller": bool(fila.get("seller", semilla.get("seller", False))),
         }
     return None
+
+
+# --- Alias: los otros nombres con los que `people` llama a la misma persona ---
+#
+# El catálogo se indexa por el nombre del organigrama, pero la tabla real no es
+# tan limpia: tiene 54 filas para 38 personas y la misma gente aparece con el
+# nombre completo, con "INGE" delante o con una errata. Cada una de esas filas
+# pinta su tarjeta en el directorio, y sin alias saldría sin foto ni puesto.
+#
+# Esto **no** deduplica `people` ni toca el nombre canónico: solo dice qué ficha
+# mostrar para cada texto. Unir las filas es otra tarea, y más delicada, porque
+# `source_sheet` guarda tareas contra esos mismos textos.
+ALIAS_MANUALES: Dict[str, str] = {
+    # Fila -> clave de FICHAS.  El motivo va al lado: sin él esta tabla se
+    # vuelve un cajón donde cualquiera puede meter una suposición.
+    "DIMAS RAMOS": "DIMAS ELIEL RAMOS GARCIA",          # cuenta DIMAS_RAMOS
+    "ROCIO CASTRO": "ROCIO ABIGAIL CASTRO COVARRUBIAS",  # cuenta ROCIO_CASTRO
+    # Errata en la base: le falta la "S" final a COVARRUBIAS.
+    "ROCIO ABIGAIL CASTRO COVARRUBIA": "ROCIO ABIGAIL CASTRO COVARRUBIAS",
+    "INGE OLIVO": "JAIME OLIVO",                        # cuenta INGE_OLIVO
+    "INGE GALLARDO": "MIGUEL GALLARDO",                 # único Gallardo del organigrama
+    "EDGAR LOPEZ": "EDGAR URIMAR LOPEZ MALDONADO",      # cuenta EDGAR_LOPEZ de USER_DB
+    # Fila duplicada, con un "2" pegado al final del nombre.
+    "CESAR EDUARDO GARCIA AVALOS2": "CESAR EDUARDO GARCIA AVALOS",
+}
+
+
+def _alias_desde_los_perfiles() -> Dict[str, str]:
+    """
+    El `label` de cada cuenta apunta a la ficha de su hoja.
+
+    Se deriva en vez de escribirse a mano porque ya existe la relación: el
+    selector de involucrados ofrece los `label` de `people` ("MARIA TERESA
+    HERNANDEZ GARZA") mientras el tracker se llama como el `staff_name`
+    ("TERESA GARZA"). Es la misma dualidad que documenta `hoja_canonica`, y
+    dejarla derivada evita que las dos listas se separen con el tiempo.
+    """
+    derivados: Dict[str, str] = {}
+    for datos in PERFILES.values():
+        hoja = _clave_nombre(datos.get("staff_name"))
+        etiqueta = _clave_nombre(datos.get("label"))
+        if hoja in FICHAS and etiqueta and etiqueta not in FICHAS:
+            derivados.setdefault(etiqueta, hoja)
+    return derivados
+
+
+# Los manuales al final: una fila real de la base gana a una derivada.
+ALIAS_DE_FICHA: Dict[str, str] = {**_alias_desde_los_perfiles(), **ALIAS_MANUALES}
