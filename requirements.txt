@@ -27,6 +27,10 @@ langchain-google-genai
 langgraph
 tavily-python
 pypdf
+# La cotizacion de la Pre Work Order, en PDF (api/services/cotizacion_pdf.py).
+# `pypdf` lee PDFs; no los escribe. fpdf2 es Python puro y sin dependencias
+# nativas, que es lo que cabe en el bundle de la funcion serverless.
+fpdf2>=2.8
 ffmpeg-python
 streamlit
 fastmcp

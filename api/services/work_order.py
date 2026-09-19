@@ -4,6 +4,8 @@ import re
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from api.services import cotizacion_pdf
+
 SEQUENCES_FILE = "sequences.json"
 
 # --- Persistencia de la Pre Work Order ------------------------------------
@@ -697,6 +699,23 @@ def process_and_save_work_order(items, active_user):
                 new_i["TOTAL"] = i.get("total", "")
                 ingenieria_items.append(new_i)
             guardar_hijos(WO_INGENIERIA_SHEET, ingenieria_items, ["FOLIO", "ENTREGABLE", "HORAS_DISENO", "COSTO_HORA", "TOTAL"])
+
+        # La cotización, en PDF, con los documentos de la orden.
+        #
+        # Va aquí —después de guardar los bloques hijos y antes de armar la
+        # tarea— por dos razones: el PDF ya puede llevar todo lo capturado, y
+        # `archivoUrl` es lo que la fila del tracker guarda en la columna
+        # CARPETA y lo que heredan las tareas del programa. Si se archivara
+        # después, el PDF existiría en Storage y no lo vería nadie.
+        #
+        # Un fallo aquí es un aviso, nunca un error: la orden se guarda igual.
+        # Perderla entera por no poder archivar su PDF sería un cambio a peor.
+        archivado = cotizacion_pdf.archivar(item, item_id)
+        if archivado.get("success"):
+            item["archivoUrl"] = cotizacion_pdf.anexar_a_documentos(
+                item.get("archivoUrl"), archivado.get("fileUrl"))
+        elif archivado.get("message"):
+            avisos.append(archivado["message"])
 
         # I. Detalles Extra JSON
         detalles_extra = ""
