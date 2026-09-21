@@ -158,7 +158,14 @@ def test_los_tres_fallos_que_transcribir_audio_sabe_devolver_se_reconocen(texto)
     [DICTADO_CON_LA_PALABRA_ERROR,
      "Error del operador al medir, hay que repetir el levantamiento",
      "",
-     "Se detectó un Error en transcripción de las cotas del plano"],
+     "Se detectó un Error en transcripción de las cotas del plano",
+     # Los dos siguientes llevan el prefijo COMPLETO, pero dentro de la frase y
+     # no al principio: es lo que pasa cuando alguien dicta lo que leyó en una
+     # pantalla. Distinguen `startswith` de `in`, que es justo la diferencia
+     # entre el arreglo y el bug de origen; sin ellos, volver a poner `in` no
+     # rompería ninguna prueba.
+     "Anotar en la bitácora: Error: falta el plano que mandó el cliente",
+     "El sistema del cliente marcaba Error en transcripción: se anexa la foto"],
 )
 def test_un_dictado_no_se_confunde_con_un_fallo(texto):
     from api.ai_utils import es_error_de_transcripcion
