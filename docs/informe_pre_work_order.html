@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<!--
+  Fuente del informe docs/INFORME_PRE_WORK_ORDER.pdf.
+  Para regenerar el PDF (Chromium headless, sin dependencias de Python):
+
+    chromium --headless --disable-gpu --no-pdf-header-footer \
+      --print-to-pdf=docs/INFORME_PRE_WORK_ORDER.pdf \
+      file://$PWD/docs/informe_pre_work_order.html
+-->
+
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Pre Work Order — Informe de trabajo</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif;
+    font-size: 9.6pt; line-height: 1.5; color: #1c2430; margin: 0;
+  }
+  h1, h2, h3, h4 { color: #0d2f5a; line-height: 1.25; margin: 0 0 .4em; }
+  h1 { font-size: 22pt; }
+  h2 {
+    font-size: 14pt; margin-top: 1.6em; padding-bottom: .25em;
+    border-bottom: 2.5px solid #fd7e14;
+  }
+  h3 { font-size: 11.5pt; margin-top: 1.3em; color: #123f75; }
+  h4 { font-size: 10pt; margin-top: 1em; color: #33506f; }
+  p { margin: .45em 0; text-align: justify; }
+  ul, ol { margin: .4em 0 .6em; padding-left: 1.3em; }
+  li { margin: .22em 0; }
+  code, .mono {
+    font-family: "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+    font-size: 8.4pt; background: #eef2f7; padding: .5px 3px;
+    border-radius: 3px; color: #0d2f5a;
+  }
+  pre {
+    font-family: "DejaVu Sans Mono", "Liberation Mono", monospace;
+    font-size: 7.9pt; background: #0d2f5a; color: #e8eef6;
+    padding: 9px 11px; border-radius: 5px; line-height: 1.45;
+    white-space: pre-wrap; margin: .6em 0;
+  }
+  pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+  table { width: 100%; border-collapse: collapse; margin: .7em 0; font-size: 8.6pt; }
+  th {
+    background: #0d2f5a; color: #fff; text-align: left;
+    padding: 5px 7px; font-weight: 600;
+  }
+  td { padding: 5px 7px; border-bottom: 1px solid #d5dde7; vertical-align: top; }
+  tbody tr:nth-child(even) td { background: #f5f8fb; }
+  .portada {
+    page-break-after: always; padding-top: 42mm; text-align: left;
+  }
+  .portada .kicker {
+    font-size: 9.5pt; letter-spacing: 2.6px; text-transform: uppercase;
+    color: #fd7e14; font-weight: 700; margin-bottom: 10px;
+  }
+  .portada h1 { font-size: 31pt; margin-bottom: 6px; }
+  .portada .sub { font-size: 13pt; color: #4a5b70; margin: 0 0 26px; }
+  .portada hr { border: none; border-top: 3px solid #fd7e14; width: 90px; margin: 0 0 26px; }
+  .meta { font-size: 9pt; color: #33506f; }
+  .meta b { color: #0d2f5a; }
+  .resumen {
+    background: #f5f8fb; border-left: 4px solid #fd7e14;
+    padding: 11px 14px; margin: .9em 0;
+  }
+  .resumen p:first-child { margin-top: 0; }
+  .resumen p:last-child { margin-bottom: 0; }
+  .nota {
+    background: #fff8ef; border: 1px solid #f0cfa4; border-left: 4px solid #fd7e14;
+    padding: 9px 12px; margin: .8em 0; font-size: 9pt;
+  }
+  .hito {
+    border: 1px solid #d5dde7; border-radius: 5px; padding: 0;
+    margin: 1.1em 0; page-break-inside: avoid;
+  }
+  .hito > .cab {
+    background: #0d2f5a; color: #fff; padding: 7px 11px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .hito > .cab .t { font-weight: 700; font-size: 10.5pt; }
+  .hito > .cab .f { font-size: 8.3pt; color: #a8c4e4; white-space: nowrap; padding-left: 10px; }
+  .hito > .cuerpo { padding: 9px 12px 11px; }
+  .hito h4 { margin-top: .8em; }
+  .hito h4:first-child { margin-top: 0; }
+  .tag {
+    display: inline-block; background: #eef2f7; border: 1px solid #c9d6e4;
+    color: #0d2f5a; border-radius: 3px; padding: 1px 6px;
+    font-size: 7.8pt; font-family: "DejaVu Sans Mono", monospace; margin-right: 4px;
+  }
+  .tag-ok { background: #e7f5ec; border-color: #a9d8bb; color: #14603a; }
+  .avoid { page-break-inside: avoid; }
+  .break { page-break-before: always; }
+  .toc { font-size: 9.4pt; padding-left: 2.1em; }
+  .toc li { margin: .3em 0; }
+  .flujo {
+    font-family: "DejaVu Sans Mono", monospace; font-size: 7.4pt;
+    background: #f5f8fb; border: 1px solid #d5dde7; border-radius: 5px;
+    padding: 11px 13px; white-space: pre; line-height: 1.55; margin: .7em 0;
+    overflow-wrap: normal;
+  }
+  .pie { font-size: 8.2pt; color: #6b7b8f; font-style: italic; }
+</style>
+</head>
+<body>
+
+<!-- ============================ PORTADA ============================ -->
+<div class="portada">
+  <div class="kicker">Plataforma REAL-HOLTMONT</div>
+  <h1>Módulo Pre Work Order</h1>
+  <p class="sub">Informe detallado de trabajo: de la integración del Pascal Editor<br>al cierre de la Agencia Paperclip</p>
+  <hr>
+  <p class="meta">
+    <b>Repositorio:</b> <span class="mono">Luis-Dokkaebi/HOLTMONT-PYTHON</span><br>
+    <b>Periodo cubierto:</b> 11 de agosto de 2026 — 9 de septiembre de 2026<br>
+    <b>Fecha de emisión:</b> 21 de septiembre de 2026<br>
+    <b>Alcance:</b> 5 pull requests (#132, #134, #174, #175, #176) y 9 commits de producto<br>
+    <b>Fuente:</b> historial de <span class="mono">git</span>, código en <span class="mono">api/</span> e <span class="mono">index.html</span>, y suite de pruebas
+  </p>
+
+  <div class="resumen" style="margin-top:30px">
+    <p><b>Resumen en una línea.</b> El módulo Pre Work Order volvió al frontend tras perderse
+    en la migración a FastAPI, y desde entonces se llevó de “abre y se ve” a “calcula,
+    dibuja, estima y reparte trabajo”: plano 2D a escala real, plano 3D que de verdad se
+    dibuja en el editor Pascal, estimación de la Agencia Paperclip aterrizando en las cuatro
+    tablas del formulario, y cada renglón del programa convertido en una tarea con dueño
+    dentro del Tracker.</p>
+  </div>
+</div>
+
+<!-- ============================ ÍNDICE ============================ -->
+<h2>Índice</h2>
+<ol class="toc">
+  <li>Resumen ejecutivo</li>
+  <li>Punto de partida: qué era la integración del Pascal Editor</li>
+  <li>Arquitectura del módulo hoy</li>
+  <li>Cronología detallada de los siete hitos</li>
+  <li>Estado actual: endpoints, archivos y tablas</li>
+  <li>Inventario de pruebas del módulo</li>
+  <li>Puertas de calidad: evolución de las cifras</li>
+  <li>Deuda conocida y pendientes</li>
+  <li>Anexo A — Contrato de mensajes con el editor 3D</li>
+  <li>Anexo B — Claves, proveedores y diagnóstico</li>
+  <li>Anexo C — Índice de commits</li>
+</ol>
+
+<!-- ============================ 1 ============================ -->
+<h2>1. Resumen ejecutivo</h2>
+
+<p>Entre el 11 de agosto y el 9 de septiembre de 2026 el módulo <b>Pre Work Order</b> pasó
+por siete hitos de trabajo, agrupados en cinco pull requests. El hilo conductor es siempre
+el mismo defecto de fondo: <b>piezas que decían funcionar sin funcionar</b>. Un mosaico que no
+abría nada y no daba error; un botón de “Plano 2D” que devolvía una ilustración inventada en
+lugar de un plano; un editor 3D que recibía la escena, contestaba el acuse y pintaba un lienzo
+negro; una Agencia Paperclip que anunciaba “Análisis completado” sobre tablas vacías; una clave
+de Google configurada en el panel de Vercel que para el proceso no existía.</p>
+
+<p>En cada caso la corrección fue del mismo tipo: eliminar el fallo mudo, sustituirlo por un
+aviso concreto, y dejar detrás una prueba que mira lo que ve el usuario y no lo que el código
+cree haber hecho. El caso más claro es la prueba de extremo a extremo del plano 3D: cuenta la
+geometría dibujada dentro del iframe, no los nodos que llegaron al almacén de estado, porque
+el bug del lienzo negro pasaba todas las pruebas anteriores.</p>
+
+<h3>Lo que hoy funciona y antes no</h3>
+<table>
+  <thead><tr><th style="width:27%">Capacidad</th><th style="width:36%">Antes (11 ago 2026)</th><th>Ahora (9 sep 2026)</th></tr></thead>
+  <tbody>
+    <tr><td><b>Abrir el módulo</b></td><td>El mosaico “Pre Work Order” no abría nada, sin error en consola.</td><td>Abre desde el mosaico y como pantalla de entrada de <span class="mono">WORKORDER_USER</span>.</td></tr>
+    <tr><td><b>Plano 2D</b></td><td>Imagen generada por difusión con medidas inventadas, distinta en cada intento.</td><td>SVG a escala calculado de la geometría, con cotas y vanos reales, descargable.</td></tr>
+    <tr><td><b>Plano 3D</b></td><td>Lienzo negro con cualquier instrucción.</td><td>Escena válida contra el esquema del editor; acuse, aviso de piezas descartadas y error visible.</td></tr>
+    <tr><td><b>Agencia Paperclip</b></td><td>“Análisis completado” sobre MATERIALES, HERRAMIENTAS y MANO DE OBRA vacías.</td><td>Las cuatro tablas se llenan desde el presupuesto estructurado, con respaldo si el Integrador cae.</td></tr>
+    <tr><td><b>Programa de la orden</b></td><td>Una sola fila global al Tracker, con INVOLUCRADOS = quien llenó el formulario.</td><td>Cada renglón se convierte en tarea del responsable real, con su folio, su SLA y la cotización adjunta.</td></tr>
+    <tr><td><b>Configuración</b></td><td>Fallo de clave indistinguible de fallo de librería o de modelo retirado.</td><td>Endpoint <span class="mono">/api/paperclip/diagnostico</span> y alias de nombres de clave.</td></tr>
+  </tbody>
+</table>
+
+<h3>Las cifras del periodo</h3>
+<table>
+  <thead><tr><th>Indicador</th><th>11 ago 2026</th><th>9 sep 2026</th><th>Variación</th></tr></thead>
+  <tbody>
+    <tr><td>Pruebas Python (pytest)</td><td>1 301</td><td>2 570</td><td>+1 269</td></tr>
+    <tr><td>Pruebas GAS</td><td>87</td><td>97</td><td>+10</td></tr>
+    <tr><td>Cobertura global (piso 60 %)</td><td>65.22 %</td><td>78.92 %</td><td>+13.70 pts</td></tr>
+    <tr><td>Hallazgos de <span class="mono">ruff</span> completo</td><td>51</td><td>51</td><td>sin cambio</td></tr>
+  </tbody>
+</table>
+<p class="pie">Cifras tomadas de la salida de puertas registrada en cada commit. El crecimiento de
+la suite corresponde a todo el repositorio en ese periodo, no sólo a este módulo.</p>
+
+<!-- ============================ 2 ============================ -->
+<h2 class="break">2. Punto de partida: qué era la integración del Pascal Editor</h2>
+
+<p>El <b>Pascal Editor</b> es una herramienta open source de diseño arquitectónico 3D construida
+en React, Next.js, React Three Fiber y WebGPU. La plataforma REAL-HOLTMONT es lo contrario:
+un monolito Vue 3 sin paso de compilación, incrustado en un único <span class="mono">index.html</span>,
+con backend Python (FastAPI). No se podían fusionar; había que hacerlos conversar.</p>
+
+<h3>2.1 La decisión de arquitectura</h3>
+<p>La política de mismo origen del navegador impide leer el DOM o el estado de un iframe de otro
+dominio. Intentar <span class="mono">iframe.contentWindow.document</span> lanza un error de CORS de inmediato.
+La decisión documentada en <span class="mono">PASCAL_EDITOR_INTEGRATION.md</span> fue, por tanto:</p>
+<ul>
+  <li><b>Fork propio del editor</b> (<span class="mono">holtmont-3d-editor</span>), desplegado aparte —Next.js necesita su
+  propio build de Node—, para poder modificar su código fuente.</li>
+  <li><b>Mensajería bidireccional</b> con <span class="mono">window.postMessage</span>: el único canal legítimo entre
+  el iframe y la página que lo contiene.</li>
+  <li><b>Un puente en el fork</b> (hoy <span class="mono">apps/editor/app/holtmont-bridge.tsx</span>) que exporta la
+  escena hacia la plataforma y acepta escenas guardadas antes.</li>
+</ul>
+
+<h3>2.2 Los tres pasos del parche original</h3>
+<p><span class="mono">PARCHE_PASCAL_EDITOR.md</span> conserva como historia el parche mínimo con el que arrancó
+la integración: un botón <i>HoltmontExportButton</i>, su inserción en la barra de herramientas del
+visor, y un <span class="mono">useEffect</span> en el layout que escucha los diseños entrantes y avisa al padre
+con <span class="mono">PASCAL_READY</span>. Ese parche está aplicado y superado: el puente de hoy además <b>valida</b>
+cada nodo contra el esquema del editor, <b>contesta qué pasó</b> con acuse o error, y <b>resuelve los
+muebles</b> contra el catálogo de modelos 3D que vive del lado del editor.</p>
+
+<div class="nota">
+<b>Por qué la validación importa.</b> <span class="mono">useScene.setScene()</span> del editor no valida nada:
+guarda el objeto tal cual. Un nodo con un campo de la forma equivocada se importaba sin quejarse
+y reventaba después, dentro de un <span class="mono">useFrame</span>, matando el bucle de render de
+react-three-fiber. Ese —y no otro— era el Plano 3D en negro.
+</div>
+
+<!-- ============================ 3 ============================ -->
+<h2>3. Arquitectura del módulo hoy</h2>
+
+<div class="flujo">+------------------------- NAVEGADOR --------------------------+
+| index.html   (Vue 3, sin paso de compilacion)                |
+|   |- Formulario Pre Work Order  (bloques A ... H)            |
+|   |- Boton  Agencia Paperclip   ---+                         |
+|   |- Boton  Plano 2D            ---+                         |
+|   '- Vista  Editor 3D Pascal       |                         |
+|        '- &lt;iframe&gt;  <-- postMessage -->  holtmont-3d-editor  |
+|                                          (Next.js, en Vercel) |
++--------------------------------------------------------------+
+                               |  api_service.js
+                               v
++---------------------- FastAPI  (api/) -----------------------+
+| POST /api/run_paperclip_agency   ->  paperclip_agents.py     |
+| GET  /api/paperclip/diagnostico  ->  paperclip_agents.py     |
+| POST /api/plano_2d               ->  services/plano.py       |
+| POST /api/savePPC                ->  services/work_order.py  |
++--------------------------------------------------------------+
+                               |
+                               v
++----------------- Supabase  /  MemoryEngine ------------------+
+| wo_materiales   wo_herramientas   wo_mano_obra   wo_equipos  |
+| wo_programa     wo_viaticos       wo_transporte  wo_ingenieria |
+|       '--->  tareas del Tracker, una por responsable         |
++--------------------------------------------------------------+</div>
+
+<h3>3.1 La Agencia Paperclip</h3>
+<p>Es un grafo de LangGraph con seis nodos, definido en <span class="mono">api/paperclip_agents.py</span>
+(1 448 líneas). Cada nodo produce estructura validada con Pydantic, no sólo prosa:</p>
+
+<div class="flujo">  START -> levantamiento -> architect -> calculo -> precios -> evaluador -> integrador -> END
+                                                      ^            |
+                                                      |            |  presupuesto no aprobado
+                                                      +------------+  (hasta MAX_PRECIOS_REVISIONS)</div>
+
+<table>
+  <thead><tr><th style="width:18%">Nodo</th><th style="width:26%">Produce</th><th>Papel</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">levantamiento</span></td><td><span class="mono">LevantamientoData</span></td><td>Entiende el encargo del texto libre del cotizador.</td></tr>
+    <tr><td><span class="mono">architect</span></td><td><span class="mono">ArchitectExtraction</span> → escena Pascal</td><td>Extrae medidas y vanos; arma la escena 3D. Si no puede, lo dice.</td></tr>
+    <tr><td><span class="mono">calculo</span></td><td><span class="mono">CalculoData</span></td><td>Conceptos, cantidades, unidades, personal y equipo.</td></tr>
+    <tr><td><span class="mono">precios</span></td><td><span class="mono">PreciosData</span></td><td>Precio unitario por concepto, ya validado.</td></tr>
+    <tr><td><span class="mono">evaluador</span></td><td><span class="mono">PreciosCritique</span></td><td>Critica el presupuesto y decide si hay que rehacerlo.</td></tr>
+    <tr><td><span class="mono">integrador</span></td><td><span class="mono">StructuredAgencyData</span></td><td>Arma las cuatro tablas del formulario. <b>Ya no es el único camino</b>.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================ 4 ============================ -->
+<h2 class="break">4. Cronología detallada de los siete hitos</h2>
+
+<!-- HITO 1 -->
+<div class="hito">
+  <div class="cab"><span class="t">Hito 1 · El módulo vuelve al frontend</span><span class="f">11 ago 2026 · PR #132 · <span style="font-family:monospace">861e5e4</span></span></div>
+  <div class="cuerpo">
+    <h4>El problema</h4>
+    <p>La migración a FastAPI reescribió <span class="mono">index.html</span> y dejó atrás cuatro piezas del módulo.
+    El backend nunca fue el problema: <span class="mono">/api/config</span> siempre publicó el módulo con
+    <span class="mono">type: "work_order_form"</span>, que es justo lo que el frontend anterior consumía. Lo que se perdió
+    fue el lado del navegador:</p>
+    <ul>
+      <li><span class="mono">openModule()</span> no tenía rama para <span class="mono">work_order_form</span>: el mosaico no abría nada y la
+      cadena de <span class="mono">else if</span> se agotaba en silencio, <b>sin error de consola</b>.</li>
+      <li><span class="mono">loadConfig()</span> ya no abría el formulario al entrar con <span class="mono">WORKORDER_USER</span>. Esa cuenta no
+      tiene departamentos ni tracker, así que aterrizaba en una pantalla vacía.</li>
+      <li>Los botones de la Agencia Paperclip y del Plano 2D no estaban en el marcado. El JavaScript
+      que los atiende seguía entero, huérfano.</li>
+      <li>El editor Pascal había perdido su vista y su <span class="mono">&lt;iframe&gt;</span>. El pegamento de
+      <span class="mono">postMessage</span> sobrevivió, pero buscando un id inexistente (<span class="mono">pascalIframe</span>) y con una
+      forma de mensaje que el fork no entiende.</li>
+    </ul>
+    <h4>Lo que se hizo</h4>
+    <p>La inicialización se extrajo a <span class="mono">abrirPreWorkOrder()</span> —ahora tiene dos llamadores— y limpia
+    el diseño 3D anterior, para que una orden nueva no nazca con el plano de la anterior ya marcado
+    como anexado. La verificación en navegador destapó tres defectos más:</p>
+    <ul>
+      <li>El mensaje hacia Pascal viaja como <span class="mono">projectData</span>, no <span class="mono">payload</span>, y el diseño se
+      desenvuelve con <span class="mono">JSON.parse</span>/<span class="mono">JSON.stringify</span>: del agente llega como cadena y de Pascal
+      llega envuelto en un Proxy reactivo de Vue que <span class="mono">postMessage</span> no sabe clonar.</li>
+      <li>El receptor lee <span class="mono">data.data</span>, que es lo que el fork manda. Leer <span class="mono">payload</span> guardaba
+      <span class="mono">undefined</span> <b>y aun así marcaba el diseño como anexado</b>.</li>
+      <li>Un reset dejaba <span class="mono">cotizador</span> como cadena vacía donde el resto del código lo trata como
+      arreglo: agregar un cotizador tras guardar fallaba con “push is not a function”.</li>
+    </ul>
+    <h4>Pruebas</h4>
+    <p><span class="mono">tests/test_prework_order_restaurada.py</span> fija el marcado y los dos contratos de
+    <span class="mono">postMessage</span>; <span class="mono">test_rbac_config.py</span> fija el <span class="mono">type</span> del módulo, que es lo que el
+    frontend rutea y hasta entonces nadie comprobaba.</p>
+    <p><span class="tag">index.html +276 líneas</span><span class="tag">2 módulos de prueba</span></p>
+  </div>
+</div>
+
+<!-- HITO 2 -->
+<div class="hito">
+  <div class="cab"><span class="t">Hito 2 · La orden reparte su programa en el Tracker</span><span class="f">11 ago 2026 · PR #134 · <span style="font-family:monospace">abe11fc</span></span></div>
+  <div class="cuerpo">
+    <h4>El problema</h4>
+    <p>El programa de una orden ya traía responsable y fechas por renglón, pero al Tracker sólo iba
+    <b>una fila global</b> de la orden entera, con <span class="mono">INVOLUCRADOS</span> = quien llenó el formulario en vez
+    de quien ejecuta. Los renglones se quedaban inertes en <span class="mono">wo_programa</span>, que nadie lee.</p>
+    <h4>Lo que se hizo</h4>
+    <ul>
+      <li>Cada renglón con descripción y responsable se convierte en una tarea en el tracker de esa
+      persona, anclada al folio de su orden. El destino lo da <span class="mono">resolve_worker_sheet</span> y el guardado
+      va con <span class="mono">como_copia=True</span>: el mismo camino que la «papa caliente» ya dejó probado, así que
+      una línea de trabajo nunca cae en la tabla de ventas de nadie.</li>
+      <li><b>Dos descartes deliberados:</b> un renglón sin responsable no se le asigna al cotizador por
+      descarte —nadie recibe trabajo que no aceptó—, y un renglón sin descripción no genera nada,
+      porque el formulario precrea filas en blanco en las cuatro secciones del programa.</li>
+      <li>La marca de sección es <span class="mono">[PWO: &lt;SECCION&gt;]</span>, con prefijo a propósito: la marca desnuda
+      competía con las de fase que <span class="mono">es_delegacion_de_fase</span> lee de los corchetes del CONCEPTO.</li>
+      <li><b>Clasificación del Tracker.</b> No la mandaba nadie: <span class="mono">CLASIFICACION</span> caía al default “Media”,
+      que no está en <span class="mono">SLA_LIMITS</span>, así que toda tarea nacida de una Pre Work Order entraba
+      <b>sin semáforo y sin SLA</b>. Ahora hay selector A/AA/AAA con sus días, y una orden sin clasificación
+      válida se rechaza antes de escribir nada: ni folio consumido ni fila a medias.</li>
+    </ul>
+    <h4>Pruebas y puertas</h4>
+    <p>52 unitarias (<span class="mono">tests/test_prework_order_al_tracker.py</span>), 7 escenarios Gherkin
+    (<span class="mono">tests/features/pre_work_order.feature</span>) y sus pasos.</p>
+    <pre><code>Suite completa:  1301 pytest + 87 GAS — en verde
+Cobertura:       100 % del diff · 65.22 % global (piso 60 %)</code></pre>
+  </div>
+</div>
+
+<!-- HITO 3 -->
+<div class="hito">
+  <div class="cab"><span class="t">Hito 3 · El Plano 2D se calcula, ya no se ilustra</span><span class="f">12 ago 2026 · PR #134 · <span style="font-family:monospace">2c141d0</span></span></div>
+  <div class="cuerpo">
+    <h4>El problema</h4>
+    <p>El botón “Plano 2D (IA)” <b>no dibujaba un plano</b>. Llamaba desde el navegador a un generador de
+    imágenes por difusión (<span class="mono">image.pollinations.ai</span>) con el texto de la descripción y mostraba lo
+    que devolviera. Con “habitación de 8 × 5 m con una puerta” eso da una ilustración plausible con
+    medidas inventadas: sin escala, sin cotas, distinta en cada intento —la semilla era aleatoria— y
+    sin ninguna relación con el modelo que abría el Editor 3D. Dos botones de la misma pantalla,
+    alimentados por el mismo campo, contaban cosas distintas.</p>
+    <h4>Lo que se hizo</h4>
+    <ul>
+      <li><b>Módulo nuevo <span class="mono">api/services/plano.py</span></b> (570 líneas): lee las medidas de la descripción
+      <b>sin LLM</b> —“8 x 5”, “8x5”, “8 por 5 metros”, con decimales y con coma, y las cantidades en cifra
+      o en palabra— y dibuja un SVG a escala, con los vanos en su sitio y las cotas reales.</li>
+      <li><b>Endpoint <span class="mono">POST /api/plano_2d</span></b>: devuelve el SVG y la escena de Pascal en la misma
+      respuesta, de modo que abrir el 3D enseñe exactamente lo que se acaba de ver en planta.</li>
+      <li><b>Tres defectos del dibujo</b> encontrados mirando el resultado y no sólo las pruebas: el título
+      largo se salía del <span class="mono">viewBox</span>; una ventana caía encima de una puerta cuando las dos iban al
+      centro de su muro (ahora comparten registro de tramos ocupados); y el arco de barrido se trazaba
+      siempre hacia arriba, de modo que en el muro superior abría hacia fuera del recinto.</li>
+      <li><b>Se quita el fallo silencioso del agente 3D.</b> <span class="mono">architect_node</span> caía a una habitación de
+      4×4 m sin puertas cuando el LLM fallaba, y el frontend lo anunciaba como “3D actualizado”: pedir
+      8×5 con puerta y recibir 4×4 sin puerta sin ningún aviso es el peor resultado posible, porque
+      parece que funcionó. Ahora intenta leer las medidas del propio texto y sólo si eso tampoco da
+      nada usa la 4×4, <b>marcada como supuesto y con su aviso</b>.</li>
+      <li>El botón del Editor 3D deja de depender de que alguien haya pulsado antes la Agencia Paperclip,
+      y el plano se puede descargar como SVG: un plano que no se puede adjuntar a la orden no sirve de mucho.</li>
+    </ul>
+    <h4>Pruebas y puertas</h4>
+    <p>150 unitarias (<span class="mono">tests/test_plano_2d.py</span>) con una batería de 12 descripciones que comprueba,
+    caso por caso, que la geometría, el dibujo y el modelo 3D son los pedidos; y 5 recorridos de
+    navegador (<span class="mono">tests/test_plano_2d_ui.py</span>) que escriben la descripción, pulsan el botón y
+    verifican las cotas en pantalla.</p>
+    <pre><code>Suite completa:  1456 pytest + 87 GAS — en verde
+Cobertura:       99 % del módulo nuevo · 95 % del diff · 66.59 % global</code></pre>
+  </div>
+</div>
+
+<!-- HITO 4 -->
+<div class="hito">
+  <div class="cab"><span class="t">Hito 4 · El Plano 3D dibuja lo que se le pidió</span><span class="f">8 sep 2026 · PR #174 · <span style="font-family:monospace">fa409d8 · 4e8b9dd</span></span></div>
+  <div class="cuerpo">
+    <h4>El problema</h4>
+    <p>El Plano 3D salía <b>en negro con cualquier instrucción</b>. La mitad del fallo estaba en este
+    repositorio: <span class="mono">_build_pascal_scene</span> escribía nodos con la forma de un esquema que el editor no
+    tiene. Como <span class="mono">setScene()</span> no valida, la escena importaba sin quejarse y el error salía después,
+    dentro del <span class="mono">useFrame</span> de <span class="mono">DoorSystem</span>, que mata el bucle de render.</p>
+    <h4>Lo que estaba mal, campo por campo</h4>
+    <table>
+      <thead><tr><th style="width:20%">Elemento</th><th>Defecto</th></tr></thead>
+      <tbody>
+        <tr><td><b>Puertas y ventanas</b></td><td><span class="mono">position</span> iba como fracción del muro (<span class="mono">0.5</span>). El editor espera <span class="mono">[x, y, z]</span> en metros y hace <span class="mono">node.position[0]</span>: sobre un número eso da <span class="mono">undefined</span>. Faltaban <span class="mono">wallId</span> y <span class="mono">side</span>.</td></tr>
+        <tr><td><b>Escaleras</b></td><td><span class="mono">type: "staircase"</span> no existe (es <span class="mono">stair</span>), con <span class="mono">steps</span>/<span class="mono">fromLevel</span>/<span class="mono">toLevel</span> en vez de <span class="mono">stepCount</span>/<span class="mono">fromLevelId</span>/<span class="mono">toLevelId</span>, y sin tramos <span class="mono">stair-segment</span>.</td></tr>
+        <tr><td><b>Muebles</b></td><td><span class="mono">type: "object"</span> tampoco existe (es <span class="mono">item</span>), rotación en grados sobre Z cuando el eje vertical del editor es Y, y sin <span class="mono">asset</span>.</td></tr>
+        <tr><td><b>Techos</b></td><td><span class="mono">roofType: "gabled"</span> no está en el vocabulario (<span class="mono">gable</span>), y <span class="mono">pitch</span>/<span class="mono">overhang</span> viven en el <span class="mono">roof-segment</span>, no en el grupo.</td></tr>
+        <tr><td><b>Muros y niveles</b></td><td>Muros sin <span class="mono">height</span>, a merced del valor por defecto del visor; niveles colgando del vacío (<span class="mono">parentId: null</span>) en vez del edificio.</td></tr>
+      </tbody>
+    </table>
+    <p><span class="mono">tests/test_architect_pascal.py</span> pasaba con todo eso <b>porque comprobaba la forma que Python
+    escribía, no la que el editor lee</b>. Sus aserciones quedaron actualizadas al contrato de verdad.</p>
+    <h4>Del lado del navegador</h4>
+    <ul>
+      <li><span class="mono">index.html</span> manda el diseño al recibir <span class="mono">PASCAL_READY</span> en vez de tras un retraso fijo:
+      si el motor tardaba de más, el mensaje llegaba antes que el oyente y se perdía sin rastro.</li>
+      <li>Se atienden <span class="mono">HOLTMONT_3D_IMPORT_ACK</span> (avisa si el editor dibujó el diseño incompleto, con
+      las piezas que descartó) y <span class="mono">HOLTMONT_3D_IMPORT_ERROR</span> (lo dice y marca el diseño en error).</li>
+      <li>La otra mitad del fallo —el visor daba WebGPU por disponible con <span class="mono">'gpu' in navigator</span> y
+      montaba una tubería de post-proceso que en WebGL2 no dibuja nada— se corrigió en
+      <span class="mono">holtmont-3d-editor</span>, junto con la validación de la escena en el puente.</li>
+    </ul>
+    <h4>La prueba que faltaba: ¿se ve?</h4>
+    <p>Ni el contrato de la escena ni el intercambio de mensajes responden esa pregunta: el bug del
+    lienzo negro <b>pasaba las dos cosas</b>. <span class="mono">tests/test_plano_3d_e2e.py</span> recorre la cadena entera con
+    el editor de verdad al otro lado del iframe: escribe la descripción, pulsa «Editor 3D Pascal» y
+    <b>cuenta la geometría que quedó dibujada</b> (<span class="mono">window.__holtmontProbe()</span>), no los nodos que llegaron
+    al almacén. Además comprueba que no hubo ninguna excepción en el navegador. Casos: cuarto de 5×4
+    con puerta; bodega de 12×8 con dos puertas y cuatro ventanas; oficina de 6×4 con puerta y dos
+    ventanas. Se comprobó contra el <b>build de producción</b> del editor, no sólo contra el servidor de
+    desarrollo. Cuando el editor no está servido en <span class="mono">HOLTMONT_EDITOR_URL</span>, la prueba <b>se salta con el
+    motivo a la vista</b> en lugar de dar por bueno lo que no se comprobó.</p>
+    <pre><code>tests/test_arquitectura_pascal_contrato.py   18 casos
+tests/test_editor_3d_puente_ui.py            5 recorridos de navegador
+tests/test_plano_3d_e2e.py                   4 pasan contra el editor real
+scripts/generar_escenas_pascal.py            exporta escenas para validarlas allá
+
+Suite completa: 2497 pasan, 6 se saltan · cobertura 78.01 % · GAS 97/97</code></pre>
+  </div>
+</div>
+
+<!-- HITO 5 -->
+<div class="hito">
+  <div class="cab"><span class="t">Hito 5 · La estimación vuelve a las tablas y la cotización viaja con la orden</span><span class="f">8 sep 2026 · PR #175 · <span style="font-family:monospace">5d18efc</span></span></div>
+  <div class="cuerpo">
+    <p>Dos defectos mudos reportados por el dueño el 2026-09-08.</p>
+    <h4>5.1 La Agencia Paperclip ya no llenaba MATERIALES, HERRAMIENTAS ni MANO DE OBRA</h4>
+    <p><span class="mono">run_paperclip_agency</span> devuelve <span class="mono">structured_data</span> con la forma de <span class="mono">StructuredAgencyData</span>:
+    <span class="mono">requiredMaterials</span>, <span class="mono">toolsRequired</span>, <span class="mono">laborTable</span> y <span class="mono">specialEquipment</span>, con campos que se
+    llaman igual que las columnas del formulario. <span class="mono">index.html</span> leía <b>otro JSON</b>:
+    <span class="mono">parsedData.materiales</span>, <span class="mono">.herramientas</span>, <span class="mono">.mano_de_obra</span>, <span class="mono">.equipos</span>. Ninguna de esas
+    claves existe en la respuesta, así que los cuatro <span class="mono">if</span> daban <span class="mono">undefined</span>, no se insertaba una
+    sola fila, y el usuario veía el aviso verde «Análisis completado» sobre las tablas vacías de
+    siempre. <b>Sin excepción y sin consola en rojo.</b></p>
+    <p>En la variante de actividad había un segundo desajuste encima: las filas se marcaban con
+    <span class="mono">contextId</span> y el modal de recursos filtra por <span class="mono">activityId</span>.</p>
+    <p>Las dos rutas comparten ahora <span class="mono">insertarEstimacionPaperclip</span>, que lee las claves reales,
+    limpia los números que vengan como “$2,800” y recalcula el total de cada renglón con la misma
+    función que usa la captura a mano. <b>El aviso deja de ser fijo</b>: nombra cuántas filas entraron por
+    tabla y avisa en amarillo cuando no entró ninguna. El defecto duró porque el mensaje era el mismo
+    con cero filas que con veinte.</p>
+    <h4>5.2 La persona asignada recibía la orden sin la cotización</h4>
+    <p>El formulario junta cotización y planos en <span class="mono">archivoUrl</span>, y la fila de cabecera los guarda en
+    <span class="mono">ARCHIVO</span> —alias de la columna <span class="mono">carpeta</span>, la que el Tracker pinta como adjunto—. Pero
+    <span class="mono">tareas_de_programa</span> construía la fila derivada con nueve campos y ninguno era <span class="mono">ARCHIVO</span>:
+    quien ejecuta el trabajo recibía la tarea con <span class="mono">carpeta = None</span> y tenía que ir a pedir la
+    cotización a quien la elaboró. La fila derivada hereda ahora <span class="mono">ARCHIVO</span> de la cabecera. Se
+    confirmó además que la orden se puede asignar a cualquier persona: quien todavía no tiene tracker
+    lo estrena con esa fila.</p>
+    <h4>Pruebas y puertas</h4>
+    <p><span class="mono">tests/test_paperclip_estimaciones.py</span> (13): recorrido en el navegador con la agencia
+    simulada por su respuesta literal —construida con los propios modelos Pydantic del agente para
+    que no pueda quedarse con una forma vieja del JSON—. <span class="mono">tests/test_prework_order_adjunta_cotizacion.py</span>
+    (13): el adjunto en la fila derivada, con varios responsables, con varios documentos, sin
+    documentos, y de punta a punta contra <span class="mono">MemoryEngine</span>. <b>Las 26 se vieron en rojo contra el
+    código anterior.</b></p>
+    <pre><code>./run_tests.sh  → 2516 passed, 10 skipped | GAS: 97/97
+ruff --select E9,F63,F7,F82 → All checks passed
+xenon --max-average A --max-absolute F → 0
+cobertura --cov-fail-under=60 → 78.01 %</code></pre>
+  </div>
+</div>
+
+<!-- HITO 6 -->
+<div class="hito">
+  <div class="cab"><span class="t">Hito 6 · Las tablas se llenan aunque el Integrador falle</span><span class="f">9 sep 2026 · PR #176 · <span style="font-family:monospace">6481197</span></span></div>
+  <div class="cuerpo">
+    <h4>El problema</h4>
+    <p>El dueño reportó <b>por segunda vez</b> que la Agencia Paperclip no escribía nada en las tablas. El
+    arreglo anterior corrigió el formulario y quedó probado con la respuesta del backend escrita a
+    mano. <b>Ahí estaba el hueco: nadie probó que el backend produjera esa respuesta.</b></p>
+    <h4>Qué estaba mal</h4>
+    <ol>
+      <li><b>Toda la estimación dependía de UNA llamada al modelo.</b> <span class="mono">integrador_node</span> releía la prosa
+      de los agentes anteriores y volvía a extraer de ella las cuatro tablas con el esquema más grande
+      del archivo —cinco listas anidadas—, <b>sin reintento</b> (a diferencia del resto de los nodos, que
+      usan <span class="mono">_invoke_structured</span>) y <b>sin respaldo</b>. Si esa llamada fallaba, o si el modelo devolvía
+      las cinco listas vacías, el usuario veía el formulario intacto.
+      <div class="nota" style="margin:.5em 0">Lo absurdo es que el dato <b>ya estaba estructurado</b> antes de esa
+      llamada: <span class="mono">calculo_node</span> produce un <span class="mono">CalculoData</span> y <span class="mono">precios_node</span> un <span class="mono">PreciosData</span>
+      con categoría, unidad, cantidad y precio unitario, ya validados. Se serializaban a markdown y se
+      tiraba la estructura para pedirle a un modelo que la volviera a extraer de su propio texto.</div>
+      Ahora el estado conserva ambas (<span class="mono">calculo_struct</span>, <span class="mono">precios_struct</span>) y el integrador arma las
+      tablas <b>en código</b> con <span class="mono">estimacion_desde_estructura</span>. El LLM queda para el caso en que el
+      presupuesto se haya quedado en prosa; si tampoco puede, entran los conceptos del cálculo con
+      costo 0, que es <b>un pendiente visible en vez de una tabla vacía</b>.</li>
+      <li><b>El informe de ingeniería se perdía entero.</b> <span class="mono">index.html</span> leía <span class="mono">result.estructuracion</span> y
+      <span class="mono">result.conceptoDesc</span>; la agencia devuelve <span class="mono">levantamiento</span>, <span class="mono">calculo</span> y <span class="mono">precios</span>. La
+      Descripción del Trabajo nunca recibía una línea del análisis.</li>
+      <li><b>Cero filas se anunciaba igual viniera de donde viniera.</b> <span class="mono">estimacion_origen</span> viaja ahora
+      hasta el aviso: “no había nada que estimar” y “la agencia no pudo armar la estimación” dejan de
+      verse igual desde la pantalla.</li>
+      <li><b>Canales no declarados.</b> <span class="mono">architect_origen</span> y <span class="mono">architect_aviso</span> se escribían sin declararse
+      en <span class="mono">PaperclipState</span>; LangGraph 1.2 descarta en silencio lo escrito a un canal que el esquema no
+      nombra, así que el aviso “este plano es una habitación de ejemplo” no salía del grafo.</li>
+    </ol>
+    <h4>Pruebas</h4>
+    <p><span class="mono">tests/test_estimacion_agencia.py</span> (24) y <span class="mono">tests/test_estimacion_prework_e2e.py</span> (6): el
+    recorrido entero, que es lo que faltaba. <b>El JSON no se escribe a mano</b>: sale de correr
+    <span class="mono">run_paperclip_agency</span> y se le entrega al <span class="mono">index.html</span> real, incluidos los totales con los que
+    sale la cotización y la corrida en la que el Integrador se cae.</p>
+  </div>
+</div>
+
+<!-- HITO 7 -->
+<div class="hito">
+  <div class="cab"><span class="t">Hito 7 · Proveedor de modelo, alias de clave y diagnóstico</span><span class="f">9 sep 2026 · PR #176 · <span style="font-family:monospace">5fc8cef · 50c7330</span></span></div>
+  <div class="cuerpo">
+    <h4>7.1 «Paperclip usa apikeys de Google, no de Groq»</h4>
+    <p>La agencia exigía <span class="mono">GROQ_API_KEY</span> y cortaba antes de ejecutar un solo agente. En un despliegue
+    con clave de Google y sin clave de Groq el endpoint devolvía 500 sobre las tablas intactas.
+    Gemini estaba ahí y sólo se usaba para los agentes de texto: la salida estructurada, que es la que
+    llena las tablas, seguía atada a Groq.</p>
+    <ul>
+      <li><b>Basta una de las dos claves.</b> <span class="mono">_llms_disponibles</span> elige proveedor: Groq + Gemini conserva
+      el reparto con el que se afinaron los prompts (Groq formatea, Gemini escribe); sólo Gemini corre
+      los dos lados; sólo Groq igual. Una clave cuya librería no está instalada cuenta como ausente
+      —antes eso llegaba a construir el LLM y reventaba—.</li>
+      <li><b>La clave puede viajar en la petición.</b> En Vercel cada invocación es un proceso nuevo y
+      <span class="mono">os.environ</span> no sobrevive de una a otra, así que una clave guardada desde la pantalla vive en
+      <span class="mono">localStorage</span>. <span class="mono">PaperclipRequest</span> la acepta, <span class="mono">api_service.js</span> la manda y el formulario la
+      lee con <span class="mono">leerGeminiKeyLocal()</span>.</li>
+    </ul>
+    <h4>7.2 La clave se llamaba <span class="mono">Gemini_Key</span></h4>
+    <p>Con la captura del panel de Vercel a la vista, dos hallazgos —y uno corrige lo que este mismo
+    hilo había dado por bueno:</p>
+    <ol>
+      <li><b>La clave de Google estaba puesta y para el proceso no existía.</b> Las variables de entorno
+      distinguen mayúsculas: <span class="mono">Gemini_Key</span> y <span class="mono">GEMINI_API_KEY</span> son dos variables distintas. El código
+      leía sólo la segunda, así que Gemini nunca se usó y la agencia corría entera con Groq,
+      imprimiendo el aviso “GEMINI_API_KEY no detectada” sobre una clave que sí estaba configurada.</li>
+      <li><b><span class="mono">GROQ_API_KEY</span> sí estaba configurada</b>, así que la agencia arrancaba. El commit anterior
+      atribuyó el fallo a su ausencia: eso era falso con ese dato a la vista, y <b>quedó anotado en el
+      propio commit</b>. Ese cambio sigue siendo correcto —una de las dos claves basta—, pero la causa del
+      reporte original es la del Hito 6: el Integrador era el único camino a las tablas.</li>
+    </ol>
+    <p><b>Qué cambia:</b> <span class="mono">ALIAS_CLAVE_GEMINI</span> y <span class="mono">ALIAS_CLAVE_GROQ</span> reconocen la clave con los nombres
+    que se usan en la práctica, con el canónico ganando si están las dos —un alias es un rescate, no
+    una segunda fuente de verdad—; y nace <span class="mono">GET /api/paperclip/diagnostico</span>, que dice qué ve la
+    agencia del despliegue donde corre. <b>No llama al modelo y nunca devuelve una clave</b>, sólo su
+    prefijo. Existe porque los tres fallos de configuración de esta agencia —clave con otro nombre,
+    librería fuera del bundle, modelo retirado— <b>se ven idénticos desde la pantalla</b>.</p>
+    <h4>Puertas finales del periodo</h4>
+    <pre><code>./run_tests.sh  → 2570 passed, 10 skipped | GAS: TOTAL 97, PASAN 97
+ruff check --select E9,F63,F7,F82 api backend streamlit_cotizador tests
+                → All checks passed!
+xenon --max-average A --max-absolute F api backend streamlit_cotizador → 0
+pytest --cov-branch --cov-fail-under=60 → 78.92 %</code></pre>
+  </div>
+</div>
+
+<!-- ============================ 5 ============================ -->
+<h2 class="break">5. Estado actual: endpoints, archivos y tablas</h2>
+
+<h3>5.1 Endpoints del módulo</h3>
+<table>
+  <thead><tr><th style="width:32%">Endpoint</th><th style="width:26%">Implementación</th><th>Qué hace</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">POST /api/run_paperclip_agency</span></td><td><span class="mono">api/paperclip_agents.py</span></td><td>Corre el grafo de seis agentes y devuelve las cuatro tablas, los informes y la escena 3D. Acepta <span class="mono">geminiKey</span> en la petición.</td></tr>
+    <tr><td><span class="mono">GET /api/paperclip/diagnostico</span></td><td><span class="mono">api/paperclip_agents.py</span></td><td>Qué claves y librerías ve la agencia, con qué nombre encontró cada clave y qué modelos usaría. No llama al modelo.</td></tr>
+    <tr><td><span class="mono">POST /api/plano_2d</span></td><td><span class="mono">api/services/plano.py</span></td><td>SVG a escala con cotas reales <b>y</b> la escena de Pascal, en la misma respuesta.</td></tr>
+    <tr><td><span class="mono">POST /api/savePPC</span></td><td><span class="mono">api/services/work_order.py</span></td><td>Guarda la orden completa: cabecera, los ocho bloques y el reparto de tareas al Tracker.</td></tr>
+  </tbody>
+</table>
+
+<h3>5.2 Archivos que componen el módulo</h3>
+<table>
+  <thead><tr><th style="width:38%">Archivo</th><th style="width:10%">Líneas</th><th>Papel</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">api/paperclip_agents.py</span></td><td>1 448</td><td>Grafo LangGraph, modelos Pydantic, constructor de la escena Pascal, elección de proveedor y diagnóstico.</td></tr>
+    <tr><td><span class="mono">api/services/plano.py</span></td><td>570</td><td>Lectura de medidas sin LLM y dibujo del SVG a escala.</td></tr>
+    <tr><td><span class="mono">api/services/work_order.py</span></td><td>—</td><td>Folio, persistencia de los ocho bloques, <span class="mono">tareas_de_programa</span>, clasificación y auditoría de alta.</td></tr>
+    <tr><td><span class="mono">index.html</span></td><td>—</td><td>Formulario Vue, <span class="mono">abrirPreWorkOrder()</span>, <span class="mono">insertarEstimacionPaperclip</span>, puente <span class="mono">postMessage</span> e iframe del editor.</td></tr>
+    <tr><td><span class="mono">scripts/generar_escenas_pascal.py</span></td><td>116</td><td>Exporta escenas de referencia para validarlas contra el Zod real del editor.</td></tr>
+    <tr><td><span class="mono">PASCAL_EDITOR_INTEGRATION.md</span> · <span class="mono">PARCHE_PASCAL_EDITOR.md</span></td><td>—</td><td>Guía de arquitectura de la integración y parche del fork (aplicado y superado).</td></tr>
+  </tbody>
+</table>
+
+<h3>5.3 Tablas de la orden</h3>
+<p>Cada bloque del formulario tiene su tabla en el esquema relacional; los nombres de hoja y los
+encabezados en mayúsculas siguen siendo los del formulario y se traducen a tabla y columnas en
+<span class="mono">TABLAS_WO</span>:</p>
+<p><span class="tag">wo_materiales</span><span class="tag">wo_herramientas</span><span class="tag">wo_mano_obra</span><span class="tag">wo_equipos</span><span class="tag">wo_programa</span><span class="tag">wo_viaticos</span><span class="tag">wo_transporte</span><span class="tag">wo_ingenieria</span></p>
+
+<!-- ============================ 6 ============================ -->
+<h2>6. Inventario de pruebas del módulo</h2>
+
+<p>Doce módulos de prueba cubren hoy la Pre Work Order de punta a punta. La columna «funciones»
+cuenta las funciones <span class="mono">test_*</span> del archivo; el total de casos ejecutados es mayor por la
+parametrización (por ejemplo, <span class="mono">test_plano_2d.py</span> ejecuta unos 150 casos desde 52 funciones).</p>
+
+<table>
+  <thead><tr><th style="width:38%">Módulo</th><th style="width:12%">Funciones</th><th>Qué garantiza</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">test_prework_order_restaurada.py</span></td><td>12</td><td>El marcado del módulo y los dos contratos de <span class="mono">postMessage</span>.</td></tr>
+    <tr><td><span class="mono">test_prework_order_al_tracker.py</span></td><td>26</td><td>El reparto del programa, los descartes deliberados y la clasificación con SLA.</td></tr>
+    <tr><td><span class="mono">test_plano_2d.py</span></td><td>52</td><td>Geometría, dibujo y modelo 3D para 12 descripciones distintas.</td></tr>
+    <tr><td><span class="mono">test_plano_2d_ui.py</span></td><td>5</td><td>Recorridos de navegador: escribir, pulsar y ver las cotas en pantalla.</td></tr>
+    <tr><td><span class="mono">test_architect_pascal.py</span></td><td>20</td><td>El agente arquitecto y su extracción de medidas.</td></tr>
+    <tr><td><span class="mono">test_arquitectura_pascal_contrato.py</span></td><td>10</td><td>La escena, campo por campo, contra el esquema real del editor.</td></tr>
+    <tr><td><span class="mono">test_editor_3d_puente_ui.py</span></td><td>5</td><td>El intercambio de mensajes en el navegador, incluido el rechazo.</td></tr>
+    <tr><td><span class="mono">test_plano_3d_e2e.py</span></td><td>2</td><td><b>Que se vea:</b> geometría dibujada con el editor real al otro lado del iframe.</td></tr>
+    <tr><td><span class="mono">test_paperclip_estimaciones.py</span></td><td>10</td><td>Las cuatro tablas se llenan en pantalla, con totales y aviso honesto.</td></tr>
+    <tr><td><span class="mono">test_prework_order_adjunta_cotizacion.py</span></td><td>8</td><td>La cotización llega con la tarea a quien la ejecuta.</td></tr>
+    <tr><td><span class="mono">test_estimacion_agencia.py</span></td><td>39</td><td>Estimación desde estructura, precedencia del integrador, proveedor y alias de clave.</td></tr>
+    <tr><td><span class="mono">test_estimacion_prework_e2e.py</span></td><td>10</td><td>De la agencia real al formulario real y de ahí a cada tabla de la base.</td></tr>
+  </tbody>
+</table>
+<p>Además, <span class="mono">tests/features/pre_work_order.feature</span> recoge 7 escenarios Gherkin de la regla de
+negocio del reparto, conforme a la restricción R2 de <span class="mono">RESTRICCIONES_EXTREMAS.md</span>.</p>
+
+<!-- ============================ 7 ============================ -->
+<h2>7. Puertas de calidad: evolución de las cifras</h2>
+
+<table>
+  <thead><tr><th>Fecha</th><th>Commit</th><th>pytest</th><th>GAS</th><th>Cobertura global</th></tr></thead>
+  <tbody>
+    <tr><td>11 ago 2026</td><td><span class="mono">abe11fc</span></td><td>1 301 en verde</td><td>87 / 87</td><td>65.22 %</td></tr>
+    <tr><td>12 ago 2026</td><td><span class="mono">2c141d0</span></td><td>1 456 en verde</td><td>87 / 87</td><td>66.59 %</td></tr>
+    <tr><td>8 sep 2026</td><td><span class="mono">fa409d8</span></td><td>2 493 pasan · 6 saltadas</td><td>97 / 97</td><td>78.01 %</td></tr>
+    <tr><td>8 sep 2026</td><td><span class="mono">4e8b9dd</span></td><td>2 497 pasan · 6 saltadas</td><td>97 / 97</td><td>78.01 %</td></tr>
+    <tr><td>8 sep 2026</td><td><span class="mono">5d18efc</span></td><td>2 516 pasan · 10 saltadas</td><td>97 / 97</td><td>78.01 %</td></tr>
+    <tr><td>9 sep 2026</td><td><span class="mono">5fc8cef</span></td><td>2 558 pasan · 10 saltadas</td><td>97 / 97</td><td>78.39 %</td></tr>
+    <tr><td>9 sep 2026</td><td><span class="mono">50c7330</span></td><td>2 570 pasan · 10 saltadas</td><td>97 / 97</td><td>78.92 %</td></tr>
+  </tbody>
+</table>
+
+<p>El piso de cobertura vigente es <b>60 %</b> y no se movió en todo el periodo: la mejora de 13.70
+puntos es real, no un umbral rebajado. <span class="mono">ruff</span> en modo crítico
+(<span class="mono">E9,F63,F7,F82</span>) terminó limpio en cada hito, <span class="mono">xenon</span> en verde, y el inventario de
+<span class="mono">ruff</span> completo se mantuvo en <b>51 hallazgos preexistentes</b> —ni uno más—. Las 10 pruebas
+saltadas corresponden en su mayoría al recorrido 3D de extremo a extremo, que requiere el editor
+servido en <span class="mono">HOLTMONT_EDITOR_URL</span>.</p>
+
+<div class="nota">
+<b>Nota de honestidad (obligación 4 de <span class="mono">CLAUDE.md</span>).</b> Este informe es documentación: no
+modifica código de <span class="mono">api/</span>, <span class="mono">backend/</span> ni <span class="mono">tests/</span>. La suite <b>no se ejecutó en la sesión
+que lo redactó</b>, porque el contenedor no tiene instaladas las dependencias del proyecto
+(<span class="mono">pytest</span> y <span class="mono">langchain_core</span> ausentes). Todas las cifras de la tabla anterior son la salida
+literal registrada en el mensaje de cada commit por la sesión que sí las corrió; ninguna se estimó
+ni se redondeó aquí.
+</div>
+
+<!-- ============================ 8 ============================ -->
+<h2>8. Deuda conocida y pendientes</h2>
+
+<table>
+  <thead><tr><th style="width:30%">Pendiente</th><th>Detalle y estado</th></tr></thead>
+  <tbody>
+    <tr><td><b>DDL de los bloques F, G y H</b></td><td>Viáticos, transporte e ingeniería ya están mapeados en <span class="mono">TABLAS_WO</span> y su esquema está escrito en <span class="mono">docs/DDL_WO_BLOQUES.sql</span> (del PR #129, anterior a este periodo). <b>Conviene verificar que el DDL esté aplicado en Supabase</b>: si la tabla no existe, PostgREST responde <span class="mono">PGRST205</span> y el bloque se queda sólo en la nota de Obsidian, con su aviso.</td></tr>
+    <tr><td><b>Recorrido 3D en CI</b></td><td><span class="mono">test_plano_3d_e2e.py</span> se salta sin el editor servido. Es la decisión correcta —no dar por bueno lo que no se comprobó— pero significa que la comprobación “¿se ve?” <b>no corre automáticamente</b>: hay que levantar el editor y correrla a mano.</td></tr>
+    <tr><td><b>Dos repositorios acoplados</b></td><td>La mitad de los arreglos del Hito 4 vive en <span class="mono">holtmont-3d-editor</span>. El contrato entre ambos está fijado por <span class="mono">test_arquitectura_pascal_contrato.py</span> de este lado y por el Zod real del otro, con <span class="mono">scripts/generar_escenas_pascal.py</span> como puente — pero <b>son dos despliegues que hay que versionar juntos</b>.</td></tr>
+    <tr><td><b>51 hallazgos de <span class="mono">ruff</span> completo</b></td><td>Deuda preexistente, estable en todo el periodo. Ningún cambio del módulo la aumentó ni bajó ninguna puerta para pasar (Directiva Cero).</td></tr>
+    <tr><td><b>Dependencia de proveedor externo</b></td><td>La agencia necesita clave de Google o de Groq. Sin ninguna, el mensaje ahora nombra las dos, y <span class="mono">/api/paperclip/diagnostico</span> permite distinguir “falta clave” de “falta librería” de “modelo retirado”.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================ ANEXO A ============================ -->
+<h2 class="break">Anexo A — Contrato de mensajes con el editor 3D</h2>
+
+<table>
+  <thead><tr><th style="width:30%">Mensaje</th><th style="width:16%">Dirección</th><th>Contenido y efecto</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">PASCAL_READY</span></td><td>editor → plataforma</td><td>El oyente del editor ya está montado. <b>Dispara el envío del diseño</b>; sustituyó al retraso fijo que perdía mensajes.</td></tr>
+    <tr><td><span class="mono">HOLTMONT_3D_IMPORT</span></td><td>plataforma → editor</td><td>El diseño viaja en <span class="mono">projectData</span> (no <span class="mono">payload</span>), desenvuelto con <span class="mono">JSON.parse</span>/<span class="mono">JSON.stringify</span> para no chocar con el Proxy reactivo de Vue.</td></tr>
+    <tr><td><span class="mono">HOLTMONT_3D_IMPORT_ACK</span></td><td>editor → plataforma</td><td>Número de nodos aplicados y lista de descartes. La plataforma avisa si el diseño se dibujó incompleto.</td></tr>
+    <tr><td><span class="mono">HOLTMONT_3D_IMPORT_ERROR</span></td><td>editor → plataforma</td><td>La escena no dejó ningún nodo en pie: <b>se conserva la escena anterior</b> en vez de sustituirla por una vacía, y la plataforma marca el diseño en error.</td></tr>
+    <tr><td><span class="mono">HOLTMONT_3D_EXPORT</span></td><td>editor → plataforma</td><td>El diseño terminado, leído por la plataforma en <span class="mono">data.data</span> —que es lo que el fork manda—.</td></tr>
+  </tbody>
+</table>
+
+<p>Del lado del editor, el puente <span class="mono">apps/editor/app/holtmont-bridge.tsx</span> valida cada nodo contra el
+esquema <span class="mono">AnyNode</span> (<span class="mono">apps/editor/lib/holtmont-import.ts</span>), rellena los valores por defecto que
+<span class="mono">setScene</span> no rellena, y resuelve los muebles: el generador manda el nombre en
+<span class="mono">metadata.holtmontAsset</span> y el puente lo busca en <span class="mono">CATALOG_ITEMS</span>, porque el catálogo de modelos
+3D vive allá y no aquí.</p>
+
+<!-- ============================ ANEXO B ============================ -->
+<h2>Anexo B — Claves, proveedores y diagnóstico</h2>
+
+<h3>Nombres de variable reconocidos</h3>
+<pre><code>ALIAS_CLAVE_GEMINI = ("GEMINI_API_KEY", "Gemini_Key", "GEMINI_KEY",
+                      "GOOGLE_API_KEY", "GOOGLE_GEMINI_API_KEY")
+ALIAS_CLAVE_GROQ   = ("GROQ_API_KEY", "Groq_Key", "GROQ_KEY")</code></pre>
+<p>El orden es el de preferencia: primero el nombre canónico, luego los que se usan en la práctica.
+Si están los dos, gana el canónico.</p>
+
+<h3>Reparto de trabajo según las claves presentes</h3>
+<table>
+  <thead><tr><th style="width:26%">Claves disponibles</th><th>Comportamiento</th></tr></thead>
+  <tbody>
+    <tr><td>Groq + Gemini</td><td>Reparto original con el que se afinaron los prompts: <b>Groq arma el JSON</b> de las tablas, <b>Gemini escribe</b> los reportes.</td></tr>
+    <tr><td>Sólo Gemini</td><td>Gemini corre todos los agentes; también sabe hacer <span class="mono">with_structured_output</span>.</td></tr>
+    <tr><td>Sólo Groq</td><td>Groq corre todos los agentes.</td></tr>
+    <tr><td>Librería ausente</td><td>La clave <b>cuenta como ausente</b>: antes se llegaba a construir el LLM y reventaba.</td></tr>
+    <tr><td>Ninguna</td><td>El mensaje de error nombra las dos claves, no una.</td></tr>
+  </tbody>
+</table>
+
+<h3>Qué responde el diagnóstico</h3>
+<p><span class="mono">GET /api/paperclip/diagnostico</span> devuelve, por cada proveedor: si la clave está configurada,
+<b>con qué nombre de variable se encontró</b>, su prefijo (nunca la clave), si la librería entró en el
+bundle y qué modelo usaría; más quién haría cada mitad del trabajo y si los clientes de texto y
+estructurados se pudieron construir de verdad. Se abre en el navegador y no consume una sola
+llamada al modelo.</p>
+
+<!-- ============================ ANEXO C ============================ -->
+<h2>Anexo C — Índice de commits del periodo</h2>
+
+<table>
+  <thead><tr><th style="width:11%">Commit</th><th style="width:11%">Fecha</th><th style="width:8%">PR</th><th>Asunto</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">861e5e4</span></td><td>11 ago 2026</td><td>#132</td><td>Devuelve la Pre Work Order, su IA y su editor 3D al frontend</td></tr>
+    <tr><td><span class="mono">abe11fc</span></td><td>11 ago 2026</td><td>#134</td><td>La Pre Work Order reparte su programa en el Tracker</td></tr>
+    <tr><td><span class="mono">2c141d0</span></td><td>12 ago 2026</td><td>#134</td><td>El Plano 2D se calcula, ya no se ilustra</td></tr>
+    <tr><td><span class="mono">fa409d8</span></td><td>8 sep 2026</td><td>#174</td><td>El Plano 3D dibuja lo que se le pidió, y avisa cuando no puede</td></tr>
+    <tr><td><span class="mono">4e8b9dd</span></td><td>8 sep 2026</td><td>#174</td><td>Una prueba que mira el plano 3D, no el store</td></tr>
+    <tr><td><span class="mono">94aab01</span></td><td>8 sep 2026</td><td>#174</td><td>Devuelve las capturas de verificación a su versión anterior <span class="pie">(mantenimiento)</span></td></tr>
+    <tr><td><span class="mono">5d18efc</span></td><td>8 sep 2026</td><td>#175</td><td>La estimación de Paperclip vuelve a las tablas, y la cotización viaja con la orden</td></tr>
+    <tr><td><span class="mono">6481197</span></td><td>9 sep 2026</td><td>#176</td><td>Las tablas de la Pre Work Order se llenan aunque el Integrador falle</td></tr>
+    <tr><td><span class="mono">5fc8cef</span></td><td>9 sep 2026</td><td>#176</td><td>La Agencia Paperclip corre con la clave de Google, que es la que hay</td></tr>
+    <tr><td><span class="mono">50c7330</span></td><td>9 sep 2026</td><td>#176</td><td>La clave de Google se llama <span class="mono">Gemini_Key</span>, y el código sólo miraba <span class="mono">GEMINI_API_KEY</span></td></tr>
+    <tr><td><span class="mono">3b4208a</span></td><td>9 sep 2026</td><td>#176</td><td>Las capturas de verificación vuelven a la versión de main <span class="pie">(mantenimiento)</span></td></tr>
+  </tbody>
+</table>
+
+<p class="pie" style="margin-top:26px; border-top:1px solid #d5dde7; padding-top:8px">
+Informe generado el 21 de septiembre de 2026 a partir del historial de <span class="mono">git</span> del repositorio
+<span class="mono">Luis-Dokkaebi/HOLTMONT-PYTHON</span>. Fuente reproducible: <span class="mono">docs/informe_pre_work_order.html</span>.
+</p>
+
+</body>
+</html>
