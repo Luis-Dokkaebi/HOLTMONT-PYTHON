@@ -151,6 +151,33 @@ class ExtractionSchema(BaseModel):
 
 # --- FUNCTIONS ---
 
+# `transcribir_audio` devuelve una cadena tanto si transcribió como si falló, y
+# quien la llama tiene que poder distinguir las dos cosas. Durante toda la
+# migración eso se hizo con `if "Error" in transcription`, que es una subcadena
+# y no un código: en un formulario que existe para cotizar reparaciones, la
+# palabra "error" es vocabulario del oficio. Whisper puntúa y capitaliza al
+# abrir frase, así que un dictado tan normal como "... el tablero. Error del
+# operador al medir ..." se tomaba por un fallo del proveedor y el texto se
+# tiraba entero, sin decirle nada a quien acababa de dictarlo.
+#
+# Estos son los TRES únicos fallos que la función sabe devolver. Se declaran
+# aquí para que el productor y sus tres consumidores (`api/main.py`,
+# `api/engineering_agent.py`, `streamlit_cotizador/work_order_view.py`)
+# compartan una sola definición de "esto falló" en vez de repetir la heurística
+# cada uno por su cuenta.
+PREFIJOS_DE_ERROR = ("Error: ", "Error en transcripción: ")
+
+
+def es_error_de_transcripcion(texto: str) -> bool:
+    """¿Esta cadena es un fallo de `transcribir_audio` y no un dictado?
+
+    Se compara contra el ARRANQUE de la cadena y no con `in`: un dictado puede
+    contener "error" en cualquier posición, pero ninguno empieza con los
+    prefijos exactos que emite la función.
+    """
+    return isinstance(texto, str) and texto.startswith(PREFIJOS_DE_ERROR)
+
+
 def transcribir_audio(api_key: str, audio_file_content: bytes, filename: str = "audio.wav") -> str:
     """
     Transcribes audio using Groq API.

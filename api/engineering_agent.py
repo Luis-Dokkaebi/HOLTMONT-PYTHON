@@ -24,6 +24,7 @@ try:
 except ImportError:
     ChatGroq = None
 
+from api.ai_utils import es_error_de_transcripcion
 from api.modelos_llm import MODELO_GROQ
 
 
@@ -210,8 +211,8 @@ def process_audio(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
 
     # 1. Transcribe
     transcription = transcribir_con_groq(groq_api_key, audio_bytes, filename)
-    if "Error" in transcription:
-         return {"success": False, "message": transcription}
+    if es_error_de_transcripcion(transcription):
+        return {"success": False, "message": transcription}
 
     # 2. Setup Graph
     if ChatGroq is None:

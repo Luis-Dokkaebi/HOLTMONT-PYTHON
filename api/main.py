@@ -18,12 +18,12 @@ from backend.schemas.geo_prospecto import ProspectoWrite
 
 # AI Utils
 try:
-    from api.ai_utils import transcribir_audio, extraer_informacion
+    from api.ai_utils import transcribir_audio, extraer_informacion, es_error_de_transcripcion
     from api.engineering_agent import process_audio
 except ImportError:
     import sys
     sys.path.append("api")
-    from ai_utils import transcribir_audio, extraer_informacion
+    from ai_utils import transcribir_audio, extraer_informacion, es_error_de_transcripcion
     from engineering_agent import process_audio
 
 # Services
@@ -973,21 +973,42 @@ async def api_transcribe_analyze(file: UploadFile = File(...), apiKey: Optional[
     try:
         content = await file.read()
         transcription = transcribir_audio(groq_key, content, filename=file.filename)
-        if "Error" in transcription:
-            return {"success": False, "message": transcription}
-            
+        if es_error_de_transcripcion(transcription):
+            return {"success": False, "message": transcription, "transcription": "", "data": None}
+
+        if not transcription.strip():
+            # Whisper devolvió una cadena vacía: audio mudo, micrófono apagado o
+            # una grabación de cero bytes. Sin este aviso el frontend pegaba ""
+            # en la descripción y la pantalla no distinguía "no se entendió
+            # nada" de "el sistema no hizo nada".
+            return {"success": False, "data": None, "transcription": "",
+                    "message": "No se entendió nada en el audio. Revisa el micrófono y vuelve a grabar."}
+
+        # La extracción estructurada es un EXTRA, no el entregable del botón.
+        # El micrófono de la Pre Work Order solo consume `transcription`; si el
+        # segundo modelo se cae o devuelve un JSON que no encaja en el esquema,
+        # devolver `success: false` tiraba un dictado que ya estaba hecho y
+        # pagado, y quien acababa de hablar cinco minutos se quedaba sin texto.
+        # El fallo se sigue reportando en `message`, pero no se lleva el audio
+        # por delante.
         extraction_res = extraer_informacion(groq_key, transcription)
         if extraction_res.get("error"):
-             return {"success": False, "message": extraction_res["error"], "transcription": transcription}
-             
+            return {
+                "success": True,
+                "transcription": transcription,
+                "data": None,
+                "message": extraction_res["error"],
+            }
+
         return {
             "success": True,
             "transcription": transcription,
-            "data": extraction_res["extraction"]
+            "data": extraction_res["extraction"],
+            "message": "",
         }
 
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        return {"success": False, "message": str(e), "transcription": "", "data": None}
 
 @app.post("/api/generate-engineering-questions")
 async def api_generate_engineering_questions(file: UploadFile = File(...), apiKey: Optional[str] = Form(None)):

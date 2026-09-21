@@ -1482,3 +1482,93 @@ def _cuantas_filas_con_el_folio(contexto: Dict[str, Any], cuantas: int,
                                 folio: str) -> None:
     filas = [f for f in contexto["motor"].select("tasks") if f.get("folio") == folio]
     assert len(filas) == cuantas, [f["dedupe_key"] for f in filas]
+
+
+# ----------------------------------------------------------------------
+# La nota de voz del levantamiento no se pierde
+# ----------------------------------------------------------------------
+#
+# Los escenarios recorren `/api/transcribe_and_analyze`, que es lo que pulsa el
+# micrófono de la Pre Work Order. Lo único doblado es el proveedor de IA —pasar
+# la voz a texto y ordenar el texto son dos llamadas a dos modelos de pago, y la
+# suite no tiene clave ni la va a tener—. La regla que se está probando, que es
+# cuál de las dos puede tirar el dictado, la sigue decidiendo el código real.
+
+@given(parsers.parse('que en el levantamiento se dictó "{dictado}"'))
+def _lo_que_se_dicto(contexto: Dict[str, Any], dictado: str) -> None:
+    contexto["dictado"] = dictado
+
+
+@given("que en el levantamiento no se alcanzó a oír nada")
+def _no_se_oyo_nada(contexto: Dict[str, Any]) -> None:
+    contexto["dictado"] = "   "
+
+
+@given("que el asistente que ordena la información está fuera de servicio")
+def _el_asistente_esta_caido(contexto: Dict[str, Any]) -> None:
+    contexto["asistente_caido"] = True
+
+
+@when("se manda la nota de voz al formulario")
+def _se_manda_la_nota_de_voz(contexto: Dict[str, Any],
+                             monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+
+    from fastapi.testclient import TestClient
+
+    from api import main as api_main
+
+    caido = contexto.get("asistente_caido", False)
+    monkeypatch.setenv("GROQ_API_KEY", "clave-de-prueba")
+    monkeypatch.setattr(api_main, "transcribir_audio",
+                        lambda clave, audio, filename="audio.wav": contexto["dictado"])
+    monkeypatch.setattr(
+        api_main, "extraer_informacion",
+        lambda clave, texto: {"extraction": None, "error": "el asistente no respondió"}
+        if caido else {"extraction": {"cliente": "ACME CORP"}, "error": ""})
+
+    contexto["respuesta"] = TestClient(api_main.app).post(
+        "/api/transcribe_and_analyze",
+        files={"file": ("nota.webm", io.BytesIO(b"nota-de-voz"), "audio/webm")},
+    ).json()
+
+
+def _texto_que_queda_en_el_formulario(respuesta: Dict[str, Any]) -> str:
+    """Lo que la pantalla acaba mostrando, no lo que el servidor devolvió.
+
+    El navegador solo pega el dictado cuando la respuesta viene dada por buena
+    (`api_service.js`, `transcribirConGemini`); si no, se va por el manejador de
+    fallo y el recuadro se queda como estaba. Un dictado que viaja dentro de una
+    respuesta marcada como fallida, por tanto, no llega a ninguna parte — y era
+    exactamente lo que pasaba cuando se caía el que ordena la información.
+    """
+    return respuesta.get("transcription", "") if respuesta.get("success") else ""
+
+
+@then(parsers.parse('la descripción del trabajo recibe "{texto}"'))
+def _la_descripcion_recibe(contexto: Dict[str, Any], texto: str) -> None:
+    assert _texto_que_queda_en_el_formulario(contexto["respuesta"]) == texto
+
+
+@then("la descripción del trabajo se queda vacía")
+def _la_descripcion_se_queda_vacia(contexto: Dict[str, Any]) -> None:
+    assert _texto_que_queda_en_el_formulario(contexto["respuesta"]) == ""
+
+
+@then("no se avisa de ninguna falla")
+def _no_se_avisa_de_falla(contexto: Dict[str, Any]) -> None:
+    respuesta = contexto["respuesta"]
+    assert respuesta["success"] is True, respuesta.get("message")
+    assert not respuesta.get("message"), respuesta["message"]
+
+
+@then("se avisa de que la información no se pudo ordenar")
+def _se_avisa_del_asistente(contexto: Dict[str, Any]) -> None:
+    assert "no respondió" in contexto["respuesta"]["message"]
+
+
+@then("se avisa de que hay que revisar el micrófono")
+def _se_avisa_del_microfono(contexto: Dict[str, Any]) -> None:
+    respuesta = contexto["respuesta"]
+    assert respuesta["success"] is False
+    assert "micrófono" in respuesta["message"]

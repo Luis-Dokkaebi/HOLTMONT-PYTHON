@@ -427,6 +427,35 @@ class GoogleScriptRunAdapter {
     }
 
     /**
+     * Extensión de archivo para un tipo MIME de audio.
+     *
+     * Solo es el respaldo: si el servidor tiene ffmpeg, normaliza el audio y
+     * renombra el archivo. Cuando no lo tiene —el caso de Vercel—, Whisper
+     * decide el contenedor por la EXTENSIÓN, así que un nombre incoherente se
+     * rechaza por el envoltorio y no por el audio, y el mensaje que vuelve no
+     * menciona el formato.
+     *
+     * Quedarse con el subtipo pelado (`tipo.split('/')[1]`) no basta:
+     *
+     *  - el subtipo trae parámetros — `audio/webm;codecs=opus`;
+     *  - los prefijos `x-` son el mismo formato con otro nombre: Safari en iOS
+     *    entrega `audio/x-m4a` desde el selector de archivos, y `audio.x-m4a`
+     *    no es nada;
+     *  - tres alias más no coinciden con su extensión (`wave`, `vnd.wave`,
+     *    `aac`, `opus`).
+     *
+     * Un subtipo desconocido se deja pasar tal cual a propósito: inventarle una
+     * extensión plausible haría que el error llegara disfrazado de otra cosa.
+     */
+    static extensionDeAudio(mimeType) {
+        const ALIAS = { wave: 'wav', 'vnd.wave': 'wav', aac: 'm4a', opus: 'ogg', mpeg3: 'mp3' };
+        const subtipo = String(mimeType || '').split('/')[1];
+        if (!subtipo) return 'webm';
+        const limpio = subtipo.split(';')[0].trim().toLowerCase().replace(/^x-/, '');
+        return ALIAS[limpio] || limpio || 'webm';
+    }
+
+    /**
      * Transcripción de audio. Conserva el nombre de la función de Apps Script
      * porque es el que invoca `index.html` en sus dos rutas de voz (el selector
      * de archivo de audio y la grabadora de micrófono), pero por debajo usa el
@@ -450,12 +479,9 @@ class GoogleScriptRunAdapter {
             for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
 
             const tipo = mimeType || 'audio/webm';
-            // Solo es el respaldo: si el servidor tiene ffmpeg, normaliza el
-            // audio y renombra el archivo. Cuando no lo tiene, Whisper decide
-            // por la extensión, así que conviene que sea coherente.
-            const extension = (tipo.split('/')[1] || 'webm').split(';')[0];
             const cuerpo = new FormData();
-            cuerpo.append('file', new Blob([bytes], { type: tipo }), `audio.${extension}`);
+            cuerpo.append('file', new Blob([bytes], { type: tipo }),
+                          `audio.${GoogleScriptRunAdapter.extensionDeAudio(tipo)}`);
 
             fetch(`${API_BASE_URL}/api/transcribe_and_analyze`, { method: 'POST', body: cuerpo })
                 .then(res => res.json())

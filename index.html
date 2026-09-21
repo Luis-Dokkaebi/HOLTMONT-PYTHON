@@ -4287,10 +4287,17 @@
                                             <!-- INPUT OCULTO PARA GEMINI -->
                                             <input type="file" id="audioInputGemini" accept="audio/*" capture class="d-none" onchange="enviarAudioAGemini(this)">
 
+                                            <!-- El `onclick` de este botón era
+                                                 `document.getElementById('campoConcepto').focus()`: ponía el
+                                                 cursor en el recuadro y nada más, mientras `toggleVoiceRecording`
+                                                 seguía definida abajo sin que la llamara nadie. Para la cuenta
+                                                 PREWORK_ORDER este botón es la entrada principal de datos —el
+                                                 levantamiento se hace caminando con el cliente—, y el fallo era
+                                                 invisible: el cursor parpadeando parece "te estoy escuchando". -->
                                             <button
                                                 class="btn btn-primary position-absolute bottom-0 end-0 m-4 rounded-circle shadow d-flex align-items-center justify-content-center"
                                                 style="width: 50px; height: 50px; transition: all 0.3s ease;"
-                                                onclick="document.getElementById('campoConcepto').focus()"
+                                                onclick="toggleVoiceRecording(this)"
                                                 title="Dictar voz a texto">
 
                                                 <i class="fas fa-microphone" style="font-size: 1.2rem;"></i>
@@ -6716,6 +6723,13 @@ function enviarAudioAGemini(inputElement) {
         const base64Data = reader.result.split(',')[1];
         const mimeType = file.type;
 
+        // El selector se vacía en cuanto se leyó el archivo. Sin esto, la
+        // segunda grabación seguida se perdía: el navegador solo dispara
+        // `change` cuando la selección CAMBIA, y la grabadora nativa de Android
+        // reutiliza el mismo nombre de archivo temporal. Desde la pantalla se
+        // veía como que el botón había dejado de responder.
+        inputElement.value = '';
+
         // Llamada al Backend
         google.script.run
             .withSuccessHandler(function(textoTranscrito) {
@@ -6772,12 +6786,35 @@ async function toggleVoiceRecording(btnElement) {
             };
 
             mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                // El formato lo decide el NAVEGADOR, no nosotros. Aquí estaba
+                // escrito 'audio/webm' a mano con el comentario "Chrome records
+                // in webm", y es cierto solo en Chrome: Safari —el navegador de
+                // cualquier iPad en obra— graba MP4. Etiquetar esos bytes como
+                // webm hace que Whisper los rechace por el contenedor, no por el
+                // audio, y el mensaje que vuelve no menciona el formato: desde
+                // la pantalla solo se ve "no se pudo transcribir".
+                const tipoGrabado = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
+                const audioBlob = new Blob(audioChunks, { type: tipoGrabado });
+
+                // Una grabación de cero bytes (se pulsó iniciar y detener casi
+                // seguido, o el micrófono estaba silenciado) daba un 400 opaco
+                // del proveedor. Se ataja aquí, con el motivo real.
+                if (!audioBlob.size) {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'No se grabó nada',
+                        text: 'La grabación quedó vacía. Revisa el micrófono e inténtalo de nuevo.',
+                        background: '#1a1a1a',
+                        color: '#ffffff'
+                    });
+                    return;
+                }
+
                 const reader = new FileReader();
                 reader.readAsDataURL(audioBlob);
                 reader.onloadend = () => {
                     const base64String = reader.result.split(',')[1];
-                    const mimeType = 'audio/webm'; // Chrome records in webm
+                    const mimeType = tipoGrabado;
 
                     Swal.fire({
                         title: 'Transcribiendo...',
