@@ -9,7 +9,37 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from api.services.work_order import process_and_save_work_order, get_next_sequence
-from api.ai_utils import transcribir_audio, extraer_informacion
+from api.ai_utils import (transcribir_audio, extraer_informacion,
+                          es_error_de_transcripcion)
+
+
+def procesar_audio_de_dictado(groq_key: str, audio_bytes: bytes) -> dict:
+    """Transcribe un dictado y, si se puede, lo estructura.
+
+    Vive fuera de `render_work_order_view()` a propósito: esa función mezcla
+    lógica con doscientas líneas de widgets, y lo único que aquí hay que poder
+    ejercer sin un navegador de Streamlit es esta decisión de tres ramas.
+
+    Devuelve siempre las tres claves, y `texto` sobrevive aunque `error` venga
+    lleno. Es la misma regla que `/api/transcribe_and_analyze`: transcribir y
+    estructurar son dos llamadas a dos modelos distintos, y que se caiga la
+    segunda no es motivo para tirar el dictado que la primera ya hizo. Quien
+    acaba de hablar cinco minutos se quedaba sin nada en pantalla.
+    """
+    texto = transcribir_audio(groq_key, audio_bytes)
+    if es_error_de_transcripcion(texto):
+        return {"error": texto, "texto": "", "datos": None}
+
+    if not texto.strip():
+        return {"error": "No se entendió nada en el audio. Revisa el micrófono y vuelve a grabar.",
+                "texto": "", "datos": None}
+
+    resultado = extraer_informacion(groq_key, texto)
+    if resultado.get("error"):
+        return {"error": resultado["error"], "texto": texto, "datos": None}
+
+    return {"error": "", "texto": texto, "datos": resultado["extraction"]}
+
 
 def render_work_order_view():
     st.title("Pre Work Order")
@@ -57,63 +87,58 @@ def render_work_order_view():
                 st.error("Falta API Key")
             else:
                 with st.spinner("Procesando..."):
-                    # Read bytes
-                    audio_bytes = audio_val.read()
+                    resultado = procesar_audio_de_dictado(groq_key, audio_val.read())
 
-                    # Transcribe
-                    text = transcribir_audio(groq_key, audio_bytes)
-                    if "Error" in text:
-                        st.error(text)
-                    else:
-                        st.write(f"**Transcripción:** {text}")
+                    # El dictado se enseña aunque la estructuración haya fallado:
+                    # es texto que la persona ya puede copiar al formulario.
+                    if resultado["texto"]:
+                        st.write(f"**Transcripción:** {resultado['texto']}")
+                    if resultado["error"]:
+                        st.error(resultado["error"])
 
-                        # Extract
-                        res = extraer_informacion(groq_key, text)
-                        if res.get("error"):
-                            st.error(res["error"])
-                        else:
-                            data = res["extraction"]
-                            # Map to Session State
-                            wo = st.session_state.wo_data
+                    if resultado["datos"]:
+                        data = resultado["datos"]
+                        # Map to Session State
+                        wo = st.session_state.wo_data
 
-                            if data.get("cliente"): wo["cliente"] = data["cliente"]
-                            if data.get("requisitor"): wo["requisitor"] = data["requisitor"]
-                            if data.get("contacto"): wo["contacto"] = data["contacto"]
-                            if data.get("descripcion_generica"): wo["conceptoDesc"] = data["descripcion_generica"]
-                            if data.get("tipo_de_trabajo"): wo["tipoTrabajo"] = data["tipo_de_trabajo"]
+                        if data.get("cliente"): wo["cliente"] = data["cliente"]
+                        if data.get("requisitor"): wo["requisitor"] = data["requisitor"]
+                        if data.get("contacto"): wo["contacto"] = data["contacto"]
+                        if data.get("descripcion_generica"): wo["conceptoDesc"] = data["descripcion_generica"]
+                        if data.get("tipo_de_trabajo"): wo["tipoTrabajo"] = data["tipo_de_trabajo"]
 
-                            # Resources
-                            if data.get("lista_materiales"):
-                                for m in data["lista_materiales"]:
-                                    wo["materiales"].append({
-                                        "quantity": m.get("cantidad", ""),
-                                        "unit": m.get("unidad", ""),
-                                        "description": m.get("descripcion", ""),
-                                        "cost": str(m.get("costo", "")).replace("$","").replace(",",""),
-                                        "total": str(m.get("total", "")).replace("$","").replace(",","")
-                                    })
+                        # Resources
+                        if data.get("lista_materiales"):
+                            for m in data["lista_materiales"]:
+                                wo["materiales"].append({
+                                    "quantity": m.get("cantidad", ""),
+                                    "unit": m.get("unidad", ""),
+                                    "description": m.get("descripcion", ""),
+                                    "cost": str(m.get("costo", "")).replace("$","").replace(",",""),
+                                    "total": str(m.get("total", "")).replace("$","").replace(",","")
+                                })
 
-                            if data.get("lista_personal"):
-                                for p in data["lista_personal"]:
-                                    wo["manoObra"].append({
-                                        "category": p.get("categoria", ""),
-                                        "salary": str(p.get("salario_semanal", "")).replace("$","").replace(",",""),
-                                        "personnel": p.get("cantidad_personas", ""),
-                                        "weeks": p.get("semanas_cotizadas", ""),
-                                        "total": str(p.get("salario_neto", "")).replace("$","").replace(",","")
-                                    })
+                        if data.get("lista_personal"):
+                            for p in data["lista_personal"]:
+                                wo["manoObra"].append({
+                                    "category": p.get("categoria", ""),
+                                    "salary": str(p.get("salario_semanal", "")).replace("$","").replace(",",""),
+                                    "personnel": p.get("cantidad_personas", ""),
+                                    "weeks": p.get("semanas_cotizadas", ""),
+                                    "total": str(p.get("salario_neto", "")).replace("$","").replace(",","")
+                                })
 
-                            # Tools (Simple list in extraction, mapping to dict)
-                            if data.get("lista_herramientas"):
-                                for t in data["lista_herramientas"]:
-                                    wo["herramientas"].append({"description": t, "quantity": "1", "unit": "pza"})
+                        # Tools (Simple list in extraction, mapping to dict)
+                        if data.get("lista_herramientas"):
+                            for t in data["lista_herramientas"]:
+                                wo["herramientas"].append({"description": t, "quantity": "1", "unit": "pza"})
 
-                            # Restrictions
-                            if data.get("restricciones_produccion"): wo["restricciones"]["produccion"] = data["restricciones_produccion"]
-                            if data.get("restricciones_seguridad"): wo["restricciones"]["seguridad"] = data["restricciones_seguridad"]
+                        # Restrictions
+                        if data.get("restricciones_produccion"): wo["restricciones"]["produccion"] = data["restricciones_produccion"]
+                        if data.get("restricciones_seguridad"): wo["restricciones"]["seguridad"] = data["restricciones_seguridad"]
 
-                            st.success("Información extraída y formulario actualizado.")
-                            st.rerun()
+                        st.success("Información extraída y formulario actualizado.")
+                        st.rerun()
 
     # --- Form Layout ---
     st.divider()
