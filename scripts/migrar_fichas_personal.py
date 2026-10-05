@@ -14,7 +14,7 @@ Requiere `SUPABASE_URL` y `SUPABASE_KEY` en el entorno (o en `.env`).
 
 Qué hace y por qué:
 
-1. **Sube los 31 JPEG de `api/static/fotos/` al bucket `fotos-personal`**, que
+1. **Sube los 32 JPEG de `api/static/fotos/` al bucket `fotos-personal`**, que
    crea público si no existe. El repositorio ya sirve esas mismas fotos por
    `/fotos/<archivo>`; el bucket es para lo que el repositorio no puede dar:
    que el dueño cambie la foto de alguien sin desplegar.

@@ -24,6 +24,9 @@ from api.services.organigrama import (  # noqa: E402
     ALL_DEPTS,
     INITIAL_DIRECTORY,
     PERFILES,
+    hoja_canonica,
+    nombre_de_hoja,
+    perfil,
 )
 
 # --- Transcripción literal del organigrama oficial ---------------------
@@ -43,8 +46,10 @@ EXPECTED = {
     "VENTAS": ["EDUARDO MANZANARES", "RAMIRO RODRIGUEZ", "SEBASTIAN PADILLA"],
     "ELECTROMECANICA": ["JEHU MARTINEZ", "MIGUEL GALLARDO"],
     "HVAC": ["ROLANDO MORENO", "EMILIANO ARREDONDO GOMEZ"],
+    # AVIEL JUAREZ OLIVARES: alta pedida por el dueño (2026-10-05), Residente
+    # de Obra. Posterior al organigrama en papel.
     "CONSTRUCCION": ["JAIME OLIVO", "RICARDO MENDO", "ALFONSO CORREA",
-                     "CESAR EDUARDO GARCIA AVALOS"],
+                     "CESAR EDUARDO GARCIA AVALOS", "AVIEL JUAREZ OLIVARES"],
     "LIMPIEZA": ["EDUARDO BENITEZ"],
     "ALMACEN Y MAQUINARIA": ["SONIA GARCIA PEREZ"],
 }
@@ -161,3 +166,21 @@ def test_los_perfiles_no_traen_credenciales():
         if prohibidos & {k.lower() for k in p}
     ]
     assert not con_credencial, f"Perfiles con credencial embebida: {con_credencial}"
+
+
+def test_alta_de_aviel_juarez_residente_de_obra_en_construccion():
+    """
+    Alta pedida por el dueño (2026-10-05). La cuenta abre su propio tracker
+    —`AVIEL JUAREZ OLIVARES`, el mismo texto que su fila de `people`— y no
+    cotiza: un residente de obra no tiene módulo de ventas.
+    """
+    p = perfil("AVIEL_JUAREZ")
+    assert p["role"] == "STAFF_USER"
+    assert p["dept"] == "CONSTRUCCION"
+    assert p["label"] == "Aviel Juarez Olivares"
+    assert p["seller"] is False
+    assert p["puesto"] == "Residente de obra"
+    assert p["foto"] == "/fotos/aviel-juarez-olivares.jpg"
+    assert nombre_de_hoja("aviel_juarez") == "AVIEL JUAREZ OLIVARES"
+    # El selector de involucrados ofrece el `label`; debe caer en la misma hoja.
+    assert hoja_canonica("Aviel Juarez Olivares") == "AVIEL JUAREZ OLIVARES"

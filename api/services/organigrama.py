@@ -49,7 +49,7 @@ ALL_DEPTS: Dict[str, Dict[str, str]] = {
     "CALIDAD": {"label": "Calidad", "icon": "fa-clipboard-check", "color": "#0dcaf0"},
 }
 
-# --- Directorio semilla (38 registros) -------------------------------
+# --- Directorio semilla (39 registros) -------------------------------
 INITIAL_DIRECTORY: List[Dict[str, str]] = [
     {"name": "LUIS CARLOS", "dept": "CEO", "type": "ESTANDAR"},
     {"name": "JUAN JOSE SANCHEZ", "dept": "CEO", "type": "ESTANDAR"},
@@ -84,6 +84,8 @@ INITIAL_DIRECTORY: List[Dict[str, str]] = [
     {"name": "RICARDO MENDO", "dept": "CONSTRUCCION", "type": "ESTANDAR"},
     {"name": "ALFONSO CORREA", "dept": "CONSTRUCCION", "type": "ESTANDAR"},
     {"name": "CESAR EDUARDO GARCIA AVALOS", "dept": "CONSTRUCCION", "type": "ESTANDAR"},
+    # Alta de 2026-10-05, Residente de Obra.
+    {"name": "AVIEL JUAREZ OLIVARES", "dept": "CONSTRUCCION", "type": "ESTANDAR"},
     {"name": "EDUARDO BENITEZ", "dept": "LIMPIEZA", "type": "ESTANDAR"},
     {"name": "SONIA GARCIA PEREZ", "dept": "ALMACEN Y MAQUINARIA", "type": "ESTANDAR"},
     {"name": "ADMINISTRADOR", "dept": "ADMINISTRACION", "type": "HIBRIDO"},
@@ -91,7 +93,7 @@ INITIAL_DIRECTORY: List[Dict[str, str]] = [
     {"name": "CESAR GOMEZ", "dept": "GENERAL", "type": "ESTANDAR"},
 ]
 
-# --- Perfiles (41 cuentas, sin credenciales) -------------------------
+# --- Perfiles (42 cuentas, sin credenciales) -------------------------
 # `staff_name` es el nombre de la hoja/partición de tracker de la persona,
 # que no siempre coincide con `label` (el nombre para mostrar).
 # `seller` habilita el módulo de cotizaciones "<NOMBRE> (VENTAS)".
@@ -139,6 +141,8 @@ PERFILES: Dict[str, Dict[str, Any]] = {
     "ROCIO_CASTRO": {"role": "STAFF_USER", "label": "Rocio Castro Covarrubias", "email": "", "staff_name": "ROCIO ABIGAIL CASTRO COVARRUBIAS", "dept": "FINANZAS", "seller": False},
     "GERALDINE_MARTINEZ": {"role": "STAFF_USER", "label": "Geraldine Marie Martinez Hernandez", "email": "", "staff_name": "GERALDINE MARTINEZ HERNANDEZ", "dept": "PRECIOS UNITARIOS", "seller": False},
     "CESAR_EDUARDO_GARCIA": {"role": "STAFF_USER", "label": "Cesar Eduardo Garcia Avalos", "email": "", "staff_name": "CESAR EDUARDO GARCIA AVALOS", "dept": "CONSTRUCCION", "seller": False},
+    # Alta de 2026-10-05 (Residente de Obra). Su contraseña vive solo en `profiles`.
+    "AVIEL_JUAREZ": {"role": "STAFF_USER", "label": "Aviel Juarez Olivares", "email": "", "staff_name": "AVIEL JUAREZ OLIVARES", "dept": "CONSTRUCCION", "seller": False},
     # `agente_sql` es la tercera bandera aditiva. Solo la lleva esta cuenta:
     # el agente de consultas lee `tasks` y `quotes` COMPLETAS, sin filtrar por
     # hoja, así que quien lo ve ve el trabajo de todos los departamentos —y
@@ -155,7 +159,8 @@ PERFILES: Dict[str, Dict[str, Any]] = {
 
 
 # --- Fichas de persona: nombre completo, puesto y foto ----------------
-# Transcripción del documento de RH "FOTOS CON PUESTO DE TRABAJO" (31 fichas).
+# Transcripción del documento de RH "FOTOS CON PUESTO DE TRABAJO" (31 fichas),
+# más las altas posteriores cuya foto entrega el dueño (32 en total).
 # La clave es el **nombre del organigrama** (`INITIAL_DIRECTORY[*]["name"]`,
 # columna `nombre` de `people`), no la cuenta: la misma persona puede tener dos
 # cuentas (`SAIRA`/`ZAIRA_AGUILAR`) o ninguna, y el directorio se pinta con
@@ -303,6 +308,12 @@ FICHAS: Dict[str, Dict[str, str]] = {
         "nombre": "Dania Lizbeth González Lores",
         "puesto": "Auxiliar de finanzas",
         "foto": "/fotos/dania-lizbeth-gonzalez-lores.jpg"},
+    # Alta de 2026-10-05, posterior al documento de RH: nombre y foto los
+    # entregó el dueño; el puesto se escribe igual que el de Ricardo Mendo.
+    "AVIEL JUAREZ OLIVARES": {
+        "nombre": "Aviel Juarez Olivares",
+        "puesto": "Residente de obra",
+        "foto": "/fotos/aviel-juarez-olivares.jpg"},
 }
 
 # Lista blanca del endpoint `/fotos/<archivo>`: los nombres de archivo que
@@ -358,7 +369,7 @@ def ficha(nombre: Any) -> Dict[str, str]:
     escrita de varias formas ("CARLOS MENDEZ" y "CARLOS MENDEZ URBINA", "JAIME
     OLIVO" e "INGE OLIVO") y las dos filas pintan tarjeta.
 
-    Devuelve `{}` para quien no tiene ficha —el documento de RH cubre 31
+    Devuelve `{}` para quien no tiene ficha —el catálogo cubre 32
     personas y `people` tiene 54 filas—, así que la vista siempre debe poder
     caer a la inicial.
     """
