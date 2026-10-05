@@ -3,14 +3,15 @@
 Fichas del personal: nombre completo, puesto y foto.
 
 `FICHAS` (api/services/organigrama.py) es la transcripción del documento de RH
-"FOTOS CON PUESTO DE TRABAJO" (11 páginas, 31 personas). `ESPERADO` de este
+"FOTOS CON PUESTO DE TRABAJO" (11 páginas, 31 personas) más las altas
+posteriores que el dueño entrega con su foto. `ESPERADO` de este
 archivo es esa misma transcripción escrita a mano, igual que `EXPECTED` en
 `test_organigrama.py` es la del organigrama en papel: si alguien edita el
 catálogo sin tener el documento delante, estas pruebas lo detienen.
 
 Lo que se verifica y por qué:
 
-* **Nadie de más y nadie de menos** (31 fichas, con su puesto literal). El
+* **Nadie de más y nadie de menos** (32 fichas, con su puesto literal). El
   puesto NO se normaliza: "Compras", "Calculo Estructural" y "Coordinador
   Electromecanica" están así en el documento.
 * **Cada foto es un archivo que existe y es un JPEG.** Una ruta rota deja la
@@ -81,10 +82,13 @@ ESPERADO = {
     "ROCIO ABIGAIL CASTRO COVARRUBIAS": ("Rocio Abigail Castro Covarrubias", "Facturación"),
     "ZAIRA YAZMIN AGUILAR AGUILON": ("Zaira Yazmin Aguilar Aguilon", "Auxiliar de finanzas"),
     "DANIA LIZBETH GONZALEZ LORES": ("Dania Lizbeth González Lores", "Auxiliar de finanzas"),
+    # Alta posterior al documento (2026-10-05): nombre y foto los entregó el
+    # dueño; el puesto se escribe igual que el de Ricardo Mendo.
+    "AVIEL JUAREZ OLIVARES": ("Aviel Juarez Olivares", "Residente de obra"),
 }
 
 
-def test_estan_las_31_personas_del_documento_y_nadie_mas():
+def test_estan_las_32_personas_del_catalogo_y_nadie_mas():
     assert sorted(FICHAS) == sorted(ESPERADO), (
         "El catálogo de fichas no coincide con el documento de RH: "
         f"sobran {sorted(set(FICHAS) - set(ESPERADO))}, "
@@ -150,6 +154,8 @@ def test_las_claves_son_nombres_del_organigrama():
         ("INGE_OLIVO", "Jaime Antonio Olivo Guerrero", "Superintendente de construcción"),
         # Cuenta de control: no tiene `staff_name`, se reconoce por `label`.
         ("JAIME_OLIVO", "Jaime Antonio Olivo Guerrero", "Superintendente de construcción"),
+        # Alta de 2026-10-05.
+        ("AVIEL_JUAREZ", "Aviel Juarez Olivares", "Residente de obra"),
     ],
 )
 def test_el_perfil_trae_nombre_puesto_y_foto(cuenta, nombre, puesto):
@@ -167,7 +173,7 @@ def test_las_dos_cuentas_de_zaira_comparten_ficha():
 
 def test_una_cuenta_sin_ficha_no_se_rompe():
     """
-    El documento cubre 31 personas y el sistema tiene más cuentas. Quien no
+    El catálogo cubre 32 personas y el sistema tiene más cuentas. Quien no
     aparece se queda sin foto y sin puesto, pero con `nombre` —su `label`— para
     que la vista tenga siempre qué mostrar.
     """
@@ -383,7 +389,7 @@ def test_importar_el_guion_de_migracion_no_lee_credenciales(monkeypatch):
     assert callable(migrar.cargar_env)
 
 
-def test_el_guion_sube_las_31_fotos_del_catalogo():
+def test_el_guion_sube_las_32_fotos_del_catalogo():
     migrar = _migrar()
     subida = migrar.fotos_a_subir()
     assert len(subida) == len(FICHAS)
