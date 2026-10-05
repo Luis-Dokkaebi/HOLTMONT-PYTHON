@@ -1172,6 +1172,19 @@ def _sin_columnas_de_credencial(values):
     return [[c for i, c in enumerate(fila) if i not in descartar] for fila in values]
 
 
+def _encabezados_sin_filas(values):
+    """
+    Encabezados de una hoja que solo trae su fila de encabezados.
+
+    Es lo que devuelve el tracker de una persona sin actividades
+    (`sheets._encabezados_de_tracker`). Sin esto la vista recibía
+    `headers: []` y no tenía columnas donde capturar la primera actividad.
+    """
+    if find_header_row(values) != 0:
+        return []
+    return [str(h).strip() for h in values[0] if str(h).strip()]
+
+
 @app.get("/api/data")
 def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):
     # Este endpoint acepta cualquier nombre de tabla y no exige sesión, así que
@@ -1192,7 +1205,8 @@ def get_data(sheet: str = Query(..., description="Name of the sheet to fetch")):
         return {"success": True, "data": [], "history": [], "headers": [], "message": f"Falta hoja: {sheet}"}
 
     if len(values) < 2:
-        return {"success": True, "data": [], "history": [], "headers": [], "message": "Vacía"}
+        return {"success": True, "data": [], "history": [], "headers": _encabezados_sin_filas(values),
+                "message": "Vacía"}
 
     header_row_index = find_header_row(values)
     if header_row_index == -1:
