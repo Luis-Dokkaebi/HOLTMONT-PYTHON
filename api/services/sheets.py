@@ -261,9 +261,34 @@ def _valores_con_archivado(rows, header_map, campo_estatus="status",
     return values
 
 
-def _valores_de_tareas(rows):
-    """Hoja de tracker: el estatus está en `status` y el cierre en `cumplimiento`."""
+def _valores_de_tareas(rows, hoja=None):
+    """
+    Hoja de tracker: el estatus está en `status` y el cierre en `cumplimiento`.
+
+    Sin filas, el tracker de una persona devuelve igual su fila de encabezados
+    (`_encabezados_de_tracker`): los encabezados se descubren de los datos y,
+    sin datos, la vista se quedaba sin columnas donde capturar.
+    """
+    if not rows:
+        return _encabezados_de_tracker(hoja)
     return _valores_con_archivado(rows, TASK_HEADER_MAP)
+
+
+def _encabezados_de_tracker(hoja):
+    """
+    `[[encabezados]]` si `hoja` es el tracker de una persona del organigrama.
+
+    Reporte del dueño (2026-10-05): el tracker recién dado de alta de Aviel
+    Juarez Olivares salía solo con `#` y 💾. En Apps Script la hoja nueva ya
+    nacía con su fila de encabezados; en la base, cero tareas eran cero
+    columnas. Una hoja que el organigrama no reconoce devuelve `None` como
+    antes: no se inventa un tracker para cualquier texto que llegue por la URL.
+    """
+    from api.services import organigrama
+
+    if not hoja or not organigrama.hoja_canonica(hoja):
+        return None
+    return [[visible for visible, _ in TASK_HEADER_MAP]]
 
 
 def _valores_de_cotizaciones(rows):
@@ -589,7 +614,7 @@ class GSheetsManager:
             rows = []
             for particion in particiones_del_tracker(sheet_name):
                 rows.extend(sb_manager.select("tasks", {"source_sheet": particion}))
-            values = _valores_de_tareas(rows)
+            values = _valores_de_tareas(rows, hoja=sheet_name)
             if values:
                 return values
 
