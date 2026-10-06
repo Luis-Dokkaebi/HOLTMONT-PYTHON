@@ -489,3 +489,21 @@ def test_las_filas_basura_de_people_no_reciben_ficha(basura):
     pueden acabar con la cara de alguien pegada.
     """
     assert ficha(basura) == {}
+
+
+def test_la_barra_del_tracker_pinta_la_foto_de_su_dueno():
+    """
+    Reporte del dueño (2026-10-06): la foto no salía junto al nombre en el
+    tracker. Estática por la misma razón que la prueba de la tarjeta; el
+    recorrido en navegador está en `tests/test_foto_en_tracker_ui.py`.
+    """
+    with open(INDEX_HTML, encoding="utf-8") as fh:
+        html = fh.read()
+    bloque = html[html.index('class="barra-tracker'):]
+    bloque = bloque[:bloque.index('@click="loadTrackerData"')]
+    assert ':src="personaDelTracker.foto"' in bloque
+    assert "staff-foto-inicial" in bloque
+    assert "fotosRotas" in bloque
+    # Se busca en la ficha que ya trae `/api/config`, sin pedir nada nuevo.
+    assert "const personaDelTracker = computed(" in html
+    assert "config.value.directory" in html[html.index("const personaDelTracker"):][:900]
