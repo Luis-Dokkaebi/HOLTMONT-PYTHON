@@ -4408,6 +4408,12 @@
                                     <i class="fas fa-lightbulb text-warning mt-2" style="cursor:pointer" @click="showInstr.neural = !showInstr.neural" title="Ver Lógica"></i>
                                     <small v-if="showInstr.neural" class="logic-inline mt-1 animate__animated animate__fadeIn" style="max-width: 200px;"><i class="fas fa-lightbulb me-1"></i> Lógica: utilizar nuestro historial de prework order para facilitar preguntas para el levantamiento así como el desarrollo de conceptos.</small>
                                 </div>
+                                <!-- DASHBOARD: la liga corta de Streamlit. Se regenera sola con cada
+                                     documento con datos que se sube aquí (api/services/dashboard_pwo.py). -->
+                                <div class="d-flex flex-column align-items-center">
+                                    <a id="botonDashboardPwo" :href="dashboardPwo.url || null" target="_blank" rel="noopener" class="btn btn-primary text-white" :class="{ disabled: !dashboardPwo.url }" :aria-disabled="!dashboardPwo.url"><i class="fas fa-chart-line me-2"></i>DASHBOARD</a>
+                                    <small v-if="dashboardPwo.estado" id="estadoDashboardPwo" class="mt-1 text-center" :class="dashboardPwo.estado === 'ERROR' ? 'text-danger' : 'text-muted'" style="max-width: 200px;">{{ dashboardPwo.mensaje }}</small>
+                                </div>
                             </div>
                             <div v-if="workorderData.files && workorderData.files.length" class="mt-3">
                                 <h6 class="small fw-bold text-muted">Archivos Adjuntos:</h6>
@@ -10604,6 +10610,34 @@ const filteredStaffTrackerData = computed(() => {
           });
       };
       const addResponsable = (n) => { selectedResponsables.value.push(n); staffSearch.value=''; };
+
+      // --- Dashboard de la Pre Work Order ---------------------------------
+      // Cada documento con datos que se sube a la PWO pide regenerar el
+      // dashboard de Streamlit; la liga corta no cambia y enseña el último
+      // que pasó las pruebas (api/services/dashboard_pwo.py, agente_full/).
+      // Fotos, videos y layouts no lo tocan: entran por los mismos botones y
+      // reemplazarían el dashboard por el análisis de una foto de la obra.
+      const EXTENSIONES_DASHBOARD_PWO = ['.xlsx', '.xls', '.csv', '.pdf', '.docx'];
+      const dashboardPwo = ref({ url: '', configurado: false, estado: '', mensaje: '' });
+      const hayApiDeDashboard = () => typeof ApiService !== 'undefined' && !!ApiService && !!ApiService.linkDashboardPwo;
+      const cargarLinkDashboardPwo = async () => {
+          if (!hayApiDeDashboard()) return;
+          const res = await ApiService.linkDashboardPwo();
+          dashboardPwo.value.url = (res && res.url) || '';
+          dashboardPwo.value.configurado = !!(res && res.configurado);
+      };
+      const actualizarDashboardPwo = async (nombre, fileUrl) => {
+          const n = String(nombre || '').toLowerCase();
+          if (!EXTENSIONES_DASHBOARD_PWO.some(ext => n.endsWith(ext)) || !hayApiDeDashboard()) return;
+          dashboardPwo.value.estado = 'GENERANDO';
+          dashboardPwo.value.mensaje = 'Pidiendo el dashboard...';
+          const res = await ApiService.generarDashboardPwo(fileUrl, currentWorkorderId.value || '', currentUsername.value || '');
+          if (res && res.url) dashboardPwo.value.url = res.url;
+          dashboardPwo.value.estado = (res && res.success) ? 'GENERANDO' : 'ERROR';
+          dashboardPwo.value.mensaje = (res && res.message) || 'No se pudo pedir el dashboard.';
+      };
+      watch(currentView, (vista) => { if (vista === 'WORKORDER_FORM') cargarLinkDashboardPwo(); });
+
       const openFileDialog = () => fileInput.value.click();
       const handleFileSelect = (e) => {
           const file = e.target.files[0];
@@ -10619,6 +10653,7 @@ const filteredStaffTrackerData = computed(() => {
                       const tag = currentUploadType.value ? `[${currentUploadType.value}] ` : '';
                       workorderData.value.files.push(tag + res.fileUrl);
                       Swal.fire('Archivo Subido', '', 'success');
+                      actualizarDashboardPwo(file.name, res.fileUrl);
                   } else {
                       ppcData.value.archivoUrl=res.fileUrl;
                   }
@@ -12866,6 +12901,7 @@ const filteredStaffTrackerData = computed(() => {
       openPpcForm, ppcMenuTipo,
       certActivities, certNewActivity, showCertModal, certStep,
       isActivityPaperclipRunning, isPaperclipRunning, runActivityPaperclipAgents, runPaperclipAgents,
+      dashboardPwo,
       showBlueprintModal, isGeneratingBlueprint, blueprintSvg, blueprintOrigen, blueprintResumen,
       generateBlueprintFromDescription, descargarPlano2D, abrirEditor3D,
       abrirPreWorkOrder,

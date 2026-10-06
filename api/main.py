@@ -28,7 +28,7 @@ except ImportError:
 
 # Services
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
-from api.services import organigrama, pantalla
+from api.services import organigrama, pantalla, dashboard_pwo
 from api.services.asignacion import tabla_de_cotizaciones
 from api.services.work_order import process_and_save_work_order, get_next_sequence
 
@@ -136,6 +136,30 @@ def api_paperclip_diagnostico():
     No devuelve ninguna clave, solo su prefijo.
     """
     return paperclip_diagnostico()
+
+
+class DashboardPwoRequest(BaseModel):
+    fileUrl: str
+    # La orden puede no tener folio todavía: los archivos se suben antes de
+    # guardarla, y el folio se genera al guardar.
+    folio: Optional[str] = None
+    usuario: Optional[str] = None
+
+
+@app.post("/api/pwo/dashboard")
+def api_pwo_dashboard(req: DashboardPwoRequest):
+    """Pide al Action de Agente_Full que regenere el dashboard con este documento.
+
+    `def` y no `async def`: el aviso a GitHub es una llamada de red bloqueante y
+    así FastAPI la corre en su pool de hilos. Ver `api/services/dashboard_pwo.py`.
+    """
+    return dashboard_pwo.disparar(req.fileUrl, req.folio or "", req.usuario or "")
+
+
+@app.get("/api/pwo/dashboard")
+def api_pwo_dashboard_link():
+    """La liga corta del dashboard de la Pre Work Order y si se puede regenerar."""
+    return dashboard_pwo.link()
 
 
 class Plano2DRequest(BaseModel):

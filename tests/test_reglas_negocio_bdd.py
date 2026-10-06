@@ -11,12 +11,15 @@ Ejecucion:  python -m pytest tests/test_reglas_negocio_bdd.py -v
 from typing import Any, Dict, List, Optional
 
 import pytest
+from langchain_core.messages import AIMessage
 from pydantic import ValidationError
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from agente_full import pipeline_dashboard
 from api.services import agente_sql
 from api.services import agente_sql_correo as agente_correo
 from api.services import agente_sql_esquemas as agente_esquemas
+from api.services import dashboard_pwo
 from api.services import prospeccion
 from api.services import tracker_store
 from api.services import work_order
@@ -1572,3 +1575,108 @@ def _se_avisa_del_microfono(contexto: Dict[str, Any]) -> None:
     respuesta = contexto["respuesta"]
     assert respuesta["success"] is False
     assert "micrófono" in respuesta["message"]
+
+
+# ----------------------------------------------------------------------
+# El dashboard de la Pre Work Order se actualiza con cada documento
+# (api/services/dashboard_pwo.py pide; agente_full/pipeline_dashboard.py
+# genera y publica). Lo único doblado es la red hacia GitHub y el modelo de
+# lenguaje: el filtro de archivos, el Storage permitido, AppTest y la
+# escritura de app.py son los reales.
+# ----------------------------------------------------------------------
+
+_LIGA_DEL_DASHBOARD = "https://holtmont-pwo.streamlit.app"
+_STORAGE_DE_HOLTMONT = "https://proyecto-prueba.supabase.co/storage/v1/object/public/archivos"
+
+
+class _ModeloQueSiempreContesta:
+    """Un modelo de lenguaje que contesta siempre lo mismo."""
+
+    def __init__(self, texto: str) -> None:
+        self.texto = texto
+
+    def invoke(self, mensajes: List[Any]) -> AIMessage:
+        return AIMessage(content=self.texto)
+
+
+@given("que la liga corta del dashboard está configurada")
+def _liga_configurada(contexto: Dict[str, Any]) -> None:
+    contexto["avisos_a_github"] = []
+    contexto["entorno"] = {
+        "SUPABASE_URL": "https://proyecto-prueba.supabase.co",
+        "DASHBOARD_PWO_REPO": "Luis-py-stack/Agente_Full",
+        "DASHBOARD_PWO_TOKEN": "token-de-prueba",
+        "DASHBOARD_PWO_URL": _LIGA_DEL_DASHBOARD,
+    }
+
+
+def _pedir_el_dashboard(contexto: Dict[str, Any], url: str) -> None:
+    def github(url_api: str, cuerpo: Dict[str, Any], encabezados: Dict[str, str]):
+        contexto["avisos_a_github"].append(cuerpo)
+        return 204, ""
+
+    contexto["respuesta"] = dashboard_pwo.disparar(url, entorno=contexto["entorno"], enviar=github)
+
+
+@when(parsers.parse('el cotizador sube "{nombre}" a la Pre Work Order'))
+def _el_cotizador_sube(contexto: Dict[str, Any], nombre: str) -> None:
+    _pedir_el_dashboard(contexto, f"{_STORAGE_DE_HOLTMONT}/{nombre}")
+
+
+@when(parsers.parse('alguien pide el dashboard de "{url}"'))
+def _alguien_pide(contexto: Dict[str, Any], url: str) -> None:
+    _pedir_el_dashboard(contexto, url)
+
+
+@then(parsers.parse('se pide regenerar el dashboard con "{nombre}"'))
+def _se_pide_regenerar(contexto: Dict[str, Any], nombre: str) -> None:
+    (aviso,) = contexto["avisos_a_github"]
+    assert aviso["client_payload"]["file_url"] == f"{_STORAGE_DE_HOLTMONT}/{nombre}"
+
+
+@then("el cotizador recibe la liga corta del dashboard")
+def _recibe_la_liga(contexto: Dict[str, Any]) -> None:
+    assert contexto["respuesta"]["success"] is True
+    assert contexto["respuesta"]["url"] == _LIGA_DEL_DASHBOARD
+
+
+@then("no se pide regenerar el dashboard")
+def _no_se_pide(contexto: Dict[str, Any]) -> None:
+    assert contexto["avisos_a_github"] == []
+    assert contexto["respuesta"]["success"] is False
+
+
+@given("que en la liga corta está publicado un dashboard que funciona")
+def _dashboard_publicado(contexto: Dict[str, Any], tmp_path) -> None:
+    (tmp_path / "app.py").write_text("# el dashboard que funciona\n", encoding="utf-8")
+    documento = tmp_path / "junta.csv"
+    documento.write_text("concepto,monto\nAcero,1200\n", encoding="utf-8")
+    contexto["publicado"], contexto["documento"] = tmp_path, documento
+
+
+@when("el dashboard nuevo falla las pruebas en cada intento")
+def _falla_cada_intento(contexto: Dict[str, Any]) -> None:
+    def navegador_que_no_debe_llegar(codigo: str):
+        raise AssertionError("un dashboard que truena en AppTest no llega al navegador")
+
+    modelos = pipeline_dashboard.Modelos(
+        extractor=_ModeloQueSiempreContesta('```json\n{"tables": []}\n```'),
+        ux=_ModeloQueSiempreContesta("Una pestaña por tabla."),
+        desarrollador=_ModeloQueSiempreContesta("```python\nimport streamlit as st\nst.write(1 / 0)\n```"),
+    )
+    validadores = pipeline_dashboard.Validadores(navegador=navegador_que_no_debe_llegar)
+    contexto["estado"] = pipeline_dashboard.ejecutar(
+        str(contexto["documento"]), modelos, contexto["publicado"], validadores)
+
+
+@then("la liga corta sigue mostrando el dashboard anterior")
+def _sigue_el_anterior(contexto: Dict[str, Any]) -> None:
+    publicado = (contexto["publicado"] / "app.py").read_text(encoding="utf-8")
+    assert publicado == "# el dashboard que funciona\n"
+
+
+@then("el intento queda registrado como cancelado")
+def _queda_cancelado(contexto: Dict[str, Any]) -> None:
+    reporte = contexto["estado"]["commit_status"]
+    assert reporte["status_code"] == pipeline_dashboard.ESTADO_ABORTADO
+    assert f"tras {pipeline_dashboard.MAX_INTENTOS} intentos" in reporte["message"]
