@@ -1,0 +1,93 @@
+# Copiar a Agente_Full como `.github/workflows/dashboard-pwo.yml`.
+#
+# Lo dispara HOLTMONT (api/services/dashboard_pwo.py) con un
+# `repository_dispatch` cada vez que se sube un documento a la Pre Work Order.
+# También se puede correr a mano desde la pestaña Actions con la URL del archivo.
+#
+# Si el dashboard nuevo no pasa las pruebas en 4 intentos, el job termina en
+# rojo y NO hace commit: la liga corta sigue enseñando el último que funcionó.
+
+name: Dashboard PWO
+
+on:
+  repository_dispatch:
+    types: [pwo_dashboard]
+  workflow_dispatch:
+    inputs:
+      file_url:
+        description: "URL pública del documento en el Storage de Holtmont"
+        required: true
+      folio:
+        description: "Folio de la Pre Work Order (opcional)"
+        required: false
+
+permissions:
+  contents: write
+
+# Un dashboard a la vez: dos subidas seguidas no se pisan el commit. Si llegan
+# varias mientras corre una, GitHub deja solo la última en espera.
+concurrency:
+  group: dashboard-pwo
+  cancel-in-progress: false
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Sin credenciales en .git/config mientras corre el código que
+          # escribe el modelo. El push del último paso pasa el token aparte.
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias del pipeline
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-pipeline.txt
+          playwright install --with-deps chromium
+
+      - name: Crear el usuario aislado
+        # El código que escribe el modelo se ejecuta como este usuario: sin
+        # sudo y sin acceso a los procesos del job, así que no puede leer las
+        # claves de Gemini ni el token del Action (ver `comando_aislado`).
+        run: sudo useradd --system --no-create-home --shell /usr/sbin/nologin pwo-sandbox
+
+      - name: Generar y validar el dashboard
+        env:
+          USUARIO_AISLADO: pwo-sandbox
+          # Carpetas temporales donde el usuario aislado sí puede entrar.
+          TMPDIR: /tmp
+          GEMINI_API_KEY_AGENT_1: ${{ secrets.GEMINI_API_KEY_AGENT_1 }}
+          GEMINI_API_KEY_AGENT_2: ${{ secrets.GEMINI_API_KEY_AGENT_2 }}
+          GEMINI_API_KEY_AGENT_3: ${{ secrets.GEMINI_API_KEY_AGENT_3 }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          ORIGEN_PERMITIDO: ${{ vars.ORIGEN_PERMITIDO }}
+          # Por variable de entorno y nunca con ${{ }} dentro de `run`: el
+          # nombre del archivo lo escribe un usuario y no debe llegar al shell
+          # como código.
+          FILE_URL: ${{ github.event.client_payload.file_url || inputs.file_url }}
+          FOLIO: ${{ github.event.client_payload.folio || inputs.folio }}
+        run: python pipeline_dashboard.py --url "$FILE_URL" --folio "$FOLIO" --salida .
+
+      - name: Publicar en la rama principal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FOLIO: ${{ github.event.client_payload.folio || inputs.folio }}
+          RAMA: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "dashboard-pwo[bot]"
+          git config user.email "dashboard-pwo@users.noreply.github.com"
+          git add app.py requirements.txt
+          if git diff --cached --quiet; then
+            echo "El dashboard no cambió; no hay nada que publicar."
+            exit 0
+          fi
+          git commit -m "Dashboard PWO: ${FOLIO:-sin folio}"
+          REMOTO="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git pull --rebase "$REMOTO" "$RAMA"
+          git push "$REMOTO" "HEAD:refs/heads/${RAMA}"
