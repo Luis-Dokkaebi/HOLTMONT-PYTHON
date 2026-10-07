@@ -921,6 +921,60 @@ paths:
                   - $ref: "#/components/schemas/GeoAgenteResultado"
                   - $ref: "#/components/schemas/SuccessResult"
 
+  # ------------------------------------------------- Dashboard de la PWO
+  /api/pwo/dashboard:
+    get:
+      tags: [PreWorkOrder]
+      operationId: apiPwoDashboardLink
+      summary: La liga corta del dashboard de la Pre Work Order.
+      description: >
+        `configurado` es `true` solo si están `DASHBOARD_PWO_REPO`,
+        `DASHBOARD_PWO_TOKEN` y `DASHBOARD_PWO_URL`. El token nunca baja al
+        navegador.
+      responses:
+        "200":
+          description: La liga y si la PWO puede pedir regenerarla.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  url: { type: string, example: "https://holtmont-pwo.streamlit.app" }
+                  configurado: { type: boolean }
+    post:
+      tags: [PreWorkOrder]
+      operationId: apiPwoDashboard
+      summary: Pide regenerar el dashboard con un documento recién subido.
+      description: >
+        Manda un `repository_dispatch` (`pwo_dashboard`) al repositorio
+        `Agente_Full`, cuyo Action corre `agente_full/pipeline_dashboard.py` y
+        publica en Streamlit Cloud. Solo acepta documentos con datos (xlsx, xls,
+        csv, pdf, docx) de la ruta pública del Storage de `SUPABASE_URL`. Un
+        rechazo vuelve con `success: false` y el motivo; nunca con 500.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileUrl]
+              properties:
+                fileUrl: { type: string, description: "URL pública en Supabase Storage" }
+                folio: { type: string, description: "Folio de la orden; vacío si aún no se guarda" }
+                usuario: { type: string }
+      responses:
+        "200":
+          description: Si el aviso llegó a GitHub, con la liga corta.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  url: { type: string }
+                  message: { type: string }
+
 components:
   schemas:
 

@@ -55,6 +55,37 @@ class ApiService {
         }
     }
 
+    // --- Dashboard de la Pre Work Order --------------------------------
+    //
+    // Fuera de `GoogleScriptRunAdapter` por la misma razón que `generarPlano2D`:
+    // no tiene equivalente en `CODIGO.js`. Nunca lanzan: devuelven
+    // `{success:false, message}` y la PWO lo enseña junto al botón, para que
+    // un fallo del dashboard no tape el "Archivo Subido" que sí ocurrió.
+
+    /** Pide regenerar el dashboard con el documento recién subido. */
+    static async generarDashboardPwo(fileUrl, folio, usuario) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/pwo/dashboard`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fileUrl: fileUrl, folio: folio || '', usuario: usuario || '' })
+            });
+            return await response.json();
+        } catch (error) {
+            return { success: false, message: 'No se pudo pedir el dashboard: ' + error.toString() };
+        }
+    }
+
+    /** La liga corta del dashboard y si se puede regenerar desde aquí. */
+    static async linkDashboardPwo() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/pwo/dashboard`);
+            return await response.json();
+        } catch (error) {
+            return { success: false, url: '', configurado: false };
+        }
+    }
+
     // --- Prospección geoespacial (DENUE) -------------------------------
     //
     // Van aquí y NO en `GoogleScriptRunAdapter` a propósito. El adaptador imita

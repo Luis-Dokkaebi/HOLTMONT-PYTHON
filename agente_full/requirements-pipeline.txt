@@ -1,0 +1,21 @@
+# Dependencias del PIPELINE (lo que corre en el Action), no del dashboard.
+#
+# No se llama requirements.txt a propósito: ese nombre lo lee Streamlit Cloud
+# para instalar la app, y lo escribe `pipeline_dashboard.py` con las versiones
+# exactas con las que validó cada dashboard.
+langgraph
+langchain-core
+langchain-google-genai
+pandas
+pypdf
+python-docx
+openpyxl
+xlrd
+pillow
+streamlit
+playwright
+# Lo que el dashboard generado suele importar. Tiene que estar instalado aquí
+# para que AppTest y el navegador lo puedan ejecutar antes de publicarlo.
+plotly
+matplotlib
+jinja2

@@ -16,3 +16,12 @@ pytest-bdd>=8.1,<9
 # `ModuleNotFoundError: No module named 'openpyxl'` al recolectar, sin llegar
 # nunca a correr la suite.
 openpyxl>=3.1
+# Lectura de .docx en el pipeline del dashboard de la Pre Work Order
+# (agente_full/pipeline_dashboard.py) y su prueba con un Word de verdad
+# (tests/test_agente_full_pipeline.py). En el Action de Agente_Full la instala
+# agente_full/requirements-pipeline.txt.
+python-docx>=1.1
+# Lectura del workflow de Agente_Full en tests/test_dashboard_pwo.py (contrato
+# del evento entre HOLTMONT y el Action). Ya llega con langchain-core; se
+# declara para no depender de una dependencia transitiva.
+PyYAML>=6.0
