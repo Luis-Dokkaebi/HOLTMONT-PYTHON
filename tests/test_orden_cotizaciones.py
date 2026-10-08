@@ -436,3 +436,158 @@ def test_el_filtro_de_columna_se_aplica_antes_de_ordenar() -> None:
     assert resultado["folios"] == ["AV-9999", "AV-1245"], (
         "solo las filas de WCRY, y de la más vieja a la más nueva"
     )
+
+
+# ---------------------------------------------------------------------------
+# COTIZACIONES ENVIADAS PERDIDAS (la pestaña de historial)
+# ---------------------------------------------------------------------------
+# Reporte de ANTONIA_VENTAS (BUG-0018, 2026-08-26): «¿es posible que la función
+# de "invertir orden" funcione también en la sección de "cotizaciones enviadas
+# perdidas"?».
+#
+# El historial se pintaba con `filteredStaffTrackerHistory`, que solo filtraba
+# por concepto y devolvía las filas tal como venían de la hoja: el botón movía
+# la tabla de en proceso y dejaba el historial quieto.
+
+
+def _guion_historial(hoja: str, historial: list, *, datos: list | None = None,
+                     busqueda: str = "", invertir: int = 0) -> str:
+    """Corre el orden real del historial sobre `historial` y devuelve los FOLIO."""
+    es_ventas = _bloque(r"const esHojaDeVentas = .*?\n      \};",
+                        "esHojaDeVentas")
+    region = _bloque(
+        r"const COLUMNAS_FECHA_DE_ORDEN = \[.*?"
+        r"const filteredStaffTrackerHistory = computed\(\(\) => \{.*?\n      \}\);",
+        "la región de orden de la tabla (COLUMNAS_FECHA_DE_ORDEN…"
+        "filteredStaffTrackerHistory)")
+    return f"""
+        const ref = (v) => ({{ value: v }});
+        const computed = (f) => ({{ get value() {{ return f(); }} }});
+
+        const staffTracker = ref({{
+            name: {json.dumps(hoja)},
+            headers: [],
+            data: {json.dumps(datos or [])},
+            history: {json.dumps(historial)} }});
+        const staffTrackerFilters = ref({{}});
+        const staffTrackerSortAsc = ref(false);
+        const ordenFechaAsc = ref(true);
+        const historySearchQuery = ref({json.dumps(busqueda)});
+
+        {es_ventas}
+        {region}
+
+        for (let i = 0; i < {invertir}; i++) toggleTrackerSort();
+        console.log(JSON.stringify({{
+            folios: filteredStaffTrackerHistory.value.map(f => f.FOLIO || f.ID || ""),
+            enProceso: filteredStaffTrackerData.value.map(f => f.FOLIO || f.ID || ""),
+            asc: trackerOrdenAsc.value }}));
+    """
+
+
+def _orden_historial(hoja: str, historial: list, *, datos: list | None = None,
+                     busqueda: str = "", invertir: int = 0) -> dict:
+    salida = subprocess.run(
+        ["node", "-e", _guion_historial(hoja, historial, datos=datos,
+                                        busqueda=busqueda, invertir=invertir)],
+        capture_output=True, text=True, timeout=30, check=False)
+    assert salida.returncode == 0, f"node falló: {salida.stderr}"
+    return json.loads(salida.stdout)
+
+
+# Las mismas cuatro cotizaciones, ya archivadas bajo `TAREAS REALIZADAS`: es lo
+# que el backend manda en `history` y lo que pinta COTIZACIONES ENVIADAS
+# PERDIDAS.
+HISTORIAL_VENTAS = [
+    {"FOLIO": "AV-0060", "CLIENTE": "PANASONIC", "CONCEPTO": "NAVE INDUSTRIAL",
+     "F. INICIO": "2026-07-03"},
+    {"FOLIO": "AV-1190", "CLIENTE": "MARMON FOOD", "CONCEPTO": "CUARTO FRIO",
+     "F. INICIO": "2026-05-28"},
+    {"FOLIO": "AV-1245", "CLIENTE": "WCRY", "CONCEPTO": "NAVE INDUSTRIAL",
+     "F. INICIO": "2026-06-19"},
+    {"FOLIO": "AV-0009", "CLIENTE": "DANFOSS 4", "CONCEPTO": "CUARTO FRIO",
+     "F. INICIO": "2026-06-19"},
+]
+
+
+def test_el_historial_de_ventas_abre_de_la_mas_vieja_a_la_mas_nueva() -> None:
+    resultado = _orden_historial("ANTONIA_VENTAS", HISTORIAL_VENTAS)
+    assert resultado["folios"] == ["AV-1190", "AV-0009", "AV-1245", "AV-0060"], (
+        "el historial abre por F. INICIO ascendente, igual que en proceso"
+    )
+
+
+def test_invertir_orden_tambien_mueve_el_historial() -> None:
+    """El pedido de BUG-0018: el botón tiene que mover esta tabla también."""
+    apertura = _orden_historial("ANTONIA_VENTAS", HISTORIAL_VENTAS)
+    invertido = _orden_historial("ANTONIA_VENTAS", HISTORIAL_VENTAS, invertir=1)
+
+    assert invertido["folios"] == ["AV-0060", "AV-0009", "AV-1245", "AV-1190"], (
+        "tras invertir, de la más nueva a la más vieja"
+    )
+    assert invertido["folios"] != apertura["folios"]
+    assert invertido["asc"] is False
+
+
+def test_invertir_dos_veces_regresa_el_historial_al_orden_de_apertura() -> None:
+    assert (_orden_historial("ANTONIA_VENTAS", HISTORIAL_VENTAS, invertir=2)["folios"]
+            == _orden_historial("ANTONIA_VENTAS", HISTORIAL_VENTAS)["folios"])
+
+
+def test_las_dos_tablas_se_invierten_con_el_mismo_boton() -> None:
+    """Un solo estado: en proceso e historial no se pueden ir cada uno por su
+    lado, porque el botón es uno."""
+    resultado = _orden_historial("ANTONIA_VENTAS", HISTORIAL_VENTAS,
+                                 datos=FILAS_VENTAS, invertir=1)
+    assert resultado["enProceso"] == ["AV-0060", "AV-0009", "AV-1245", "AV-1190"]
+    assert resultado["folios"] == ["AV-0060", "AV-0009", "AV-1245", "AV-1190"]
+
+
+def test_el_boton_invierte_el_historial_aunque_no_queden_cotizaciones_en_proceso() -> None:
+    """
+    El caso de ANTONIA_VENTAS: 376 de sus 583 cotizaciones están archivadas, y
+    una hoja puede quedarse sin filas en proceso. Si el «¿ordena por fecha?» se
+    decidiera solo con `data`, con `data` vacía el botón cambiaría el estado
+    equivocado y el historial no se movería.
+    """
+    invertido = _orden_historial("ANTONIA_VENTAS", HISTORIAL_VENTAS, datos=[],
+                                 invertir=1)
+    assert invertido["folios"] == ["AV-0060", "AV-0009", "AV-1245", "AV-1190"]
+
+
+def test_la_busqueda_por_concepto_se_aplica_antes_de_ordenar() -> None:
+    resultado = _orden_historial("ANTONIA_VENTAS", HISTORIAL_VENTAS,
+                                 busqueda="cuarto frio")
+    assert resultado["folios"] == ["AV-1190", "AV-0009"], (
+        "solo los cuartos fríos, y de la más vieja a la más nueva"
+    )
+    invertido = _orden_historial("ANTONIA_VENTAS", HISTORIAL_VENTAS,
+                                 busqueda="cuarto frio", invertir=1)
+    assert invertido["folios"] == ["AV-0009", "AV-1190"]
+
+
+def test_el_historial_del_tracker_se_ordena_por_su_columna_FECHA() -> None:
+    historial = [
+        {"FOLIO": "SP-0060", "ALTA": "OPERATIVO", "FECHA": "03/07/26"},
+        {"FOLIO": "SP-1190", "ALTA": "OPERATIVO", "FECHA": "28/05/26"},
+        {"FOLIO": "SP-1245", "ALTA": "ADMINISTRATIVO", "FECHA": "19/06/26"},
+    ]
+    assert (_orden_historial("ANTONIA PINEDA LOPEZ", historial)["folios"]
+            == ["SP-1190", "SP-1245", "SP-0060"])
+    assert (_orden_historial("ANTONIA PINEDA LOPEZ", historial, invertir=1)["folios"]
+            == ["SP-0060", "SP-1245", "SP-1190"])
+
+
+def test_sin_columna_de_fecha_el_historial_conserva_el_orden_de_la_hoja() -> None:
+    """Mismo comportamiento de siempre que la tabla de en proceso."""
+    historial = [{"FOLIO": "A"}, {"FOLIO": "B"}, {"FOLIO": "C"}]
+    assert _orden_historial("ANTONIA_VENTAS", historial)["folios"] == ["C", "B", "A"]
+    assert (_orden_historial("ANTONIA_VENTAS", historial, invertir=1)["folios"]
+            == ["A", "B", "C"])
+
+
+def test_el_historial_no_pierde_filas_sin_fecha() -> None:
+    historial = HISTORIAL_VENTAS + [{"FOLIO": "AV-SIN", "CONCEPTO": "SIN FECHA"}]
+    folios = _orden_historial("ANTONIA_VENTAS", historial)["folios"]
+    assert len(folios) == 5, "no se pierde ninguna fila"
+    assert folios[-1] == "AV-SIN"
