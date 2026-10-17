@@ -606,3 +606,16 @@ def test_las_librerias_del_mapa_estan_declaradas_en_el_head(cdn):
     html = leer(INDEX_HTML)
     cabeza = html[:html.index("</head>")]
     assert cdn in cabeza
+
+
+def test_el_mapa_usa_un_basemap_que_no_pide_api_key():
+    """
+    CARTO empezó a exigir API key en sus basemaps: sin ella cada tile llega con
+    la marca de agua "API KEY REQUIRED · carto.com/basemaps/apikey" y el mapa de
+    Prospección queda ilegible (reporte de octubre de 2026). OpenStreetMap no
+    pide clave; su política de uso sí exige la atribución con enlace.
+    """
+    html = leer(INDEX_HTML)
+    assert "basemaps.cartocdn.com" not in html
+    assert "https://tile.openstreetmap.org/{z}/{x}/{y}.png" in html
+    assert "https://www.openstreetmap.org/copyright" in html

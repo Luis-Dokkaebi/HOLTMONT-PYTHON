@@ -390,7 +390,7 @@ def enviar(borradores: Dict[str, Dict[str, str]], destinos: Dict[str, str],
 
     if not correo.esta_configurado():
         return {"success": False,
-                "message": "SMTP_HOST no configurado: no se envió ningún correo.",
+                "message": f"{correo.motivo_sin_canal()} No se envió ningún correo.",
                 "enviados": [], "rechazados": []}
 
     comunes = limpiar_lista(copia)
