@@ -924,6 +924,19 @@ def test_sin_smtp_no_se_reporta_un_envio_que_no_ocurrio(monkeypatch):
     assert "SMTP_HOST" in resultado["message"]
 
 
+def test_sin_smtp_el_mensaje_dice_que_variables_faltan(monkeypatch):
+    """"SMTP_HOST no configurado" mandaba a buscar la variable equivocada: con
+    una cuenta de Gmail el host se deduce, y lo que falta son la cuenta y su
+    contraseña de aplicación (reporte de octubre de 2026)."""
+    for variable in ("SMTP_HOST", "SMTP_USER", "SMTP_FROM", "SMTP_SERVER", "EMAIL_SENDER"):
+        monkeypatch.delenv(variable, raising=False)
+    resultado = correos.enviar({"RH": {"asunto": "A", "cuerpo": "B"}},
+                               {"RH": "jaimeolivo@empresa.com"})
+    assert resultado["success"] is False
+    assert "SMTP_USER" in resultado["message"]
+    assert "SMTP_PASSWORD" in resultado["message"]
+
+
 def test_un_area_sin_destinatario_se_reporta_y_no_frena_a_las_demas(monkeypatch):
     monkeypatch.setenv("SMTP_HOST", "smtp.ejemplo.com")
     monkeypatch.setattr("api.services.correo.enviar", lambda **kw: {"success": True})

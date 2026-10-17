@@ -23,6 +23,9 @@ o usa el panel del despliegue):
     SMTP_PORT=587       # 465 conmuta a SSL directo
     SMTP_FROM=          # opcional; si se deja vacío se usa SMTP_USER
 
+También valen los nombres del notebook original: EMAIL_SENDER (por SMTP_USER),
+EMAIL_PASSWORD (por SMTP_PASSWORD) y SMTP_SERVER (por SMTP_HOST).
+
 Sale con 0 si el canal responde y 1 si no, para poder encadenarlo.
 """
 
@@ -65,7 +68,8 @@ def imprimir(informe: dict, destino: str | None) -> None:
     print(f"  puerto     : {informe['puerto']}")
     print(f"  usuario    : {informe['usuario'] or '(vacío)'}")
     print(f"  remitente  : {informe['remitente'] or '(vacío)'}")
-    if informe["host"] == correo.HOST_GMAIL and not os.environ.get(correo.SMTP_HOST_ENV, "").strip():
+    if informe["host"] == correo.HOST_GMAIL and not any(
+            os.environ.get(nombre, "").strip() for nombre in correo.ALIAS_HOST):
         print(f"  ({correo.SMTP_HOST_ENV} está vacío: se dedujo de la cuenta de Gmail)")
     print()
 

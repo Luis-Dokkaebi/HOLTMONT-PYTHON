@@ -179,7 +179,7 @@ def servidor_smtp(tmp_path, monkeypatch):
 
     for variable in (correo.SMTP_HOST_ENV, correo.SMTP_PORT_ENV,
                      correo.SMTP_USER_ENV, correo.SMTP_PASSWORD_ENV,
-                     correo.SMTP_FROM_ENV):
+                     correo.SMTP_FROM_ENV) + NOMBRES_DEL_NOTEBOOK:
         monkeypatch.delenv(variable, raising=False)
     monkeypatch.setenv(correo.SMTP_HOST_ENV, "localhost")
     monkeypatch.setenv(correo.SMTP_PORT_ENV, str(servidor.puerto))
@@ -188,11 +188,17 @@ def servidor_smtp(tmp_path, monkeypatch):
     return servidor
 
 
+# Los nombres del notebook original, que el canal también reconoce. Se borran
+# junto con los demás para que un valor suelto en el entorno de quien corre la
+# suite no encienda el canal a sus espaldas.
+NOMBRES_DEL_NOTEBOOK = ("SMTP_SERVER", "EMAIL_SENDER", "EMAIL_PASSWORD")
+
+
 @pytest.fixture
 def sin_smtp(monkeypatch):
     for variable in (correo.SMTP_HOST_ENV, correo.SMTP_PORT_ENV,
                      correo.SMTP_USER_ENV, correo.SMTP_PASSWORD_ENV,
-                     correo.SMTP_FROM_ENV):
+                     correo.SMTP_FROM_ENV) + NOMBRES_DEL_NOTEBOOK:
         monkeypatch.delenv(variable, raising=False)
 
 
@@ -252,6 +258,76 @@ def test_gmail_sin_contrasena_de_aplicacion_no_intenta_conectarse(sin_smtp, monk
     resultado = correo.enviar("Asunto", "<b>x</b>", destinatarios=["a@b.com"])
     assert resultado["success"] is False
     assert correo.SMTP_PASSWORD_ENV in resultado["message"]
+
+
+# --- Los nombres del notebook ----------------------------------------------
+
+def test_los_nombres_del_notebook_tambien_encienden_el_canal(sin_smtp, monkeypatch):
+    """El reporte de octubre de 2026: "SMTP_HOST no configurado" en el Agente de
+    Consultas, con la configuración escrita con los nombres del notebook
+    original (`EMAIL_SENDER`, `SMTP_SERVER`). El canal tiene que reconocerlos.
+    """
+    monkeypatch.setenv("EMAIL_SENDER", "agente@gmail.com")
+    monkeypatch.setenv("EMAIL_PASSWORD", "abcdabcdabcdabcd")
+    assert correo.host() == correo.HOST_GMAIL
+    assert correo.remitente() == "agente@gmail.com"
+    assert correo.esta_configurado() is True
+
+
+def test_smtp_server_vale_como_host(sin_smtp, monkeypatch):
+    monkeypatch.setenv("SMTP_SERVER", "smtp.office365.com")
+    monkeypatch.setenv(correo.SMTP_USER_ENV, "reportes@holtmont.com")
+    assert correo.host() == "smtp.office365.com"
+
+
+def test_el_nombre_de_la_plataforma_manda_sobre_el_del_notebook(sin_smtp, monkeypatch):
+    monkeypatch.setenv("SMTP_SERVER", "smtp.office365.com")
+    monkeypatch.setenv(correo.SMTP_HOST_ENV, "smtp.sendgrid.net")
+    monkeypatch.setenv("EMAIL_SENDER", "notebook@gmail.com")
+    monkeypatch.setenv(correo.SMTP_USER_ENV, "plataforma@gmail.com")
+    assert correo.host() == "smtp.sendgrid.net"
+    assert correo.remitente() == "plataforma@gmail.com"
+
+
+def test_la_configuracion_del_reporte_sale_por_ssl_con_la_clave_sin_espacios(
+        sin_smtp, monkeypatch):
+    """La configuración del reporte, tal cual: cuenta de Gmail, puerto 465 y la
+    contraseña de aplicación como la enseña Google, en cuatro grupos separados
+    por espacios.
+
+    Los espacios son presentación: la clave son 16 letras. Se quitan para que
+    pegarla tal cual en el panel de Vercel —con espacios, o con un salto de
+    línea colado al final— no dependa de que el servidor los tolere.
+    """
+    abiertas, credenciales, enviados = [], [], []
+
+    class SesionSSL:
+        def __init__(self, servidor, numero_puerto, timeout=None, context=None):
+            abiertas.append((servidor, numero_puerto))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def login(self, usuario, clave):
+            credenciales.append((usuario, clave))
+
+        def send_message(self, mensaje):
+            enviados.append(mensaje)
+
+    monkeypatch.setattr("smtplib.SMTP_SSL", SesionSSL)
+    monkeypatch.setenv("EMAIL_SENDER", "agente@gmail.com")
+    monkeypatch.setenv("EMAIL_PASSWORD", "abcd efgh ijkl mnop\n")
+    monkeypatch.setenv(correo.SMTP_PORT_ENV, "465")
+
+    resultado = correo.enviar("Asunto", "<b>x</b>", destinatarios=["jaime@holtmont.com"])
+
+    assert resultado["success"] is True
+    assert abiertas == [(correo.HOST_GMAIL, 465)]
+    assert credenciales == [("agente@gmail.com", "abcdefghijklmnop")]
+    assert enviados[0]["From"] == "agente@gmail.com"
 
 
 # --- El envío, contra un servidor SMTP real --------------------------------

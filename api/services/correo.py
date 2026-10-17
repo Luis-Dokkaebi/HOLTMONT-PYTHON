@@ -33,6 +33,16 @@ SMTP_USER_ENV = "SMTP_USER"
 SMTP_PASSWORD_ENV = "SMTP_PASSWORD"
 SMTP_FROM_ENV = "SMTP_FROM"
 
+# Los nombres del notebook original del agente SQL (`EMAIL_SENDER`,
+# `SMTP_SERVER`), que es con los que se escribió la configuración del correo.
+# Cada tupla va en orden de preferencia: el nombre de la plataforma manda y el
+# del notebook entra solo si el primero está vacío. `PASSWORD` a secas no se
+# acepta: es tan genérico que podría ser la clave de otra cosa, y acabaría
+# viajando a un servidor de correo.
+ALIAS_HOST = (SMTP_HOST_ENV, "SMTP_SERVER")
+ALIAS_USER = (SMTP_USER_ENV, "EMAIL_SENDER")
+ALIAS_PASSWORD = (SMTP_PASSWORD_ENV, "EMAIL_PASSWORD")
+
 # Servidor de Google Workspace / Gmail. Es el proveedor de correo de la empresa,
 # así que una cuenta @gmail.com no necesita que además le digan el host: se
 # deduce. Un `SMTP_HOST` explícito siempre gana, para no atar el despliegue a
@@ -41,6 +51,49 @@ HOST_GMAIL = "smtp.gmail.com"
 PUERTO_STARTTLS = 587
 PUERTO_SSL = 465
 _DOMINIOS_GMAIL = ("gmail.com", "googlemail.com")
+
+
+def _del_entorno(nombres: Iterable[str]) -> str:
+    """El primer valor no vacío entre `nombres`, sin espacios en los extremos."""
+    for nombre in nombres:
+        valor = os.environ.get(nombre, "").strip()
+        if valor:
+            return valor
+    return ""
+
+
+def _usuario() -> str:
+    return _del_entorno(ALIAS_USER)
+
+
+def _clave(servidor_smtp: str) -> str:
+    """
+    La contraseña SMTP. Con Gmail, sin ningún espacio.
+
+    Google enseña la contraseña de aplicación en cuatro grupos separados por
+    espacios, y así se copia al panel del despliegue; los espacios son solo
+    presentación de 16 letras. En otros proveedores un espacio puede ser parte
+    de la clave, así que ahí no se toca.
+    """
+    for nombre in ALIAS_PASSWORD:
+        valor = os.environ.get(nombre, "")
+        if valor.strip():
+            return "".join(valor.split()) if servidor_smtp == HOST_GMAIL else valor
+    return ""
+
+
+def motivo_sin_canal() -> str:
+    """
+    Qué configurar cuando el canal está apagado, nombrando las variables.
+
+    "SMTP_HOST no configurado" mandaba a buscar la variable equivocada: con
+    una cuenta de Gmail el host se deduce, y lo que falta son la cuenta y su
+    contraseña de aplicación.
+    """
+    return (f"Correo sin configurar ({SMTP_HOST_ENV} vacío y sin cuenta de Gmail): "
+            f"define {SMTP_USER_ENV} y {SMTP_PASSWORD_ENV} (contraseña de aplicación) "
+            f"en las variables de entorno del despliegue, o {SMTP_HOST_ENV} si el "
+            "proveedor no es Gmail.")
 
 
 def _es_cuenta_de_gmail(direccion: str) -> bool:
@@ -52,17 +105,17 @@ def host() -> str:
     """
     Servidor SMTP a usar, o cadena vacía si el canal está apagado.
 
-    Orden: `SMTP_HOST` si está puesto; si no, `smtp.gmail.com` cuando la cuenta
-    configurada es de Gmail. Deducirlo evita el fallo silencioso más probable de
-    este despliegue —credenciales cargadas y host olvidado, que dejaba el canal
-    apagado sin que nadie mirara por qué—; no lo inventa para otros dominios,
-    donde adivinar sería peor que no enviar.
+    Orden: `SMTP_HOST` (o `SMTP_SERVER`) si está puesto; si no,
+    `smtp.gmail.com` cuando la cuenta configurada es de Gmail. Deducirlo evita
+    el fallo silencioso más probable de este despliegue —credenciales cargadas
+    y host olvidado, que dejaba el canal apagado sin que nadie mirara por
+    qué—; no lo inventa para otros dominios, donde adivinar sería peor que no
+    enviar.
     """
-    explicito = os.environ.get(SMTP_HOST_ENV, "").strip()
+    explicito = _del_entorno(ALIAS_HOST)
     if explicito:
         return explicito
-    cuenta = (os.environ.get(SMTP_USER_ENV, "").strip()
-              or os.environ.get(SMTP_FROM_ENV, "").strip())
+    cuenta = _usuario() or os.environ.get(SMTP_FROM_ENV, "").strip()
     return HOST_GMAIL if _es_cuenta_de_gmail(cuenta) else ""
 
 
@@ -82,8 +135,7 @@ def esta_configurado() -> bool:
 
 
 def remitente() -> str:
-    return (os.environ.get(SMTP_FROM_ENV, "").strip()
-            or os.environ.get(SMTP_USER_ENV, "").strip())
+    return os.environ.get(SMTP_FROM_ENV, "").strip() or _usuario()
 
 
 def destinatarios_por_rol(roles: Iterable[str]) -> List[str]:
@@ -173,7 +225,7 @@ def enviar(asunto: str, html: str, destinatarios: Optional[List[str]] = None,
         return {"success": False, "message": "Sin destinatarios configurados."}
     if not esta_configurado():
         return {"success": False,
-                "message": f"{SMTP_HOST_ENV} no configurado: el reporte no se envió."}
+                "message": f"{motivo_sin_canal()} El reporte no se envió."}
 
     de = remitente()
     if not de:
@@ -182,8 +234,8 @@ def enviar(asunto: str, html: str, destinatarios: Optional[List[str]] = None,
 
     servidor_smtp = host()
     numero_puerto = puerto()
-    usuario = os.environ.get(SMTP_USER_ENV, "").strip()
-    clave = os.environ.get(SMTP_PASSWORD_ENV, "")
+    usuario = _usuario()
+    clave = _clave(servidor_smtp)
 
     falta = _credencial_que_falta(servidor_smtp, usuario, clave)
     if falta:
@@ -219,8 +271,8 @@ def probar_conexion(destino: Optional[str] = None) -> Dict[str, Any]:
     """
     servidor_smtp = host()
     numero_puerto = puerto()
-    usuario = os.environ.get(SMTP_USER_ENV, "").strip()
-    clave = os.environ.get(SMTP_PASSWORD_ENV, "")
+    usuario = _usuario()
+    clave = _clave(servidor_smtp)
 
     informe: Dict[str, Any] = {
         "success": False,
