@@ -28,7 +28,7 @@ ya carga sus librerías por CDN (*Skill: Monolithic Frontend Mastery*, `AGENTS.m
 
 | Notebook | Plataforma |
 | --- | --- |
-| `Map(basemap=CartoDB.Positron)` | `L.map` + tiles CartoDB |
+| `Map(basemap=CartoDB.Positron)` | `L.map` + tiles OpenStreetMap en gris (CARTO empezó a pedir API key: sin ella cada tile sale con la marca "API KEY REQUIRED") |
 | `MarkerCluster` | `Leaflet.markercluster` |
 | `DrawControl` (polígono / rectángulo) | `Leaflet.draw` |
 | `gdf.geometry.within(poligono)` | `turf.booleanPointInPolygon` en el navegador |

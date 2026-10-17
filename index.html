@@ -945,6 +945,8 @@
         border-radius: 10px;
         pointer-events: none;
     }
+    /* Basemap de Prospección en gris: los clusters de color resaltan sobre él. */
+    .geo-tiles { filter: grayscale(100%) brightness(1.05); }
   </style>
 </head>
 <body>
@@ -9428,10 +9430,14 @@ const filteredStaffTrackerData = computed(() => {
           if (geoMapa) { geoMapa.invalidateSize(); return; }
 
           geoMapa = L.map(contenedor).setView([19.4326, -99.1332], 11);
-          // CartoDB Positron, el mismo basemap del notebook: un mapa de
-          // prospección tiene que dejar que el dato sea lo que se ve.
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
-              maxZoom: 19, attribution: '© OpenStreetMap © CARTO'
+          // OpenStreetMap, en gris (`.geo-tiles`). El notebook usaba CartoDB
+          // Positron, pero CARTO empezó a pedir API key y sin ella cada tile
+          // llega con la marca "API KEY REQUIRED". OSM no pide clave; su
+          // política sí exige la atribución con enlace. El gris conserva la
+          // idea de Positron: en un mapa de prospección el dato es lo que se ve.
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              maxZoom: 19, className: 'geo-tiles',
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
           }).addTo(geoMapa);
 
           geoCluster = L.markerClusterGroup({ chunkedLoading: true });
