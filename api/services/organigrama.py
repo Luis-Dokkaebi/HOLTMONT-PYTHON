@@ -148,7 +148,10 @@ PERFILES: Dict[str, Dict[str, Any]] = {
     # hoja, así que quien lo ve ve el trabajo de todos los departamentos —y
     # puede pedir que se redacte un correo con eso—. Decisión del dueño
     # (2026-08-22): de momento solo ADMIN (por rol) y ANTONIO_SALAZAR.
-    "ANTONIO_SALAZAR": {"role": "STAFF_USER", "label": "Antonio Salazar", "email": "", "staff_name": "ANTONIO SALAZAR", "dept": "GENERAL", "seller": False, "soporte": True, "prospeccion": True, "agente_sql": True},
+    # `dashboard_streamlit` (2026-10-19): el apartado que convierte un Excel en
+    # el dashboard de Streamlit de Agente_Full. Solo esta cuenta, por decisión
+    # del dueño; ni ADMIN lo hereda por rol.
+    "ANTONIO_SALAZAR": {"role": "STAFF_USER", "label": "Antonio Salazar", "email": "", "staff_name": "ANTONIO SALAZAR", "dept": "GENERAL", "seller": False, "soporte": True, "prospeccion": True, "agente_sql": True, "dashboard_streamlit": True},
     # Baja (2026-08): se retiró de `USER_DB` en Apps Script y no se migra a
     # `profiles`, así que no puede entrar a ninguna de las dos plataformas. Su
     # casilla se conserva aquí porque el organigrama lo registra en GENERAL y
@@ -502,9 +505,11 @@ def _perfil_desde_base(clave: str) -> Optional[Dict[str, Any]]:
             #   `soporte`     -> la vista de tickets de bug
             #   `prospeccion` -> el módulo del mapa del DENUE
             #   `agente_sql`  -> el agente de consultas en lenguaje natural
+            #   `dashboard_streamlit` -> el apartado Dashboard Streamlit
             "soporte": _bandera_aditiva(fila, base, "soporte"),
             "prospeccion": _bandera_aditiva(fila, base, "prospeccion"),
             "agente_sql": _bandera_aditiva(fila, base, "agente_sql"),
+            "dashboard_streamlit": _bandera_aditiva(fila, base, "dashboard_streamlit"),
         }
     return None
 

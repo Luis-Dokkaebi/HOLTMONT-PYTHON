@@ -1900,6 +1900,57 @@
         </div>
 
         <!-- ============================================================ -->
+        <!-- PANEL: DASHBOARD STREAMLIT                                  -->
+        <!-- Solo con la bandera `dashboard_streamlit` (ANTONIO_SALAZAR). -->
+        <!-- Se arrastra un Excel, "Procesar" lo manda al pipeline de     -->
+        <!-- Agente_Full (agente_full/pipeline_dashboard.py, adaptación   -->
+        <!-- de gsai.py) y al terminar se entrega la liga de Streamlit.   -->
+        <!-- ============================================================ -->
+        <div v-if="currentView === 'DASHBOARD_STREAMLIT'" id="vistaDashboardStreamlit" class="h-100 d-flex justify-content-center align-items-start" style="background:#f5f6f8; padding:24px 16px; overflow-y:auto;">
+            <div class="card border-0 shadow-sm w-100" style="max-width:440px; border-radius:10px;">
+                <div class="card-body p-3">
+                    <div class="card border-0 shadow-sm mb-3" style="border-radius:8px;">
+                        <div class="card-body p-3">
+                            <div id="zonaDashboardStreamlit" role="button" tabindex="0" class="d-flex flex-column align-items-center justify-content-center text-center px-3"
+                                 :style="{ minHeight: '110px', borderRadius: '6px', border: '1px dashed ' + (dashboardStreamlit.arrastrando ? '#0d6efd' : '#ced4da'), background: dashboardStreamlit.arrastrando ? '#eef4ff' : '#fafbfc', cursor: dashboardStreamlitOcupado ? 'default' : 'pointer' }"
+                                 @click="elegirArchivoDashboardStreamlit" @keyup.enter="elegirArchivoDashboardStreamlit"
+                                 @dragover.prevent="dashboardStreamlit.arrastrando = true" @dragleave.prevent="dashboardStreamlit.arrastrando = false" @drop.prevent="soltarArchivoDashboardStreamlit">
+                                <div v-if="dashboardStreamlit.nombre" class="d-flex align-items-center gap-2">
+                                    <i class="fas fa-file-excel fa-2x" style="color:#1d6f42;"></i>
+                                    <span id="nombreArchivoDashboardStreamlit" class="fw-semibold text-dark" style="word-break:break-all;">{{ dashboardStreamlit.nombre }}</span>
+                                </div>
+                                <template v-else>
+                                    <i class="fas fa-file-excel fa-2x mb-2" style="color:#1d6f42;"></i>
+                                    <span class="text-muted small">Arrastra aquí tu archivo de Excel o haz clic para elegirlo</span>
+                                </template>
+                            </div>
+                            <input type="file" id="inputDashboardStreamlit" ref="inputDashboardStreamlit" accept=".xlsx,.xls" class="d-none" @change="alElegirArchivoDashboardStreamlit">
+                            <div v-if="['SUBIENDO', 'CARGADO', 'PROCESANDO', 'EXITOSO'].includes(dashboardStreamlit.fase)" class="mt-3">
+                                <div class="progress" style="height:6px;">
+                                    <div id="barraDashboardStreamlit" class="progress-bar" :class="{ 'progress-bar-striped progress-bar-animated': dashboardStreamlitOcupado }" role="progressbar"
+                                         :style="{ width: dashboardStreamlit.progreso + '%' }" :aria-valuenow="dashboardStreamlit.progreso" aria-valuemin="0" aria-valuemax="100"></div>
+                                </div>
+                                <div v-if="dashboardStreamlitOcupado" class="d-flex align-items-center justify-content-center mt-2 text-secondary">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span><span>Cargando...</span>
+                                </div>
+                                <div v-if="dashboardStreamlit.fase === 'PROCESANDO' && dashboardStreamlit.mensaje" id="estadoDashboardStreamlit" class="text-center text-muted small mt-1">{{ dashboardStreamlit.mensaje }}</div>
+                            </div>
+                            <button v-if="dashboardStreamlit.fileUrl && dashboardStreamlit.fase !== 'EXITOSO'" id="botonProcesarDashboardStreamlit" type="button" class="btn btn-primary w-100 mt-3 fw-semibold"
+                                    :disabled="!['CARGADO', 'ERROR'].includes(dashboardStreamlit.fase)" @click="procesarDashboardStreamlit">Procesar</button>
+                        </div>
+                    </div>
+                    <div v-if="dashboardStreamlit.fase === 'EXITOSO'" id="exitoDashboardStreamlit" class="text-center p-3" style="background:#eaf6ec; border:1px solid #a8d5b0; border-radius:8px;">
+                        <h5 class="mb-1" style="color:#1e2a32;">¡Procesamiento Exitoso!</h5>
+                        <div class="small text-dark mb-2">Dashboard generado en GitHub.</div>
+                        <div v-if="dashboardStreamlit.repoUrl" class="small mb-3" style="word-break:break-all;"><a :href="dashboardStreamlit.repoUrl" target="_blank" rel="noopener" class="text-dark text-decoration-none">{{ dashboardStreamlit.repoUrl }}</a></div>
+                        <a id="botonAbrirStreamlit" :href="dashboardStreamlit.url || null" target="_blank" rel="noopener" class="btn btn-primary w-100 fw-semibold">Abrir en Streamlit <i class="fas fa-external-link-alt ms-1"></i></a>
+                    </div>
+                    <div v-if="dashboardStreamlit.fase === 'ERROR'" id="errorDashboardStreamlit" class="alert alert-danger small mb-0" role="alert">{{ dashboardStreamlit.mensaje }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
         <!-- PANEL: AGENTE DE CONSULTAS                                 -->
         <!-- Visible solo para ADMIN y ANTONIO_SALAZAR (`_ve_agente_sql`)-->
         <!-- El backend decide quién lo ve; aquí solo se pinta.          -->
@@ -8174,7 +8225,7 @@ async function toggleVoiceRecording(btnElement) {
           .filter(p => p.name !== 'ANTONIA_VENTAS' && puedeRecibirDeEstaTabla(p))
           .map(p => p.name)
           .filter((n, i, a) => a.indexOf(n) === i);
-      const pageTitle = computed(() => currentView.value);
+      const pageTitle = computed(() => currentView.value === 'DASHBOARD_STREAMLIT' ? 'DASHBOARD STREAMLIT' : currentView.value);
       const currentDeptData = computed(() => config.value.departments[currentDept.value] || {});
 
       const deptStats = computed(() => {
@@ -9038,6 +9089,11 @@ const filteredStaffTrackerData = computed(() => {
           // cadena de `else if` se agota en silencio.
           else if(m.type === 'agente_sql_view') {
               currentView.value = 'AGENTE_SQL';
+          }
+          // `dashboard_streamlit_view`: el apartado Dashboard Streamlit
+          // (bandera `dashboard_streamlit`). Misma razón que las de arriba.
+          else if(m.type === 'dashboard_streamlit_view') {
+              currentView.value = 'DASHBOARD_STREAMLIT';
           }
       };
 
@@ -10666,6 +10722,101 @@ const filteredStaffTrackerData = computed(() => {
           dashboardPwo.value.mensaje = (res && res.message) || 'No se pudo pedir el dashboard.';
       };
       watch(currentView, (vista) => { if (vista === 'WORKORDER_FORM') cargarLinkDashboardPwo(); });
+
+      // --- Dashboard Streamlit (apartado de ANTONIO_SALAZAR) ----------------
+      // Se carga un Excel a Storage, "Procesar" lo manda al mismo pipeline que
+      // la PWO (api/services/dashboard_pwo.py -> Action de Agente_Full) y se
+      // pregunta cada 10 s en qué va la corrida de GitHub, hasta EXITOSO o ERROR.
+      // La liga de Streamlit es siempre la misma (DASHBOARD_PWO_URL).
+      const EXTENSIONES_DASHBOARD_STREAMLIT = ['.xlsx', '.xls'];
+      const SEGUIMIENTO_DASHBOARD_MS = 10000;
+      const DURACION_ESPERADA_DASHBOARD_MS = 6 * 60 * 1000;
+      const ESPERA_SIN_INICIAR_DASHBOARD_MS = 3 * 60 * 1000;
+      const ESPERA_MAXIMA_DASHBOARD_MS = 40 * 60 * 1000;
+      const FALLOS_SEGUIDOS_DASHBOARD = 3;
+      const estadoInicialDashboardStreamlit = () => ({ fase: 'INICIAL', nombre: '', fileUrl: '', progreso: 0, mensaje: '', solicitud: '', url: '', repoUrl: '', arrastrando: false });
+      const dashboardStreamlit = ref(estadoInicialDashboardStreamlit());
+      const inputDashboardStreamlit = ref(null);
+      const dashboardStreamlitOcupado = computed(() => ['SUBIENDO', 'PROCESANDO'].includes(dashboardStreamlit.value.fase));
+      let temporizadorDashboardStreamlit = null;
+      const detenerSeguimientoDashboardStreamlit = () => {
+          if (temporizadorDashboardStreamlit) clearTimeout(temporizadorDashboardStreamlit);
+          temporizadorDashboardStreamlit = null;
+      };
+      const fallaDashboardStreamlit = (mensaje) => {
+          detenerSeguimientoDashboardStreamlit();
+          Object.assign(dashboardStreamlit.value, { fase: 'ERROR', progreso: 0, mensaje: mensaje || 'Ocurrió un error.' });
+      };
+      const cargarArchivoDashboardStreamlit = (file) => {
+          if (!file || dashboardStreamlitOcupado.value) return;
+          const nombre = String(file.name || '');
+          detenerSeguimientoDashboardStreamlit();
+          if (!EXTENSIONES_DASHBOARD_STREAMLIT.some(ext => nombre.toLowerCase().endsWith(ext))) {
+              dashboardStreamlit.value = { ...estadoInicialDashboardStreamlit(), fase: 'ERROR', mensaje: `${nombre} no es un archivo de Excel (.xlsx o .xls).` };
+              return;
+          }
+          dashboardStreamlit.value = { ...estadoInicialDashboardStreamlit(), fase: 'SUBIENDO', nombre, progreso: 60 };
+          const estado = dashboardStreamlit.value;
+          subirArchivoAlmacen(file).then(res => {
+              if (dashboardStreamlit.value !== estado) return;
+              if (!(res && res.success && res.fileUrl)) return fallaDashboardStreamlit((res && res.message) || 'No se pudo cargar el archivo.');
+              Object.assign(estado, { fase: 'CARGADO', fileUrl: res.fileUrl, progreso: 100, mensaje: '' });
+          });
+      };
+      const elegirArchivoDashboardStreamlit = () => { if (!dashboardStreamlitOcupado.value && inputDashboardStreamlit.value) inputDashboardStreamlit.value.click(); };
+      const alElegirArchivoDashboardStreamlit = (e) => { cargarArchivoDashboardStreamlit(e.target.files[0]); e.target.value = null; };
+      const soltarArchivoDashboardStreamlit = (e) => {
+          dashboardStreamlit.value.arrastrando = false;
+          cargarArchivoDashboardStreamlit(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+      };
+      // Qué hacer con cada respuesta de `/api/dashboard/estado`. Devuelve los
+      // fallos seguidos para volver a preguntar, o null si ya terminó.
+      const aplicarEstadoDashboardStreamlit = (res, transcurrido, fallos) => {
+          const estado = dashboardStreamlit.value;
+          if (!(res && res.success)) {
+              if (fallos + 1 >= FALLOS_SEGUIDOS_DASHBOARD) { fallaDashboardStreamlit((res && res.message) || 'No se pudo consultar el avance.'); return null; }
+              estado.mensaje = `No se pudo consultar el avance (${fallos + 1}/${FALLOS_SEGUIDOS_DASHBOARD}): ${(res && res.message) || ''}`;
+              return fallos + 1;
+          }
+          if (res.estado === 'EXITOSO') {
+              Object.assign(estado, { fase: 'EXITOSO', progreso: 100, mensaje: res.message || '', url: res.url || estado.url, repoUrl: res.repo_url || '' });
+              return null;
+          }
+          if (res.estado === 'ERROR') { fallaDashboardStreamlit(res.message); return null; }
+          if (res.estado === 'SIN_INICIAR' && transcurrido > ESPERA_SIN_INICIAR_DASHBOARD_MS) {
+              fallaDashboardStreamlit('GitHub no arrancó el procesamiento. Revisa que el workflow de Agente_Full esté actualizado (agente_full/README.md).');
+              return null;
+          }
+          if (transcurrido > ESPERA_MAXIMA_DASHBOARD_MS) { fallaDashboardStreamlit('El procesamiento tardó demasiado; revisa el Action de Agente_Full.'); return null; }
+          estado.mensaje = res.message || estado.mensaje;
+          return 0;
+      };
+      const seguirDashboardStreamlit = (solicitud, inicio, fallos) => {
+          temporizadorDashboardStreamlit = setTimeout(async () => {
+              const res = await ApiService.estadoDashboardStreamlit(solicitud);
+              const estado = dashboardStreamlit.value;
+              if (estado.solicitud !== solicitud || estado.fase !== 'PROCESANDO') return;
+              const transcurrido = Date.now() - inicio;
+              const siguientes = aplicarEstadoDashboardStreamlit(res, transcurrido, fallos);
+              if (siguientes === null) return;
+              estado.progreso = Math.min(95, 5 + Math.round(90 * transcurrido / DURACION_ESPERADA_DASHBOARD_MS));
+              seguirDashboardStreamlit(solicitud, inicio, siguientes);
+          }, SEGUIMIENTO_DASHBOARD_MS);
+      };
+      const procesarDashboardStreamlit = async () => {
+          const estado = dashboardStreamlit.value;
+          // La fase hace de `isSubmitting`: un segundo clic ya la encuentra en PROCESANDO.
+          if (!['CARGADO', 'ERROR'].includes(estado.fase) || !estado.fileUrl) return;
+          if (typeof ApiService === 'undefined' || !ApiService || !ApiService.procesarDashboardStreamlit) {
+              return fallaDashboardStreamlit('El procesamiento solo está disponible en la versión de Python de la plataforma.');
+          }
+          Object.assign(estado, { fase: 'PROCESANDO', progreso: 5, mensaje: 'Enviando el archivo a GitHub...', solicitud: '' });
+          const res = await ApiService.procesarDashboardStreamlit(estado.fileUrl, currentUsername.value || '');
+          if (dashboardStreamlit.value !== estado) return;
+          if (!(res && res.success && res.solicitud)) return fallaDashboardStreamlit((res && res.message) || 'No se pudo iniciar el procesamiento.');
+          Object.assign(estado, { solicitud: res.solicitud, url: res.url || '', mensaje: res.message || '' });
+          seguirDashboardStreamlit(res.solicitud, Date.now(), 0);
+      };
 
       const openFileDialog = () => fileInput.value.click();
       const handleFileSelect = (e) => {
@@ -12931,6 +13082,8 @@ const filteredStaffTrackerData = computed(() => {
       certActivities, certNewActivity, showCertModal, certStep,
       isActivityPaperclipRunning, isPaperclipRunning, runActivityPaperclipAgents, runPaperclipAgents,
       dashboardPwo,
+      dashboardStreamlit, dashboardStreamlitOcupado, inputDashboardStreamlit, elegirArchivoDashboardStreamlit,
+      alElegirArchivoDashboardStreamlit, soltarArchivoDashboardStreamlit, procesarDashboardStreamlit,
       showBlueprintModal, isGeneratingBlueprint, blueprintSvg, blueprintOrigen, blueprintResumen,
       generateBlueprintFromDescription, descargarPlano2D, abrirEditor3D,
       abrirPreWorkOrder,

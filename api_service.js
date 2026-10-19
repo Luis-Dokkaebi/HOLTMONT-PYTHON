@@ -86,6 +86,35 @@ class ApiService {
         }
     }
 
+    // --- Apartado Dashboard Streamlit (bandera `dashboard_streamlit`) ----
+    //
+    // Fuera del adaptador por la misma razón que los dos de arriba. Tampoco
+    // lanzan: el apartado enseña `message` y decide si reintenta.
+
+    /** "Procesar": manda el Excel ya subido al pipeline; devuelve la `solicitud`. */
+    static async procesarDashboardStreamlit(fileUrl, usuario) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/dashboard/procesar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fileUrl: fileUrl, usuario: usuario || '' })
+            });
+            return await response.json();
+        } catch (error) {
+            return { success: false, message: 'No se pudo iniciar el procesamiento: ' + error.toString() };
+        }
+    }
+
+    /** En qué va la corrida de GitHub de esa `solicitud`. */
+    static async estadoDashboardStreamlit(solicitud) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/dashboard/estado?solicitud=${encodeURIComponent(solicitud)}`);
+            return await response.json();
+        } catch (error) {
+            return { success: false, message: 'No se pudo consultar el avance: ' + error.toString() };
+        }
+    }
+
     // --- Prospección geoespacial (DENUE) -------------------------------
     //
     // Van aquí y NO en `GoogleScriptRunAdapter` a propósito. El adaptador imita

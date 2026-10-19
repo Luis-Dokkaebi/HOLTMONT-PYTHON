@@ -1,13 +1,18 @@
 # Copiar a Agente_Full como `.github/workflows/dashboard-pwo.yml`.
 #
 # Lo dispara HOLTMONT (api/services/dashboard_pwo.py) con un
-# `repository_dispatch` cada vez que se sube un documento a la Pre Work Order.
-# También se puede correr a mano desde la pestaña Actions con la URL del archivo.
+# `repository_dispatch` cada vez que se sube un documento a la Pre Work Order o
+# se pulsa "Procesar" en el apartado Dashboard Streamlit. También se puede
+# correr a mano desde la pestaña Actions con la URL del archivo.
 #
-# Si el dashboard nuevo no pasa las pruebas en 4 intentos, el job termina en
+# Si el dashboard nuevo no pasa las pruebas en 3 intentos, el job termina en
 # rojo y NO hace commit: la liga corta sigue enseñando el último que funcionó.
 
 name: Dashboard PWO
+# El apartado Dashboard Streamlit busca su corrida por este nombre
+# (`dashboard_pwo.TITULO_DE_CORRIDA`) para saber cuándo terminó. No es shell:
+# GitHub solo lo pinta, así que la solicitud no puede ejecutar nada.
+run-name: Dashboard PWO ${{ github.event.client_payload.solicitud }}
 
 on:
   repository_dispatch:

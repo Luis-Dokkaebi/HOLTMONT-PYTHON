@@ -8,6 +8,7 @@ por un doble la funcion que se esta probando.
 Ejecucion:  python -m pytest tests/test_reglas_negocio_bdd.py -v
 """
 
+import json
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -1680,3 +1681,69 @@ def _queda_cancelado(contexto: Dict[str, Any]) -> None:
     reporte = contexto["estado"]["commit_status"]
     assert reporte["status_code"] == pipeline_dashboard.ESTADO_ABORTADO
     assert f"tras {pipeline_dashboard.MAX_INTENTOS} intentos" in reporte["message"]
+
+
+# ----------------------------------------------------------------------
+# El apartado Dashboard Streamlit (bandera `dashboard_streamlit`): procesar un
+# Excel y seguir la corrida de GitHub hasta entregar la liga corta. Lo único
+# doblado es la red hacia GitHub; la bandera, el aviso y la lectura de la
+# corrida son los reales.
+# ----------------------------------------------------------------------
+
+@then(parsers.parse('ve el apartado "{etiqueta}"'))
+def _ve_el_apartado(contexto: Dict[str, Any], etiqueta: str) -> None:
+    assert _modulos_por_etiqueta(contexto, etiqueta), (
+        f"no ve «{etiqueta}»; ve {[m['label'] for m in contexto['config']['specialModules']]}")
+
+
+@then(parsers.parse('no ve el apartado "{etiqueta}"'))
+def _no_ve_el_apartado(contexto: Dict[str, Any], etiqueta: str) -> None:
+    assert not _modulos_por_etiqueta(contexto, etiqueta)
+
+
+@given(parsers.parse('que Antonio procesa "{nombre}"'))
+def _antonio_procesa(contexto: Dict[str, Any], nombre: str) -> None:
+    def github(url_api: str, cuerpo: Dict[str, Any], encabezados: Dict[str, str]):
+        contexto["avisos_a_github"].append(cuerpo)
+        return 204, ""
+
+    contexto["procesado"] = dashboard_pwo.procesar(
+        f"{_STORAGE_DE_HOLTMONT}/{nombre}", "ANTONIO_SALAZAR", entorno=contexto["entorno"], enviar=github)
+    assert contexto["procesado"]["success"] is True
+
+
+def _github_termina(contexto: Dict[str, Any], conclusion: str) -> None:
+    solicitud = contexto["procesado"]["solicitud"]
+    corrida = {"display_title": dashboard_pwo.TITULO_DE_CORRIDA.format(solicitud=solicitud),
+               "status": "completed", "conclusion": conclusion,
+               "html_url": "https://github.com/Luis-py-stack/Agente_Full/actions/runs/7"}
+    listado = json.dumps({"workflow_runs": [corrida]})
+    contexto["seguimiento"] = dashboard_pwo.estado(
+        solicitud, entorno=contexto["entorno"], consultar=lambda url, encabezados: (200, listado))
+
+
+@when("GitHub termina de generar el dashboard")
+def _github_termina_bien(contexto: Dict[str, Any]) -> None:
+    _github_termina(contexto, "success")
+
+
+@when("el dashboard nuevo no pasa las pruebas en GitHub")
+def _github_termina_mal(contexto: Dict[str, Any]) -> None:
+    _github_termina(contexto, "failure")
+
+
+@then(parsers.parse('se avisa "{mensaje}"'))
+def _se_avisa(contexto: Dict[str, Any], mensaje: str) -> None:
+    assert contexto["seguimiento"]["message"] == mensaje
+
+
+@then("Antonio recibe la liga corta del dashboard")
+def _antonio_recibe_la_liga(contexto: Dict[str, Any]) -> None:
+    assert contexto["seguimiento"]["estado"] == "EXITOSO"
+    assert contexto["seguimiento"]["url"] == _LIGA_DEL_DASHBOARD
+
+
+@then("se avisa que la liga sigue mostrando el dashboard anterior")
+def _se_avisa_que_sigue_el_anterior(contexto: Dict[str, Any]) -> None:
+    assert contexto["seguimiento"]["estado"] == "ERROR"
+    assert "dashboard anterior" in contexto["seguimiento"]["message"]
