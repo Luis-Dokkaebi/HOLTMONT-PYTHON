@@ -975,6 +975,70 @@ paths:
                   url: { type: string }
                   message: { type: string }
 
+  # ------------------------------------------- Apartado Dashboard Streamlit
+  /api/dashboard/procesar:
+    post:
+      tags: [PreWorkOrder]
+      operationId: apiDashboardProcesar
+      summary: El botón Procesar del apartado Dashboard Streamlit.
+      description: >
+        El mismo aviso que `POST /api/pwo/dashboard`, más una `solicitud` que
+        el Action de Agente_Full lleva en su `run-name` y con la que la pantalla
+        sigue la corrida. El apartado solo lo pinta `/api/config` a quien lleva
+        la bandera `dashboard_streamlit` (hoy ANTONIO_SALAZAR).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileUrl]
+              properties:
+                fileUrl: { type: string, description: "URL pública en Supabase Storage" }
+                usuario: { type: string }
+      responses:
+        "200":
+          description: Si el aviso llegó a GitHub, con la liga corta y la solicitud.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  url: { type: string }
+                  message: { type: string }
+                  solicitud: { type: string, example: "0123456789ab", description: "Solo si success" }
+
+  /api/dashboard/estado:
+    get:
+      tags: [PreWorkOrder]
+      operationId: apiDashboardEstado
+      summary: En qué va la corrida del Action que pidió /api/dashboard/procesar.
+      description: >
+        Consulta las corridas `repository_dispatch` de `DASHBOARD_PWO_REPO`
+        (el token necesita Actions Read). `success: false` solo cuando no se
+        pudo preguntar (configuración o red); el estado del Action viaja en
+        `estado`.
+      parameters:
+        - in: query
+          name: solicitud
+          required: true
+          schema: { type: string, pattern: "^[0-9a-f]{12}$" }
+      responses:
+        "200":
+          description: El estado de la corrida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  estado: { type: string, enum: [SIN_INICIAR, EN_COLA, PROCESANDO, EXITOSO, ERROR] }
+                  message: { type: string }
+                  url: { type: string, description: "La liga corta de Streamlit" }
+                  repo_url: { type: string, example: "https://github.com/Luis-py-stack/Agente_Full" }
+                  run_url: { type: string }
+
 components:
   schemas:
 

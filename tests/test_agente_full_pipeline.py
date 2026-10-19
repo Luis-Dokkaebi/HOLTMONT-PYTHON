@@ -471,7 +471,9 @@ def test_un_fallo_vuelve_al_desarrollador_con_el_error_y_el_codigo_anterior(tmp_
     assert (tmp_path / "salida" / "app.py").read_text(encoding="utf-8") == APP_BUENA
 
 
-def test_tras_cuatro_intentos_fallidos_la_liga_conserva_el_dashboard_anterior(tmp_path):
+def test_tras_tres_intentos_fallidos_la_liga_conserva_el_dashboard_anterior(tmp_path):
+    # gsai.py bajó el tope de 4 a 3 (`retry_count >= 3`): es el comportamiento
+    # que pidió el dueño, no una puerta que se afloje.
     salida = tmp_path / "salida"
     salida.mkdir()
     (salida / "app.py").write_text("# dashboard anterior que funciona\n", encoding="utf-8")
@@ -479,9 +481,10 @@ def test_tras_cuatro_intentos_fallidos_la_liga_conserva_el_dashboard_anterior(tm
 
     estado = _ejecutar(tmp_path, _modelos(desarrollador))
 
-    assert len(desarrollador.recibidos) == pipeline.MAX_INTENTOS
+    assert pipeline.MAX_INTENTOS == 3
+    assert len(desarrollador.recibidos) == 3
     assert estado["commit_status"]["status_code"] == pipeline.ESTADO_ABORTADO
-    assert "tras 4 intentos" in estado["commit_status"]["message"]
+    assert "tras 3 intentos" in estado["commit_status"]["message"]
     assert (salida / "app.py").read_text(encoding="utf-8") == "# dashboard anterior que funciona\n"
     assert not (salida / "requirements.txt").exists()
 
@@ -518,6 +521,108 @@ def test_una_imagen_llega_al_extractor_como_mensaje_multimodal(tmp_path):
 
     contenido = modelos.extractor.recibidos[0][1].content
     assert contenido[1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+# --- Reintentos de Gemini (gsai.py) -----------------------------------------
+
+class ModeloQueFalla:
+    """Un LLM que primero falla (lanzando o contestando vacío) y luego contesta."""
+
+    def __init__(self, fallos: List[Any], respuesta: str = "listo") -> None:
+        self._fallos = list(fallos)
+        self._respuesta = respuesta
+        self.llamadas = 0
+
+    def invoke(self, mensajes: List[Any]) -> AIMessage:
+        self.llamadas += 1
+        if self._fallos:
+            fallo = self._fallos.pop(0)
+            if isinstance(fallo, Exception):
+                raise fallo
+            return AIMessage(content=fallo)
+        return AIMessage(content=self._respuesta)
+
+
+def test_un_error_de_gemini_se_reintenta_con_espera_exponencial():
+    esperas: List[float] = []
+    llm = ModeloQueFalla([RuntimeError("503 overloaded"), RuntimeError("429 quota")])
+
+    respuesta = pipeline.invocar_con_reintentos(llm, [], "Agente de prueba", dormir=esperas.append)
+
+    assert respuesta.content == "listo"
+    assert llm.llamadas == 3
+    assert esperas == [1, 2]
+
+
+@pytest.mark.parametrize("vacia", ["", "   ", [{"type": "text", "text": ""}]])
+def test_una_respuesta_vacia_de_gemini_cuenta_como_fallo(vacia):
+    esperas: List[float] = []
+    llm = ModeloQueFalla([vacia])
+
+    respuesta = pipeline.invocar_con_reintentos(llm, [], "Agente de prueba", dormir=esperas.append)
+
+    assert respuesta.content == "listo"
+    assert llm.llamadas == 2
+    assert esperas == [1]
+
+
+def test_agotados_los_reintentos_se_detiene_con_el_ultimo_error(capsys):
+    esperas: List[float] = []
+    llm = ModeloQueFalla([RuntimeError(f"fallo {i}") for i in range(1, 6)])
+
+    with pytest.raises(pipeline.GeminiSinRespuesta, match=r"\[Agente 2 - UX\] Gemini no respondió tras 4 intentos: fallo 4"):
+        pipeline.invocar_con_reintentos(llm, [], "Agente 2 - UX", dormir=esperas.append)
+
+    assert llm.llamadas == pipeline.MAX_REINTENTOS_GEMINI == 4
+    assert esperas == [1, 2, 4]
+    assert "intento 4/4" in capsys.readouterr().out
+
+
+def test_sin_reintentos_permitidos_no_se_llama_a_gemini():
+    llm = ModeloQueFalla([])
+
+    with pytest.raises(pipeline.GeminiSinRespuesta, match="al menos 1"):
+        pipeline.invocar_con_reintentos(llm, [], "Agente", max_reintentos=0, dormir=lambda s: None)
+
+    assert llm.llamadas == 0
+
+
+def test_sin_espera_indicada_se_duerme_de_verdad(monkeypatch):
+    esperas: List[float] = []
+    monkeypatch.setattr(pipeline.time, "sleep", esperas.append)
+
+    pipeline.invocar_con_reintentos(ModeloQueFalla([RuntimeError("x")]), [], "Agente")
+
+    assert esperas == [1]
+
+
+def test_un_fallo_pasajero_de_gemini_no_cuesta_un_intento_de_reparacion(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline.time, "sleep", lambda segundos: None)
+    extractor = ModeloQueFalla([RuntimeError("503")], _bloque(JSON_EXTRAIDO, "json"))
+    desarrollador = ModeloQueFalla([""], _bloque(APP_BUENA))
+    modelos = pipeline.Modelos(extractor=extractor, ux=ModeloGuionado(["Pestañas."]), desarrollador=desarrollador)
+
+    estado = _ejecutar(tmp_path, modelos)
+
+    assert estado["commit_status"]["status_code"] == pipeline.ESTADO_PUBLICADO
+    assert estado["retry_count"] == 1
+    assert (extractor.llamadas, desarrollador.llamadas) == (2, 2)
+
+
+def test_si_gemini_nunca_contesta_el_action_termina_en_rojo_sin_tocar_app(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pipeline.time, "sleep", lambda segundos: None)
+    salida = tmp_path / "salida"
+    salida.mkdir()
+    (salida / "app.py").write_text("# el anterior\n", encoding="utf-8")
+    muerto = ModeloQueFalla([RuntimeError("API key not valid")] * 4)
+    modelos = pipeline.Modelos(extractor=muerto, ux=ModeloGuionado(["x"]), desarrollador=ModeloGuionado(["x"]))
+
+    codigo = pipeline.main(["--archivo", str(_documento(tmp_path)), "--salida", str(salida)],
+                           construir=lambda: modelos, validadores=pipeline.Validadores(navegador=_navegador_aprueba))
+
+    assert codigo == 1
+    assert "Gemini no respondió tras 4 intentos" in capsys.readouterr().err
+    assert (salida / "app.py").read_text(encoding="utf-8") == "# el anterior\n"
 
 
 # --- Configuración de los modelos -------------------------------------------

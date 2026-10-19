@@ -311,10 +311,14 @@ def test_el_adaptador_sube_directo_a_storage():
 
 def test_la_vista_sube_por_una_sola_puerta():
     """
-    Los selectores de archivo (celda del tracker, adjunto general y validación
-    de diseño) pasan por `subirArchivoAlmacen`, que es donde vive el manejo de
-    errores. Llamar a `uploadFileToDrive` por fuera es volver al camino sin
+    Los selectores de archivo (celda del tracker, adjunto general, validación
+    de diseño y, desde 2026-10-19, el Excel del apartado Dashboard Streamlit)
+    pasan por `subirArchivoAlmacen`, que es donde vive el manejo de errores.
+    Llamar a `uploadFileToDrive` por fuera es volver al camino sin
     `withFailureHandler`, que es como el fallo se volvía invisible.
+
+    El conteo es el inventario de selectores: uno nuevo lo sube a propósito
+    y aquí se anota cuál es.
     """
     html = _leer(INDEX)
     inicio = html.index("// === INICIO SUBIDA DE ARCHIVOS")
@@ -322,7 +326,8 @@ def test_la_vista_sube_por_una_sola_puerta():
     fuera = html[:inicio] + html[fin:]
 
     assert "uploadFileToDrive" not in fuera
-    assert fuera.count("subirArchivoAlmacen(file") == 3
+    assert fuera.count("subirArchivoAlmacen(file") == 4
+    assert "subirArchivoAlmacen(file).then(res => {\n              if (dashboardStreamlit.value !== estado) return;" in fuera
 
 
 def test_el_fallo_de_subida_se_le_muestra_a_la_persona():

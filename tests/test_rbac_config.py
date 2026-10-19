@@ -573,3 +573,68 @@ def test_el_modulo_del_agente_declara_el_tipo_que_el_frontend_sabe_abrir():
                   if m["id"] == MODULO_AGENTE)
     assert agente["type"] == "agente_sql_view"
     assert agente["label"] == "Agente de Consultas"
+
+
+# --- Dashboard Streamlit ------------------------------------------------
+# Cuarta bandera aditiva (`dashboard_streamlit`). Decisión del dueño
+# (2026-10-19): solo ANTONIO_SALAZAR. A diferencia de prospección y del agente,
+# ADMIN no la hereda por rol: el pedido fue "en el user de ANTONIO_SALAZAR".
+
+MODULO_DASHBOARD = "DASHBOARD_STREAMLIT"
+
+
+def _ve_dashboard(role, username=""):
+    return MODULO_DASHBOARD in [m["id"] for m in config(role, username)["specialModules"]]
+
+
+def test_antonio_salazar_ve_el_apartado_dashboard_streamlit():
+    assert organigrama.perfil("ANTONIO_SALAZAR")["dashboard_streamlit"] is True
+    assert _ve_dashboard("STAFF_USER", "ANTONIO_SALAZAR")
+
+
+@pytest.mark.parametrize("rol,cuenta", [
+    ("ADMIN", "LUIS_CARLOS"),
+    ("STAFF_USER", "TERESA_GARZA"),
+    ("STAFF_USER", "MIGUEL_GALLARDO"),
+    ("ADMIN_CONTROL", "JAIME_OLIVO"),
+    ("PPC_ADMIN", "JESUS_CANTU"),
+    ("WORKORDER_USER", "PREWORK_ORDER"),
+    ("TONITA", "ANTONIA_VENTAS"),
+    ("STAFF_USER", ""),
+])
+def test_nadie_mas_ve_el_apartado_dashboard_streamlit(rol, cuenta):
+    assert not _ve_dashboard(rol, cuenta)
+
+
+def test_el_apartado_dashboard_streamlit_va_despues_de_los_modulos_de_antonio():
+    """Se agrega al final: el Tracker, Agregar Actividad y los demás no se mueven de lugar."""
+    ids = [m["id"] for m in config("STAFF_USER", "ANTONIO_SALAZAR")["specialModules"]]
+
+    assert ids == ["MY_TRACKER", "PPC_MASTER", "PROSPECCION_GEO", "AGENTE_SQL", MODULO_DASHBOARD]
+
+
+def test_el_apartado_dashboard_streamlit_declara_el_tipo_que_el_frontend_sabe_abrir():
+    """R9: un tipo que `openModule` no contempla hace que el clic no haga nada, sin error."""
+    modulo = next(m for m in config("STAFF_USER", "ANTONIO_SALAZAR")["specialModules"]
+                  if m["id"] == MODULO_DASHBOARD)
+
+    assert modulo == {"id": MODULO_DASHBOARD, "label": "Dashboard Streamlit", "icon": "fa-chart-pie",
+                      "color": "#ff4b4b", "type": "dashboard_streamlit_view"}
+
+
+def test_la_bandera_del_dashboard_sobrevive_a_una_fila_en_profiles(monkeypatch):
+    """`_perfil_desde_base` reconstruye clave por clave: la que no se liste se pierde en producción."""
+    _con_fila_en_profiles(monkeypatch)
+
+    assert organigrama.perfil("ANTONIO_SALAZAR")["dashboard_streamlit"] is True
+    assert _ve_dashboard("STAFF_USER", "ANTONIO_SALAZAR")
+
+
+def test_la_base_puede_conceder_la_bandera_del_dashboard(monkeypatch):
+    organigrama.reset_cache_perfiles()
+    monkeypatch.setattr(organigrama, "_filas_profiles", lambda: [
+        {"username": "TERESA_GARZA", "role": "STAFF_USER", "dept": "PRECIOS UNITARIOS",
+         "dashboard_streamlit": True},
+    ])
+
+    assert _ve_dashboard("STAFF_USER", "TERESA_GARZA")

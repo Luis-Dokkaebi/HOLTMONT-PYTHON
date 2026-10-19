@@ -2,15 +2,16 @@
 """
 Dashboard de la Pre Work Order: de un documento a una app de Streamlit publicada.
 
-Adaptación de `gs3.py` (GS3_POTENCIADO, Colab) para que corra sola en el GitHub
-Action del repositorio `Agente_Full` cada vez que alguien sube un documento a la
-Pre Work Order de Holtmont:
+Adaptación de `gs3.py` (GS3_POTENCIADO, Colab), actualizada a `gsai.py`, para
+que corra sola en el GitHub Action del repositorio `Agente_Full` cada vez que
+alguien sube un documento a la Pre Work Order de Holtmont o pulsa "Procesar" en
+el apartado Dashboard Streamlit:
 
     PWO (index.html) --sube xlsx/pdf/docx--> Supabase Storage
       -> api/services/dashboard_pwo.py manda un `repository_dispatch`
       -> el Action de Agente_Full corre ESTE archivo:
            Agente 1 extrae JSON -> Agente 2 diseña -> Agente 3 programa
-           -> sintaxis + AppTest + Playwright (hasta 4 intentos)
+           -> sintaxis + AppTest + Playwright (hasta 3 intentos)
            -> escribe app.py + requirements.txt
       -> el Action hace el commit y Streamlit Cloud vuelve a desplegar
       -> la liga corta (subdominio fijo de Streamlit) enseña el dashboard nuevo
@@ -33,6 +34,9 @@ Qué cambió respecto de gs3.py, y por qué:
   último dashboard bueno y el Action termina en rojo.
 * **`requirements.txt` fija las versiones con las que se validó la app**, para
   que Streamlit Cloud instale lo mismo que se probó.
+* **De `gsai.py`:** cada llamada a Gemini se reintenta hasta 4 veces con espera
+  exponencial (una respuesta vacía, la de un filtro, cuenta como fallo) y el
+  código se repara como máximo 3 veces antes de abortar.
 * **Los selectores de error en el navegador son los de Streamlit 1.65**
   (`stAlertContentError`); los de gs3.py (`stAlertErrorIcon`, `.alert-danger`)
   ya no existen y un `st.error` pasaba la auditoría sin que nadie lo viera.
@@ -71,7 +75,10 @@ import pandas as pd
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
-MAX_INTENTOS = 4
+# `gsai.py`: 3 intentos del Agente 3 antes de abortar; 4 llamadas a Gemini por
+# paso antes de darse por vencido.
+MAX_INTENTOS = 3
+MAX_REINTENTOS_GEMINI = 4
 MAX_BYTES_ARCHIVO = 20 * 1024 * 1024
 # El que usaba gs3.py. `GEMINI_MODEL` lo cambia sin tocar código: los
 # proveedores retiran modelos (ver api/modelos_llm.py en HOLTMONT-PYTHON).
@@ -102,6 +109,10 @@ class OrigenNoPermitido(ErrorDelPipeline):
 
 class ArchivoIlegible(ErrorDelPipeline):
     """El documento no se pudo descargar o leer."""
+
+
+class GeminiSinRespuesta(ErrorDelPipeline):
+    """Gemini falló (o contestó vacío) en todos los reintentos."""
 
 
 class GraphState(TypedDict, total=False):
@@ -250,6 +261,32 @@ def texto_de_respuesta(respuesta: Any) -> str:
     if isinstance(contenido, list):
         return "".join(parte.get("text", "") for parte in contenido if isinstance(parte, dict))
     return str(contenido)
+
+
+def invocar_con_reintentos(llm: Any, mensajes: List[Any], agente: str,
+                           max_reintentos: int = MAX_REINTENTOS_GEMINI,
+                           dormir: Optional[Callable[[float], None]] = None) -> Any:
+    """`llm.invoke` con reintentos y espera exponencial (1 s, 2 s, 4 s...), como en gsai.py.
+
+    Una respuesta vacía cuenta como fallo: es lo que devuelve Gemini cuando un
+    filtro bloquea la salida, y el agente siguiente trabajaría sobre nada.
+    Agotados los reintentos se lanza `GeminiSinRespuesta`, que `main` reporta
+    y convierte en un Action en rojo, sin tocar `app.py`.
+    """
+    dormir = dormir or time.sleep
+    for intento in range(1, max_reintentos + 1):
+        try:
+            respuesta = llm.invoke(mensajes)
+            if not texto_de_respuesta(respuesta).strip():
+                raise ValueError("La API de Gemini devolvió una respuesta vacía o bloqueada por filtros.")
+            return respuesta
+        except Exception as exc:  # El SDK no tiene una jerarquía común de errores de red y de cuota.
+            print(f"  -> [{agente}] Error en la llamada a Gemini (intento {intento}/{max_reintentos}): {exc}")
+            if intento == max_reintentos:
+                raise GeminiSinRespuesta(
+                    f"[{agente}] Gemini no respondió tras {max_reintentos} intentos: {exc}") from exc
+            dormir(2 ** (intento - 1))
+    raise GeminiSinRespuesta(f"[{agente}] max_reintentos debe ser al menos 1 (llegó {max_reintentos}).")
 
 
 def _linea_del_fallo(mensaje: str) -> Optional[int]:
@@ -835,7 +872,8 @@ def agente_extractor(state: GraphState, llm: Any) -> Dict[str, Any]:
     contenido = leer_archivo(state["file_path"])
     humano = (HumanMessage(content=contenido) if isinstance(contenido, list)
               else HumanMessage(content=f"CONTENIDO DEL DOCUMENTO:\n{contenido}"))
-    respuesta = llm.invoke([SystemMessage(content=PROMPT_EXTRACTOR), humano])
+    respuesta = invocar_con_reintentos(llm, [SystemMessage(content=PROMPT_EXTRACTOR), humano],
+                                       "Agente 1 - Extractor")
     return {
         "extracted_json": limpiar_bloque_de_codigo(texto_de_respuesta(respuesta), "json"),
         "retry_count": 0, "validation_error": None, "error_history": [],
@@ -847,7 +885,8 @@ def agente_ux(state: GraphState, llm: Any) -> Dict[str, Any]:
     """Agente 2: especificación UX/UI del dashboard."""
     print(" [Agente 2] Diseñando wireframe y especificación UX/UI del Dashboard...")
     prompt = PROMPT_UX + f"ESQUEMA DE DATOS:\n{state['extracted_json']}"
-    return {"ux_prompt": texto_de_respuesta(llm.invoke([HumanMessage(content=prompt)]))}
+    respuesta = invocar_con_reintentos(llm, [HumanMessage(content=prompt)], "Agente 2 - UX")
+    return {"ux_prompt": texto_de_respuesta(respuesta)}
 
 
 def _seccion_de_retroalimentacion(state: GraphState) -> str:
@@ -883,7 +922,8 @@ def agente_desarrollador(state: GraphState, llm: Any) -> Dict[str, Any]:
     print(f" [Agente 3] Generando app.py autocontenido (Intento {intento + 1})...")
     prompt = (PROMPT_DESARROLLADOR + f"ESQUEMA Y DATOS:\n{state['extracted_json']}\n\n"
               f"ESPECIFICACIÓN UX:\n{state['ux_prompt']}" + _seccion_de_retroalimentacion(state))
-    respuesta = llm.invoke([_mensaje_para_desarrollador(prompt, state.get("ui_screenshot"))])
+    respuesta = invocar_con_reintentos(llm, [_mensaje_para_desarrollador(prompt, state.get("ui_screenshot"))],
+                                       "Agente 3 - Dev")
     codigo = sanitizar_codigo(limpiar_bloque_de_codigo(texto_de_respuesta(respuesta), "python"))
     return {"python_code": codigo, "retry_count": intento + 1}
 

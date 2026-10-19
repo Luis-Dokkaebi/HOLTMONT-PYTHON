@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import re
 import threading
 from pathlib import Path
 from typing import Any, Dict, List
@@ -198,6 +199,13 @@ class _GitHubLocal(http.server.BaseHTTPRequestHandler):
         if self.estado >= 400:
             self.wfile.write(b'{"message": "Not Found"}')
 
+    def do_GET(self) -> None:
+        _GitHubLocal.recibido = {"ruta": self.path, "autorizacion": self.headers["Authorization"],
+                                 "metodo": self.command}
+        self.send_response(self.estado)
+        self.end_headers()
+        self.wfile.write(b'{"workflow_runs": []}' if self.estado < 400 else b'{"message": "Not Found"}')
+
     def log_message(self, *args) -> None:
         return
 
@@ -224,6 +232,239 @@ def test_post_json_devuelve_el_error_de_github_sin_lanzar(github_local):
     _GitHubLocal.estado = 404
 
     assert dashboard_pwo._post_json(f"{github_local}/x", {}, {}) == (404, '{"message": "Not Found"}')
+
+
+def test_get_json_pide_con_el_token_y_devuelve_el_cuerpo(github_local):
+    _GitHubLocal.estado = 200
+
+    estado, texto = dashboard_pwo._get_json(f"{github_local}/repos/o/r/actions/runs?event=x",
+                                           {"Authorization": "Bearer t"})
+
+    assert (estado, json.loads(texto)) == (200, {"workflow_runs": []})
+    assert _GitHubLocal.recibido == {"ruta": "/repos/o/r/actions/runs?event=x", "autorizacion": "Bearer t",
+                                     "metodo": "GET"}
+
+
+def test_get_json_devuelve_el_error_de_github_sin_lanzar(github_local):
+    _GitHubLocal.estado = 404
+
+    assert dashboard_pwo._get_json(f"{github_local}/x", {}) == (404, '{"message": "Not Found"}')
+
+
+# --- Apartado Dashboard Streamlit: procesar ---------------------------------
+
+def test_procesar_manda_una_solicitud_en_el_aviso_y_la_devuelve_para_seguirla():
+    github = GitHubDeMentiras()
+
+    respuesta = dashboard_pwo.procesar(ARCHIVO, "ANTONIO_SALAZAR", entorno=ENTORNO, enviar=github)
+
+    (peticion,) = github.peticiones
+    carga = peticion["cuerpo"]["client_payload"]
+    assert respuesta["success"] is True
+    assert respuesta["url"] == "https://holtmont-pwo.streamlit.app"
+    assert respuesta["solicitud"] == carga["solicitud"]
+    assert re.fullmatch(r"[0-9a-f]{12}", carga["solicitud"])
+    assert carga == {"file_url": ARCHIVO, "folio": "", "usuario": "ANTONIO_SALAZAR",
+                     "solicitud": respuesta["solicitud"]}
+    assert peticion["cuerpo"]["event_type"] == dashboard_pwo.EVENTO
+
+
+def test_cada_procesamiento_lleva_su_propia_solicitud():
+    github = GitHubDeMentiras()
+
+    primera = dashboard_pwo.procesar(ARCHIVO, entorno=ENTORNO, enviar=github)["solicitud"]
+    segunda = dashboard_pwo.procesar(ARCHIVO, entorno=ENTORNO, enviar=github)["solicitud"]
+
+    assert primera != segunda
+
+
+def test_si_el_aviso_no_sale_no_se_entrega_solicitud_que_seguir():
+    github = GitHubDeMentiras()
+
+    respuesta = dashboard_pwo.procesar(ARCHIVO, entorno={**ENTORNO, "DASHBOARD_PWO_TOKEN": ""}, enviar=github)
+
+    assert respuesta["success"] is False
+    assert "solicitud" not in respuesta
+    assert "DASHBOARD_PWO_TOKEN" in respuesta["message"]
+    assert github.peticiones == []
+
+
+def test_procesar_solo_acepta_documentos_del_storage_de_holtmont():
+    github = GitHubDeMentiras()
+
+    respuesta = dashboard_pwo.procesar("https://otro-sitio.com/a.xlsx", entorno=ENTORNO, enviar=github)
+
+    assert respuesta["success"] is False
+    assert github.peticiones == []
+
+
+# --- Apartado Dashboard Streamlit: seguir la corrida del Action -------------
+
+SOLICITUD = "0123456789ab"
+
+
+class CorridasDeMentiras:
+    """El listado de corridas de GitHub: anota la consulta y contesta lo que se le diga."""
+
+    def __init__(self, corridas: List[Dict[str, Any]] = (), estado: int = 200, texto: str = "") -> None:
+        self.estado = estado
+        self.texto = texto or json.dumps({"total_count": len(corridas), "workflow_runs": list(corridas)})
+        self.consultas: List[Dict[str, Any]] = []
+
+    def __call__(self, url: str, encabezados: Dict[str, str]):
+        self.consultas.append({"url": url, "encabezados": encabezados})
+        return self.estado, self.texto
+
+
+def _corrida(status: str, conclusion: Any = None, solicitud: str = SOLICITUD) -> Dict[str, Any]:
+    return {"id": 1, "display_title": dashboard_pwo.TITULO_DE_CORRIDA.format(solicitud=solicitud),
+            "status": status, "conclusion": conclusion,
+            "html_url": "https://github.com/Luis-py-stack/Agente_Full/actions/runs/1"}
+
+
+def test_se_pregunta_a_github_por_las_corridas_del_aviso_con_el_token():
+    github = CorridasDeMentiras()
+
+    dashboard_pwo.estado(SOLICITUD, entorno=ENTORNO, consultar=github)
+
+    (consulta,) = github.consultas
+    assert consulta["url"] == ("https://api.github.com/repos/Luis-py-stack/Agente_Full/actions/runs"
+                               "?event=repository_dispatch&per_page=50")
+    assert consulta["encabezados"]["Authorization"] == f"Bearer {TOKEN}"
+    assert consulta["encabezados"]["Accept"] == "application/vnd.github+json"
+
+
+def test_mientras_github_no_crea_la_corrida_se_dice_que_no_ha_iniciado():
+    otra = _corrida("in_progress", solicitud="ffffffffffff")
+    vieja = {**_corrida("completed", "success"), "display_title": "Dashboard PWO"}
+
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno=ENTORNO, consultar=CorridasDeMentiras([otra, vieja]))
+
+    assert respuesta["success"] is True
+    assert respuesta["estado"] == "SIN_INICIAR"
+    assert respuesta["run_url"] == ""
+
+
+@pytest.mark.parametrize("status,esperado", [
+    ("queued", "EN_COLA"), ("waiting", "EN_COLA"), ("requested", "EN_COLA"), ("pending", "EN_COLA"),
+    ("in_progress", "PROCESANDO"),
+])
+def test_una_corrida_sin_terminar_se_reporta_en_marcha(status, esperado):
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno=ENTORNO, consultar=CorridasDeMentiras([_corrida(status)]))
+
+    assert respuesta["success"] is True
+    assert respuesta["estado"] == esperado
+    assert respuesta["run_url"].endswith("/actions/runs/1")
+
+
+def test_al_terminar_bien_se_entrega_la_liga_corta_y_el_repositorio():
+    corridas = CorridasDeMentiras([_corrida("in_progress", solicitud="ffffffffffff"),
+                                   _corrida("completed", "success")])
+
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno=ENTORNO, consultar=corridas)
+
+    assert respuesta == {
+        "success": True, "estado": "EXITOSO", "message": "Dashboard generado en GitHub.",
+        "url": "https://holtmont-pwo.streamlit.app",
+        "repo_url": "https://github.com/Luis-py-stack/Agente_Full",
+        "run_url": "https://github.com/Luis-py-stack/Agente_Full/actions/runs/1"}
+
+
+@pytest.mark.parametrize("conclusion,frase", [
+    ("failure", "dashboard anterior"),
+    ("cancelled", "Se canceló"),
+    ("timed_out", "tiempo máximo"),
+    ("action_required", "'action_required'"),
+    (None, "''"),
+])
+def test_una_corrida_que_no_termina_bien_se_reporta_como_error(conclusion, frase):
+    corridas = CorridasDeMentiras([_corrida("completed", conclusion)])
+
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno=ENTORNO, consultar=corridas)
+
+    assert respuesta["success"] is True
+    assert respuesta["estado"] == "ERROR"
+    assert frase in respuesta["message"]
+
+
+@pytest.mark.parametrize("solicitud", ["", "  ", "0123456789AB", "0123456789abc", "0123456789a",
+                                       "0123456789a\n", "../../orgs/x", "0123456789ag"])
+def test_una_solicitud_mal_formada_no_llega_a_github(solicitud):
+    github = CorridasDeMentiras()
+
+    respuesta = dashboard_pwo.estado(solicitud, entorno=ENTORNO, consultar=github)
+
+    assert respuesta["success"] is False
+    assert "solicitud" in respuesta["message"]
+    assert github.consultas == []
+
+
+def test_la_solicitud_se_acepta_con_espacios_alrededor():
+    respuesta = dashboard_pwo.estado(f" {SOLICITUD}\n", entorno=ENTORNO,
+                                     consultar=CorridasDeMentiras([_corrida("completed", "success")]))
+
+    assert respuesta["estado"] == "EXITOSO"
+
+
+@pytest.mark.parametrize("faltante", ["DASHBOARD_PWO_REPO", "DASHBOARD_PWO_TOKEN", "DASHBOARD_PWO_URL"])
+def test_sin_configuracion_no_se_pregunta_a_github(faltante):
+    github = CorridasDeMentiras()
+
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno={**ENTORNO, faltante: ""}, consultar=github)
+
+    assert respuesta["success"] is False
+    assert faltante in respuesta["message"]
+    assert github.consultas == []
+
+
+def test_con_el_repositorio_mal_escrito_no_se_arma_la_liga_del_repositorio():
+    github = CorridasDeMentiras()
+
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno={**ENTORNO, "DASHBOARD_PWO_REPO": "a/b/../c"},
+                                     consultar=github)
+
+    assert respuesta["success"] is False
+    assert respuesta["repo_url"] == ""
+    assert "DASHBOARD_PWO_REPO" in respuesta["message"]
+    assert github.consultas == []
+
+
+@pytest.mark.parametrize("codigo", [403, 404])
+def test_un_token_sin_permiso_de_actions_se_explica_sin_filtrarlo(codigo):
+    github = CorridasDeMentiras(estado=codigo, texto=json.dumps({"message": f"Resource not accessible {TOKEN}"}))
+
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno=ENTORNO, consultar=github)
+
+    assert respuesta["success"] is False
+    assert f"GitHub respondió {codigo}" in respuesta["message"]
+    assert "Actions: Read" in respuesta["message"]
+    assert TOKEN not in respuesta["message"]
+
+
+def test_otro_rechazo_de_github_se_reporta_sin_la_pista_de_permisos():
+    github = CorridasDeMentiras(estado=500, texto="Server Error")
+
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno=ENTORNO, consultar=github)
+
+    assert respuesta["message"] == "GitHub respondió 500: Server Error"
+
+
+def test_sin_red_el_seguimiento_se_reporta_sin_filtrar_el_token():
+    def sin_red(url, encabezados):
+        raise OSError(f"timed out con {TOKEN}")
+
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno=ENTORNO, consultar=sin_red)
+
+    assert respuesta["success"] is False
+    assert respuesta["message"] == "No se pudo consultar a GitHub: timed out con ***"
+
+
+@pytest.mark.parametrize("texto", ["no es json", "[1, 2]", '{"workflow_runs": null}', '{"workflow_runs": [1]}'])
+def test_una_respuesta_rara_de_github_cuenta_como_corrida_no_encontrada(texto):
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno=ENTORNO, consultar=CorridasDeMentiras(texto=texto))
+
+    assert respuesta["success"] is True
+    assert respuesta["estado"] == "SIN_INICIAR"
 
 
 # --- Los endpoints ----------------------------------------------------------
@@ -263,6 +504,41 @@ def test_el_endpoint_de_la_liga_corta(cliente):
         "success": True, "url": "https://holtmont-pwo.streamlit.app", "configurado": True}
 
 
+def test_el_endpoint_procesar_avisa_con_solicitud(cliente, monkeypatch):
+    github = GitHubDeMentiras()
+    monkeypatch.setattr(dashboard_pwo, "_post_json", github)
+
+    respuesta = cliente.post("/api/dashboard/procesar", json={"fileUrl": ARCHIVO, "usuario": "ANTONIO_SALAZAR"})
+
+    cuerpo = respuesta.json()
+    assert respuesta.status_code == 200
+    assert cuerpo["success"] is True
+    assert github.peticiones[0]["cuerpo"]["client_payload"] == {
+        "file_url": ARCHIVO, "folio": "", "usuario": "ANTONIO_SALAZAR", "solicitud": cuerpo["solicitud"]}
+
+
+def test_el_endpoint_procesar_acepta_la_peticion_sin_usuario(cliente, monkeypatch):
+    github = GitHubDeMentiras()
+    monkeypatch.setattr(dashboard_pwo, "_post_json", github)
+
+    cliente.post("/api/dashboard/procesar", json={"fileUrl": ARCHIVO})
+
+    assert github.peticiones[0]["cuerpo"]["client_payload"]["usuario"] == ""
+
+
+def test_el_endpoint_de_estado_sigue_la_corrida(cliente, monkeypatch):
+    monkeypatch.setattr(dashboard_pwo, "_get_json", CorridasDeMentiras([_corrida("completed", "success")]))
+
+    cuerpo = cliente.get("/api/dashboard/estado", params={"solicitud": SOLICITUD}).json()
+
+    assert cuerpo["estado"] == "EXITOSO"
+    assert cuerpo["url"] == "https://holtmont-pwo.streamlit.app"
+
+
+def test_el_endpoint_de_estado_exige_la_solicitud(cliente):
+    assert cliente.get("/api/dashboard/estado").status_code == 422
+
+
 # --- El contrato con el Action de Agente_Full -------------------------------
 
 def _workflow() -> Dict[str, Any]:
@@ -274,6 +550,13 @@ def _workflow() -> Dict[str, Any]:
 def test_el_action_escucha_el_mismo_evento_que_manda_holtmont():
     # PyYAML lee la clave `on:` como el booleano True.
     assert _workflow()[True]["repository_dispatch"]["types"] == [dashboard_pwo.EVENTO]
+
+
+def test_la_corrida_del_action_lleva_la_solicitud_en_el_nombre_que_busca_el_seguimiento():
+    """Sin esto `estado` nunca encuentra la corrida y la pantalla se queda en "Cargando..."."""
+    esperado = dashboard_pwo.TITULO_DE_CORRIDA.format(solicitud="${{ github.event.client_payload.solicitud }}")
+
+    assert _workflow()["run-name"] == esperado
 
 
 def test_el_action_lee_las_claves_que_manda_holtmont():

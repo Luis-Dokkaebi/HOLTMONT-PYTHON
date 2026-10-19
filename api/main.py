@@ -162,6 +162,29 @@ def api_pwo_dashboard_link():
     return dashboard_pwo.link()
 
 
+class DashboardStreamlitRequest(BaseModel):
+    fileUrl: str
+    usuario: Optional[str] = None
+
+
+@app.post("/api/dashboard/procesar")
+def api_dashboard_procesar(req: DashboardStreamlitRequest):
+    """El botón Procesar del apartado Dashboard Streamlit (bandera `dashboard_streamlit`).
+
+    Mismo aviso que `/api/pwo/dashboard`, más la `solicitud` con la que la
+    pantalla sigue la corrida. `def` por la misma razón: la llamada a GitHub es
+    bloqueante. Como el resto de la API, no repite la comprobación de la
+    bandera: quién ve el apartado lo decide `/api/config`.
+    """
+    return dashboard_pwo.procesar(req.fileUrl, req.usuario or "")
+
+
+@app.get("/api/dashboard/estado")
+def api_dashboard_estado(solicitud: str = Query(..., description="La que devolvió /api/dashboard/procesar")):
+    """En qué va la corrida del Action: SIN_INICIAR, EN_COLA, PROCESANDO, EXITOSO o ERROR."""
+    return dashboard_pwo.estado(solicitud)
+
+
 class Plano2DRequest(BaseModel):
     descripcion: str
 
@@ -737,6 +760,20 @@ def _con_agente(modulos: List[Dict[str, Any]], agente_module: Dict[str, Any],
     return [*modulos, agente_module] if visible else list(modulos)
 
 
+def _con_dashboard_streamlit(modulos: List[Dict[str, Any]], cuenta: str) -> List[Dict[str, Any]]:
+    """
+    Agrega el apartado Dashboard Streamlit si la cuenta lleva la bandera.
+
+    `dashboard_streamlit` es aditiva, como `prospeccion`. Decisión del dueño
+    (2026-10-19): solo ANTONIO_SALAZAR. Va fuera de `api_get_system_config`
+    por la misma razón de puerta que `_con_agente`: no sube su complejidad.
+    """
+    modulo = {"id": "DASHBOARD_STREAMLIT", "label": "Dashboard Streamlit", "icon": "fa-chart-pie",
+              "color": "#ff4b4b", "type": "dashboard_streamlit_view"}
+    visible = bool(organigrama.perfil(cuenta).get("dashboard_streamlit"))
+    return [*modulos, modulo] if visible else list(modulos)
+
+
 @app.get("/api/config")
 def api_get_system_config(
     role: str = Query(..., description="Rol del usuario"),
@@ -864,8 +901,9 @@ def api_get_system_config(
             "directory": full_directory,
             # Solo con la bandera `prospeccion` en el perfil. El STAFF_USER
             # genérico no la trae y no tiene por qué llevarse el directorio.
-            "specialModules": _con_agente(_con_prospeccion(modulos, geo_module, ve_prospeccion),
-                                          agente_module, ve_agente_sql),
+            "specialModules": _con_dashboard_streamlit(
+                _con_agente(_con_prospeccion(modulos, geo_module, ve_prospeccion), agente_module, ve_agente_sql),
+                cuenta),
             "accessProjects": False,
             "canSeeBancoJuntas": False,
             "canManageTickets": puede_gestionar_tickets,
