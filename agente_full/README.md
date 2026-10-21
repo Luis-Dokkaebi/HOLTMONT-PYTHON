@@ -77,11 +77,14 @@ URL pública del Storage de Holtmont (la misma `SUPABASE_URL` del despliegue).
 
 | Variable | Valor |
 | --- | --- |
-| `DASHBOARD_PWO_REPO` | `Luis-py-stack/Agente_Full` |
-| `DASHBOARD_PWO_TOKEN` | token *fine-grained* solo para `Agente_Full`, permisos **Contents: Read and write** (lo pide el `repository_dispatch`) y **Actions: Read** (con él el apartado Dashboard Streamlit sabe cuándo terminó) |
-| `DASHBOARD_PWO_URL` | la liga corta del paso 3: `https://agentefull-mhytzkjfr38ukzqxnuxbkf.streamlit.app/` |
+| `DASHBOARD_PWO_TOKEN` | **obligatoria.** Token *fine-grained* solo para `Agente_Full`, permisos **Contents: Read and write** (lo pide el `repository_dispatch`) y **Actions: Read** (con él el apartado Dashboard Streamlit sabe cuándo terminó) |
+| `DASHBOARD_PWO_REPO` | opcional; si no está, `Luis-py-stack/Agente_Full` |
+| `DASHBOARD_PWO_URL` | opcional; si no está, la liga corta del paso 3: `https://agentefull-mhytzkjfr38ukzqxnuxbkf.streamlit.app/` |
 
-Sin las tres, la PWO no dispara nada y el botón DASHBOARD queda desactivado.
+Sin el token, la PWO no dispara nada, el botón DASHBOARD queda desactivado y el
+apartado Dashboard Streamlit responde "Falta configurar DASHBOARD_PWO_TOKEN".
+Vercel solo lee las variables al desplegar: después de agregarla (entorno
+**Production**), **Redeploy**.
 
 ## Prueba manual
 

@@ -928,9 +928,9 @@ paths:
       operationId: apiPwoDashboardLink
       summary: La liga corta del dashboard de la Pre Work Order.
       description: >
-        `configurado` es `true` solo si están `DASHBOARD_PWO_REPO`,
-        `DASHBOARD_PWO_TOKEN` y `DASHBOARD_PWO_URL`. El token nunca baja al
-        navegador.
+        `configurado` es `true` si está `DASHBOARD_PWO_TOKEN`;
+        `DASHBOARD_PWO_REPO` y `DASHBOARD_PWO_URL` son opcionales y, si
+        faltan, valen los de Agente_Full. El token nunca baja al navegador.
       responses:
         "200":
           description: La liga y si la PWO puede pedir regenerarla.

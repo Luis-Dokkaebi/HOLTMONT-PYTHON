@@ -32,10 +32,14 @@ corrida en GitHub y dice en qué va.
 
 Configuración (variables de entorno del despliegue):
 
-    DASHBOARD_PWO_REPO   dueño/repositorio, p. ej. Luis-py-stack/Agente_Full
-    DASHBOARD_PWO_TOKEN  token con Contents: Read and write (el aviso) y
-                         Actions: Read (el seguimiento del apartado)
-    DASHBOARD_PWO_URL    la liga corta de Streamlit Cloud
+    DASHBOARD_PWO_TOKEN  obligatoria. Token con Contents: Read and write (el
+                         aviso) y Actions: Read (el seguimiento del apartado)
+    DASHBOARD_PWO_REPO   opcional; por defecto Luis-py-stack/Agente_Full
+    DASHBOARD_PWO_URL    opcional; por defecto la liga corta de Streamlit Cloud
+
+Repositorio y liga no son secretos y traen valor por defecto. Antes, un
+despliegue sin variables pedía las tres; ahora solo pide el token, que es lo
+único que no puede vivir en el código.
 """
 
 from __future__ import annotations
@@ -54,6 +58,11 @@ EVENTO = "pwo_dashboard"
 EXTENSIONES_DE_DATOS = (".xlsx", ".xls", ".csv", ".pdf", ".docx")
 RUTA_PUBLICA_STORAGE = "/storage/v1/object/public/"
 _REPO_VALIDO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# Los de agente_full/README.md. El token no tiene valor por defecto: es secreto.
+_POR_DEFECTO = {
+    "DASHBOARD_PWO_REPO": "Luis-py-stack/Agente_Full",
+    "DASHBOARD_PWO_URL": "https://agentefull-mhytzkjfr38ukzqxnuxbkf.streamlit.app/",
+}
 # El `run-name` de agente_full/workflow_dashboard_pwo.yml. Si cambia allá, el
 # seguimiento deja de encontrar la corrida (lo cuida tests/test_dashboard_pwo.py).
 TITULO_DE_CORRIDA = "Dashboard PWO {solicitud}"
@@ -82,7 +91,7 @@ def es_archivo_de_datos(url_o_nombre: Any) -> bool:
 
 
 def _configuracion(entorno: Mapping[str, str]) -> Dict[str, str]:
-    return {clave: str(entorno.get(clave) or "").strip()
+    return {clave: str(entorno.get(clave) or "").strip() or _POR_DEFECTO.get(clave, "")
             for clave in ("DASHBOARD_PWO_REPO", "DASHBOARD_PWO_TOKEN", "DASHBOARD_PWO_URL")}
 
 
@@ -108,9 +117,9 @@ def _repo_valido(repo: str) -> bool:
 
 def _motivo_de_configuracion(config: Dict[str, str]) -> Optional[str]:
     """Qué le falta a la configuración del despliegue, o None si está completa."""
-    faltan = [clave for clave, valor in config.items() if not valor]
-    if faltan:
-        return "Falta configurar " + ", ".join(faltan) + " en el despliegue."
+    if not config["DASHBOARD_PWO_TOKEN"]:
+        return ("Falta configurar DASHBOARD_PWO_TOKEN en el despliegue: agrégalo en Vercel "
+                "(Settings → Environment Variables, entorno Production) y vuelve a desplegar.")
     if not _repo_valido(config["DASHBOARD_PWO_REPO"]):
         return (f"DASHBOARD_PWO_REPO debe tener la forma dueño/repositorio "
                 f"(llegó '{config['DASHBOARD_PWO_REPO']}').")
