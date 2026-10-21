@@ -77,6 +77,44 @@ def test_sin_token_la_liga_existe_pero_el_dashboard_no_se_puede_regenerar():
         "success": True, "url": "https://holtmont-pwo.streamlit.app", "configurado": False}
 
 
+# Repositorio y liga no son secretos (están en agente_full/README.md): si el
+# despliegue no los trae, se usan los de Agente_Full. El token sí es secreto y
+# es lo único que el despliegue tiene que poner.
+REPO_DE_AGENTE_FULL = "Luis-py-stack/Agente_Full"
+LIGA_DE_AGENTE_FULL = "https://agentefull-mhytzkjfr38ukzqxnuxbkf.streamlit.app/"
+SOLO_EL_TOKEN = {"SUPABASE_URL": SUPABASE, "DASHBOARD_PWO_TOKEN": TOKEN}
+
+
+def test_sin_repositorio_ni_liga_en_el_despliegue_la_liga_es_la_de_agente_full():
+    assert dashboard_pwo.link(SOLO_EL_TOKEN) == {
+        "success": True, "url": LIGA_DE_AGENTE_FULL, "configurado": True}
+
+
+def test_con_solo_el_token_el_aviso_llega_al_repositorio_de_agente_full():
+    github = GitHubDeMentiras()
+
+    respuesta = dashboard_pwo.disparar(ARCHIVO, entorno=SOLO_EL_TOKEN, enviar=github)
+
+    assert respuesta["success"] is True
+    assert respuesta["url"] == LIGA_DE_AGENTE_FULL
+    assert github.peticiones[0]["url"] == f"https://api.github.com/repos/{REPO_DE_AGENTE_FULL}/dispatches"
+
+
+def test_sin_nada_configurado_solo_se_pide_el_token_y_donde_ponerlo():
+    """El error del apartado: las tres variables faltaban en Vercel y se pedían las tres."""
+    github = GitHubDeMentiras()
+
+    respuesta = dashboard_pwo.procesar(ARCHIVO, "ANTONIO_SALAZAR", entorno={"SUPABASE_URL": SUPABASE},
+                                       enviar=github)
+
+    assert respuesta["success"] is False
+    assert respuesta["message"] == (
+        "Falta configurar DASHBOARD_PWO_TOKEN en el despliegue: agrégalo en Vercel "
+        "(Settings → Environment Variables, entorno Production) y vuelve a desplegar.")
+    assert respuesta["url"] == LIGA_DE_AGENTE_FULL
+    assert github.peticiones == []
+
+
 def test_subir_un_documento_manda_el_aviso_que_espera_el_action():
     github = GitHubDeMentiras()
 
@@ -140,15 +178,27 @@ def test_una_foto_no_dispara_el_dashboard_aunque_venga_del_storage():
     assert github.peticiones == []
 
 
-@pytest.mark.parametrize("faltante", ["DASHBOARD_PWO_REPO", "DASHBOARD_PWO_TOKEN", "DASHBOARD_PWO_URL"])
-def test_sin_configuracion_se_dice_que_falta_y_no_se_llama_a_github(faltante):
+def test_sin_token_se_dice_que_falta_y_no_se_llama_a_github():
     github = GitHubDeMentiras()
 
-    respuesta = dashboard_pwo.disparar(ARCHIVO, entorno={**ENTORNO, faltante: "  "}, enviar=github)
+    respuesta = dashboard_pwo.disparar(ARCHIVO, entorno={**ENTORNO, "DASHBOARD_PWO_TOKEN": "  "}, enviar=github)
 
     assert respuesta["success"] is False
-    assert faltante in respuesta["message"]
+    assert "DASHBOARD_PWO_TOKEN" in respuesta["message"]
     assert github.peticiones == []
+
+
+@pytest.mark.parametrize("en_blanco, esperado", [
+    ("DASHBOARD_PWO_REPO", f"https://api.github.com/repos/{REPO_DE_AGENTE_FULL}/dispatches"),
+    ("DASHBOARD_PWO_URL", LIGA_DE_AGENTE_FULL),
+])
+def test_repositorio_o_liga_en_blanco_toman_los_de_agente_full(en_blanco, esperado):
+    github = GitHubDeMentiras()
+
+    respuesta = dashboard_pwo.disparar(ARCHIVO, entorno={**ENTORNO, en_blanco: "  "}, enviar=github)
+
+    assert respuesta["success"] is True
+    assert esperado in (respuesta["url"], github.peticiones[0]["url"])
 
 
 @pytest.mark.parametrize("repo", ["Agente_Full", "dueño/Agente_Full", "a/b/../../orgs/x", "a/b?x=1"])
@@ -406,15 +456,25 @@ def test_la_solicitud_se_acepta_con_espacios_alrededor():
     assert respuesta["estado"] == "EXITOSO"
 
 
-@pytest.mark.parametrize("faltante", ["DASHBOARD_PWO_REPO", "DASHBOARD_PWO_TOKEN", "DASHBOARD_PWO_URL"])
-def test_sin_configuracion_no_se_pregunta_a_github(faltante):
+def test_sin_token_no_se_pregunta_a_github():
     github = CorridasDeMentiras()
 
-    respuesta = dashboard_pwo.estado(SOLICITUD, entorno={**ENTORNO, faltante: ""}, consultar=github)
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno={**ENTORNO, "DASHBOARD_PWO_TOKEN": ""}, consultar=github)
 
     assert respuesta["success"] is False
-    assert faltante in respuesta["message"]
+    assert "DASHBOARD_PWO_TOKEN" in respuesta["message"]
     assert github.consultas == []
+
+
+def test_con_solo_el_token_se_sigue_la_corrida_en_agente_full():
+    github = CorridasDeMentiras([_corrida("completed", "success")])
+
+    respuesta = dashboard_pwo.estado(SOLICITUD, entorno=SOLO_EL_TOKEN, consultar=github)
+
+    assert respuesta["estado"] == "EXITOSO"
+    assert respuesta["url"] == LIGA_DE_AGENTE_FULL
+    assert respuesta["repo_url"] == f"https://github.com/{REPO_DE_AGENTE_FULL}"
+    assert github.consultas[0]["url"].startswith(f"https://api.github.com/repos/{REPO_DE_AGENTE_FULL}/actions/runs")
 
 
 def test_con_el_repositorio_mal_escrito_no_se_arma_la_liga_del_repositorio():
