@@ -300,32 +300,81 @@
     }
     /* ============================================================
        PANTALLA DE McDONALD'S — televisión colgada, solo lectura
-       Los tamaños son para leerse a cuatro metros, no en un escritorio:
-       de ahí las unidades en vw y no en px. Una tabla de pared con la
-       letra del Tracker no se lee, y una que no se lee no informa.
+       Se parece a la hoja de Google que la oficina ya lee (decisión del
+       dueño, 2026-10-29): fondo blanco, encabezado verde azulado y el
+       mismo semáforo en las fechas y en DÍAS. Lo que cambia es la escala.
+
+       Todo se mide en vh: la página tiene que caber ENTERA en la altura
+       de la tele, pie incluido, porque en el pie vive el aviso de datos
+       viejos. Con la página llena el pie se salía por abajo y una pared
+       congelada no tenía forma de decirlo.
+         cabeza ~9vh + encabezado ~4vh + 15 filas x 5vh + pie ~4vh < 100vh
        ============================================================ */
     .pantalla-tv {
+        --tv-rojo: #ea4335; --tv-amarillo: #fbe62c; --tv-verde: #34c759;
+        --tv-encabezado: #1f6b62; --tv-gris: #5f6368; --tv-regla: #dadce0;
         position: fixed; inset: 0; z-index: 4000;
-        background: #0b1220; color: #e9eef7;
-        display: flex; flex-direction: column; padding: 1.5vw 2vw;
-        font-size: 1.15vw;
+        background: #ffffff; color: #202124;
+        display: flex; flex-direction: column; overflow: hidden;
+        font-family: Arial, Helvetica, sans-serif;
     }
-    .pantalla-tv h1 { font-size: 2.6vw; font-weight: 800; margin: 0; letter-spacing: .04em; }
-    .pantalla-tv table { width: 100%; border-collapse: collapse; }
+    .pantalla-tv .cabeza {
+        flex: none; display: flex; align-items: center; justify-content: space-between;
+        gap: 1.5vw; padding: 1vh 1.2vw; background: #f1f3f4; border-bottom: 1px solid var(--tv-regla);
+    }
+    .pantalla-tv .quien { display: flex; align-items: center; gap: 1vw; min-width: 0; }
+    .pantalla-tv .foto { width: 6.5vh; height: 6.5vh; border-radius: 50%; object-fit: cover;
+        border: 2px solid var(--tv-encabezado); flex: none; }
+    .pantalla-tv .quien > div { min-width: 0; }
+    .pantalla-tv h1 { font-size: 3.4vh; font-weight: 700; margin: 0; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; }
+    .pantalla-tv .sub { font-size: 1.9vh; color: var(--tv-gris); white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; }
+    .pantalla-tv .kpis { display: flex; gap: .7vw; flex: none; }
+    .pantalla-tv .kpi { min-width: 7vw; padding: .5vh .8vw; border-radius: 6px; text-align: center;
+        line-height: 1.1; }
+    .pantalla-tv .kpi b { display: block; font-size: 3.6vh; }
+    .pantalla-tv .kpi span { font-size: 1.5vh; text-transform: uppercase; letter-spacing: .04em; }
+    .pantalla-tv .kpi.rojo { background: var(--tv-rojo); color: #fff; }
+    .pantalla-tv .kpi.amarillo { background: var(--tv-amarillo); color: #202124; }
+    .pantalla-tv .kpi.verde { background: var(--tv-verde); color: #fff; }
+    .pantalla-tv .kpi.sin { background: #e8eaed; color: #3c4043; }
+    .pantalla-tv .cuerpo { flex: 1; min-height: 0; overflow: hidden; }
+    .pantalla-tv table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     .pantalla-tv th {
-        font-size: 1.15vw; text-transform: uppercase; letter-spacing: .08em;
-        color: #8fa6c8; border-bottom: .25vw solid #1e3a5f; padding: .8vw .6vw; text-align: left;
+        background: var(--tv-encabezado); color: #fff; font-size: 1.6vh; font-weight: 700;
+        text-transform: uppercase; padding: .9vh .4vw; text-align: left;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .pantalla-tv td {
-        font-size: 1.5vw; padding: .9vw .6vw; border-bottom: 1px solid #16233a;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 22vw;
+        height: 5vh; font-size: 1.85vh; padding: 0 .4vw; overflow: hidden;
+        border-bottom: 1px solid #e0e0e0; border-right: 1px solid #eeeeee; background: #fff;
     }
-    .pantalla-tv .pie { display: flex; justify-content: space-between; align-items: center;
-        margin-top: auto; padding-top: 1vw; font-size: 1.2vw; color: #8fa6c8; }
+    .pantalla-tv tbody tr:nth-child(even) td { background: #f8f9fa; }
+    /* Dos renglones como mucho, igual que la hoja cuando el texto es largo. */
+    .pantalla-tv td .txt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        overflow: hidden; line-height: 1.15; word-break: break-word; }
+    .pantalla-tv td.centrado { text-align: center; }
+    .pantalla-tv .area { display: inline-block; max-width: 100%; padding: .2vh .5vw; border-radius: 1vh;
+        background: #e8eaed; font-size: 1.5vh; white-space: nowrap; overflow: hidden;
+        text-overflow: ellipsis; vertical-align: middle; }
+    /* El semáforo. Pisa el cebreado: es CODIFICACIÓN DE DATO, no decoración.
+       Lleva `tr` en el selector para igualar la especificidad del cebreado
+       (`tr:nth-child(even) td`) y gana por ir después; sin él, las filas
+       pares se quedaban grises y su color no se veía. */
+    .pantalla-tv tbody tr td.sem-rojo { background: var(--tv-rojo); color: #fff; font-weight: 700; }
+    .pantalla-tv tbody tr td.sem-amarillo { background: var(--tv-amarillo); color: #202124; font-weight: 700; }
+    .pantalla-tv tbody tr td.sem-verde { background: var(--tv-verde); color: #fff; font-weight: 700; }
+    .pantalla-tv .pie { flex: none; display: flex; justify-content: space-between; align-items: center;
+        gap: 1.5vw; padding: .8vh 1.2vw; font-size: 1.7vh; color: var(--tv-gris);
+        background: #f1f3f4; border-top: 1px solid var(--tv-regla); }
+    .pantalla-tv .leyenda i { display: inline-block; width: 1.4vh; height: 1.4vh; border-radius: 2px;
+        vertical-align: middle; margin: 0 .3vw 0 .8vw; }
+    .pantalla-tv .reloj { font-weight: 700; color: #202124; }
     /* El aviso de datos rancios. Rojo y grande a propósito: es lo único que
        distingue una pantalla viva de una congelada, que se ven idénticas. */
-    .pantalla-tv .rancio { color: #ff6b6b; font-weight: 700; }
-    .pantalla-tv .vacia { font-size: 2vw; color: #8fa6c8; text-align: center; padding: 6vw 0; }
+    .pantalla-tv .rancio { color: #d93025; font-weight: 700; }
+    .pantalla-tv .vacia { font-size: 3vh; color: var(--tv-gris); text-align: center; padding: 12vh 0; }
 
     .login-card {
         background-color: #1c1c1c;
@@ -960,31 +1009,62 @@
   <!-- formulario para siempre.                                      -->
   <!-- ============================================================ -->
   <div v-if="pantalla.activa" class="pantalla-tv" id="pantallaTv">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-          <h1 id="pantallaTitulo">{{ pantalla.hoja }}</h1>
-          <div id="pantallaResumen">{{ pantalla.pendientes }} pendientes de {{ pantalla.total }}</div>
+      <div class="cabeza">
+          <div class="quien">
+              <img v-if="pantalla.persona.foto" :src="pantalla.persona.foto" class="foto" id="pantallaFoto" alt="">
+              <div>
+                  <h1 id="pantallaTitulo">{{ pantalla.hoja }}</h1>
+                  <div class="sub" id="pantallaResumen">
+                      <span v-if="pantalla.tipo">{{ pantalla.tipo === 'ventas' ? 'Cotizaciones' : 'Actividades' }} · </span>{{ pantalla.pendientes }} pendientes de {{ pantalla.total }}<span v-if="pantalla.persona.puesto"> · {{ pantalla.persona.puesto }}</span>
+                  </div>
+              </div>
+          </div>
+          <!-- Lo que se lee desde la puerta: cuántas van tarde. -->
+          <div v-if="pantalla.semaforo" class="kpis" id="pantallaSemaforo">
+              <div class="kpi rojo" id="semaforoRojo"><b>{{ pantalla.semaforo.rojo }}</b><span>Vencidas</span></div>
+              <div class="kpi amarillo" id="semaforoAmarillo"><b>{{ pantalla.semaforo.amarillo }}</b><span>Por vencer</span></div>
+              <div class="kpi verde" id="semaforoVerde"><b>{{ pantalla.semaforo.verde }}</b><span>A tiempo</span></div>
+              <div class="kpi sin" id="semaforoSin"><b>{{ pantalla.semaforo.sin }}</b><span>Sin semáforo</span></div>
+          </div>
       </div>
 
-      <div v-if="pantalla.error" class="vacia" id="pantallaError">{{ pantalla.error }}</div>
+      <div class="cuerpo">
+          <div v-if="pantalla.error" class="vacia" id="pantallaError">{{ pantalla.error }}</div>
 
-      <table v-else-if="paginaVisible.length" id="pantallaTabla">
-          <thead>
-              <tr><th v-for="col in pantalla.columnas" :key="col">{{ col }}</th></tr>
-          </thead>
-          <tbody>
-              <tr v-for="(fila, i) in paginaVisible" :key="i">
-                  <td v-for="col in pantalla.columnas" :key="col">{{ fila[col] }}</td>
-              </tr>
-          </tbody>
-      </table>
+          <table v-else-if="paginaVisible.length" id="pantallaTabla">
+              <colgroup>
+                  <col v-for="col in pantalla.columnas" :key="col" :style="{ width: anchoPantalla(col) }">
+              </colgroup>
+              <thead>
+                  <tr><th v-for="col in pantalla.columnas" :key="col">{{ pantalla.etiquetas[col] || col }}</th></tr>
+              </thead>
+              <tbody>
+                  <tr v-for="(fila, i) in paginaVisible" :key="i">
+                      <td v-for="col in pantalla.columnas" :key="col" :class="claseCeldaPantalla(fila, col)">
+                          <span v-if="col === 'AREA' && fila[col]" class="area">{{ fila[col] }}</span>
+                          <div v-else class="txt">{{ fila[col] }}</div>
+                      </td>
+                  </tr>
+              </tbody>
+          </table>
 
-      <div v-else class="vacia" id="pantallaVacia">Sin pendientes.</div>
+          <div v-else class="vacia" id="pantallaVacia">Sin pendientes.</div>
+      </div>
 
       <div class="pie">
           <span id="pantallaPagina">
               Página {{ pantalla.pagina + 1 }} de {{ pantalla.paginas.length }}
               <span v-if="pantalla.recortado"> · mostrando {{ pantalla.mostradas }} de {{ pantalla.total }}</span>
           </span>
+          <!-- La leyenda sale de los límites que manda el backend, que son los
+               de `tracker_rules.SLA_LIMITS`: si cambian, cambia sola. -->
+          <span v-if="pantalla.limites" class="leyenda" id="pantallaLeyenda">
+              <i style="background: var(--tv-rojo)"></i>Vencida
+              <i style="background: var(--tv-amarillo)"></i>Por vencer
+              <i style="background: var(--tv-verde)"></i>A tiempo
+              · <span v-for="(dias, clase) in pantalla.limites" :key="clase">{{ clase }}: {{ dias }} días&nbsp; </span>
+          </span>
+          <span class="reloj" id="pantallaReloj">{{ pantalla.reloj }}</span>
           <!-- La frescura. Sin esto, una pantalla que perdió la red se ve
                exactamente igual que una al día, y alguien decide con datos
                de anteayer creyéndolos de ahora. -->
@@ -7004,8 +7084,29 @@ async function toggleVoiceRecording(btnElement) {
           // a eso. El reloj es el del navegador y no `generado_en` del backend
           // porque lo que se quiere medir es "cuánto llevo sin enterarme", y
           // comparar dos relojes distintos metería el desfase entre ambos.
-          actualizadoEn: 0, segundos: 0, rancio: false, error: ''
+          actualizadoEn: 0, segundos: 0, rancio: false, error: '',
+          // Lo que el backend añade para que la pared se parezca a la hoja.
+          // Todos con valor neutro: una respuesta sin ellos se sigue pintando.
+          tipo: '', persona: {}, etiquetas: {}, semaforo: null, limites: null, reloj: ''
       });
+
+      // Ancho de cada columna (la tabla es `table-layout: fixed` para que el
+      // texto largo se recorte en vez de empujar a las demás). CONCEPTO no
+      // lleva ancho: se queda con lo que sobra, que es lo que la hoja hace.
+      const ANCHOS_PANTALLA = {
+          'FOLIO': '7%', 'AREA': '8%', 'CLIENTE': '10%', 'CLASIFICACION': '6%',
+          'VENDEDOR': '11%', 'INVOLUCRADOS': '13%', 'FECHA': '6.5%', 'F. VISITA': '6.5%',
+          'F. INICIO': '6.5%', 'F. ENTREGA': '6.5%', 'FECHA_ESTIMADA_FIN': '6.5%',
+          'DIAS': '4.5%', 'AVANCE': '5.5%', 'PRIORIDAD': '7%', 'ESTATUS': '8%', 'MONTO': '8%'
+      };
+      const CENTRADAS_PANTALLA = ['CLASIFICACION', 'FECHA', 'F. VISITA', 'F. INICIO', 'F. ENTREGA',
+                                  'FECHA_ESTIMADA_FIN', 'DIAS', 'AVANCE'];
+      const anchoPantalla = (col) => ANCHOS_PANTALLA[col] || 'auto';
+      /** `sem-rojo|amarillo|verde` si el backend pintó esa celda; nada si no. */
+      const claseCeldaPantalla = (fila, col) => {
+          const nivel = (fila._semaforo || {})[col];
+          return [nivel ? `sem-${nivel}` : '', CENTRADAS_PANTALLA.includes(col) ? 'centrado' : ''];
+      };
 
       const paginaVisible = computed(() => {
           const paginas = pantalla.value.paginas;
@@ -7022,6 +7123,11 @@ async function toggleVoiceRecording(btnElement) {
               if (!res.ok) throw new Error(`El servidor respondió ${res.status}`);
               const datos = await res.json();
               pantalla.value.columnas = datos.columnas || [];
+              pantalla.value.etiquetas = datos.etiquetas || {};
+              pantalla.value.tipo = datos.tipo || '';
+              pantalla.value.persona = datos.persona || {};
+              pantalla.value.semaforo = datos.semaforo || null;
+              pantalla.value.limites = datos.limites || null;
               pantalla.value.paginas = (datos.paginas && datos.paginas.length)
                   ? datos.paginas : [[]];
               pantalla.value.total = datos.total || 0;
@@ -7078,6 +7184,7 @@ async function toggleVoiceRecording(btnElement) {
               const edad = Math.round((Date.now() - pantalla.value.actualizadoEn) / 1000);
               pantalla.value.segundos = Math.max(0, edad);
               pantalla.value.rancio = pantalla.value.segundos > PANTALLA_RANCIO_S;
+              pantalla.value.reloj = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
           }, 1000);
           // Una pestaña encendida doce horas acumula memoria y acaba muerta sin
           // que nadie lo vea: la pared se queda con la última imagen. Recargar
@@ -13047,7 +13154,7 @@ const filteredStaffTrackerData = computed(() => {
                cargarCatalogoGeo, recargarGeo, limpiarSeleccionGeo, urlDeSitio,
                geoEstado, geoVendedor, geoNota, geoGuardando, geoExportando, geoAgente,
                guardarProspectoGeo, consultarAgenteGeo, solicitarCotizacionGeo,
-               pantalla, paginaVisible,
+               pantalla, paginaVisible, anchoPantalla, claseCeldaPantalla,
                agente, consultarAgente, detectarAreasAgente, generarBorradoresAgente,
                leerRespuestaAgente,
                diagnosticarAgente, piezasDelDiagnostico,

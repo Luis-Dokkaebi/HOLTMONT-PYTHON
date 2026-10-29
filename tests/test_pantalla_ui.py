@@ -120,8 +120,9 @@ def test_sin_el_parametro_de_la_url_todo_sigue_como_antes():
 
 def test_las_columnas_que_se_pintan_son_las_que_manda_el_backend():
     """
-    Seis, no las veintiuna de la hoja. Si el frontend pintara las suyas, cambiar
-    la lista en `pantalla.py` no cambiaría nada y nadie sabría por qué.
+    Las que elige el backend, no las veintiuna de la hoja. Si el frontend
+    pintara las suyas, cambiar la lista en `pantalla.py` no cambiaría nada y
+    nadie sabría por qué.
     """
     with sync_playwright() as p:
         navegador = p.chromium.launch(headless=True)
@@ -263,3 +264,146 @@ def test_si_la_primera_lectura_falla_se_dice_y_no_se_deja_la_pared_muda():
             assert HOJA in page.inner_text("#pantallaError")
         finally:
             navegador.close()
+
+
+# ----------------------------------------------------------------------
+# El rediseño: que la pared se parezca a la hoja de Google
+# ----------------------------------------------------------------------
+
+COLUMNAS_VENTAS = ["FOLIO", "AREA", "CLIENTE", "CONCEPTO", "CLASIFICACION", "VENDEDOR",
+                   "F. VISITA", "F. INICIO", "F. ENTREGA", "DIAS", "AVANCE", "ESTATUS"]
+
+
+def _fila_ventas(folio: str, nivel: str = "rojo") -> dict:
+    """Una cotización con los textos más largos que se ven en las hojas reales."""
+    return {"FOLIO": folio, "AREA": "ELECTROMECANICA", "CLIENTE": "PANASONIC C NORTE",
+            "CONCEPTO": "2DA OPCIÓN DE LA REUBICACIÓN DE LÍNEA DE ARNESES (SOLO "
+                        "REUBICACIÓN) Y MANIOBRAS DE DESCARGA DE EQUIPO",
+            "CLASIFICACION": "AA", "VENDEDOR": "SEBASTIAN PADILLA, MIGUEL GALLARDO",
+            "F. VISITA": "22/07/26", "F. INICIO": "22/07/26", "F. ENTREGA": "10/08/26",
+            "DIAS": 20, "AVANCE": "99%", "ESTATUS": "ASIGNADO",
+            "_semaforo": {"F. VISITA": nivel, "F. INICIO": nivel, "DIAS": nivel}}
+
+
+def _respuesta_ventas(filas, **extra) -> dict:
+    cuerpo = _respuesta([filas], columnas=COLUMNAS_VENTAS, hoja="SEBASTIAN PADILLA (VENTAS)",
+                        tipo="ventas", etiquetas={"DIAS": "DÍAS"},
+                        semaforo={"rojo": 7, "amarillo": 2, "verde": 5, "sin": 1},
+                        limites={"A": 3, "AA": 14, "AAA": 30},
+                        persona={"puesto": "Ventas Electromecánica",
+                                 "foto": "/fotos/sebastian-padilla.jpg"})
+    cuerpo.update(extra)
+    return cuerpo
+
+
+def _celda(page, fila: int, columna: str):
+    indice = COLUMNAS_VENTAS.index(columna) + 1
+    return page.locator(f"#pantallaTabla tbody tr:nth-child({fila}) td:nth-child({indice})")
+
+
+def _rgb(page, locator) -> tuple:
+    color = locator.evaluate("e => getComputedStyle(e).backgroundColor")
+    return tuple(int(x) for x in color[color.index("(") + 1:color.index(")")].split(",")[:3])
+
+
+def test_la_fecha_y_los_dias_vencidos_se_pintan_de_rojo_como_en_la_hoja():
+    """El color es lo que la oficina lee de lejos; sin él la pared es una lista."""
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1920, "height": 1080})
+        try:
+            _doblar_pantalla(page, _respuesta_ventas([_fila_ventas("AV-1", "rojo")]))
+            _abrir(page, "SEBASTIAN PADILLA (VENTAS)")
+            for columna in ("F. VISITA", "F. INICIO", "DIAS"):
+                rojo, verde, _ = _rgb(page, _celda(page, 1, columna))
+                assert rojo > 200 and verde < 120, f"{columna} debería verse roja"
+            # Lo que no lleva semáforo no se tiñe.
+            assert _rgb(page, _celda(page, 1, "CONCEPTO")) in ((255, 255, 255), (248, 249, 250))
+        finally:
+            navegador.close()
+
+
+def test_amarillo_y_verde_tambien_se_distinguen():
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1920, "height": 1080})
+        try:
+            filas = [_fila_ventas("AV-1", "amarillo"), _fila_ventas("AV-2", "verde")]
+            _doblar_pantalla(page, _respuesta_ventas(filas))
+            _abrir(page, "SEBASTIAN PADILLA (VENTAS)")
+            rojo, verde, azul = _rgb(page, _celda(page, 1, "DIAS"))
+            assert rojo > 200 and verde > 200 and azul < 120, "amarillo"
+            rojo, verde, azul = _rgb(page, _celda(page, 2, "DIAS"))
+            assert verde > 150 and rojo < 120 and azul < 150, "verde"
+        finally:
+            navegador.close()
+
+
+def test_el_encabezado_usa_la_etiqueta_que_manda_el_backend():
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1920, "height": 1080})
+        try:
+            _doblar_pantalla(page, _respuesta_ventas([_fila_ventas("AV-1")]))
+            _abrir(page, "SEBASTIAN PADILLA (VENTAS)")
+            encabezados = [e.strip() for e in
+                           page.locator("#pantallaTabla thead th").all_inner_texts()]
+            assert encabezados[COLUMNAS_VENTAS.index("DIAS")] == "DÍAS"
+            assert encabezados[0] == "FOLIO"
+        finally:
+            navegador.close()
+
+
+def test_arriba_se_cuentan_vencidas_por_vencer_y_a_tiempo():
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1920, "height": 1080})
+        try:
+            _doblar_pantalla(page, _respuesta_ventas([_fila_ventas("AV-1")]))
+            _abrir(page, "SEBASTIAN PADILLA (VENTAS)")
+            assert "7" in page.inner_text("#semaforoRojo")
+            assert "2" in page.inner_text("#semaforoAmarillo")
+            assert "5" in page.inner_text("#semaforoVerde")
+        finally:
+            navegador.close()
+
+
+def test_la_foto_de_la_persona_sale_junto_a_su_hoja():
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1920, "height": 1080})
+        try:
+            _doblar_pantalla(page, _respuesta_ventas([_fila_ventas("AV-1")]))
+            _abrir(page, "SEBASTIAN PADILLA (VENTAS)")
+            src = page.get_attribute("#pantallaFoto", "src")
+            assert src.endswith("/fotos/sebastian-padilla.jpg")
+        finally:
+            navegador.close()
+
+
+def _pie_cabe(ancho: int, alto: int) -> None:
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": ancho, "height": alto})
+        try:
+            filas = [_fila_ventas(f"AV-{i}") for i in range(15)]
+            _doblar_pantalla(page, _respuesta_ventas(filas))
+            _abrir(page, "SEBASTIAN PADILLA (VENTAS)")
+            pie = page.locator("#pantallaFrescura").bounding_box()
+            assert pie["y"] + pie["height"] <= alto, "el aviso de frescura quedó fuera"
+            ultima = page.locator("#pantallaTabla tbody tr").last.bounding_box()
+            assert ultima["y"] + ultima["height"] <= pie["y"], "la última fila quedó cortada"
+        finally:
+            navegador.close()
+
+
+def test_con_la_pagina_llena_el_pie_cabe_en_una_tele_de_1366x768():
+    """
+    El pie es donde vive el aviso "SIN ACTUALIZAR". Con la página llena se
+    salía por abajo: una pared congelada no tenía forma de decirlo.
+    """
+    _pie_cabe(1366, 768)
+
+
+def test_con_la_pagina_llena_el_pie_cabe_en_una_tele_de_1920x1080():
+    _pie_cabe(1920, 1080)

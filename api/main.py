@@ -1337,7 +1337,7 @@ def api_pantalla(hoja: str = Query(..., description="Hoja del ejecutivo que se m
     las dos a la vez.
     """
     datos = get_data(sheet=hoja)
-    return pantalla.preparar(datos.get("data") or [], hoja, datetime.now())
+    return pantalla.preparar(datos.get("data") or [], hoja, datetime.now(pantalla.ZONA_OFICINA))
 
 # ======================================================================
 # API LEGACY DEL TRACKER (paridad con CODIGO.js / google.script.run)

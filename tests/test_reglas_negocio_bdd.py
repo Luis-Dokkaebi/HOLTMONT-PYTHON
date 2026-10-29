@@ -9,6 +9,7 @@ Ejecucion:  python -m pytest tests/test_reglas_negocio_bdd.py -v
 """
 
 import json
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -21,6 +22,7 @@ from api.services import agente_sql
 from api.services import agente_sql_correo as agente_correo
 from api.services import agente_sql_esquemas as agente_esquemas
 from api.services import dashboard_pwo
+from api.services import pantalla
 from api.services import prospeccion
 from api.services import tracker_store
 from api.services import work_order
@@ -1747,3 +1749,63 @@ def _antonio_recibe_la_liga(contexto: Dict[str, Any]) -> None:
 def _se_avisa_que_sigue_el_anterior(contexto: Dict[str, Any]) -> None:
     assert contexto["seguimiento"]["estado"] == "ERROR"
     assert "dashboard anterior" in contexto["seguimiento"]["message"]
+
+
+# ----------------------------------------------------------------------
+# Pantalla de pared: el semáforo (tests/features/pantalla_de_pared.feature)
+# ----------------------------------------------------------------------
+# Se prueba con `pantalla.preparar`, lo mismo que sirve `/api/pantalla`, y el
+# color lo decide `tracker_rules.traffic_light_color`: aquí no se reimplementa
+# ningún límite.
+
+_HOY_DE_LA_PARED = datetime(2026, 9, 12, 12, 0, tzinfo=pantalla.ZONA_OFICINA)
+
+
+def _actividad_de_pared(contexto: Dict[str, Any], clasificacion: str, dias: int,
+                        avance: str) -> None:
+    inicio = (_HOY_DE_LA_PARED - timedelta(days=dias)).strftime("%Y-%m-%d")
+    contexto["fila_pared"] = {"FOLIO": "AV-1", "CLASIFICACION": clasificacion,
+                              "FECHA": inicio, "AVANCE": avance}
+
+
+@given(parsers.parse(
+    "una actividad pendiente con clasificación {clasificacion} que empezó hace {dias:d} días"))
+def _actividad_pendiente(contexto: Dict[str, Any], clasificacion: str, dias: int) -> None:
+    _actividad_de_pared(contexto, clasificacion, dias, "10")
+
+
+@given(parsers.parse("una actividad pendiente sin clasificación que empezó hace {dias:d} días"))
+def _actividad_sin_clasificar(contexto: Dict[str, Any], dias: int) -> None:
+    _actividad_de_pared(contexto, "", dias, "10")
+
+
+@given(parsers.parse(
+    "una actividad terminada con clasificación {clasificacion} que empezó hace {dias:d} días"))
+def _actividad_terminada(contexto: Dict[str, Any], clasificacion: str, dias: int) -> None:
+    _actividad_de_pared(contexto, clasificacion, dias, "100")
+
+
+@given(parsers.parse("la hoja tiene guardado {valor} en su columna RELOJ"))
+def _reloj_guardado(contexto: Dict[str, Any], valor: str) -> None:
+    contexto["fila_pared"]["RELOJ"] = valor
+
+
+@when("la pantalla de pared prepara la tabla")
+def _pared_prepara(contexto: Dict[str, Any]) -> None:
+    listo = pantalla.preparar([contexto["fila_pared"]], "EDUARDO MANZANARES", _HOY_DE_LA_PARED)
+    contexto["fila_en_pared"] = listo["paginas"][0][0]
+
+
+@then(parsers.parse("sus DÍAS se pintan de {color}"))
+def _dias_se_pintan(contexto: Dict[str, Any], color: str) -> None:
+    assert contexto["fila_en_pared"]["_semaforo"].get("DIAS") == color
+
+
+@then("sus DÍAS no llevan color")
+def _dias_sin_color(contexto: Dict[str, Any]) -> None:
+    assert "DIAS" not in contexto["fila_en_pared"]["_semaforo"]
+
+
+@then(parsers.parse("la pantalla muestra {dias:d} días"))
+def _pared_muestra_dias(contexto: Dict[str, Any], dias: int) -> None:
+    assert contexto["fila_en_pared"]["DIAS"] == dias

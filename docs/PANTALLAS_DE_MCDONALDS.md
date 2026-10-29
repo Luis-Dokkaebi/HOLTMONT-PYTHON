@@ -41,21 +41,47 @@ el navegador los convierte.
 
 ## Qué se ve
 
-Seis columnas, no las veintiuna de la hoja: a cuatro metros una tabla de
-veintiuna no se lee, y una que no se lee no informa.
+La pantalla se parece a la hoja de Google que la oficina ya lee (decisión del
+dueño, 2026-10-29): fondo blanco, encabezado verde azulado, las columnas
+visibles de la hoja en su orden y el mismo semáforo.
 
-- **Tracker:** FOLIO · CONCEPTO · AVANCE · FECHA_ESTIMADA_FIN · PRIORIDAD · ESTATUS
-- **Cotizaciones:** FOLIO · CLIENTE · CONCEPTO · AVANCE · F. ENTREGA · ESTATUS
+- **Tracker:** FOLIO · AREA · FECHA · CLASIF. · CONCEPTO · INVOLUCRADOS ·
+  AVANCE · F. FIN · DÍAS · PRIORIDAD · ESTATUS
+- **Cotizaciones:** FOLIO · AREA · CLIENTE · CONCEPTO · CLASIF. · VENDEDOR ·
+  F. VISITA · F. INICIO · F. ENTREGA · DÍAS · AVANCE · ESTATUS
 
-Lo pendiente sale primero. Una pantalla que abre con lo que ya está al 100 %
-gasta su única página en trabajo terminado.
+Arriba van la foto y el puesto de la persona (de su ficha de RH) y cuatro
+contadores: **vencidas**, **por vencer**, **a tiempo** y **sin semáforo** (sin
+fecha de inicio o sin clasificación).
 
-Las filas que no caben no se pierden: se reparten en páginas y la televisión las
-rota sola cada 15 segundos. Los datos se vuelven a pedir cada 30 segundos.
+### El semáforo
+
+Es el mismo de la hoja (`tracker_rules.traffic_light_color`):
+
+| Clasificación | Verde | Amarillo | Rojo |
+| --- | --- | --- | --- |
+| A | menos de 2 días | 2 a 3 días | más de 3 |
+| AA | menos de 12 días | 12 a 14 días | más de 14 |
+| AAA | menos de 25 días | 25 a 30 días | más de 30 |
+
+- Se pintan las fechas (FECHA en el Tracker; F. VISITA y F. INICIO en
+  cotizaciones), cada una por su propia fecha, y DÍAS.
+- **DÍAS se calcula, no se copia.** Cuenta desde la fecha de inicio (FECHA o
+  F. INICIO) hasta hoy, con la hora de Monterrey, igual que `TODAY()` en la
+  hoja. El RELOJ/DIAS guardado en la base es una foto del día en que alguien
+  guardó la fila y se queda viejo.
+- Sin clasificación o sin fecha no hay color: inventarlo pintaría de verde algo
+  que nadie clasificó. Lo terminado tampoco se pinta.
+
+Lo pendiente sale primero y, dentro, lo más reciente arriba, como en la hoja.
+
+Las filas que no caben no se pierden: se reparten en páginas de 15 y la
+televisión las rota sola cada 15 segundos. Los datos se vuelven a pedir cada
+30 segundos. La página entera, pie incluido, cabe en la altura de la tele.
 
 ### El importe no se muestra
 
-`MONTO` está fuera de las seis. La pantalla cuelga de una pared que ve todo el
+`MONTO` no está entre las columnas. La pantalla cuelga de una pared que ve todo el
 piso y quien entre de visita. Si la empresa decide que sí, se enciende con
 `PANTALLA_MOSTRAR_MONTO=1` en las variables de entorno del despliegue.
 
