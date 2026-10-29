@@ -9,9 +9,10 @@ Lo que se prueba aquí es el preparado de los datos (`api/services/pantalla.py`)
 que es donde viven las cuatro decisiones que una pantalla de pared impone y una
 de escritorio no:
 
-1. **Caben seis columnas, no veintiuna.** A cuatro metros, una tabla de 21
-   columnas no se lee. Se eligen seis y `MONTO` **no** es una de ellas: la
-   pantalla la ve todo el piso, incluidas visitas.
+1. **Las columnas de la hoja, no las veintiuna.** La pantalla se parece a la
+   hoja de Google que la oficina ya conoce (decisión del dueño, 2026-10-29):
+   mismas columnas visibles y el mismo semáforo. `MONTO` **no** es una de
+   ellas: la pantalla la ve todo el piso, incluidas visitas.
 2. **Lo que falta va primero.** Una pantalla que abre con las tareas al 100 %
    gasta su única página en lo que ya está hecho.
 3. **Las filas que no caben existen igual.** Se paginan para que la televisión
@@ -187,9 +188,13 @@ def test_la_respuesta_trae_columnas_paginas_y_el_momento_en_que_se_genero():
     assert listo["success"] is True
     assert listo["hoja"] == "EDUARDO MANZANARES"
     assert listo["columnas"] == list(pantalla.COLUMNAS_TRACKER)
+    # Las columnas son las de la hoja del Tracker, en su orden. La fecha sale
+    # como en la hoja (dd/mm/aa) y el avance con su signo de porcentaje.
     assert listo["paginas"] == [[{
-        "FOLIO": "AV-1192", "CONCEPTO": "Mantenimiento de chillers", "AVANCE": "40",
-        "FECHA_ESTIMADA_FIN": "2026-09-20", "PRIORIDAD": "ALTA", "ESTATUS": "ASIGNADO",
+        "FOLIO": "AV-1192", "AREA": "HVAC", "FECHA": "", "CLASIFICACION": "",
+        "CONCEPTO": "Mantenimiento de chillers", "INVOLUCRADOS": "", "AVANCE": "40%",
+        "FECHA_ESTIMADA_FIN": "20/09/26", "DIAS": "", "PRIORIDAD": "ALTA",
+        "ESTATUS": "ASIGNADO", "_semaforo": {},
     }]]
     assert listo["generado_en"] == AHORA.isoformat()
 
@@ -276,3 +281,237 @@ def test_la_ruta_exige_decir_que_hoja():
     from api.main import app
 
     assert TestClient(app).get("/api/pantalla").status_code == 422
+
+
+# ----------------------------------------------------------------------
+# Las columnas reales de la hoja
+# ----------------------------------------------------------------------
+
+
+def test_prioridades_y_status_de_la_hoja_real_llenan_prioridad_y_estatus():
+    """
+    El Tracker guarda `PRIORIDADES`, `STATUS` y `AVANCE %`, no `PRIORIDAD`,
+    `ESTATUS` y `AVANCE`. La pantalla buscaba solo el nombre exacto y las dos
+    columnas salían vacías en la televisión de todo el mundo, sin ningún error.
+    Los alias ya existen en `tracker_rules.COLUMN_ALIASES` y se reutilizan.
+    """
+    fila = {"FOLIO": "RC-0131", "PRIORIDADES": "URGENTE", "STATUS": "EN PROCESO",
+            "AVANCE %": "35"}
+    recortada = pantalla.solo_columnas([fila], pantalla.COLUMNAS_TRACKER)[0]
+    assert recortada["PRIORIDAD"] == "URGENTE"
+    assert recortada["ESTATUS"] == "EN PROCESO"
+    assert recortada["AVANCE"] == "35"
+
+
+def test_la_columna_alta_del_tracker_se_muestra_como_area():
+    """En el Tracker el área se llama `ALTA` (ver `COLUMN_ALIASES["AREA"]`)."""
+    recortada = pantalla.solo_columnas([{"ALTA": "DISEÑO"}], pantalla.COLUMNAS_TRACKER)[0]
+    assert recortada["AREA"] == "DISEÑO"
+
+
+def test_ventas_muestra_las_columnas_de_la_hoja_de_cotizaciones():
+    """Las mismas que la hoja de Google que la oficina ya lee, en su orden."""
+    assert pantalla.COLUMNAS_VENTAS[:10] == (
+        "FOLIO", "AREA", "CLIENTE", "CONCEPTO", "CLASIFICACION", "VENDEDOR",
+        "F. VISITA", "F. INICIO", "F. ENTREGA", "DIAS")
+
+
+# ----------------------------------------------------------------------
+# El semáforo: el mismo de la hoja
+# ----------------------------------------------------------------------
+
+
+def _unica(fila, hoja="EDUARDO MANZANARES"):
+    """La única fila que la televisión pintaría con esa hoja."""
+    return pantalla.preparar([fila], hoja, AHORA)["paginas"][0][0]
+
+
+def test_una_actividad_a_con_cinco_dias_pinta_su_fecha_y_sus_dias_de_rojo():
+    fila = _unica({"FOLIO": "A1", "CLASIFICACION": "A", "FECHA": "2026-09-07",
+                   "AVANCE": "10"})
+    assert fila["DIAS"] == 5
+    assert fila["_semaforo"] == {"FECHA": "rojo", "DIAS": "rojo"}
+
+
+def test_dentro_del_aviso_se_pinta_de_amarillo():
+    fila = _unica({"CLASIFICACION": "AA", "FECHA": "2026-08-30", "AVANCE": "10"})
+    assert fila["_semaforo"]["DIAS"] == "amarillo"
+
+
+def test_a_tiempo_se_pinta_de_verde():
+    fila = _unica({"CLASIFICACION": "AAA", "FECHA": "2026-09-09", "AVANCE": "10"})
+    assert fila["_semaforo"]["DIAS"] == "verde"
+
+
+def test_los_dias_se_cuentan_hasta_hoy_y_no_se_copian_de_lo_guardado():
+    """
+    `RELOJ`/`DIAS` en la base es una foto del día en que alguien guardó la
+    fila: se queda viejo. La hoja de Google los calcula con `TODAY()`, y la
+    pantalla tiene que dar el mismo número que la hoja.
+    """
+    fila = _unica({"CLASIFICACION": "AA", "FECHA": "2026-09-02", "RELOJ": "3",
+                   "AVANCE": "10"})
+    assert fila["DIAS"] == 10
+
+
+def test_una_fecha_escrita_como_en_la_hoja_tambien_cuenta():
+    fila = _unica({"CLASIFICACION": "AA", "FECHA": "02/09/2026", "AVANCE": "10"})
+    assert fila["DIAS"] == 10
+
+
+def test_sin_clasificacion_hay_dias_pero_no_se_inventa_un_color():
+    fila = _unica({"FECHA": "2026-08-01", "AVANCE": "10"})
+    assert fila["DIAS"] == 42
+    assert fila["_semaforo"] == {}
+
+
+def test_sin_fecha_de_inicio_no_hay_dias_ni_color():
+    fila = _unica({"CLASIFICACION": "A", "AVANCE": "10"})
+    assert fila["DIAS"] == ""
+    assert fila["_semaforo"] == {}
+
+
+def test_lo_terminado_no_se_pinta_de_rojo():
+    fila = _unica({"CLASIFICACION": "A", "FECHA": "2026-08-01", "AVANCE": "100"})
+    assert fila["_semaforo"] == {}
+
+
+def test_en_ventas_cada_fecha_lleva_su_color_y_los_dias_cuentan_desde_f_inicio():
+    """
+    Como en la hoja: F. VISITA y F. INICIO se pintan cada una por su propia
+    fecha, y DÍAS cuenta desde F. INICIO (el día en que se trabaja la
+    cotización, la misma fecha que usa el calendario).
+    """
+    fila = _unica({"CLASIFICACION": "AA", "F. VISITA": "2026-08-31",
+                   "F. INICIO": "2026-08-20", "AVANCE": "0"},
+                  hoja="SEBASTIAN PADILLA (VENTAS)")
+    assert fila["DIAS"] == 23
+    assert fila["_semaforo"] == {"F. VISITA": "amarillo", "F. INICIO": "rojo",
+                                 "DIAS": "rojo"}
+
+
+def test_el_semaforo_es_el_del_tracker_y_no_una_copia(monkeypatch):
+    """Si mañana cambia un límite en `tracker_rules`, la pared cambia con él."""
+    from api.services import tracker_rules
+
+    monkeypatch.setitem(tracker_rules.SLA_LIMITS, "A", 30)
+    fila = _unica({"CLASIFICACION": "A", "FECHA": "2026-09-07", "AVANCE": "10"})
+    assert fila["_semaforo"]["DIAS"] == "verde"
+
+
+def test_se_cuentan_vencidas_por_vencer_a_tiempo_y_sin_semaforo():
+    filas = [
+        {"CLASIFICACION": "A", "FECHA": "2026-09-01", "AVANCE": "10"},
+        {"CLASIFICACION": "A", "FECHA": "2026-09-02", "AVANCE": "10"},
+        {"CLASIFICACION": "AA", "FECHA": "2026-08-30", "AVANCE": "10"},
+        {"CLASIFICACION": "AAA", "FECHA": "2026-09-10", "AVANCE": "10"},
+        {"FECHA": "2026-09-10", "AVANCE": "10"},
+        {"CLASIFICACION": "A", "FECHA": "2026-08-01", "AVANCE": "100"},
+    ]
+    listo = pantalla.preparar(filas, "EDUARDO MANZANARES", AHORA)
+    assert listo["semaforo"] == {"rojo": 2, "amarillo": 1, "verde": 1, "sin": 1}
+
+
+# ----------------------------------------------------------------------
+# Cómo se lee cada celda
+# ----------------------------------------------------------------------
+
+
+def test_las_fechas_salen_como_en_la_hoja():
+    fila = _unica({"FECHA_ESTIMADA_FIN": "2026-09-20", "AVANCE": "10"})
+    assert fila["FECHA_ESTIMADA_FIN"] == "20/09/26"
+
+
+def test_una_fecha_que_no_se_entiende_se_deja_tal_cual():
+    fila = _unica({"FECHA_ESTIMADA_FIN": "pronto", "AVANCE": "10"})
+    assert fila["FECHA_ESTIMADA_FIN"] == "pronto"
+
+
+def test_el_avance_sale_con_su_porcentaje():
+    assert _unica({"AVANCE %": "35"})["AVANCE"] == "35%"
+    assert _unica({"AVANCE": ""})["AVANCE"] == ""
+
+
+# ----------------------------------------------------------------------
+# El orden: lo más reciente arriba, como en la hoja
+# ----------------------------------------------------------------------
+
+
+def test_lo_mas_reciente_va_arriba_como_en_la_hoja():
+    filas = [{"FOLIO": f, "FECHA": d, "AVANCE": "10"} for f, d in
+             (("vieja", "2026-09-01"), ("nueva", "2026-09-10"), ("media", "2026-09-05"))]
+    listo = pantalla.preparar(filas, "EDUARDO MANZANARES", AHORA)
+    assert [f["FOLIO"] for f in listo["paginas"][0]] == ["nueva", "media", "vieja"]
+
+
+def test_lo_que_no_tiene_fecha_va_despues_de_lo_fechado():
+    filas = [{"FOLIO": "sin", "AVANCE": "10"},
+             {"FOLIO": "con", "FECHA": "2026-09-01", "AVANCE": "10"}]
+    listo = pantalla.preparar(filas, "EDUARDO MANZANARES", AHORA)
+    assert [f["FOLIO"] for f in listo["paginas"][0]] == ["con", "sin"]
+
+
+def test_lo_terminado_va_al_final_aunque_sea_lo_mas_reciente():
+    filas = [{"FOLIO": "hecha", "FECHA": "2026-09-11", "AVANCE": "100"},
+             {"FOLIO": "pendiente", "FECHA": "2026-09-01", "AVANCE": "10"}]
+    listo = pantalla.preparar(filas, "EDUARDO MANZANARES", AHORA)
+    assert [f["FOLIO"] for f in listo["paginas"][0]] == ["pendiente", "hecha"]
+
+
+# ----------------------------------------------------------------------
+# Lo que la televisión pone alrededor de la tabla
+# ----------------------------------------------------------------------
+
+
+def test_la_pantalla_trae_la_foto_y_el_puesto_de_la_persona():
+    from api.services import organigrama
+
+    listo = pantalla.preparar([], "SEBASTIAN PADILLA (VENTAS)", AHORA)
+    ficha = organigrama.FICHAS["SEBASTIAN PADILLA"]
+    assert listo["persona"] == {"puesto": ficha["puesto"], "foto": ficha["foto"]}
+
+
+def test_una_hoja_sin_ficha_no_inventa_persona():
+    assert pantalla.preparar([], "ANTONIA_VENTAS", AHORA)["persona"] == {}
+
+
+def test_la_pantalla_dice_si_son_cotizaciones_o_actividades():
+    assert pantalla.preparar([], "SEBASTIAN PADILLA (VENTAS)", AHORA)["tipo"] == "ventas"
+    assert pantalla.preparar([], "SEBASTIAN PADILLA", AHORA)["tipo"] == "tracker"
+
+
+def test_la_leyenda_usa_los_limites_del_semaforo():
+    from api.services import tracker_rules
+
+    assert pantalla.preparar([], "SEBASTIAN PADILLA", AHORA)["limites"] == tracker_rules.SLA_LIMITS
+
+
+def test_la_ruta_cuenta_los_dias_con_la_hora_de_la_oficina(monkeypatch):
+    """
+    Vercel corre en UTC. De 18:00 a medianoche en Monterrey ya es el día
+    siguiente en UTC, y la pared sumaría un día de más a todo comparada con la
+    hoja de Google, que cuenta con la hora de la oficina.
+    """
+    from datetime import timedelta
+
+    from fastapi.testclient import TestClient
+
+    import api.main as main
+    from api.main import app
+
+    visto = {}
+
+    def preparar(filas, hoja, ahora):
+        visto["ahora"] = ahora
+        return {"success": True}
+
+    monkeypatch.setattr(main, "get_data", lambda sheet: {"success": True, "data": []})
+    monkeypatch.setattr(main.pantalla, "preparar", preparar)
+    TestClient(app).get("/api/pantalla", params={"hoja": "EDUARDO MANZANARES"})
+    assert visto["ahora"].utcoffset() == timedelta(hours=-6)
+
+
+def test_las_etiquetas_cortas_son_solo_de_las_columnas_que_se_muestran():
+    """`CLASIFICACION` no cabe en su columna; `F. FIN` no existe en ventas."""
+    assert pantalla.preparar([], "SEBASTIAN PADILLA (VENTAS)", AHORA)["etiquetas"] == {
+        "CLASIFICACION": "CLASIF.", "DIAS": "DÍAS"}
