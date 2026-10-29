@@ -115,6 +115,22 @@ def _esperar_texto(page, selector: str, texto: str) -> None:
         arg=[selector, texto], timeout=10000)
 
 
+def _esperar_respuesta_de_procesar(page) -> None:
+    """
+    Espera a que la página tenga la respuesta de `/procesar` antes de adelantar
+    el reloj.
+
+    "Cargando..." sale ANTES de esa respuesta (`procesarDashboardStreamlit` pone
+    la fase PROCESANDO y luego hace el `await`), y el seguimiento cada 10 s se
+    programa DESPUÉS. Si el reloj se adelanta en ese hueco, el temporizador
+    queda para 10 s reales más tarde y la espera siguiente vence justo antes:
+    pasaba en CI bajo carga (corridas 40949065308 y 40951195497). El mensaje de
+    `/procesar` se escribe en el mismo bloque que programa el temporizador, así
+    que verlo en pantalla garantiza que ya está programado.
+    """
+    _esperar_texto(page, "#estadoDashboardStreamlit", ACEPTADO["message"])
+
+
 def test_antonio_abre_el_apartado_desde_el_menu(abrir_apartado):
     page = abrir_apartado(Red([EN_COLA]))
 
@@ -148,6 +164,7 @@ def test_cargar_el_excel_procesarlo_y_recibir_la_liga(abrir_apartado):
 
     boton.click()
     page.wait_for_selector("text=Cargando...", timeout=10000)
+    _esperar_respuesta_de_procesar(page)
     assert red.pedidos == [{"fileUrl": f"{STORAGE}/ST_B2C_OCR.xlsx", "usuario": "ANTONIO_SALAZAR"}]
     assert boton.is_disabled()
 
@@ -262,6 +279,7 @@ def test_un_dashboard_que_no_pasa_las_pruebas_se_avisa(abrir_apartado):
 
     page.locator("#botonProcesarDashboardStreamlit").click()
     page.wait_for_selector("text=Cargando...", timeout=10000)
+    _esperar_respuesta_de_procesar(page)
     page.clock.fast_forward(SEGUIMIENTO_MS)
     _esperar_texto(page, "#estadoDashboardStreamlit", "Generando y validando")
     page.clock.fast_forward(SEGUIMIENTO_MS)
@@ -282,6 +300,7 @@ def test_si_github_nunca_arranca_se_avisa_en_vez_de_cargar_para_siempre(abrir_ap
 
     page.locator("#botonProcesarDashboardStreamlit").click()
     page.wait_for_selector("text=Cargando...", timeout=10000)
+    _esperar_respuesta_de_procesar(page)
     page.clock.fast_forward(SEGUIMIENTO_MS)
     _esperar_texto(page, "#estadoDashboardStreamlit", "Esperando a que GitHub")
     page.clock.fast_forward(4 * 60 * 1000)
@@ -299,6 +318,7 @@ def test_si_no_se_puede_consultar_tres_veces_seguidas_se_avisa(abrir_apartado):
 
     page.locator("#botonProcesarDashboardStreamlit").click()
     page.wait_for_selector("text=Cargando...", timeout=10000)
+    _esperar_respuesta_de_procesar(page)
     for intento in (1, 2):
         page.clock.fast_forward(SEGUIMIENTO_MS)
         _esperar_texto(page, "#estadoDashboardStreamlit", f"({intento}/3)")
