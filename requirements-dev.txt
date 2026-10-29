@@ -4,7 +4,12 @@
 #
 # Las pruebas de extremo a extremo (tests/conftest.py) levantan api/main.py,
 # asi que requirements.txt tambien hace falta.
-pytest>=8.0
+# Techo en 9.2: pytest 9.2.0 quitó `FixtureManager._arg2fixturedefs`, que
+# pytest-bdd 8.1 (el ultimo antes de su 9, ver abajo) todavia usa. Con 9.2 los
+# 123 escenarios de tests/features/ revientan con AttributeError antes de
+# ejecutar un solo paso; con 9.1.1 pasan todos. Se sube cuando se suba
+# pytest-bdd a una version compatible.
+pytest>=8.0,<9.2
 playwright>=1.40
 # Escenarios Gherkin de tests/features/ (R2). El limite superior es deliberado:
 # el salto de major cambia el analizador de .feature y con el las palabras clave
