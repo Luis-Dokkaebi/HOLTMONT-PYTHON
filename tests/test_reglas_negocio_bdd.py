@@ -1809,3 +1809,68 @@ def _dias_sin_color(contexto: Dict[str, Any]) -> None:
 @then(parsers.parse("la pantalla muestra {dias:d} días"))
 def _pared_muestra_dias(contexto: Dict[str, Any], dias: int) -> None:
     assert contexto["fila_en_pared"]["DIAS"] == dias
+
+
+# ----------------------------------------------------------------------
+# Límite de uso — la plataforma sin base de datos
+# ----------------------------------------------------------------------
+
+_VARIABLES_DE_BASE = ("SUPABASE_URL", "SUPABASE_KEY", "DATABASE_URL", "BACKEND_ENGINE")
+
+
+@given("que la plataforma no tiene base de datos conectada")
+def _sin_base_conectada(monkeypatch: pytest.MonkeyPatch) -> None:
+    for nombre in _VARIABLES_DE_BASE:
+        monkeypatch.delenv(nombre, raising=False)
+
+
+@given("que la plataforma tiene la base de datos conectada")
+def _con_base_conectada(monkeypatch: pytest.MonkeyPatch) -> None:
+    for nombre in _VARIABLES_DE_BASE:
+        monkeypatch.delenv(nombre, raising=False)
+    monkeypatch.setenv("SUPABASE_URL", "https://proyecto.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "clave")
+
+
+@when("la plataforma revisa su estado")
+def _revisa_estado(contexto: Dict[str, Any]) -> None:
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    contexto["estado"] = TestClient(app).get("/api/estado").json()
+
+
+@when("alguien intenta iniciar sesión con su usuario y contraseña")
+def _intenta_entrar(contexto: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    # Una cuenta válida por la vía de desarrollo: si el aviso no la frenara,
+    # entraría.
+    monkeypatch.setenv("DEV_LOGIN_USERS", "LUIS_CARLOS:clave:ADMIN:Luis Carlos")
+    contexto["login"] = TestClient(app).post(
+        "/api/login", json={"username": "LUIS_CARLOS", "password": "clave"}).json()
+
+
+@then(parsers.parse('el aviso dice "{mensaje}"'))
+def _aviso_dice(contexto: Dict[str, Any], mensaje: str) -> None:
+    assert contexto["estado"]["disponible"] is False
+    assert contexto["estado"]["mensaje"] == mensaje
+
+
+@then("no se muestra ningún aviso")
+def _sin_aviso(contexto: Dict[str, Any]) -> None:
+    assert contexto["estado"]["disponible"] is True
+    assert contexto["estado"]["mensaje"] == ""
+
+
+@then("no entra")
+def _no_entra(contexto: Dict[str, Any]) -> None:
+    assert contexto["login"]["success"] is False
+
+
+@then(parsers.parse('se le muestra "{mensaje}"'))
+def _se_le_muestra(contexto: Dict[str, Any], mensaje: str) -> None:
+    assert contexto["login"]["message"] == mensaje

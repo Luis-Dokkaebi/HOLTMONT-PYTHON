@@ -28,7 +28,7 @@ except ImportError:
 
 # Services
 from api.services.sheets import gs_manager, get_directory_from_db, find_header_row, ALL_DEPTS, INITIAL_DIRECTORY
-from api.services import organigrama, pantalla, dashboard_pwo
+from api.services import organigrama, pantalla, dashboard_pwo, estado_plataforma
 from api.services.asignacion import tabla_de_cotizaciones
 from api.services.work_order import process_and_save_work_order, get_next_sequence
 
@@ -1095,8 +1095,20 @@ async def api_generate_engineering_questions(file: UploadFile = File(...), apiKe
 def api_save_ppc_data(req: SavePPCRequest):
     return process_and_save_work_order(req.payload, req.activeUser)
 
+@app.get("/api/estado")
+def api_estado():
+    """¿Hay base de datos? Sin ella, la plataforma muestra «Límite de uso»."""
+    return estado_plataforma.estado()
+
+
 @app.post("/api/login")
 def api_login(creds: LoginRequest):
+    # Sin base no entra nadie, tampoco por DEV_LOGIN_USERS: la plataforma está
+    # detenida a propósito (api/services/estado_plataforma.py).
+    return estado_plataforma.bloqueo_de_login() or _validar_login(creds)
+
+
+def _validar_login(creds: LoginRequest):
     username_key = creds.username.strip().upper()
     user_found = None
 

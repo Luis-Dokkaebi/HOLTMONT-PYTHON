@@ -13899,5 +13899,54 @@ function iniciarDictadoNativo(campoDestinoId) {
   });
 })();
 </script>
+<!-- ============================================================ -->
+<!-- Límite de uso: la plataforma sin base de datos.                -->
+<!-- Fuera de #app, igual que el ticket de bugs: tapa el login Y la  -->
+<!-- sesión ya abierta sin depender del estado de Vue. Se consulta   -->
+<!-- GET /api/estado al cargar y cada minuto, para que quien ya      -->
+<!-- estaba dentro lo vea sin recargar. Ver                          -->
+<!-- api/services/estado_plataforma.py.                              -->
+<!-- ============================================================ -->
+<style>
+  #limiteDeUso {
+    /* Por encima de todo: login (2000), ticket de bugs (2500) y la
+       pantalla de pared (4000). */
+    position: fixed; inset: 0; z-index: 10000;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at center, #252525 0%, #000000 100%);
+    color: #ffffff; font-family: Arial, Helvetica, sans-serif;
+    font-size: clamp(1.25rem, 3vw, 2.25rem); font-weight: 700; line-height: 1.4;
+    text-align: center; padding: 16px 10vw;
+  }
+  #limiteDeUso[hidden] { display: none; }
+</style>
+
+<div id="limiteDeUso" role="alertdialog" aria-live="assertive" hidden></div>
+
+<script>
+(function () {
+  var CONSULTA_MS = 60000;
+  var aviso = document.getElementById('limiteDeUso');
+  var base = window.API_BASE_URL || window.location.origin;
+
+  // Solo una respuesta que diga `disponible: false` muestra el aviso. Un
+  // fallo de red o un 404 (la página servida por Apps Script, que no tiene
+  // esta ruta) deja la pantalla como estaba: un corte no es una base apagada.
+  function consultar() {
+    fetch(base + '/api/estado', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (estado) {
+        if (!estado || typeof estado.disponible !== 'boolean') return;
+        aviso.textContent = estado.mensaje
+          || 'Límite de uso agotado por insuficiencia de espacio en base de datos.';
+        aviso.hidden = estado.disponible;
+      })
+      .catch(function () {});
+  }
+
+  consultar();
+  setInterval(consultar, CONSULTA_MS);
+})();
+</script>
 </body>
 </html>

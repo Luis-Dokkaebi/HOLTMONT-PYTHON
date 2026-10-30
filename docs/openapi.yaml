@@ -704,6 +704,39 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SuccessResult" }
 
+  # ------------------------------------------------------------ Estado
+  # Ruta REST real (FastAPI). Sin base de datos la plataforma muestra
+  # «Límite de uso» (api/services/estado_plataforma.py) y `/api/login`
+  # contesta `{success: false, message: <el mismo aviso>, limiteDeUso: true}`.
+  /api/estado:
+    get:
+      tags: [Auth]
+      operationId: apiEstado
+      summary: Si la plataforma tiene base de datos o está en «Límite de uso».
+      description: >
+        `index.html` la consulta al cargar y cada minuto, para que el aviso lo
+        vean quien va a entrar y quien ya tenía la sesión abierta. Solo lee el
+        entorno (`SUPABASE_URL`/`SUPABASE_KEY`, `DATABASE_URL`, `BACKEND_ENGINE`);
+        no abre conexión a la base.
+      responses:
+        "200":
+          description: Estado de la plataforma.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, disponible, mensaje]
+                properties:
+                  success: { type: boolean, example: true }
+                  disponible: { type: boolean, example: false }
+                  mensaje:
+                    type: string
+                    description: Vacío cuando hay base.
+                    example: >-
+                      Límite de uso agotado por insuficiencia de espacio en base de datos.
+                      La plataforma detectó que el almacenamiento contratado ya no es
+                      suficiente para el volumen de datos del proyecto.
+
   # --------------------------------------------------------------------- Geo
   # Rutas REST reales (FastAPI), no pseudo-rutas RPC. El catálogo es un SQLite
   # de solo lectura dentro del bundle: dato público del INEGI que solo cambia
