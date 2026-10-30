@@ -125,6 +125,25 @@ def construir_engine(settings: Optional[Settings] = None) -> DataEngine:
     )
 
 
+def hay_base_configurada(settings: Optional[Settings] = None) -> bool:
+    """
+    True si `construir_engine()` tendría un motor que devolver.
+
+    Sigue la misma precedencia que `construir_engine`: un motor forzado sin su
+    variable es no tener base, aunque la otra ruta sí esté configurada. No
+    abre conexión: responde solo con lo que dice el entorno.
+    """
+    cfg = settings or cargar_settings()
+
+    if cfg.motor_forzado == "memoria":
+        return True
+    if cfg.motor_forzado == "sqlalchemy":
+        return cfg.hay_sqlalchemy
+    if cfg.motor_forzado == "postgrest":
+        return cfg.hay_postgrest
+    return cfg.hay_sqlalchemy or cfg.hay_postgrest
+
+
 def _sqlalchemy(cfg: Settings) -> DataEngine:
     if not cfg.database_url:
         raise SinMotorConfigurado("BACKEND_ENGINE=sqlalchemy pero DATABASE_URL está vacía.")
