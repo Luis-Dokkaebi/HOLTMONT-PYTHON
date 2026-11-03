@@ -963,7 +963,7 @@ paths:
       description: >
         `configurado` es `true` si está `DASHBOARD_PWO_TOKEN`;
         `DASHBOARD_PWO_REPO` y `DASHBOARD_PWO_URL` son opcionales y, si
-        faltan, valen los de Agente_Full. El token nunca baja al navegador.
+        faltan, valen los de este repositorio. El token nunca baja al navegador.
       responses:
         "200":
           description: La liga y si la PWO puede pedir regenerarla.
@@ -980,9 +980,10 @@ paths:
       operationId: apiPwoDashboard
       summary: Pide regenerar el dashboard con un documento recién subido.
       description: >
-        Manda un `repository_dispatch` (`pwo_dashboard`) al repositorio
-        `Agente_Full`, cuyo Action corre `agente_full/pipeline_dashboard.py` y
-        publica en Streamlit Cloud. Solo acepta documentos con datos (xlsx, xls,
+        Manda un `repository_dispatch` (`pwo_dashboard`) a este repositorio;
+        el Action `.github/workflows/dashboard-pwo.yml` corre
+        `agente_full/pipeline_dashboard.py` y publica en la rama
+        `dashboard-pwo`, que sirve Streamlit Cloud. Solo acepta documentos con datos (xlsx, xls,
         csv, pdf, docx) de la ruta pública del Storage de `SUPABASE_URL`. Un
         rechazo vuelve con `success: false` y el motivo; nunca con 500.
       requestBody:
@@ -1016,7 +1017,7 @@ paths:
       summary: El botón Procesar del apartado Dashboard Streamlit.
       description: >
         El mismo aviso que `POST /api/pwo/dashboard`, más una `solicitud` que
-        el Action de Agente_Full lleva en su `run-name` y con la que la pantalla
+        el Action del dashboard lleva en su `run-name` y con la que la pantalla
         sigue la corrida. El apartado solo lo pinta `/api/config` a quien lleva
         la bandera `dashboard_streamlit` (hoy ANTONIO_SALAZAR).
       requestBody:
@@ -1069,7 +1070,7 @@ paths:
                   estado: { type: string, enum: [SIN_INICIAR, EN_COLA, PROCESANDO, EXITOSO, ERROR] }
                   message: { type: string }
                   url: { type: string, description: "La liga corta de Streamlit" }
-                  repo_url: { type: string, example: "https://github.com/Luis-py-stack/Agente_Full" }
+                  repo_url: { type: string, example: "https://github.com/Luis-Dokkaebi/HOLTMONT-PYTHON" }
                   run_url: { type: string }
 
 components:

@@ -2,10 +2,11 @@
 El dashboard de la Pre Work Order: el aviso para regenerarlo.
 
 Cuando alguien sube a la Pre Work Order un documento con datos (xlsx, xls, csv,
-pdf o docx), este módulo le avisa al repositorio `Agente_Full` con un
-`repository_dispatch` de GitHub. Allá, un Action corre el pipeline de tres
-agentes (`agente_full/pipeline_dashboard.py`, adaptación de `gs3.py`), valida
-la app y la publica en Streamlit Cloud. La liga corta (`DASHBOARD_PWO_URL`) no
+pdf o docx), este módulo le avisa a este mismo repositorio con un
+`repository_dispatch` de GitHub. El Action `.github/workflows/dashboard-pwo.yml`
+corre el pipeline de tres agentes (`agente_full/pipeline_dashboard.py`,
+adaptación de `gs3.py`), valida la app y la publica en la rama `dashboard-pwo`,
+que sirve Streamlit Cloud. La liga corta (`DASHBOARD_PWO_URL`) no
 cambia: siempre enseña el último dashboard que pasó las pruebas.
 
 Por qué un aviso y no generar aquí: el pipeline tarda minutos, necesita
@@ -34,7 +35,7 @@ Configuración (variables de entorno del despliegue):
 
     DASHBOARD_PWO_TOKEN  obligatoria. Token con Contents: Read and write (el
                          aviso) y Actions: Read (el seguimiento del apartado)
-    DASHBOARD_PWO_REPO   opcional; por defecto Luis-py-stack/Agente_Full
+    DASHBOARD_PWO_REPO   opcional; por defecto Luis-Dokkaebi/HOLTMONT-PYTHON
     DASHBOARD_PWO_URL    opcional; por defecto la liga corta de Streamlit Cloud
 
 Repositorio y liga no son secretos y traen valor por defecto. Antes, un
@@ -60,10 +61,12 @@ RUTA_PUBLICA_STORAGE = "/storage/v1/object/public/"
 _REPO_VALIDO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 # Los de agente_full/README.md. El token no tiene valor por defecto: es secreto.
 _POR_DEFECTO = {
-    "DASHBOARD_PWO_REPO": "Luis-py-stack/Agente_Full",
+    # Este repositorio y no Agente_Full: es privado, y el dashboard lleva
+    # incrustados los datos del cliente.
+    "DASHBOARD_PWO_REPO": "Luis-Dokkaebi/HOLTMONT-PYTHON",
     "DASHBOARD_PWO_URL": "https://agentefull-mhytzkjfr38ukzqxnuxbkf.streamlit.app/",
 }
-# El `run-name` de agente_full/workflow_dashboard_pwo.yml. Si cambia allá, el
+# El `run-name` de .github/workflows/dashboard-pwo.yml. Si cambia allá, el
 # seguimiento deja de encontrar la corrida (lo cuida tests/test_dashboard_pwo.py).
 TITULO_DE_CORRIDA = "Dashboard PWO {solicitud}"
 _SOLICITUD_VALIDA = re.compile(r"[0-9a-f]{12}")
@@ -197,7 +200,7 @@ def _avisar_a_github(file_url: str, folio: str, usuario: str, config: Dict[str, 
 def disparar(file_url: str, folio: str = "", usuario: str = "",
              entorno: Optional[Mapping[str, str]] = None, enviar: Optional[Enviar] = None,
              solicitud: str = "") -> Dict[str, Any]:
-    """Pide al Action de Agente_Full que regenere el dashboard con `file_url`.
+    """Pide al Action del dashboard que regenere el dashboard con `file_url`.
 
     `solicitud` (opcional) viaja en el aviso y el Action la pone en el nombre
     de la corrida; es lo que permite a `estado` encontrarla después.

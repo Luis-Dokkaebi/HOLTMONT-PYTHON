@@ -1,4 +1,4 @@
-# Dashboard de la Pre Work Order (`Agente_Full`)
+# Dashboard de la Pre Work Order
 
 Adaptación de `gs3.py` (actualizada a `gsai.py`) a la plataforma: cada vez que
 alguien sube un documento con datos (xlsx, xls, csv, pdf, docx) a la PWO, o
@@ -9,11 +9,11 @@ se publica en **una liga corta que siempre enseña el último dashboard bueno**.
 ```
 PWO / Dashboard Streamlit (HOLTMONT) ──sube documento──▶ Supabase Storage
    └─▶ POST /api/pwo/dashboard o /api/dashboard/procesar
-          ──repository_dispatch──▶ Action de Agente_Full
+          ──repository_dispatch──▶ .github/workflows/dashboard-pwo.yml (este repositorio)
           Agente 1 (extrae JSON) ▶ Agente 2 (diseña) ▶ Agente 3 (programa)
           (cada llamada a Gemini: hasta 4 reintentos con espera 1 s, 2 s, 4 s)
           ▶ sintaxis + AppTest + Playwright, hasta 3 intentos
-          ▶ commit de app.py + requirements.txt
+          ▶ commit de app.py + requirements.txt en la rama dashboard-pwo
    Streamlit Cloud redespliega ▶ https://agentefull-mhytzkjfr38ukzqxnuxbkf.streamlit.app/
    El apartado pregunta cada 10 s (GET /api/dashboard/estado) hasta que la
    corrida termina y entonces enseña "¡Procesamiento Exitoso!" con la liga.
@@ -22,18 +22,27 @@ PWO / Dashboard Streamlit (HOLTMONT) ──sube documento──▶ Supabase Stor
 Si el dashboard nuevo falla las pruebas 3 veces, **no se publica**: el Action
 termina en rojo y la liga sigue mostrando el anterior.
 
-## Archivos (esta carpeta → raíz de `Agente_Full`)
+## Dónde vive cada cosa
 
-| Aquí | En `Agente_Full` |
+Todo corre en **este repositorio** (HOLTMONT-PYTHON, privado). Antes el Action
+vivía en `Agente_Full`, que es **público**: el dashboard lleva incrustados los
+datos del cliente (costos, cotizaciones) y cualquiera los habría leído.
+
+| Archivo | Para qué |
 | --- | --- |
-| `pipeline_dashboard.py` | `pipeline_dashboard.py` |
-| `requirements-pipeline.txt` | `requirements-pipeline.txt` |
-| `workflow_dashboard_pwo.yml` | `.github/workflows/dashboard-pwo.yml` |
+| `.github/workflows/dashboard-pwo.yml` | el Action; lo dispara el `repository_dispatch` de la API |
+| `agente_full/pipeline_dashboard.py` | los tres agentes y las pruebas del dashboard |
+| `agente_full/requirements-pipeline.txt` | dependencias del pipeline (no las de la API) |
+| rama `dashboard-pwo` | `app.py` + `requirements.txt` que escribe el Action; Streamlit Cloud la sirve |
 
-`app.py` y `requirements.txt` de `Agente_Full` los escribe el Action; no se
-editan a mano. Las pruebas del pipeline viven en HOLTMONT-PYTHON
-(`tests/test_agente_full_pipeline.py`, `tests/test_agente_full_navegador.py`):
-si cambias el pipeline, cámbialo aquí, corre `./run_tests.sh` y vuelve a copiarlo.
+El Action **nunca toca `main`**: publica en la rama `dashboard-pwo`, que nace
+huérfana (sin el código de la API). Así no choca con la protección de `main`,
+no redespliega Vercel con cada dashboard y no pisa el `requirements.txt` de la
+API. Además baja solo `agente_full/` (checkout parcial) y cierra el checkout al
+usuario `pwo-sandbox`, para que el código generado no pueda leer el resto del
+repositorio. Las pruebas de ese contrato están en `tests/test_dashboard_pwo.py`;
+las del pipeline, en `tests/test_agente_full_pipeline.py` y
+`tests/test_agente_full_navegador.py`.
 
 ## Configuración, una sola vez
 
@@ -48,7 +57,7 @@ y circuló por WhatsApp. **Asúmelas comprometidas:**
 El pipeline ya no necesita ningún token de GitHub: el commit lo hace el
 `GITHUB_TOKEN` del propio Action.
 
-### 2. Secretos y variables en `Agente_Full`
+### 2. Secretos y variables en HOLTMONT-PYTHON
 
 Settings → Secrets and variables → Actions:
 
@@ -65,20 +74,26 @@ URL pública del Storage de Holtmont (la misma `SUPABASE_URL` del despliegue).
 
 ### 3. Streamlit Community Cloud
 
-1. New app → repositorio `Agente_Full`, rama principal, archivo `app.py`.
+La rama `dashboard-pwo` no existe hasta la primera corrida del Action: corre
+primero la prueba manual (abajo) y después crea la app.
+
+1. New app → repositorio `HOLTMONT-PYTHON`, rama **`dashboard-pwo`**, archivo
+   `app.py`. Streamlit Cloud necesita permiso sobre repositorios privados
+   (Settings → Linked accounts → GitHub).
 2. Settings → General → **Custom subdomain** (p. ej. `holtmont-pwo`): esa es la
    liga corta, `https://holtmont-pwo.streamlit.app`. No cambia entre despliegues.
-3. **Los datos de la PWO son de clientes** (costos, cotizaciones). El dashboard
-   los lleva incrustados en `app.py`. Si el repositorio es público, cualquiera
-   los lee en GitHub y en la liga. Recomendado: repositorio privado y, en
-   Settings → Sharing, limitar quién puede ver la app.
+3. **Los datos de la PWO son de clientes** (costos, cotizaciones). El
+   repositorio ya es privado, pero la liga de Streamlit es pública por defecto:
+   en Settings → Sharing, limita quién puede ver la app.
+4. Si la liga nueva no es la de siempre, ponla en `DASHBOARD_PWO_URL` (paso 4).
+   La app vieja de `Agente_Full` se puede borrar para liberar su subdominio.
 
 ### 4. Variables en HOLTMONT (Vercel)
 
 | Variable | Valor |
 | --- | --- |
-| `DASHBOARD_PWO_TOKEN` | **obligatoria.** Token *fine-grained* solo para `Agente_Full`, permisos **Contents: Read and write** (lo pide el `repository_dispatch`) y **Actions: Read** (con él el apartado Dashboard Streamlit sabe cuándo terminó) |
-| `DASHBOARD_PWO_REPO` | opcional; si no está, `Luis-py-stack/Agente_Full` |
+| `DASHBOARD_PWO_TOKEN` | **obligatoria.** Token *fine-grained* con *Resource owner* `Luis-Dokkaebi`, solo para `HOLTMONT-PYTHON`, permisos **Contents: Read and write** (lo pide el `repository_dispatch`) y **Actions: Read** (con él el apartado Dashboard Streamlit sabe cuándo terminó) |
+| `DASHBOARD_PWO_REPO` | opcional; si no está, `Luis-Dokkaebi/HOLTMONT-PYTHON` |
 | `DASHBOARD_PWO_URL` | opcional; si no está, la liga corta del paso 3: `https://agentefull-mhytzkjfr38ukzqxnuxbkf.streamlit.app/` |
 
 Sin el token, la PWO no dispara nada, el botón DASHBOARD queda desactivado y el
@@ -95,9 +110,9 @@ log del paso "Generar y validar el dashboard" trae el historial de los 3 intento
 A mano, sin Action:
 
 ```bash
-pip install -r requirements-pipeline.txt && playwright install chromium
+pip install -r agente_full/requirements-pipeline.txt && playwright install chromium
 export GEMINI_API_KEY=...            # una para los tres agentes
-python pipeline_dashboard.py --archivo junta.xlsx --salida /tmp/dashboard
+python agente_full/pipeline_dashboard.py --archivo junta.xlsx --salida /tmp/dashboard
 streamlit run /tmp/dashboard/app.py
 ```
 
@@ -128,8 +143,7 @@ streamlit run /tmp/dashboard/app.py
 - El Agente 3 se repara como máximo **3** veces (antes 4).
 - El workflow lleva `run-name: Dashboard PWO <solicitud>`; sin esa línea el
   apartado Dashboard Streamlit no encuentra la corrida y, a los 3 minutos,
-  avisa que GitHub no arrancó el procesamiento. **Hay que volver a copiar
-  `workflow_dashboard_pwo.yml` y `pipeline_dashboard.py` a `Agente_Full`.**
+  avisa que GitHub no arrancó el procesamiento.
 - Lo que `gsai.py` hacía distinto y **no** se tomó: el token de GitHub y las
   claves de Gemini en el código (siguen en secretos), el commit con la API de
   Git Data y un token personal (lo hace el `GITHUB_TOKEN` del Action), y los

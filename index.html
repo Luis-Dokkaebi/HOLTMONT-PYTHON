@@ -1983,7 +1983,7 @@
         <!-- PANEL: DASHBOARD STREAMLIT                                  -->
         <!-- Solo con la bandera `dashboard_streamlit` (ANTONIO_SALAZAR). -->
         <!-- Se arrastra un Excel, "Procesar" lo manda al pipeline de     -->
-        <!-- Agente_Full (agente_full/pipeline_dashboard.py, adaptación   -->
+        <!-- dashboard (agente_full/pipeline_dashboard.py, adaptación     -->
         <!-- de gsai.py) y al terminar se entrega la liga de Streamlit.   -->
         <!-- ============================================================ -->
         <div v-if="currentView === 'DASHBOARD_STREAMLIT'" id="vistaDashboardStreamlit" class="h-100 d-flex justify-content-center align-items-start" style="background:#f5f6f8; padding:24px 16px; overflow-y:auto;">
@@ -10832,7 +10832,7 @@ const filteredStaffTrackerData = computed(() => {
 
       // --- Dashboard Streamlit (apartado de ANTONIO_SALAZAR) ----------------
       // Se carga un Excel a Storage, "Procesar" lo manda al mismo pipeline que
-      // la PWO (api/services/dashboard_pwo.py -> Action de Agente_Full) y se
+      // la PWO (api/services/dashboard_pwo.py -> .github/workflows/dashboard-pwo.yml) y se
       // pregunta cada 10 s en qué va la corrida de GitHub, hasta EXITOSO o ERROR.
       // La liga de Streamlit es siempre la misma (DASHBOARD_PWO_URL).
       const EXTENSIONES_DASHBOARD_STREAMLIT = ['.xlsx', '.xls'];
@@ -10891,10 +10891,10 @@ const filteredStaffTrackerData = computed(() => {
           }
           if (res.estado === 'ERROR') { fallaDashboardStreamlit(res.message); return null; }
           if (res.estado === 'SIN_INICIAR' && transcurrido > ESPERA_SIN_INICIAR_DASHBOARD_MS) {
-              fallaDashboardStreamlit('GitHub no arrancó el procesamiento. Revisa que el workflow de Agente_Full esté actualizado (agente_full/README.md).');
+              fallaDashboardStreamlit('GitHub no arrancó el procesamiento. Revisa el workflow Dashboard PWO en la pestaña Actions de GitHub (agente_full/README.md).');
               return null;
           }
-          if (transcurrido > ESPERA_MAXIMA_DASHBOARD_MS) { fallaDashboardStreamlit('El procesamiento tardó demasiado; revisa el Action de Agente_Full.'); return null; }
+          if (transcurrido > ESPERA_MAXIMA_DASHBOARD_MS) { fallaDashboardStreamlit('El procesamiento tardó demasiado; revisa el Action Dashboard PWO en GitHub.'); return null; }
           estado.mensaje = res.message || estado.mensaje;
           return 0;
       };
