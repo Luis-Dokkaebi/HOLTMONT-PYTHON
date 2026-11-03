@@ -1,16 +1,17 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
-# 1. Configuración de página (DEBE SER LA PRIMERA LLAMADA STREAMLIT)
+# 1. Configuración de página (OBLIGATORIO SER LA PRIMERA LLAMADA DE STREAMLIT)
 st.set_page_config(
-    page_title="Reporte Tráfico B2C",
-    page_icon="📈",
+    page_title="Reporte de Tráfico de Visitantes B2C",
+    page_icon="📊",
     layout="wide"
 )
 
-# 2. Datos In-Memory Autónomos
-DEFAULT_RECORDS = [
+# 2. Datos embebidos directamente desde el esquema JSON
+DATASET_DEFAULT = [
     {"Fecha": "2026-01-21 00:00:00", "Visitantes": 31},
     {"Fecha": "2026-01-20 00:00:00", "Visitantes": 28},
     {"Fecha": "2026-01-19 00:00:00", "Visitantes": 26},
@@ -42,269 +43,291 @@ DEFAULT_RECORDS = [
     {"Fecha": "2025-12-24 00:00:00", "Visitantes": 14}
 ]
 
-# 3. Barra Lateral de Control y Carga de Archivos
-st.sidebar.header("Filtros de Control")
-
-uploaded_file = st.sidebar.file_uploader("Cargar archivo de datos (CSV o XLSX)", type=["csv", "xlsx"])
+# 3. Carga e inicialización de datos con File Uploader opcional en Sidebar
+st.sidebar.header("⚙️ Configuración y Filtros")
+uploaded_file = st.sidebar.file_uploader("Cargar archivo de datos (.xlsx, .csv)", type=['xlsx', 'csv'])
 
 if uploaded_file is not None:
     try:
-        if uploaded_file.name.endswith(".csv"):
+        if uploaded_file.name.endswith('.csv'):
             df_raw = pd.read_csv(uploaded_file)
         else:
             df_raw = pd.read_excel(uploaded_file)
+        st.sidebar.success("¡Archivo cargado correctamente!")
     except Exception as e:
-        st.sidebar.error(f"Error al leer el archivo cargado: {e}")
-        df_raw = pd.DataFrame(DEFAULT_RECORDS)
+        st.sidebar.error(f"Error al leer el archivo: {e}")
+        df_raw = pd.DataFrame(DATASET_DEFAULT)
 else:
-    df_raw = pd.DataFrame(DEFAULT_RECORDS)
+    df_raw = pd.DataFrame(DATASET_DEFAULT)
 
 # Tipado defensivo y preparación de columnas
-df = df_raw.copy()
+df_base = df_raw.copy()
 
-if 'Fecha' in df.columns:
-    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-    df = df.dropna(subset=['Fecha']).sort_values('Fecha')
-else:
-    st.error("La columna 'Fecha' no existe en los datos proporcionados.")
-    st.stop()
+if 'Fecha' in df_base.columns:
+    df_base['Fecha'] = pd.to_datetime(df_base['Fecha'], errors='coerce')
+    df_base = df_base.dropna(subset=['Fecha'])
+    df_base = df_base.sort_values('Fecha').reset_index(drop=True)
 
-if 'Visitantes' in df.columns:
-    df['Visitantes'] = pd.to_numeric(df['Visitantes'], errors='coerce').fillna(0).astype(int)
-else:
-    st.error("La columna 'Visitantes' no existe en los datos proporcionados.")
-    st.stop()
+if 'Visitantes' in df_base.columns:
+    df_base['Visitantes'] = pd.to_numeric(df_base['Visitantes'], errors='coerce').fillna(0)
 
-# Generar nombres de día en español y orden
-dias_traduccion = {
-    'Monday': 'Lunes',
-    'Tuesday': 'Martes',
-    'Wednesday': 'Miércoles',
-    'Thursday': 'Jueves',
-    'Friday': 'Viernes',
-    'Saturday': 'Sábado',
-    'Sunday': 'Domingo'
+# Creación de variables derivadas
+dias_semana_esp = {
+    'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles',
+    'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
 }
-df['Dia_Semana'] = df['Fecha'].dt.day_name().map(dias_traduccion)
-df['Dia_Num'] = df['Fecha'].dt.weekday
+if 'Fecha' in df_base.columns:
+    df_base['Día_Semana'] = df_base['Fecha'].dt.day_name().map(dias_semana_esp)
+    dias_orden = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
-# Filtros reactivos en Sidebar
-min_date = df['Fecha'].min().date()
-max_date = df['Fecha'].max().date()
+# 4. Barra Lateral Interactiva y Filtros
+st.sidebar.subheader("Filtros Interactivos")
 
-date_range = st.sidebar.date_input(
-    "Seleccionar Rango de Fechas",
-    value=(min_date, max_date),
-    min_value=min_date,
-    max_value=max_date
-)
+# Control de Reset
+if st.sidebar.button("🔄 Restablecer Filtros"):
+    st.session_state.clear()
+    st.rerun()
 
-min_vis = int(df['Visitantes'].min())
-max_vis = int(df['Visitantes'].max())
+# Filtro 1: Rango de Fechas
+if 'Fecha' in df_base.columns and not df_base.empty:
+    min_date = df_base['Fecha'].min().date()
+    max_date = df_base['Fecha'].max().date()
+    rango_fechas = st.sidebar.date_input(
+        "Rango de Fechas:",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+else:
+    rango_fechas = []
 
-if min_vis < max_vis:
-    vis_range = st.sidebar.slider(
-        "Rango de Visitantes",
+# Filtro 2: Rango de Visitantes
+if 'Visitantes' in df_base.columns and not df_base.empty:
+    min_vis = int(df_base['Visitantes'].min())
+    max_vis = int(df_base['Visitantes'].max())
+    rango_visitantes = st.sidebar.slider(
+        "Rango de Visitantes Diarios:",
         min_value=min_vis,
         max_value=max_vis,
         value=(min_vis, max_vis)
     )
 else:
-    vis_range = (min_vis, max_vis)
+    rango_visitantes = (0, 100)
 
-dias_ordenados = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-dias_disponibles = [d for d in dias_ordenados if d in df['Dia_Semana'].unique()]
-
-selected_dias = st.sidebar.multiselect(
-    "Filtrar por Día de la Semana",
-    options=dias_ordenados,
-    default=dias_disponibles
-)
-
-# Aplicar filtros
-df_filtrado = df.copy()
-
-if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-    start_d, end_d = date_range
-    df_filtrado = df_filtrado[(df_filtrado['Fecha'].dt.date >= start_d) & (df_filtrado['Fecha'].dt.date <= end_d)]
-elif isinstance(date_range, (list, tuple)) and len(date_range) == 1:
-    df_filtrado = df_filtrado[df_filtrado['Fecha'].dt.date >= date_range[0]]
-
-df_filtrado = df_filtrado[
-    (df_filtrado['Visitantes'] >= vis_range[0]) & 
-    (df_filtrado['Visitantes'] <= vis_range[1])
-]
-
-if selected_dias:
-    df_filtrado = df_filtrado[df_filtrado['Dia_Semana'].isin(selected_dias)]
+# Filtro 3: Día de la Semana
+if 'Día_Semana' in df_base.columns:
+    dias_disponibles = [d for d in dias_orden if d in df_base['Día_Semana'].unique()]
+    dias_seleccionados = st.sidebar.multiselect(
+        "Días de la Semana:",
+        options=dias_disponibles,
+        default=dias_disponibles
+    )
 else:
-    df_filtrado = df_filtrado.iloc[0:0]
+    dias_seleccionados = []
 
-st.sidebar.caption(f"Mostrando {len(df_filtrado)} de {len(df)} días registrados")
+# Aplicación Reactiva de Filtros
+df_filtrado = df_base.copy()
 
-# Validación defensiva de DataFrame vacío
+if len(rango_fechas) == 2 and 'Fecha' in df_filtrado.columns:
+    inicio, fin = rango_fechas
+    df_filtrado = df_filtrado[
+        (df_filtrado['Fecha'].dt.date >= inicio) & 
+        (df_filtrado['Fecha'].dt.date <= fin)
+    ]
+
+if 'Visitantes' in df_filtrado.columns:
+    df_filtrado = df_filtrado[
+        (df_filtrado['Visitantes'] >= rango_visitantes[0]) & 
+        (df_filtrado['Visitantes'] <= rango_visitantes[1])
+    ]
+
+if 'Día_Semana' in df_filtrado.columns and dias_seleccionados:
+    df_filtrado = df_filtrado[df_filtrado['Día_Semana'].isin(dias_seleccionados)]
+
+# Validación defensiva de conjunto vacío
 if df_filtrado.empty:
-    st.warning("⚠️ No se encontraron registros para los filtros seleccionados. Por favor, ajusta los parámetros en la barra lateral.")
+    st.warning("⚠️ No se encontraron registros que coincidan con los filtros seleccionados.")
     st.stop()
 
-# 4. Encabezado y Metadatos del Dashboard
-st.title("Reporte de Tráfico de Visitantes - Canal B2C")
-st.markdown("**Entidad:** ST_B2C | **Período:** 2025-12-24 a 2026-01-21")
-st.info("Registro histórico del flujo diario de visitantes registrados en la pestaña ST_B2C durante el periodo del 24 de diciembre de 2025 al 21 de enero de 2026.")
+# 5. Encabezado y Metadatos Principales
+st.title("Reporte de Tráfico de Visitantes B2C")
 
-# Tarjetas de KPI
-total_vis = int(df_filtrado['Visitantes'].sum())
-avg_vis = round(df_filtrado['Visitantes'].mean(), 1)
-max_vis_val = int(df_filtrado['Visitantes'].max())
-min_vis_val = int(df_filtrado['Visitantes'].min())
+col_sub1, col_sub2 = st.columns([2, 1])
+with col_sub1:
+    st.caption("📍 **Entidad:** Canal ST_B2C | 📅 **Periodo:** 2025-12-24 a 2026-01-21")
+with col_sub2:
+    st.caption(f"🔍 **Registros Visualizados:** {len(df_filtrado)} / {len(df_base)} días")
 
-pico_rows = df_filtrado[df_filtrado['Visitantes'] == max_vis_val]
-pico_fecha_str = pico_rows['Fecha'].dt.strftime('%Y-%m-%d').iloc[0] if not pico_rows.empty else "N/A"
+with st.expander("ℹ️ Resumen Ejecutivo del Reporte"):
+    st.write(
+        "Registro diario del volumen de visitantes registrado en la pestaña ST_B2C, "
+        "abarcando desde el 24 de diciembre de 2025 hasta el 21 de enero de 2026."
+    )
+
+# 6. Tarjetas de Métricas / KPIs Globales
+st.markdown("### 📈 Indicadores Clave de Rendimiento (KPIs)")
+
+# Cálculo dinámico basado en filtros
+total_visitantes = int(df_filtrado['Visitantes'].sum())
+promedio_diario = float(df_filtrado['Visitantes'].mean()) if len(df_filtrado) > 0 else 0.0
+pico_maximo = int(df_filtrado['Visitantes'].max()) if len(df_filtrado) > 0 else 0
+minimo_diario = int(df_filtrado['Visitantes'].min()) if len(df_filtrado) > 0 else 0
+
+# Obtener fechas de pico y mínimo
+fechas_pico = df_filtrado[df_filtrado['Visitantes'] == pico_maximo]['Fecha'].dt.strftime('%Y-%m-%d').tolist()
+fechas_min = df_filtrado[df_filtrado['Visitantes'] == minimo_diario]['Fecha'].dt.strftime('%Y-%m-%d').tolist()
+
+pico_sub = f"Fecha: {fechas_pico[0]}" if fechas_pico else ""
+min_sub = f"Fechas: {', '.join(fechas_min[:2])}" if fechas_min else ""
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric(
-    label="Total de Visitantes",
-    value=f"{total_vis:,} visitantes",
-    help="Suma acumulada de visitantes en el periodo filtrado"
-)
-col2.metric(
-    label="Promedio Diario",
-    value=f"{avg_vis} visitantes/día",
-    help="Promedio de tráfico diario en el periodo filtrado"
-)
-col3.metric(
-    label="Máximo Diario",
-    value=f"{max_vis_val} visitantes",
-    delta=f"Pico: {pico_fecha_str}",
-    help="Nivel más alto alcanzado en los datos filtrados"
-)
-col4.metric(
-    label="Mínimo Diario",
-    value=f"{min_vis_val} visitantes",
-    delta="- Valle",
-    delta_color="inverse",
-    help="Nivel más bajo registrado en los datos filtrados"
-)
 
-st.write("---")
+with col1:
+    st.metric(
+        label="Total de Visitantes",
+        value=f"{total_visitantes:,}",
+        help="Suma total de visitantes registrados durante el periodo filtrado"
+    )
 
-# 5. Estructura de Pestañas
-tab_b2c, tab_analisis_avanzado = st.tabs(["📊 Canal B2C (ST_B2C)", "🔍 Análisis Patrones y Distribución"])
+with col2:
+    st.metric(
+        label="Promedio Diario",
+        value=f"{promedio_diario:.2f} / día",
+        help="Promedio de visitas diarias en el periodo analizado"
+    )
 
-with tab_b2c:
-    st.subheader("Evolución Temporal del Tráfico Diario de Visitantes")
-    
-    fig_line = px.line(
+with col3:
+    st.metric(
+        label="Pico Máximo Diario",
+        value=f"{pico_maximo} visitantes",
+        delta=pico_sub,
+        delta_color="normal",
+        help="Mayor número de visitantes registrado en un solo día"
+    )
+
+with col4:
+    st.metric(
+        label="Mínimo Diario",
+        value=f"{minimo_diario} visitantes",
+        delta=min_sub,
+        delta_color="inverse",
+        help="Menor número de visitantes registrado en un día"
+    )
+
+st.markdown("---")
+
+# 7. Estructura de Secciones en Pestañas (Tabs)
+tab_analisis, tab_datos = st.tabs(["📊 Análisis Visual (ST_B2C)", "📋 Explorador de Datos Crudos"])
+
+# --- PESTAÑA 1: ANÁLISIS VISUAL ---
+with tab_analisis:
+    # Gráfico 1: Tendencia Temporal Diaria
+    fig_trend = px.area(
         df_filtrado,
         x='Fecha',
         y='Visitantes',
-        title="Evolución Temporal del Tráfico Diario de Visitantes",
-        markers=True
+        title="Evolución Diaria del Tráfico de Visitantes B2C",
+        markers=True,
+        labels={'Fecha': 'Fecha de Registro', 'Visitantes': 'Visitantes'}
     )
     
-    fig_line.add_hline(
-        y=18,
+    # Línea horizontal del promedio
+    fig_trend.add_hline(
+        y=promedio_diario,
         line_dash="dash",
-        line_color="red",
-        annotation_text="Promedio Referencial (18)",
-        annotation_position="bottom right"
+        line_color="#EF553B",
+        annotation_text=f"Promedio Filtrado ({promedio_diario:.2f})",
+        annotation_position="top left"
     )
     
-    # Anotación si el pico histórico está en la selección
-    if (df_filtrado['Visitantes'] == 35).any():
-        pico_idx = df_filtrado[df_filtrado['Visitantes'] == 35].index[0]
-        fig_line.add_annotation(
-            x=df_filtrado.loc[pico_idx, 'Fecha'],
-            y=35,
-            text="Pico Máximo (35)",
-            showarrow=True,
-            arrowhead=2,
-            ax=0,
-            ay=-30
+    fig_trend.update_layout(
+        hovermode="x unified",
+        margin=dict(l=20, r=20, t=50, b=50),
+        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5)
+    )
+    st.plotly_chart(fig_trend, width="stretch")
+    st.caption("ℹ️ *El total acumulado resulta de la agregación continua de las mediciones diarias.*")
+
+    col_g1, col_g2 = st.columns(2)
+
+    with col_g1:
+        # Gráfico 2: Distribución por Intensidad de Visitantes
+        fig_bar = px.bar(
+            df_filtrado,
+            x='Fecha',
+            y='Visitantes',
+            color='Visitantes',
+            color_continuous_scale='Viridis',
+            title="Volumen Diario de Visitantes por Intensidad",
+            labels={'Fecha': 'Fecha', 'Visitantes': 'Cantidad de Visitantes'}
         )
-        
-    fig_line.update_layout(
-        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
-        xaxis_title="Fecha",
-        yaxis_title="Visitantes"
-    )
-    st.plotly_chart(fig_line, width="stretch")
-    
-    st.subheader("Volumen Diario de Visitantes Registrados")
-    fig_bar = px.bar(
-        df_filtrado,
-        x='Fecha',
-        y='Visitantes',
-        color='Visitantes',
-        color_continuous_scale='Viridis',
-        text_auto=True,
-        title="Volumen Diario de Visitantes Registrados"
-    )
-    fig_bar.update_layout(
-        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
-        xaxis_title="Fecha",
-        yaxis_title="Visitantes"
-    )
-    st.plotly_chart(fig_bar, width="stretch")
-    
-    with st.expander("📁 Explorar Registro de Datos Crudos (ST_B2C)", expanded=False):
-        df_display = df_filtrado[['Fecha', 'Dia_Semana', 'Visitantes']].sort_values(by='Fecha', ascending=False)
-        
-        st.dataframe(
-            df_display,
-            width="stretch",
-            column_config={
-                "Fecha": st.column_config.DatetimeColumn("Fecha", format="YYYY-MM-DD"),
-                "Dia_Semana": "Día de la Semana",
-                "Visitantes": st.column_config.ProgressColumn(
-                    "Visitantes",
-                    min_value=0,
-                    max_value=40,
-                    format="%d visitantes"
-                )
-            }
+        fig_bar.update_layout(
+            coloraxis_showscale=True,
+            margin=dict(l=20, r=20, t=50, b=50),
+            legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5)
         )
-        
-        csv_data = df_display.to_csv(index=False).encode('utf-8')
+        st.plotly_chart(fig_bar, width="stretch")
+
+    with col_g2:
+        # Gráfico 3: Boxplot de Dispersión Estadísticas
+        fig_box = px.box(
+            df_filtrado,
+            y='Visitantes',
+            points="all",
+            title="Dispersión y Comportamiento Estadístico del Tráfico",
+            labels={'Visitantes': 'Visitantes Diarios'}
+        )
+        fig_box.update_layout(
+            margin=dict(l=20, r=20, t=50, b=50),
+            legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5)
+        )
+        st.plotly_chart(fig_box, width="stretch")
+
+# --- PESTAÑA 2: EXPLORADOR DE DATOS CRUDOS ---
+with tab_datos:
+    st.subheader("Tabla de Registros Diarios - ST_B2C")
+    
+    # Preparar vista de datos con formateo optimizado
+    df_display = df_filtrado.copy()
+    df_display['Fecha_Str'] = df_display['Fecha'].dt.strftime('%Y-%m-%d')
+    
+    st.dataframe(
+        df_display[['Fecha_Str', 'Día_Semana', 'Visitantes']],
+        width="stretch",
+        column_config={
+            "Fecha_Str": st.column_config.Column("Fecha de Registro"),
+            "Día_Semana": st.column_config.Column("Día de la Semana"),
+            "Visitantes": st.column_config.NumberColumn(
+                "Cantidad de Visitantes",
+                format="%d 👤"
+            )
+        }
+    )
+
+    col_df1, col_df2 = st.columns([3, 1])
+    
+    with col_df1:
+        with st.expander("📊 Estadísticas Descriptivas Dinámicas"):
+            st.dataframe(
+                df_filtrado[['Visitantes']].describe().T,
+                width="stretch"
+            )
+            
+    with col_df2:
+        # Botón de Descarga
+        csv_data = df_filtrado.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Descargar Datos Filtrados (CSV)",
+            label="📥 Descargar CSV Filtrado",
             data=csv_data,
-            file_name="trafico_b2c_filtrado.csv",
-            mime="text/csv"
+            file_name="st_b2c_traffic_data.csv",
+            mime="text/csv",
+            help="Descarga el conjunto de datos filtrado actualmente en formato CSV"
         )
 
-with tab_analisis_avanzado:
-    st.subheader("Comportamiento del Tráfico por Día de la Semana")
-    
-    df_weekly = df_filtrado.groupby(['Dia_Num', 'Dia_Semana'])['Visitantes'].agg(['mean', 'sum', 'count']).reset_index()
-    df_weekly = df_weekly.sort_values('Dia_Num')
-    df_weekly['Promedio'] = df_weekly['mean'].round(1)
-    
-    fig_weekly = px.bar(
-        df_weekly,
-        x='Dia_Semana',
-        y='Promedio',
-        text='Promedio',
-        color='Promedio',
-        color_continuous_scale='Blues',
-        title="Promedio Diario de Visitantes por Día de la Semana"
-    )
-    fig_weekly.update_layout(
-        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
-        xaxis_title="Día de la Semana",
-        yaxis_title="Promedio de Visitantes"
-    )
-    st.plotly_chart(fig_weekly, width="stretch")
-    
-    st.subheader("Análisis Estadístico de Dispersión y Outliers")
-    fig_box = px.box(
-        df_filtrado,
-        y='Visitantes',
-        points="all",
-        title="Distribución y Dispersión del Tráfico Diario"
-    )
-    fig_box.update_layout(
-        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
-        yaxis_title="Cantidad de Visitantes"
-    )
-    st.plotly_chart(fig_box, width="stretch")
+# Pie de página sobre semántica de datos
+st.markdown("---")
+st.caption(
+    "💡 **Notas Semánticas del Negocio:** "
+    "El total reportado de 537 visitantes representa la agregación de los 29 registros de la tabla ST_B2C. "
+    "El promedio general de 18.52 visitantes/día se obtiene dividiendo el acumulado global entre los 29 días observados."
+)
