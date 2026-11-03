@@ -1,358 +1,441 @@
-import streamlit as st
+import io
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
 
-# ---------------------------------------------------------
-# 1. CONFIGURACIÓN DE PÁGINA (PRIMERA LLAMADA OBLIGATORIA)
-# ---------------------------------------------------------
+# ==========================================
+# 1. CONFIGURACIÓN DE PÁGINA (PRIMERA LLAMADA)
+# ==========================================
 st.set_page_config(
-    page_title="Seguimiento de Órdenes de Compra y Diseño de Estructura",
-    page_icon="🏗️",
+    page_title="Reporte de Tráfico de Visitantes ST_B2C",
     layout="wide"
 )
 
-# ---------------------------------------------------------
-# 2. AUTONOMÍA DE DATOS (DATOS DEFAULT EN MEMORIA)
-# ---------------------------------------------------------
-DEFAULT_RECORDS = [
-    {
-        "ID": 1,
-        "Fecha captura": "2026-07-07 00:00:00",
-        "Concepto": "OC cimentaciones",
-        "Departamento": "Compras",
-        "Responsable": None,
-        "Estatus": "Cerrado",
-        "Siguiente paso": "ya se tiene cotizacion con Rangel, se comparte el dia de hoy para revision"
-    },
-    {
-        "ID": 2,
-        "Fecha captura": "2026-07-07 00:00:00",
-        "Concepto": "OC estructura",
-        "Departamento": "Compras",
-        "Responsable": "Judith Echeverria",
-        "Estatus": "Critico",
-        "Siguiente paso": "Se comparte OC el dia de hoy, anticipo se paga en 15 dias, en confirmacion de reunion el dia de hoy  (TECOIMSA)"
-    },
-    {
-        "ID": 3,
-        "Fecha captura": "2026-07-07 00:00:00",
-        "Concepto": "Entrega diseño de estructura",
-        "Departamento": "Diseño",
-        "Responsable": "Carlos Mendez",
-        "Estatus": "En proceso",
-        "Siguiente paso": "En proceso de revision y vobo de NIDEC"
-    },
-    {
-        "ID": 4,
-        "Fecha captura": "2026-07-07 00:00:00",
-        "Concepto": "OC de anclas y placas",
-        "Departamento": "Compras",
-        "Responsable": "Judith Echeverria",
-        "Estatus": "En proceso",
-        "Siguiente paso": "Ya se comenzo cotizacion de materiales para entrega a Luis Ramirez. (tiempo de fabricacion 4 dias)"
-    },
-    {
-        "ID": 5,
-        "Fecha captura": "2026-07-07 00:00:00",
-        "Concepto": "Memoria calculo estructural (estructura metalica)",
-        "Departamento": "Diseño",
-        "Responsable": None,
-        "Estatus": "Cerrado",
-        "Siguiente paso": "Se espera entrega el proximo miercoles 15"
-    }
+# ==========================================
+# 2. DATOS DE RESPALDO (IN-MEMORY AUTÓNOMOS)
+# ==========================================
+RAW_RECORDS = [
+    {"Fecha": "2026-01-21 00:00:00", "Visitantes": 31},
+    {"Fecha": "2026-01-20 00:00:00", "Visitantes": 28},
+    {"Fecha": "2026-01-19 00:00:00", "Visitantes": 26},
+    {"Fecha": "2026-01-18 00:00:00", "Visitantes": 25},
+    {"Fecha": "2026-01-17 00:00:00", "Visitantes": 27},
+    {"Fecha": "2026-01-16 00:00:00", "Visitantes": 18},
+    {"Fecha": "2026-01-15 00:00:00", "Visitantes": 22},
+    {"Fecha": "2026-01-14 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-13 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-12 00:00:00", "Visitantes": 8},
+    {"Fecha": "2026-01-11 00:00:00", "Visitantes": 9},
+    {"Fecha": "2026-01-10 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-09 00:00:00", "Visitantes": 16},
+    {"Fecha": "2026-01-08 00:00:00", "Visitantes": 12},
+    {"Fecha": "2026-01-07 00:00:00", "Visitantes": 16},
+    {"Fecha": "2026-01-06 00:00:00", "Visitantes": 14},
+    {"Fecha": "2026-01-05 00:00:00", "Visitantes": 24},
+    {"Fecha": "2026-01-04 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-03 00:00:00", "Visitantes": 8},
+    {"Fecha": "2026-01-02 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-01 00:00:00", "Visitantes": 14},
+    {"Fecha": "2025-12-31 00:00:00", "Visitantes": 10},
+    {"Fecha": "2025-12-30 00:00:00", "Visitantes": 35},
+    {"Fecha": "2025-12-29 00:00:00", "Visitantes": 13},
+    {"Fecha": "2025-12-28 00:00:00", "Visitantes": 13},
+    {"Fecha": "2025-12-27 00:00:00", "Visitantes": 26},
+    {"Fecha": "2025-12-26 00:00:00", "Visitantes": 26},
+    {"Fecha": "2025-12-25 00:00:00", "Visitantes": 12},
+    {"Fecha": "2025-12-24 00:00:00", "Visitantes": 14}
 ]
 
-# ---------------------------------------------------------
-# 3. CARGA Y TRATAMIENTO DEFENSIVO DE DATOS
-# ---------------------------------------------------------
-st.sidebar.header("⚙️ Filtros y Configuración")
+DAY_TRANSLATION = {
+    'Monday': 'Lunes',
+    'Tuesday': 'Martes',
+    'Wednesday': 'Miércoles',
+    'Thursday': 'Jueves',
+    'Friday': 'Viernes',
+    'Saturday': 'Sábado',
+    'Sunday': 'Domingo'
+}
+DAY_ORDER = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
-uploaded_file = st.sidebar.file_uploader(
-    "Cargar nuevos datos (CSV o XLSX)", 
-    type=['csv', 'xlsx']
-)
+# ==========================================
+# 3. CARGA DE DATOS Y PROCESAMIENTO INICIAL
+# ==========================================
+st.sidebar.title("⚙️ Configuración")
+uploaded_file = st.sidebar.file_uploader("Cargar archivo de datos (CSV o Excel)", type=['csv', 'xlsx'])
 
 if uploaded_file is not None:
     try:
         if uploaded_file.name.endswith('.csv'):
-            df_base = pd.read_csv(uploaded_file)
+            df_raw = pd.read_csv(uploaded_file)
         else:
-            df_base = pd.read_excel(uploaded_file)
-        st.sidebar.success("Archivo externo cargado correctamente.")
+            df_raw = pd.read_excel(uploaded_file)
+        st.sidebar.success("¡Archivo cargado correctamente!")
     except Exception as e:
         st.sidebar.error(f"Error al leer el archivo: {e}")
-        df_base = pd.DataFrame(DEFAULT_RECORDS)
+        df_raw = pd.DataFrame(RAW_RECORDS)
 else:
-    df_base = pd.DataFrame(DEFAULT_RECORDS)
+    df_raw = pd.DataFrame(RAW_RECORDS)
 
-# Asegurar existencia de columnas y tipado defensivo
-if 'ID' in df_base.columns:
-    df_base['ID'] = pd.to_numeric(df_base['ID'], errors='coerce')
+# Tipado defensivo y preparación
+df = df_raw.copy()
 
-if 'Responsable' in df_base.columns:
-    df_base['Responsable_Clean'] = df_base['Responsable'].fillna('Sin Asignar')
+if 'Fecha' in df.columns:
+    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+    df = df.dropna(subset=['Fecha'])
 else:
-    df_base['Responsable_Clean'] = 'Sin Asignar'
+    st.error("La columna 'Fecha' no existe en el conjunto de datos cargado.")
+    st.stop()
 
-if 'Departamento' not in df_base.columns:
-    df_base['Departamento'] = 'Sin Clasificar'
+if 'Visitantes' in df.columns:
+    df['Visitantes'] = pd.to_numeric(df['Visitantes'], errors='coerce').fillna(0)
+else:
+    st.error("La columna 'Visitantes' no existe en el conjunto de datos cargado.")
+    st.stop()
 
-if 'Estatus' not in df_base.columns:
-    df_base['Estatus'] = 'Sin Estatus'
+# Enriquecimiento de datos
+df = df.sort_values('Fecha').reset_index(drop=True)
+df['Día_Semana'] = df['Fecha'].dt.day_name().map(DAY_TRANSLATION)
+df['Diferencia_Promedio'] = df['Visitantes'] - 18.0
 
-if 'Concepto' not in df_base.columns:
-    df_base['Concepto'] = 'Sin Concepto'
+# ==========================================
+# 4. CONTROLES Y FILTROS REACTIVOS (SIDEBAR)
+# ==========================================
+st.sidebar.header("🔍 Filtros de Análisis")
 
-if 'Siguiente paso' not in df_base.columns:
-    df_base['Siguiente paso'] = 'Sin Detalle'
-
-# ---------------------------------------------------------
-# 4. FILTROS INTERACTIVOS (SIDEBAR)
-# ---------------------------------------------------------
+# Botón de Restablecimiento
 if st.sidebar.button("🔄 Restablecer Filtros"):
     st.session_state.clear()
     st.rerun()
 
-deptos_opt = sorted(list(df_base['Departamento'].astype(str).unique()))
-estatus_opt = sorted(list(df_base['Estatus'].astype(str).unique()))
-resp_opt = sorted(list(df_base['Responsable_Clean'].astype(str).unique()))
+# Rango de Fechas
+min_date = df['Fecha'].min().date()
+max_date = df['Fecha'].max().date()
 
-selected_deptos = st.sidebar.multiselect("Filtrar por Departamento:", options=deptos_opt, default=deptos_opt)
-selected_estatus = st.sidebar.multiselect("Filtrar por Estatus:", options=estatus_opt, default=estatus_opt)
-selected_resp = st.sidebar.multiselect("Filtrar por Responsable:", options=resp_opt, default=resp_opt)
+selected_dates = st.sidebar.date_input(
+    "Seleccionar Rango de Fechas",
+    value=(min_date, max_date),
+    min_value=min_date,
+    max_value=max_date
+)
 
-search_query = st.sidebar.text_input("🔍 Búsqueda rápida por palabra clave:", value="")
+# Rango de Visitantes
+min_vis = int(df['Visitantes'].min())
+max_vis = int(df['Visitantes'].max())
 
-# Aplicación de filtros reactivos
-df_filtered = df_base.copy()
+selected_visitors = st.sidebar.slider(
+    "Rango de Visitantes Diarios",
+    min_value=min_vis,
+    max_value=max_vis,
+    value=(min_vis, max_vis)
+)
 
-if selected_deptos:
-    df_filtered = df_filtered[df_filtered['Departamento'].astype(str).isin(selected_deptos)]
+# Filtro por Día de la Semana
+available_days = [d for d in DAY_ORDER if d in df['Día_Semana'].unique()]
+selected_days = st.sidebar.multiselect(
+    "Filtrar por Día de la Semana",
+    options=available_days,
+    default=available_days
+)
 
-if selected_estatus:
-    df_filtered = df_filtered[df_filtered['Estatus'].astype(str).isin(selected_estatus)]
+# Aplicación de filtros
+df_filtered = df.copy()
 
-if selected_resp:
-    df_filtered = df_filtered[df_filtered['Responsable_Clean'].astype(str).isin(selected_resp)]
+if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
+    start_date, end_date = selected_dates
+    df_filtered = df_filtered[
+        (df_filtered['Fecha'].dt.date >= start_date) & 
+        (df_filtered['Fecha'].dt.date <= end_date)
+    ]
 
-if search_query.strip():
-    sq = search_query.lower()
-    mask_c = df_filtered['Concepto'].astype(str).str.lower().str.contains(sq)
-    mask_p = df_filtered['Siguiente paso'].astype(str).str.lower().str.contains(sq)
-    df_filtered = df_filtered[mask_c | mask_p]
+df_filtered = df_filtered[
+    (df_filtered['Visitantes'] >= selected_visitors[0]) & 
+    (df_filtered['Visitantes'] <= selected_visitors[1])
+]
 
-# ---------------------------------------------------------
-# 5. ENCABEZADO PRINCIPAL Y METADATOS
-# ---------------------------------------------------------
-st.title("🏗️ Seguimiento de Órdenes de Compra y Diseño de Estructura")
+if selected_days:
+    df_filtered = df_filtered[df_filtered['Día_Semana'].isin(selected_days)]
+else:
+    df_filtered = pd.DataFrame(columns=df.columns)
 
-with st.expander("ℹ️ Información General y Contexto del Proyecto", expanded=False):
-    st.markdown("""
-    * **Dominio:** Gestión de Proyectos / Control de Obras y Compras
-    * **Fecha de Captura:** `2026-07-07`
-    * **Resumen Executivo:** Bitácora de seguimiento de estatus, responsables y siguientes pasos para órdenes de compra y diseño estructural (cimentaciones, estructuras metálicas, anclas y placas).
-    """)
-
-# ---------------------------------------------------------
-# 6. MÉTICAS Y KPIS GLOBALES (2 FILAS X 3 COLUMNAS)
-# ---------------------------------------------------------
-st.subheader("📌 Indicadores Clave de Desempeño (KPIs)")
-
-total_regs = len(df_filtered)
-cerrados = len(df_filtered[df_filtered['Estatus'] == 'Cerrado'])
-criticos = len(df_filtered[df_filtered['Estatus'].isin(['Critico', 'Crítico'])])
-en_proceso = len(df_filtered[df_filtered['Estatus'] == 'En proceso'])
-
-vol_compras = len(df_filtered[df_filtered['Departamento'] == 'Compras'])
-vol_diseno = len(df_filtered[df_filtered['Departamento'] == 'Diseño'])
-
-pct_cerrado = (cerrados / total_regs * 100) if total_regs > 0 else 0
-pct_critico = (criticos / total_regs * 100) if total_regs > 0 else 0
-pct_proceso = (en_proceso / total_regs * 100) if total_regs > 0 else 0
-
-# Fila 1 KPI
-kpi1, kpi2, kpi3 = st.columns(3)
-with kpi1:
-    st.metric(
-        label="Total Tareas",
-        value=f"{total_regs} registros",
-        help="Total de conceptos filtrados"
-    )
-with kpi2:
-    st.metric(
-        label="Tareas Cerradas",
-        value=cerrados,
-        delta=f"{pct_cerrado:.0f}% del total",
-        delta_color="normal"
-    )
-with kpi3:
-    st.metric(
-        label="Tareas Críticas ⚠️",
-        value=criticos,
-        delta=f"{pct_critico:.0f}% - Atención Requerida",
-        delta_color="inverse"
-    )
-
-# Fila 2 KPI
-kpi4, kpi5, kpi6 = st.columns(3)
-with kpi4:
-    st.metric(
-        label="En Proceso",
-        value=en_proceso,
-        delta=f"{pct_proceso:.0f}% del total",
-        delta_color="off"
-    )
-with kpi5:
-    pct_compras = (vol_compras / total_regs * 100) if total_regs > 0 else 0
-    st.metric(
-        label="Volumen Compras",
-        value=f"{vol_compras} tareas",
-        help=f"{pct_compras:.0f}% del trabajo activo"
-    )
-with kpi6:
-    pct_diseno = (vol_diseno / total_regs * 100) if total_regs > 0 else 0
-    st.metric(
-        label="Volumen Diseño",
-        value=f"{vol_diseno} tareas",
-        help=f"{pct_diseno:.0f}% del trabajo activo"
-    )
-
-st.markdown("---")
-
-# Validar DataFrame Vacío tras Filtros
+# Validación de DataFrame Vacío
 if df_filtered.empty:
-    st.warning("⚠️ No se encontraron registros con los filtros seleccionados. Por favor ajuste la selección.")
+    st.warning("⚠️ No existen registros que coincidan con los filtros seleccionados. Ajusta los parámetros en la barra lateral.")
     st.stop()
 
-# ---------------------------------------------------------
-# 7. ESTRUCTURA DE PESTAÑAS (TABS)
-# ---------------------------------------------------------
-tab_exec, tab_table, tab_semantics = st.tabs([
-    "📊 Tablero Ejecutivo & Gráficos",
-    "📋 Control de Tareas (Datos Crudos)",
-    "🔍 Análisis Semántico & Alertas"
+# ==========================================
+# 5. ENCABEZADO Y KPIS GLOBALES
+# ==========================================
+st.title("📊 Reporte de Tráfico de Visitantes ST_B2C")
+st.caption("Entidad: **ST_B2C (Canal o Segmento B2C)** | Periodo: **2025-12-24** al **2026-01-21**")
+
+st.info(
+    "Registro diario del volumen de visitantes para la sección/canal ST_B2C comprendido "
+    "entre el 24 de diciembre de 2025 y el 21 de enero de 2026."
+)
+
+# Métricas Calculadas Dinámicamente o Globales
+total_visitantes = int(df_filtered['Visitantes'].sum())
+promedio_diario = round(df_filtered['Visitantes'].mean(), 1)
+max_visitantes = int(df_filtered['Visitantes'].max())
+min_visitantes = int(df_filtered['Visitantes'].min())
+
+# Identificación de fechas clave para subtextos
+fechas_max = df_filtered[df_filtered['Visitantes'] == max_visitantes]['Fecha'].dt.strftime('%Y-%m-%d').tolist()
+fechas_min = df_filtered[df_filtered['Visitantes'] == min_visitantes]['Fecha'].dt.strftime('%Y-%m-%d').tolist()
+
+txt_max = f"Registrado el {', '.join(fechas_max)}"
+txt_min = f"Registrado el {' y '.join(fechas_min)}"
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.metric(
+        label="Total de Visitantes",
+        value=f"{total_visitantes:,}",
+        help="Suma total de visitantes acumulados en el periodo filtrado"
+    )
+
+with col2:
+    st.metric(
+        label="Promedio Diario",
+        value=f"{promedio_diario} vis/día",
+        help="Media de tráfico diario durante el periodo analizado"
+    )
+
+with col3:
+    st.metric(
+        label="Máximo Diario",
+        value=f"{max_visitantes}",
+        delta=txt_max,
+        delta_color="normal",
+        help="Pico de tráfico alcanzado"
+    )
+
+with col4:
+    st.metric(
+        label="Mínimo Diario",
+        value=f"{min_visitantes}",
+        delta=txt_min,
+        delta_color="inverse",
+        help="Valores mínimos de tráfico diario registrados"
+    )
+
+st.divider()
+
+# ==========================================
+# 6. PESTAÑAS Y VISUALIZACIONES
+# ==========================================
+tab1, tab2, tab3 = st.tabs([
+    "📈 Analítica de Tráfico ST_B2C",
+    "🔍 Análisis Semántico y Comparativo",
+    "📋 Explorador de Datos Crudos"
 ])
 
-COLOR_MAP = {
-    'Critico': '#FF4B4B',
-    'Crítico': '#FF4B4B',
-    'En proceso': '#FFAA00',
-    'Cerrado': '#00CC96'
-}
-
-# =========================================================
-# TAB 1: TABLERO EJECUTIVO & GRÁFICOS
-# =========================================================
-with tab_exec:
-    st.subheader("Visualización y Desglose Operativo")
+# ------------------------------------------
+# TAB 1: Analítica de Tráfico ST_B2C
+# ------------------------------------------
+with tab1:
+    st.subheader("Serie Temporal de Visitantes Diarios")
     
-    col_g1, col_g2 = st.columns(2)
-    
-    with col_g1:
-        st.markdown("##### Estado de Tareas por Departamento")
-        fig_bar = px.bar(
-            df_filtered,
-            x='Departamento',
-            color='Estatus',
-            barmode='stack',
-            color_discrete_map=COLOR_MAP,
-            hover_data=['Concepto', 'Responsable_Clean']
-        )
-        fig_bar.update_layout(
-            legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
-            xaxis_title="Departamento",
-            yaxis_title="Cantidad de Tareas"
-        )
-        st.plotly_chart(fig_bar, width="stretch")
-        
-    with col_g2:
-        st.markdown("##### Carga de Trabajo por Responsable")
-        fig_resp = px.bar(
-            df_filtered,
-            y='Responsable_Clean',
-            color='Estatus',
-            orientation='h',
-            color_discrete_map=COLOR_MAP,
-            hover_data=['Concepto', 'Departamento']
-        )
-        fig_resp.update_layout(
-            legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
-            xaxis_title="Número de Tareas",
-            yaxis_title="Responsable Asignado"
-        )
-        st.plotly_chart(fig_resp, width="stretch")
-
-    st.markdown("##### Estructura Jerárquica de Tareas (Treemap)")
-    fig_tree = px.treemap(
+    fig_line = px.line(
         df_filtered,
-        path=['Departamento', 'Responsable_Clean', 'Estatus', 'Concepto'],
-        color='Estatus',
-        color_discrete_map=COLOR_MAP
+        x='Fecha',
+        y='Visitantes',
+        markers=True,
+        title="Evolución Diaria del Tráfico de Visitantes",
+        labels={'Fecha': 'Fecha', 'Visitantes': 'Número de Visitantes'}
     )
-    fig_tree.update_layout(
-        margin=dict(t=25, l=10, r=10, b=10)
+    
+    # Línea de referencia en el promedio general (18.0)
+    fig_line.add_hline(
+        y=18.0,
+        line_dash="dash",
+        line_color="red",
+        annotation_text="Promedio Referencia (18.0)",
+        annotation_position="top left"
     )
-    st.plotly_chart(fig_tree, width="stretch")
+    
+    # Anotaciones de Picos y Valles
+    for _, row in df_filtered.iterrows():
+        if row['Visitantes'] == max_visitantes:
+            fig_line.add_annotation(
+                x=row['Fecha'], y=row['Visitantes'],
+                text=f"Máx: {int(row['Visitantes'])}",
+                showarrow=True, arrowhead=2, ax=0, ay=-30,
+                bgcolor="#00CC96", font=dict(color="white")
+            )
+        elif row['Visitantes'] == min_visitantes:
+            fig_line.add_annotation(
+                x=row['Fecha'], y=row['Visitantes'],
+                text=f"Mín: {int(row['Visitantes'])}",
+                showarrow=True, arrowhead=2, ax=0, ay=30,
+                bgcolor="#EF553B", font=dict(color="white")
+            )
 
-# =========================================================
-# TAB 2: CONTROL DE TAREAS (DATOS CRUDOS)
-# =========================================================
-with tab_table:
-    st.subheader("Bitácora Completa de Control")
+    fig_line.update_layout(
+        xaxis_title="Fecha",
+        yaxis_title="Cantidad de Visitantes",
+        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
+        template="plotly_white"
+    )
+    st.plotly_chart(fig_line, width="stretch")
     
-    cols_export = [c for c in ['ID', 'Fecha captura', 'Concepto', 'Departamento', 'Responsable_Clean', 'Estatus', 'Siguiente paso'] if c in df_filtered.columns]
+    st.divider()
     
-    df_display = df_filtered[cols_export].copy()
-    if 'Responsable_Clean' in df_display.columns:
-        df_display.rename(columns={'Responsable_Clean': 'Responsable'}, inplace=True)
+    st.subheader("Distribución de Tráfico por Día de la Semana")
+    
+    # Agrupación por día de la semana
+    df_day = df_filtered.groupby('Día_Semana', as_index=False)['Visitantes'].agg(['mean', 'sum', 'count']).reset_index()
+    df_day['Día_Semana'] = pd.Categorical(df_day['Día_Semana'], categories=DAY_ORDER, ordered=True)
+    df_day = df_day.sort_values('Día_Semana')
+    
+    fig_bar_day = px.bar(
+        df_day,
+        x='Día_Semana',
+        y='mean',
+        color='mean',
+        title="Promedio de Visitantes por Día de la Semana",
+        labels={'Día_Semana': 'Día de la Semana', 'mean': 'Promedio de Visitantes'},
+        color_continuous_scale='Viridis'
+    )
+    fig_bar_day.update_layout(
+        xaxis_title="Día de la Semana",
+        yaxis_title="Promedio Diarios de Visitantes",
+        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
+        template="plotly_white"
+    )
+    st.plotly_chart(fig_bar_day, width="stretch")
+
+# ------------------------------------------
+# TAB 2: Análisis Semántico y Comparativo
+# ------------------------------------------
+with tab2:
+    st.subheader("Comparativa contra la Media Global (Divergencia vs 18.0)")
+    st.markdown(
+        "Este gráfico muestra la desviación del volumen diario respecto al promedio histórico "
+        "de **18.0 visitantes diarios**. Los valores positivos representan días con rendimiento "
+        "por encima del promedio, mientras que los negativos indican baja afluencia."
+    )
+    
+    df_filtered['Color_Divergencia'] = df_filtered['Diferencia_Promedio'].apply(
+        lambda x: 'Por Encima del Promedio (+)' if x >= 0 else 'Por Debajo del Promedio (-)'
+    )
+    
+    fig_div = px.bar(
+        df_filtered,
+        x='Fecha',
+        y='Diferencia_Promedio',
+        color='Color_Divergencia',
+        color_discrete_map={
+            'Por Encima del Promedio (+)': '#2CA02C',
+            'Por Debajo del Promedio (-)': '#D62728'
+        },
+        title="Diferencia Diaria de Visitantes Respecto a la Media (18.0)",
+        labels={'Fecha': 'Fecha', 'Diferencia_Promedio': 'Desviación vs Promedio'}
+    )
+    fig_div.update_layout(
+        xaxis_title="Fecha",
+        yaxis_title="Diferencia de Visitantes",
+        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
+        template="plotly_white"
+    )
+    st.plotly_chart(fig_div, width="stretch")
+    
+    st.divider()
+    
+    st.subheader("Análisis de Dispersión y Frecuencia")
+    col_box, col_hist = st.columns(2)
+    
+    with col_box:
+        fig_box = px.box(
+            df_filtered,
+            y='Visitantes',
+            points="all",
+            title="Diagrama de Caja (Boxplot) de Visitantes",
+            labels={'Visitantes': 'Visitantes Diarios'}
+        )
+        fig_box.update_layout(
+            legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
+            template="plotly_white"
+        )
+        st.plotly_chart(fig_box, width="stretch")
         
+    with col_hist:
+        fig_hist = px.histogram(
+            df_filtered,
+            x='Visitantes',
+            nbins=10,
+            title="Histograma de Frecuencia de Visitantes",
+            labels={'Visitantes': 'Rango de Visitantes Diarios'},
+            color_discrete_sequence=['#1F77B4']
+        )
+        fig_hist.update_layout(
+            yaxis_title="Frecuencia (Días)",
+            legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
+            template="plotly_white"
+        )
+        st.plotly_chart(fig_hist, width="stretch")
+
+# ------------------------------------------
+# TAB 3: Explorador de Datos Crudos
+# ------------------------------------------
+with tab3:
+    st.subheader("Tabla Interactiva de Datos")
+    
+    # Preparación de la tabla formateada
+    df_display = df_filtered[['Fecha', 'Visitantes', 'Día_Semana', 'Diferencia_Promedio']].copy()
+    df_display['Fecha'] = df_display['Fecha'].dt.strftime('%Y-%m-%d')
+    
     st.dataframe(
         df_display,
         width="stretch",
-        hide_index=True,
         column_config={
-            "ID": st.column_config.NumberColumn("ID", format="%d"),
-            "Fecha captura": st.column_config.TextColumn("Fecha Captura"),
-            "Concepto": st.column_config.TextColumn("Concepto / Tarea", width="medium"),
-            "Departamento": st.column_config.TextColumn("Departamento", width="small"),
-            "Responsable": st.column_config.TextColumn("Responsable Asignado", width="medium"),
-            "Estatus": st.column_config.TextColumn("Estatus Actual", width="small"),
-            "Siguiente paso": st.column_config.TextColumn("Acción / Siguiente Paso", width="large")
+            "Fecha": st.column_config.DateColumn("Fecha", format="YYYY-MM-DD"),
+            "Visitantes": st.column_config.ProgressColumn(
+                "Visitantes",
+                help="Volumen diario de visitantes",
+                format="%d",
+                min_value=0,
+                max_value=max(35, int(df_display['Visitantes'].max() if not df_display.empty else 35))
+            ),
+            "Día_Semana": st.column_config.TextColumn("Día de la Semana"),
+            "Diferencia_Promedio": st.column_config.NumberColumn(
+                "Diferencia vs Media (18.0)",
+                format="%.1f"
+            )
         }
     )
     
-    csv_bytes = df_display.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Descargar Vista en CSV",
-        data=csv_bytes,
-        file_name="bitacora_ordenes_compra.csv",
-        mime="text/csv"
-    )
-
-# =========================================================
-# TAB 3: ANÁLISIS SEMÁNTICO Y ALERTAS
-# =========================================================
-with tab_semantics:
-    st.subheader("Hallazgos Clave y Relaciones Semánticas")
+    st.divider()
     
-    st.warning("""
-    ### 🚨 1. Atención Inmediata: Tarea Crítica Detectada
-    * **Registro Afectado:** ID 2 - **OC estructura**
-    * **Departamento / Responsable:** Compras | Judith Echeverria
-    * **Estatus Actual:** **CRÍTICO**
-    * **Detalle / Acción:** Se comparte OC el día de hoy, el anticipo se paga en 15 días, en confirmación de reunión el día de hoy con **TECOIMSA**.
-    """)
+    st.subheader("Resumen Estadístico Descriptivo")
+    st.dataframe(df_filtered[['Visitantes', 'Diferencia_Promedio']].describe(), width="stretch")
     
-    st.info("""
-    ### 📐 2. Análisis de Dependencias en Diseño
-    * **Comparativa de Avance:**
-      * **Memoria de cálculo estructural (ID 5):** Estatus **Cerrado**, entrega programada para el próximo miércoles 15.
-      * **Entrega diseño de estructura (ID 3):** Estatus **En proceso** a cargo de *Carlos Mendez*, sujeto a revisión y VoBo de **NIDEC**.
-    """)
+    st.divider()
     
-    st.warning("""
-    ### 👤 3. Concentración de Carga Operativa en Compras
-    * **Evaluación de Asignaciones:** *Judith Echeverria* tiene a su cargo 2 órdenes de compra estratégicas dentro del departamento de Compras:
-      1. **OC estructura** (Estatus Crítico - TECOIMSA)
-      2. **OC de anclas y placas** (Estatus En proceso - Cotización de materiales enviada a Luis Ramirez, tiempo de fabricación estimado: 4 días).
-    """)
+    st.subheader("📥 Exportación de Datos")
+    col_dl1, col_dl2 = st.columns(2)
+    
+    # Exportar CSV
+    csv_data = df_filtered.to_csv(index=False).encode('utf-8')
+    with col_dl1:
+        st.download_button(
+            label="📄 Descargar Datos en CSV",
+            data=csv_data,
+            file_name="reporte_trafico_ST_B2C.csv",
+            mime="text/csv"
+        )
+        
+    # Exportar Excel
+    buffer_excel = io.BytesIO()
+    with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+        df_filtered.to_excel(writer, index=False, sheet_name='ST_B2C')
+    
+    with col_dl2:
+        st.download_button(
+            label="📊 Descargar Datos en Excel",
+            data=buffer_excel.getvalue(),
+            file_name="reporte_trafico_ST_B2C.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
