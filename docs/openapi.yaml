@@ -708,6 +708,10 @@ paths:
   # Ruta REST real (FastAPI). Sin base de datos la plataforma muestra
   # «Límite de uso» (api/services/estado_plataforma.py) y `/api/login`
   # contesta `{success: false, message: <el mismo aviso>, limiteDeUso: true}`.
+  # BLOQUEO: sin base, TODA otra ruta `/api/` (lecturas y guardados) contesta
+  # 503 con ese mismo cuerpo más `pilares`; `index.html` lo detecta por la marca
+  # `limiteDeUso` y muestra el aviso al momento. Solo `/api/estado` y
+  # `/api/login` quedan fuera del 503.
   /api/estado:
     get:
       tags: [Auth]

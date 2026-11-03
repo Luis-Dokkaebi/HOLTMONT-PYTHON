@@ -18,6 +18,12 @@ Característica: Límite de uso cuando se desconecta la base de datos
     Entonces no entra
     Y se le muestra "Se requiere extender los módulos de la infraestructura de la base de datos debido a que se debe sostener la arquitectura premium de almacenar y asegurar el performance, disponibilidad, seguridad, backup, observabilidad y gobernanza de datos para Holtzar."
 
+  Escenario: Sin base de datos no se puede guardar nada
+    Dado que la plataforma no tiene base de datos conectada
+    Cuando alguien con la sesión abierta intenta guardar una actividad del tracker
+    Entonces no se guarda
+    Y se le muestra "Se requiere extender los módulos de la infraestructura de la base de datos debido a que se debe sostener la arquitectura premium de almacenar y asegurar el performance, disponibilidad, seguridad, backup, observabilidad y gobernanza de datos para Holtzar."
+
   Escenario: Con la base de datos conectada no hay aviso
     Dado que la plataforma tiene la base de datos conectada
     Cuando la plataforma revisa su estado

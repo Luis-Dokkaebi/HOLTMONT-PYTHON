@@ -14069,6 +14069,27 @@ function iniciarDictadoNativo(campoDestinoId) {
       .catch(function () {});
   }
 
+  // Bloqueo al momento: cualquier respuesta de `/api/` que traiga la marca
+  // `limiteDeUso` (un guardado, una lectura, el login) muestra el aviso sin
+  // esperar a la consulta del minuto. Se lee una copia de la respuesta, así
+  // quien hizo la petición la recibe intacta.
+  var fetchOriginal = window.fetch.bind(window);
+  window.fetch = function (recurso, opciones) {
+    return fetchOriginal(recurso, opciones).then(function (respuesta) {
+      var url = String((recurso && recurso.url) || recurso || '');
+      var tipo = respuesta.headers.get('content-type') || '';
+      if (url.indexOf('/api/') !== -1 && url.indexOf('/api/estado') === -1
+          && tipo.indexOf('application/json') !== -1) {
+        respuesta.clone().json().then(function (cuerpo) {
+          if (!cuerpo || cuerpo.limiteDeUso !== true) return;
+          pintar({ mensaje: cuerpo.message, pilares: cuerpo.pilares });
+          aviso.hidden = false;
+        }).catch(function () {});
+      }
+      return respuesta;
+    });
+  };
+
   consultar();
   setInterval(consultar, CONSULTA_MS);
 })();

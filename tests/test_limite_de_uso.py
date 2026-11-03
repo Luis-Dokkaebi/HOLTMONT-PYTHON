@@ -118,7 +118,7 @@ def test_sin_base_el_login_responde_limite_de_uso(sin_base):
     respuesta = TestClient(app).post("/api/login",
                                      json={"username": "LUIS_CARLOS", "password": "x"})
     assert respuesta.json() == {"success": False, "message": MENSAJE,
-                                "limiteDeUso": True}
+                                "limiteDeUso": True, "pilares": PILARES}
 
 
 def test_sin_base_el_login_de_desarrollo_tampoco_entra(monkeypatch, sin_base):
@@ -139,3 +139,52 @@ def test_con_base_el_login_sigue_validando_credenciales(monkeypatch):
                                      json={"username": "NADIE", "password": "x"})
     assert respuesta.json() == {"success": False,
                                 "message": "Usuario o contraseña incorrectos."}
+
+
+# --- El bloqueo: sin base, ninguna ruta de datos responde ----------------
+#
+# El dueño lo pidió como un bloqueo (2026-11-03): el aviso tiene que salir al
+# entrar, con la sesión abierta **y al intentar guardar**. Entre una consulta
+# de `/api/estado` y la siguiente pasa hasta un minuto; sin esto, un guardado
+# en ese hueco llegaría al backend y fallaría con un error cualquiera.
+
+BLOQUEO = {"success": False, "message": MENSAJE, "limiteDeUso": True,
+           "pilares": PILARES}
+
+
+def test_sin_base_un_guardado_se_bloquea_con_el_aviso(sin_base):
+    respuesta = TestClient(app).post(
+        "/api/legacy/saveTrackerBatch",
+        json={"sheetName": "EDUARDO MANZANARES", "tasks": [{"CONCEPTO": "x"}],
+              "username": "EDUARDO"})
+    assert respuesta.status_code == 503
+    assert respuesta.json() == BLOQUEO
+
+
+def test_sin_base_una_lectura_tambien_se_bloquea(sin_base):
+    respuesta = TestClient(app).get("/api/config", params={"role": "ADMIN",
+                                                            "username": "LUIS_CARLOS"})
+    assert respuesta.status_code == 503
+    assert respuesta.json() == BLOQUEO
+
+
+def test_sin_base_el_estado_sigue_respondiendo(sin_base):
+    """Es la ruta que dice que hay bloqueo: bloquearla dejaría a la página sin saberlo."""
+    respuesta = TestClient(app).get("/api/estado")
+    assert respuesta.status_code == 200
+    assert respuesta.json()["disponible"] is False
+
+
+def test_sin_base_lo_que_no_es_api_no_se_toca(sin_base):
+    """La página tiene que poder cargar para pintar el aviso."""
+    respuesta = TestClient(app).get("/")
+    assert respuesta.status_code == 200
+    assert 'id="limiteDeUso"' in respuesta.text
+
+
+def test_con_base_las_rutas_responden_como_siempre():
+    """Con el motor de la suite (memoria) nada se intercepta."""
+    respuesta = TestClient(app).get("/api/config", params={"role": "ADMIN",
+                                                            "username": "LUIS_CARLOS"})
+    assert respuesta.status_code == 200
+    assert "limiteDeUso" not in respuesta.json()
