@@ -24,10 +24,14 @@ from backend.core.config import Settings
 from backend.core.engine import hay_base_configurada
 
 MENSAJE = (
-    "Límite de uso agotado por insuficiencia de espacio en base de datos. "
-    "La plataforma detectó que el almacenamiento contratado ya no es suficiente "
-    "para el volumen de datos del proyecto."
+    "Se requiere extender los módulos de la infraestructura de la base de datos "
+    "debido a que se debe sostener la arquitectura premium de almacenar y asegurar "
+    "el performance, disponibilidad, seguridad, backup, observabilidad y gobernanza "
+    "de datos para Holtzar."
 )
+
+PILARES = ["Performance", "Disponibilidad", "Seguridad", "Backup",
+           "Observabilidad", "Gobernanza de datos"]
 
 VARIABLES_DE_BASE = ("SUPABASE_URL", "SUPABASE_KEY", "DATABASE_URL", "BACKEND_ENGINE")
 
@@ -85,18 +89,27 @@ def test_forzar_postgrest_sin_supabase_no_hay_base():
 
 def test_sin_base_el_estado_dice_limite_de_uso(sin_base):
     cuerpo = TestClient(app).get("/api/estado").json()
-    assert cuerpo == {"success": True, "disponible": False, "mensaje": MENSAJE}
+    assert cuerpo == {"success": True, "disponible": False, "mensaje": MENSAJE,
+                      "pilares": PILARES}
 
 
 def test_con_base_el_estado_no_lleva_mensaje(monkeypatch, sin_base):
     monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
     monkeypatch.setenv("SUPABASE_KEY", "k")
     cuerpo = TestClient(app).get("/api/estado").json()
-    assert cuerpo == {"success": True, "disponible": True, "mensaje": ""}
+    assert cuerpo == {"success": True, "disponible": True, "mensaje": "",
+                      "pilares": []}
 
 
 def test_el_texto_del_aviso_es_el_que_pidio_el_dueno():
     assert estado_plataforma.MENSAJE_LIMITE_DE_USO == MENSAJE
+
+
+def test_los_pilares_son_los_que_nombra_el_aviso():
+    """Cada etiqueta que se pinta aparece en el texto: no se inventa ninguna."""
+    assert list(estado_plataforma.PILARES) == PILARES
+    for pilar in PILARES:
+        assert pilar.lower() in MENSAJE.lower()
 
 
 # --- POST /api/login ---------------------------------------------------

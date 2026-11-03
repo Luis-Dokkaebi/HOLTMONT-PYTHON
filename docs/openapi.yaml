@@ -725,7 +725,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [success, disponible, mensaje]
+                required: [success, disponible, mensaje, pilares]
                 properties:
                   success: { type: boolean, example: true }
                   disponible: { type: boolean, example: false }
@@ -733,9 +733,15 @@ paths:
                     type: string
                     description: Vacío cuando hay base.
                     example: >-
-                      Límite de uso agotado por insuficiencia de espacio en base de datos.
-                      La plataforma detectó que el almacenamiento contratado ya no es
-                      suficiente para el volumen de datos del proyecto.
+                      Se requiere extender los módulos de la infraestructura de la base
+                      de datos debido a que se debe sostener la arquitectura premium de
+                      almacenar y asegurar el performance, disponibilidad, seguridad,
+                      backup, observabilidad y gobernanza de datos para Holtzar.
+                  pilares:
+                    type: array
+                    items: { type: string }
+                    description: Etiquetas que el aviso pinta bajo el texto. Vacío cuando hay base.
+                    example: [Performance, Disponibilidad, Seguridad, Backup, Observabilidad, Gobernanza de datos]
 
   # --------------------------------------------------------------------- Geo
   # Rutas REST reales (FastAPI), no pseudo-rutas RPC. El catálogo es un SQLite

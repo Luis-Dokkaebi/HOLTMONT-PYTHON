@@ -13908,26 +13908,152 @@ function iniciarDictadoNativo(campoDestinoId) {
 <!-- api/services/estado_plataforma.py.                              -->
 <!-- ============================================================ -->
 <style>
+  /* Todo en negro, como pidió el dueño (2026-11-03): fondo negro puro, una
+     tarjeta apenas más clara y un solo acento, el blanco. */
   #limiteDeUso {
     /* Por encima de todo: login (2000), ticket de bugs (2500) y la
        pantalla de pared (4000). */
     position: fixed; inset: 0; z-index: 10000;
     display: flex; align-items: center; justify-content: center;
-    background: radial-gradient(circle at center, #252525 0%, #000000 100%);
-    color: #ffffff; font-family: Arial, Helvetica, sans-serif;
-    font-size: clamp(1.25rem, 3vw, 2.25rem); font-weight: 700; line-height: 1.4;
-    text-align: center; padding: 16px 10vw;
+    overflow-y: auto; padding: 32px 16px;
+    background-color: #000000;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255,255,255,0.07), transparent 70%),
+      radial-gradient(rgba(255,255,255,0.045) 1px, transparent 1px);
+    background-size: 100% 100%, 22px 22px;
+    color: #f5f5f5; font-family: 'Roboto', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
   #limiteDeUso[hidden] { display: none; }
+  #limiteDeUso .ldu-tarjeta {
+    position: relative; width: 100%; max-width: 640px; margin: auto;
+    padding: 44px 44px 36px; border-radius: 20px;
+    background: linear-gradient(180deg, #0f0f0f 0%, #070707 100%);
+    border: 1px solid rgba(255,255,255,0.09);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 30px 120px rgba(0,0,0,0.9);
+    animation: ldu-entrada 0.6s cubic-bezier(.2,.7,.2,1) both;
+  }
+  /* Filo de luz sobre el borde superior. */
+  #limiteDeUso .ldu-tarjeta::before {
+    content: ""; position: absolute; top: -1px; left: 15%; right: 15%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent);
+  }
+  #limiteDeUso .ldu-cabeza { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+  #limiteDeUso .ldu-icono {
+    flex: none; width: 48px; height: 48px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.12);
+  }
+  #limiteDeUso .ldu-icono svg { width: 24px; height: 24px; }
+  #limiteDeUso .ldu-etiqueta {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase;
+    color: #a3a3a3;
+  }
+  #limiteDeUso .ldu-punto {
+    width: 7px; height: 7px; border-radius: 50%; background: #ffffff;
+    box-shadow: 0 0 0 0 rgba(255,255,255,0.5); animation: ldu-latido 2.4s ease-out infinite;
+  }
+  #limiteDeUso .ldu-mensaje {
+    margin: 0; font-size: clamp(1.05rem, 2.1vw, 1.3rem); font-weight: 400;
+    line-height: 1.65; letter-spacing: -0.005em; color: #ededed;
+  }
+  #limiteDeUso .ldu-linea {
+    height: 1px; margin: 32px 0 22px; border: 0;
+    background: linear-gradient(90deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02));
+  }
+  #limiteDeUso .ldu-subtitulo {
+    margin: 0 0 14px; font-size: 11px; font-weight: 500; letter-spacing: 0.16em;
+    text-transform: uppercase; color: #737373;
+  }
+  #limiteDeUso .ldu-pilares {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+  }
+  #limiteDeUso .ldu-pilares li {
+    display: flex; align-items: center; gap: 9px; min-width: 0;
+    padding: 11px 12px; border-radius: 10px; font-size: 13px; color: #d4d4d4;
+    background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.08);
+  }
+  #limiteDeUso .ldu-pilares li::before {
+    content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%;
+    background: rgba(255,255,255,0.7);
+  }
+  #limiteDeUso .ldu-pie {
+    display: flex; align-items: center; gap: 8px; margin: 28px 0 0;
+    font-size: 12px; color: #6b6b6b;
+  }
+  #limiteDeUso .ldu-pie svg { width: 14px; height: 14px; flex: none; }
+  @keyframes ldu-entrada { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  @keyframes ldu-latido {
+    0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.45); }
+    70%, 100% { box-shadow: 0 0 0 9px rgba(255,255,255,0); }
+  }
+  @media (max-width: 560px) {
+    #limiteDeUso .ldu-tarjeta { padding: 32px 22px 26px; border-radius: 16px; }
+    #limiteDeUso .ldu-pilares { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #limiteDeUso .ldu-etiqueta { letter-spacing: 0.1em; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #limiteDeUso .ldu-tarjeta, #limiteDeUso .ldu-punto { animation: none; }
+  }
 </style>
 
-<div id="limiteDeUso" role="alertdialog" aria-live="assertive" hidden></div>
+<div id="limiteDeUso" role="alertdialog" aria-modal="true"
+     aria-labelledby="limiteDeUsoEtiqueta" aria-describedby="limiteDeUsoMensaje" hidden>
+  <div class="ldu-tarjeta">
+    <div class="ldu-cabeza">
+      <div class="ldu-icono" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="5.5" rx="7.5" ry="2.75"/>
+          <path d="M4.5 5.5v6.5c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75V5.5"/>
+          <path d="M4.5 12v6.5c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75V12"/>
+        </svg>
+      </div>
+      <span class="ldu-etiqueta" id="limiteDeUsoEtiqueta">
+        <span class="ldu-punto" aria-hidden="true"></span>Infraestructura de base de datos
+      </span>
+    </div>
+    <p class="ldu-mensaje" id="limiteDeUsoMensaje"></p>
+    <div id="limiteDeUsoBloquePilares">
+      <hr class="ldu-linea">
+      <p class="ldu-subtitulo">Arquitectura premium</p>
+      <ul class="ldu-pilares" id="limiteDeUsoPilares"></ul>
+    </div>
+    <p class="ldu-pie">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
+      </svg>
+      Esta pantalla se actualiza sola cuando el servicio vuelva.
+    </p>
+  </div>
+</div>
 
 <script>
 (function () {
   var CONSULTA_MS = 60000;
   var aviso = document.getElementById('limiteDeUso');
+  var mensaje = document.getElementById('limiteDeUsoMensaje');
+  var bloquePilares = document.getElementById('limiteDeUsoBloquePilares');
+  var listaPilares = document.getElementById('limiteDeUsoPilares');
   var base = window.API_BASE_URL || window.location.origin;
+
+  // Todo se escribe con textContent: el texto llega del servidor y no se
+  // interpreta como HTML.
+  function pintar(estado) {
+    mensaje.textContent = estado.mensaje
+      || 'Se requiere extender los módulos de la infraestructura de la base de datos.';
+    var pilares = Array.isArray(estado.pilares) ? estado.pilares : [];
+    listaPilares.textContent = '';
+    pilares.forEach(function (pilar) {
+      var li = document.createElement('li');
+      li.textContent = pilar;
+      listaPilares.appendChild(li);
+    });
+    bloquePilares.hidden = pilares.length === 0;
+  }
 
   // Solo una respuesta que diga `disponible: false` muestra el aviso. Un
   // fallo de red o un 404 (la página servida por Apps Script, que no tiene
@@ -13937,8 +14063,7 @@ function iniciarDictadoNativo(campoDestinoId) {
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (estado) {
         if (!estado || typeof estado.disponible !== 'boolean') return;
-        aviso.textContent = estado.mensaje
-          || 'Límite de uso agotado por insuficiencia de espacio en base de datos.';
+        if (!estado.disponible) pintar(estado);
         aviso.hidden = estado.disponible;
       })
       .catch(function () {});

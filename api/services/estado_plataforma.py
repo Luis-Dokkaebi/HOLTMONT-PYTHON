@@ -19,10 +19,16 @@ from typing import Any, Dict, Optional
 from backend.core.engine import hay_base_configurada
 
 MENSAJE_LIMITE_DE_USO = (
-    "Límite de uso agotado por insuficiencia de espacio en base de datos. "
-    "La plataforma detectó que el almacenamiento contratado ya no es suficiente "
-    "para el volumen de datos del proyecto."
+    "Se requiere extender los módulos de la infraestructura de la base de datos "
+    "debido a que se debe sostener la arquitectura premium de almacenar y asegurar "
+    "el performance, disponibilidad, seguridad, backup, observabilidad y gobernanza "
+    "de datos para Holtzar."
 )
+
+# Etiquetas que el aviso pinta debajo del texto. Son las mismas palabras que
+# nombra el mensaje (una prueba lo comprueba): si se cambia uno, se cambia el otro.
+PILARES = ("Performance", "Disponibilidad", "Seguridad", "Backup",
+           "Observabilidad", "Gobernanza de datos")
 
 
 def estado() -> Dict[str, Any]:
@@ -32,6 +38,7 @@ def estado() -> Dict[str, Any]:
         "success": True,
         "disponible": disponible,
         "mensaje": "" if disponible else MENSAJE_LIMITE_DE_USO,
+        "pilares": [] if disponible else list(PILARES),
     }
 
 
