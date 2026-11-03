@@ -20,13 +20,18 @@ from playwright.sync_api import sync_playwright
 BASE_URL = "http://localhost:8000"
 
 MENSAJE = (
-    "Límite de uso agotado por insuficiencia de espacio en base de datos. "
-    "La plataforma detectó que el almacenamiento contratado ya no es suficiente "
-    "para el volumen de datos del proyecto."
+    "Se requiere extender los módulos de la infraestructura de la base de datos "
+    "debido a que se debe sostener la arquitectura premium de almacenar y asegurar "
+    "el performance, disponibilidad, seguridad, backup, observabilidad y gobernanza "
+    "de datos para Holtzar."
 )
 
-SIN_BASE = {"success": True, "disponible": False, "mensaje": MENSAJE}
-CON_BASE = {"success": True, "disponible": True, "mensaje": ""}
+PILARES = ["Performance", "Disponibilidad", "Seguridad", "Backup",
+           "Observabilidad", "Gobernanza de datos"]
+
+SIN_BASE = {"success": True, "disponible": False, "mensaje": MENSAJE,
+            "pilares": PILARES}
+CON_BASE = {"success": True, "disponible": True, "mensaje": "", "pilares": []}
 
 
 def _doblar_estado(page, estado: dict) -> None:
@@ -69,8 +74,51 @@ def test_quien_va_a_entrar_ve_limite_de_uso_encima_del_login():
             _doblar_estado(page, dict(SIN_BASE))
             page.goto(BASE_URL)
             page.wait_for_selector("#limiteDeUso", state="visible", timeout=15000)
-            assert page.inner_text("#limiteDeUso").strip() == MENSAJE
+            assert page.inner_text("#limiteDeUsoMensaje").strip() == MENSAJE
             assert _aviso_tapa_el_centro(page)
+        finally:
+            navegador.close()
+
+
+def test_los_pilares_se_pintan_como_los_manda_el_servidor():
+    """Las etiquetas salen de la respuesta: cambiarlas en el backend las cambia aquí."""
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1400, "height": 900})
+        try:
+            _doblar_estado(page, dict(SIN_BASE))
+            page.goto(BASE_URL)
+            page.wait_for_selector("#limiteDeUso", state="visible", timeout=15000)
+            etiquetas = page.locator("#limiteDeUsoPilares li").all_inner_texts()
+            assert [e.strip() for e in etiquetas] == PILARES
+        finally:
+            navegador.close()
+
+
+def test_el_aviso_es_negro_y_cabe_en_un_telefono():
+    """Fondo negro, como pidió el dueño, y sin desbordarse a lo ancho en 360 px."""
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 360, "height": 740})
+        try:
+            _doblar_estado(page, dict(SIN_BASE))
+            page.goto(BASE_URL)
+            page.wait_for_selector("#limiteDeUso", state="visible", timeout=15000)
+            medidas = page.evaluate(
+                """() => {
+                    const aviso = document.getElementById('limiteDeUso');
+                    const tarjeta = aviso.querySelector('.ldu-tarjeta');
+                    return {
+                        fondo: getComputedStyle(aviso).backgroundColor,
+                        anchoAviso: aviso.scrollWidth, anchoVista: innerWidth,
+                        tarjeta: tarjeta.getBoundingClientRect().toJSON(),
+                    };
+                }"""
+            )
+            assert medidas["fondo"] == "rgb(0, 0, 0)"
+            assert medidas["anchoAviso"] <= medidas["anchoVista"]
+            assert medidas["tarjeta"]["left"] >= 16
+            assert medidas["tarjeta"]["right"] <= medidas["anchoVista"] - 16
         finally:
             navegador.close()
 
@@ -90,7 +138,7 @@ def test_quien_ya_tenia_sesion_ve_el_aviso_en_la_siguiente_consulta():
             estado.update(SIN_BASE)   # se borran las variables en el despliegue
             page.clock.fast_forward("01:01")
             page.wait_for_selector("#limiteDeUso", state="visible", timeout=5000)
-            assert page.inner_text("#limiteDeUso").strip() == MENSAJE
+            assert page.inner_text("#limiteDeUsoMensaje").strip() == MENSAJE
             assert _aviso_tapa_el_centro(page)
         finally:
             navegador.close()
