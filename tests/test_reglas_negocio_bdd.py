@@ -1850,8 +1850,22 @@ def _intenta_entrar(contexto: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -
     # Una cuenta válida por la vía de desarrollo: si el aviso no la frenara,
     # entraría.
     monkeypatch.setenv("DEV_LOGIN_USERS", "LUIS_CARLOS:clave:ADMIN:Luis Carlos")
-    contexto["login"] = TestClient(app).post(
+    contexto["respuesta"] = TestClient(app).post(
         "/api/login", json={"username": "LUIS_CARLOS", "password": "clave"}).json()
+
+
+@when("alguien con la sesión abierta intenta guardar una actividad del tracker")
+def _intenta_guardar(contexto: Dict[str, Any]) -> None:
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    respuesta = TestClient(app).post(
+        "/api/legacy/saveTrackerBatch",
+        json={"sheetName": "EDUARDO MANZANARES", "username": "EDUARDO",
+              "tasks": [{"CONCEPTO": "REVISION DE PLANOS"}]})
+    contexto["codigo"] = respuesta.status_code
+    contexto["respuesta"] = respuesta.json()
 
 
 @then(parsers.parse('el aviso dice "{mensaje}"'))
@@ -1868,9 +1882,16 @@ def _sin_aviso(contexto: Dict[str, Any]) -> None:
 
 @then("no entra")
 def _no_entra(contexto: Dict[str, Any]) -> None:
-    assert contexto["login"]["success"] is False
+    assert contexto["respuesta"]["success"] is False
 
 
 @then(parsers.parse('se le muestra "{mensaje}"'))
 def _se_le_muestra(contexto: Dict[str, Any], mensaje: str) -> None:
-    assert contexto["login"]["message"] == mensaje
+    assert contexto["respuesta"]["message"] == mensaje
+
+
+@then("no se guarda")
+def _no_se_guarda(contexto: Dict[str, Any]) -> None:
+    assert contexto["codigo"] == 503
+    assert contexto["respuesta"]["success"] is False
+    assert contexto["respuesta"]["limiteDeUso"] is True

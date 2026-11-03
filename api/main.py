@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Body, Query, Header
-from fastapi.responses import HTMLResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -62,6 +62,15 @@ elif os.path.exists("../.env"):
     load_env_file("../.env")
 
 app = FastAPI(title="Holtmont Workspace Backend")
+
+
+@app.middleware("http")
+async def bloqueo_sin_base(request, call_next):
+    """Sin base de datos, toda ruta de datos contesta el aviso (estado_plataforma.py)."""
+    cuerpo = estado_plataforma.bloqueo_de_ruta(request.url.path)
+    if cuerpo is not None:
+        return JSONResponse(cuerpo, status_code=503)
+    return await call_next(request)
 
 # CORS Configuration
 #

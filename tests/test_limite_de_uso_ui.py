@@ -191,3 +191,63 @@ def test_con_la_base_de_la_suite_no_aparece_el_aviso():
             assert page.locator("#limiteDeUso").is_hidden()
         finally:
             navegador.close()
+
+
+def _guardar_desde_la_sesion(page) -> None:
+    """Un guardado por el mismo camino que usa el tracker: el adaptador de `google.script.run`."""
+    page.evaluate(
+        """() => google.script.run
+              .withSuccessHandler(() => {}).withFailureHandler(() => {})
+              .apiSaveTrackerBatch('EDUARDO MANZANARES', [{CONCEPTO: 'x'}], 'LUIS_CARLOS')"""
+    )
+
+
+def test_al_guardar_sin_base_el_aviso_sale_en_ese_momento():
+    """
+    Sin esperar a la consulta del minuto: el reloj está congelado, así que si el
+    aviso sale es por la respuesta del guardado y no por el sondeo.
+    """
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1400, "height": 900})
+        try:
+            page.clock.install()
+            _doblar_estado(page, dict(CON_BASE))
+            page.goto(BASE_URL)
+            _entrar(page)
+            assert page.locator("#limiteDeUso").is_hidden()
+
+            # La base se desconecta entre dos consultas: el estado todavía no lo
+            # sabe, el guardado sí.
+            page.route("**/api/legacy/saveTrackerBatch", lambda ruta: ruta.fulfill(
+                status=503, content_type="application/json",
+                body=json.dumps({"success": False, "message": MENSAJE,
+                                 "limiteDeUso": True, "pilares": PILARES})))
+            _guardar_desde_la_sesion(page)
+            page.wait_for_selector("#limiteDeUso", state="visible", timeout=5000)
+            assert page.inner_text("#limiteDeUsoMensaje").strip() == MENSAJE
+            etiquetas = page.locator("#limiteDeUsoPilares li").all_inner_texts()
+            assert [e.strip() for e in etiquetas] == PILARES
+        finally:
+            navegador.close()
+
+
+def test_un_error_cualquiera_al_guardar_no_bloquea():
+    """Un 503 sin la marca del bloqueo (un tiempo agotado de Vercel) no es la base apagada."""
+    with sync_playwright() as p:
+        navegador = p.chromium.launch(headless=True)
+        page = navegador.new_page(viewport={"width": 1400, "height": 900})
+        try:
+            page.clock.install()
+            _doblar_estado(page, dict(CON_BASE))
+            page.goto(BASE_URL)
+            _entrar(page)
+            page.route("**/api/legacy/saveTrackerBatch", lambda ruta: ruta.fulfill(
+                status=503, content_type="application/json",
+                body=json.dumps({"success": False, "message": "FUNCTION_INVOCATION_TIMEOUT"})))
+            with page.expect_response("**/api/legacy/saveTrackerBatch"):
+                _guardar_desde_la_sesion(page)
+            page.wait_for_timeout(500)
+            assert page.locator("#limiteDeUso").is_hidden()
+        finally:
+            navegador.close()

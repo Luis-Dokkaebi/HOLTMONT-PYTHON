@@ -42,8 +42,35 @@ def estado() -> Dict[str, Any]:
     }
 
 
+# Rutas que el bloqueo deja pasar: `/api/estado` es la que avisa del bloqueo, y
+# `/api/login` ya contesta el aviso con un 200 que el login sabe mostrar (con un
+# 503, `ApiService.login` lo convertiría en «Connection Error»).
+RUTAS_EXENTAS = frozenset({"/api/estado", "/api/login"})
+
+
+def _cuerpo_de_bloqueo() -> Dict[str, Any]:
+    """`limiteDeUso` es la marca que `index.html` busca para mostrar el aviso al momento."""
+    return {"success": False, "message": MENSAJE_LIMITE_DE_USO, "limiteDeUso": True,
+            "pilares": list(PILARES)}
+
+
 def bloqueo_de_login() -> Optional[Dict[str, Any]]:
     """Lo que contesta `/api/login` sin base; `None` si se puede validar el acceso."""
     if hay_base_configurada():
         return None
-    return {"success": False, "message": MENSAJE_LIMITE_DE_USO, "limiteDeUso": True}
+    return _cuerpo_de_bloqueo()
+
+
+def bloqueo_de_ruta(ruta: str) -> Optional[Dict[str, Any]]:
+    """
+    Cuerpo del 503 con el que se corta una petición sin base; `None` si pasa.
+
+    Abarca toda `/api/`, lecturas y guardados: entre dos consultas de
+    `/api/estado` pasa hasta un minuto, y un guardado en ese hueco tiene que
+    toparse con el aviso y no con un error cualquiera.
+    """
+    if not ruta.startswith("/api/") or ruta in RUTAS_EXENTAS:
+        return None
+    if hay_base_configurada():
+        return None
+    return _cuerpo_de_bloqueo()

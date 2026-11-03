@@ -1196,7 +1196,11 @@ def test_sin_base_no_se_llama_al_modelo_ni_una_vez(monkeypatch):
         "/api/agente/consulta", json={"pregunta": "cuántas tareas hay"}).json()
 
     assert respuesta["success"] is False
-    assert "DDL_AGENTE_SQL.sql" in respuesta["message"]
+    # Sin ninguna base, el bloqueo de la plataforma (api/services/
+    # estado_plataforma.py, decisión del dueño 2026-11-03) corta la petición
+    # antes de llegar al agente. La guarda propia del agente, la que pide el
+    # DDL, sigue probada directamente en este módulo sin pasar por HTTP.
+    assert respuesta["limiteDeUso"] is True
     assert llamadas == []
 
 
