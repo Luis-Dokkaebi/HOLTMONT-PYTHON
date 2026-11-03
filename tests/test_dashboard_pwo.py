@@ -78,26 +78,27 @@ def test_sin_token_la_liga_existe_pero_el_dashboard_no_se_puede_regenerar():
 
 
 # Repositorio y liga no son secretos (están en agente_full/README.md): si el
-# despliegue no los trae, se usan los de Agente_Full. El token sí es secreto y
-# es lo único que el despliegue tiene que poner.
-REPO_DE_AGENTE_FULL = "Luis-py-stack/Agente_Full"
-LIGA_DE_AGENTE_FULL = "https://agentefull-mhytzkjfr38ukzqxnuxbkf.streamlit.app/"
+# despliegue no los trae, el Action es el de este mismo repositorio (privado:
+# los dashboards llevan datos de clientes). El token sí es secreto y es lo
+# único que el despliegue tiene que poner.
+REPO_POR_DEFECTO = "Luis-Dokkaebi/HOLTMONT-PYTHON"
+LIGA_POR_DEFECTO = "https://agentefull-mhytzkjfr38ukzqxnuxbkf.streamlit.app/"
 SOLO_EL_TOKEN = {"SUPABASE_URL": SUPABASE, "DASHBOARD_PWO_TOKEN": TOKEN}
 
 
-def test_sin_repositorio_ni_liga_en_el_despliegue_la_liga_es_la_de_agente_full():
+def test_sin_repositorio_ni_liga_en_el_despliegue_la_liga_es_la_por_defecto():
     assert dashboard_pwo.link(SOLO_EL_TOKEN) == {
-        "success": True, "url": LIGA_DE_AGENTE_FULL, "configurado": True}
+        "success": True, "url": LIGA_POR_DEFECTO, "configurado": True}
 
 
-def test_con_solo_el_token_el_aviso_llega_al_repositorio_de_agente_full():
+def test_con_solo_el_token_el_aviso_llega_a_este_repositorio():
     github = GitHubDeMentiras()
 
     respuesta = dashboard_pwo.disparar(ARCHIVO, entorno=SOLO_EL_TOKEN, enviar=github)
 
     assert respuesta["success"] is True
-    assert respuesta["url"] == LIGA_DE_AGENTE_FULL
-    assert github.peticiones[0]["url"] == f"https://api.github.com/repos/{REPO_DE_AGENTE_FULL}/dispatches"
+    assert respuesta["url"] == LIGA_POR_DEFECTO
+    assert github.peticiones[0]["url"] == f"https://api.github.com/repos/{REPO_POR_DEFECTO}/dispatches"
 
 
 def test_sin_nada_configurado_solo_se_pide_el_token_y_donde_ponerlo():
@@ -111,7 +112,7 @@ def test_sin_nada_configurado_solo_se_pide_el_token_y_donde_ponerlo():
     assert respuesta["message"] == (
         "Falta configurar DASHBOARD_PWO_TOKEN en el despliegue: agrégalo en Vercel "
         "(Settings → Environment Variables, entorno Production) y vuelve a desplegar.")
-    assert respuesta["url"] == LIGA_DE_AGENTE_FULL
+    assert respuesta["url"] == LIGA_POR_DEFECTO
     assert github.peticiones == []
 
 
@@ -189,10 +190,10 @@ def test_sin_token_se_dice_que_falta_y_no_se_llama_a_github():
 
 
 @pytest.mark.parametrize("en_blanco, esperado", [
-    ("DASHBOARD_PWO_REPO", f"https://api.github.com/repos/{REPO_DE_AGENTE_FULL}/dispatches"),
-    ("DASHBOARD_PWO_URL", LIGA_DE_AGENTE_FULL),
+    ("DASHBOARD_PWO_REPO", f"https://api.github.com/repos/{REPO_POR_DEFECTO}/dispatches"),
+    ("DASHBOARD_PWO_URL", LIGA_POR_DEFECTO),
 ])
-def test_repositorio_o_liga_en_blanco_toman_los_de_agente_full(en_blanco, esperado):
+def test_repositorio_o_liga_en_blanco_toman_los_por_defecto(en_blanco, esperado):
     github = GitHubDeMentiras()
 
     respuesta = dashboard_pwo.disparar(ARCHIVO, entorno={**ENTORNO, en_blanco: "  "}, enviar=github)
@@ -466,15 +467,15 @@ def test_sin_token_no_se_pregunta_a_github():
     assert github.consultas == []
 
 
-def test_con_solo_el_token_se_sigue_la_corrida_en_agente_full():
+def test_con_solo_el_token_se_sigue_la_corrida_en_este_repositorio():
     github = CorridasDeMentiras([_corrida("completed", "success")])
 
     respuesta = dashboard_pwo.estado(SOLICITUD, entorno=SOLO_EL_TOKEN, consultar=github)
 
     assert respuesta["estado"] == "EXITOSO"
-    assert respuesta["url"] == LIGA_DE_AGENTE_FULL
-    assert respuesta["repo_url"] == f"https://github.com/{REPO_DE_AGENTE_FULL}"
-    assert github.consultas[0]["url"].startswith(f"https://api.github.com/repos/{REPO_DE_AGENTE_FULL}/actions/runs")
+    assert respuesta["url"] == LIGA_POR_DEFECTO
+    assert respuesta["repo_url"] == f"https://github.com/{REPO_POR_DEFECTO}"
+    assert github.consultas[0]["url"].startswith(f"https://api.github.com/repos/{REPO_POR_DEFECTO}/actions/runs")
 
 
 def test_con_el_repositorio_mal_escrito_no_se_arma_la_liga_del_repositorio():
@@ -599,12 +600,62 @@ def test_el_endpoint_de_estado_exige_la_solicitud(cliente):
     assert cliente.get("/api/dashboard/estado").status_code == 422
 
 
-# --- El contrato con el Action de Agente_Full -------------------------------
+# --- El contrato con el Action del dashboard ---------------------------------
+
+# El Action vive en este repositorio (privado) y no en Agente_Full (público):
+# el dashboard lleva incrustados los datos del cliente. Publica en una rama
+# propia para no tocar `main`: ni su protección de rama, ni el redeploy de
+# Vercel, ni el `requirements.txt` de la API.
+RUTA_DEL_WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "dashboard-pwo.yml"
+RAMA_DEL_DASHBOARD = "dashboard-pwo"
+
 
 def _workflow() -> Dict[str, Any]:
-    ruta = Path(__file__).resolve().parent.parent / "agente_full" / "workflow_dashboard_pwo.yml"
-    with open(ruta, encoding="utf-8") as archivo:
+    with open(RUTA_DEL_WORKFLOW, encoding="utf-8") as archivo:
         return yaml.safe_load(archivo)
+
+
+def _paso(nombre: str) -> Dict[str, Any]:
+    return next(p for p in _workflow()["jobs"]["generar"]["steps"] if p.get("name") == nombre)
+
+
+def test_el_action_solo_baja_el_pipeline_y_no_el_resto_del_repositorio():
+    """El código generado no debe poder leer la API, CODIGO.js ni nada más del repositorio."""
+    checkout = _workflow()["jobs"]["generar"]["steps"][0]
+
+    assert checkout["with"]["sparse-checkout"].split() == ["agente_full"]
+    assert checkout["with"]["sparse-checkout-cone-mode"] is False
+
+
+def test_el_usuario_aislado_no_puede_entrar_al_checkout():
+    nombres = [p.get("name") for p in _workflow()["jobs"]["generar"]["steps"]]
+
+    assert nombres.index("Cerrar el checkout al usuario aislado") < nombres.index("Generar y validar el dashboard")
+    assert _paso("Cerrar el checkout al usuario aislado")["run"].strip() == 'chmod 700 "$GITHUB_WORKSPACE"'
+
+
+def test_el_dashboard_se_genera_fuera_del_checkout():
+    generar = _paso("Generar y validar el dashboard")
+
+    assert generar["run"].startswith("python agente_full/pipeline_dashboard.py ")
+    assert '--salida "$RUNNER_TEMP/dashboard"' in generar["run"]
+
+
+def test_el_action_publica_en_su_rama_y_nunca_en_la_rama_principal():
+    publicar = _paso("Publicar en la rama del dashboard")
+    texto = RUTA_DEL_WORKFLOW.read_text(encoding="utf-8")
+
+    assert publicar["env"]["RAMA"] == RAMA_DEL_DASHBOARD
+    assert "default_branch" not in texto
+    assert 'git push "$REMOTO" "HEAD:refs/heads/$RAMA"' in publicar["run"]
+    assert "git add app.py requirements.txt" in publicar["run"]
+
+
+def test_la_primera_publicacion_crea_la_rama_sin_historia_de_main():
+    """Si la rama no existe, nace huérfana: sin el código de la API ni su historia."""
+    publicar = _paso("Publicar en la rama del dashboard")["run"]
+
+    assert 'git checkout -q --orphan "$RAMA"' in publicar
 
 
 def test_el_action_escucha_el_mismo_evento_que_manda_holtmont():
