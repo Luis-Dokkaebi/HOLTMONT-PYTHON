@@ -713,7 +713,12 @@ def validar_credenciales(username: Any, password: Any) -> Optional[Dict[str, Any
             print(f"[organigrama] `profiles` no tiene columna de contraseña para {clave}.")
             return None
 
-        if not secrets.compare_digest(guardada, str(password)):
+        # Se comparan bytes UTF-8 y no `str`: con texto, `compare_digest` lanza
+        # TypeError ante cualquier carácter no ASCII (una «ñ», un acento). Eso
+        # dejaba fuera para siempre a quien tiene uno en su contraseña y daba
+        # un 500 («Connection Error») a quien lo tecleaba por error.
+        if not secrets.compare_digest(guardada.encode("utf-8"),
+                                      str(password).encode("utf-8")):
             return None
 
         semilla = PERFILES.get(clave, {})

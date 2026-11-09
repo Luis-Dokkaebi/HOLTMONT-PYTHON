@@ -10,6 +10,7 @@ escritas en el fuente.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -54,6 +55,20 @@ def _texto(nombre: str) -> Optional[str]:
     return valor or None
 
 
+# El panel de Supabase muestra la URL de la API como `https://<ref>.supabase.co/rest/v1/`.
+# Los dos clientes le añaden `/rest/v1` por su cuenta, así que pegada tal cual
+# quedaba `/rest/v1/rest/v1`, PostgREST contestaba PGRST125 y el login decía
+# «contraseña incorrecta» a todo el mundo (medido el 2026-11-09).
+_SUFIJO_REST = re.compile(r"/+rest/v1/*$", re.IGNORECASE)
+
+
+def normalizar_supabase_url(cruda: Optional[str]) -> Optional[str]:
+    """La raíz del proyecto, sin `/rest/v1` ni barras finales. `None` si viene vacía."""
+    valor = (cruda or "").strip()
+    valor = _SUFIJO_REST.sub("", valor).rstrip("/")
+    return valor or None
+
+
 def cargar_settings() -> Settings:
     """
     Lee el entorno en cada llamada, a propósito.
@@ -64,7 +79,7 @@ def cargar_settings() -> Settings:
     """
     return Settings(
         database_url=_texto(ENV_DATABASE_URL),
-        supabase_url=_texto(ENV_SUPABASE_URL),
+        supabase_url=normalizar_supabase_url(_texto(ENV_SUPABASE_URL)),
         supabase_key=_texto(ENV_SUPABASE_KEY),
         motor_forzado=(_texto(ENV_MOTOR) or "").lower() or None,
         # La escritura está ENCENDIDA por defecto desde que Supabase es la base

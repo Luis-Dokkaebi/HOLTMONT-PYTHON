@@ -140,6 +140,80 @@ def test_la_base_puede_dar_de_alta_a_un_vendedor_que_la_semilla_no_marca(monkeyp
     assert organigrama.perfil("ROLANDO_MORENO")["seller"] is True
 
 
+# --- Contraseñas con acentos, ñ u otros caracteres no ASCII ------------
+#
+# `secrets.compare_digest` lanza `TypeError` si alguna de las dos cadenas trae
+# un carácter fuera de ASCII. Sin convertirlas a bytes, una cuenta con «ñ» o
+# acento en su contraseña nunca podía entrar, y cualquier persona que tecleara
+# uno veía «Connection Error» (un 500) en vez de «contraseña incorrecta».
+
+def test_entra_con_una_contrasena_que_lleva_acentos_o_ene(monkeypatch):
+    _con_profiles(monkeypatch, [
+        {"username": "ROCIO_CASTRO", "password": "Contraseña_Rocío", "role": "STAFF_USER"}])
+
+    assert organigrama.validar_credenciales("ROCIO_CASTRO", "Contraseña_Rocío") is not None
+
+
+@pytest.mark.parametrize("tecleada", ["contraseña", "Contrasena_Rocio", "clave€", "😀"])
+def test_una_contrasena_no_ascii_equivocada_se_rechaza_sin_tronar(monkeypatch, tecleada):
+    _con_profiles(monkeypatch, [
+        {"username": "ROCIO_CASTRO", "password": "Contraseña_Rocío", "role": "STAFF_USER"}])
+
+    assert organigrama.validar_credenciales("ROCIO_CASTRO", tecleada) is None
+
+
+def test_teclear_una_ene_contra_una_contrasena_ascii_se_rechaza_sin_tronar(monkeypatch):
+    _con_profiles(monkeypatch, [
+        {"username": "LUIS_CARLOS", "password": "admin2025", "role": "ADMIN"}])
+
+    assert organigrama.validar_credenciales("LUIS_CARLOS", "admiñ2025") is None
+
+
+def test_el_login_con_ene_responde_contrasena_incorrecta_y_no_un_500(monkeypatch):
+    """El camino completo: `/api/login` tiene que contestar 200 con el mensaje."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    _con_profiles(monkeypatch, [
+        {"username": "LUIS_CARLOS", "password": "admin2025", "role": "ADMIN"}])
+
+    respuesta = TestClient(app, raise_server_exceptions=False).post(
+        "/api/login", json={"username": "LUIS_CARLOS", "password": "contraseña"})
+
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"success": False,
+                                "message": "Usuario o contraseña incorrectos."}
+
+
+def test_el_login_con_ene_correcta_entra(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    _con_profiles(monkeypatch, [
+        {"username": "ROCIO_CASTRO", "password": "Contraseña_Rocío", "role": "STAFF_USER",
+         "label": "Rocío Castro"}])
+
+    respuesta = TestClient(app, raise_server_exceptions=False).post(
+        "/api/login", json={"username": "rocio_castro", "password": "Contraseña_Rocío"})
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["success"] is True
+    assert respuesta.json()["username"] == "ROCIO_CASTRO"
+
+
+@pytest.mark.parametrize("tecleada, entra", [
+    ("clave_año", True), ("clave_ano", False), ("contraseña", False)])
+def test_el_login_de_entorno_tambien_tolera_caracteres_no_ascii(monkeypatch, tecleada, entra):
+    """`DEV_LOGIN_USERS` usa la misma comparación y tenía el mismo TypeError."""
+    from api.main import _login_desde_entorno
+
+    monkeypatch.setenv("DEV_LOGIN_USERS", "PRUEBA:clave_año:ADMIN:Prueba")
+
+    assert (_login_desde_entorno("PRUEBA", tecleada) is not None) is entra
+
+
 def test_un_fallo_de_base_no_deja_entrar(monkeypatch):
     """Ante un error de red se niega el acceso, no se concede."""
     class Roto:

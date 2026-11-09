@@ -1895,3 +1895,41 @@ def _no_se_guarda(contexto: Dict[str, Any]) -> None:
     assert contexto["codigo"] == 503
     assert contexto["respuesta"]["success"] is False
     assert contexto["respuesta"]["limiteDeUso"] is True
+
+
+# ----------------------------------------------------------------------
+# Inicio de sesión con contraseñas no ASCII (inicio_de_sesion.feature)
+# ----------------------------------------------------------------------
+
+
+@given(parsers.parse('que la cuenta "{cuenta}" tiene la contraseña "{clave}"'))
+def _cuenta_con_clave(monkeypatch: pytest.MonkeyPatch, cuenta: str, clave: str) -> None:
+    import api.services.supabase_manager as sm
+
+    filas = [{"username": cuenta, "password": clave, "role": "STAFF_USER"}]
+
+    class FalsoManager:
+        is_configured = True
+
+        def select(self, tabla: str, filters: Any = None) -> List[Dict[str, Any]]:
+            return filas if tabla == "profiles" else []
+
+    # La frontera es la base (Supabase), no la comparación que se está probando.
+    monkeypatch.setattr(sm, "sb_manager", FalsoManager())
+
+
+@when(parsers.parse('"{cuenta}" inicia sesión con la contraseña "{clave}"'))
+def _inicia_sesion(contexto: Dict[str, Any], cuenta: str, clave: str) -> None:
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    respuesta = TestClient(app, raise_server_exceptions=False).post(
+        "/api/login", json={"username": cuenta, "password": clave})
+    assert respuesta.status_code == 200, f"/api/login respondió {respuesta.status_code}"
+    contexto["respuesta"] = respuesta.json()
+
+
+@then("entra al sistema")
+def _entra(contexto: Dict[str, Any]) -> None:
+    assert contexto["respuesta"]["success"] is True

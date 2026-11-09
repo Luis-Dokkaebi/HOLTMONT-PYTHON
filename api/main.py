@@ -1214,7 +1214,9 @@ def _login_desde_entorno(username_key: str, password: str) -> Optional[Dict[str,
         usuario, clave, rol = partes[0].upper(), partes[1], partes[2]
         etiqueta = partes[3] if len(partes) > 3 else usuario
         # compare_digest evita filtrar la contraseña por tiempo de respuesta.
-        if usuario == username_key and secrets.compare_digest(clave, password):
+        # En bytes: con `str` lanza TypeError ante una «ñ» o un acento.
+        if usuario == username_key and secrets.compare_digest(
+                clave.encode("utf-8"), password.encode("utf-8")):
             return {"success": True, "role": rol, "name": etiqueta, "username": username_key}
     return None
 

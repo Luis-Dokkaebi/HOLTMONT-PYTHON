@@ -2,6 +2,8 @@ import os
 from supabase import create_client, Client
 from typing import List, Dict, Any, Optional
 
+from backend.core.config import normalizar_supabase_url
+
 class SupabaseManager:
     """Cliente Supabase de inicializacion diferida (lazy).
 
@@ -37,7 +39,7 @@ class SupabaseManager:
 
     @property
     def url(self) -> str:
-        return os.environ.get("SUPABASE_URL", "")
+        return normalizar_supabase_url(os.environ.get("SUPABASE_URL")) or ""
 
     @property
     def key(self) -> str:
@@ -47,7 +49,8 @@ class SupabaseManager:
     def client(self) -> Client:
         if self._client is None:
             try:
-                url = os.environ["SUPABASE_URL"]
+                # Normalizada: con `/rest/v1/` al final el cliente duplica el sufijo.
+                url = normalizar_supabase_url(os.environ["SUPABASE_URL"]) or ""
                 key = os.environ["SUPABASE_KEY"]
             except KeyError as exc:
                 raise RuntimeError(
