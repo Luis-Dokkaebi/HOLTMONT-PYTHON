@@ -1,285 +1,310 @@
-import streamlit as st
+import io
 import pandas as pd
 import plotly.express as px
+import streamlit as st
 
-# REGLA TÉCNICA OBLIGATORIA 1: La PRIMERA llamada de Streamlit debe ser st.set_page_config
-st.set_page_config(
-    page_title="Project Activity Report - Daily Report",
-    layout="wide"
-)
+# 1. Configuración de la página (DEBE ser la primera llamada de Streamlit)
+st.set_page_config(page_title="Reporte de Visitantes B2C", layout="wide")
 
-# ---------------------------------------------------------
-# DATOS AUTÓNOMOS EN MEMORIA (REGLA TÉCNICA OBLIGATORIA 2)
-# ---------------------------------------------------------
-metadata = {
-    "document_title": "Project Activity Report - Daily Report",
-    "entity_or_subject": "OPD Enrgy Tranfer / Project Frac 9",
-    "date": "2026-09-22",
-    "date_context": "Fecha de reporte de actividad",
-    "general_summary": "Informe diario de avance de proyecto para OPD Enrgy Tranfer (Frac 9) en Mont Belvieu. Incluye condiciones del turno, control de seguridad e higiene, registros de personal y resumen de trabajo ejecutado."
-}
-
-global_kpis = [
-    {"metric": "Total Manpower", "value": "6", "unit": "trabajadores", "context": "Personal total asignado durante el turno de día"},
-    {"metric": "Temperature", "value": "85", "unit": "°F", "context": "Temperatura ambiental registrada durante la jornada"},
-    {"metric": "JSA/JHA Reviewed", "value": "Yes", "unit": "booleano", "context": "Verificación de cumplimiento de Análisis de Seguridad en el Trabajo"},
-    {"metric": "Permits Verified", "value": "Yes", "unit": "booleano", "context": "Estado de verificación de permisos requeridos"},
-    {"metric": "PPE Compliance", "value": "Yes", "unit": "booleano", "context": "Cumplimiento del uso de Equipo de Protección Personal"}
+# 2. Datos embebidos por defecto
+DEFAULT_RECORDS = [
+    {"Fecha": "2026-01-21 00:00:00", "Visitantes": 31},
+    {"Fecha": "2026-01-20 00:00:00", "Visitantes": 28},
+    {"Fecha": "2026-01-19 00:00:00", "Visitantes": 26},
+    {"Fecha": "2026-01-18 00:00:00", "Visitantes": 25},
+    {"Fecha": "2026-01-17 00:00:00", "Visitantes": 27},
+    {"Fecha": "2026-01-16 00:00:00", "Visitantes": 18},
+    {"Fecha": "2026-01-15 00:00:00", "Visitantes": 22},
+    {"Fecha": "2026-01-14 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-13 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-12 00:00:00", "Visitantes": 8},
+    {"Fecha": "2026-01-11 00:00:00", "Visitantes": 9},
+    {"Fecha": "2026-01-10 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-09 00:00:00", "Visitantes": 16},
+    {"Fecha": "2026-01-08 00:00:00", "Visitantes": 12},
+    {"Fecha": "2026-01-07 00:00:00", "Visitantes": 16},
+    {"Fecha": "2026-01-06 00:00:00", "Visitantes": 14},
+    {"Fecha": "2026-01-05 00:00:00", "Visitantes": 24},
+    {"Fecha": "2026-01-04 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-03 00:00:00", "Visitantes": 8},
+    {"Fecha": "2026-01-02 00:00:00", "Visitantes": 15},
+    {"Fecha": "2026-01-01 00:00:00", "Visitantes": 14},
+    {"Fecha": "2025-12-31 00:00:00", "Visitantes": 10},
+    {"Fecha": "2025-12-30 00:00:00", "Visitantes": 35},
+    {"Fecha": "2025-12-29 00:00:00", "Visitantes": 13},
+    {"Fecha": "2025-12-28 00:00:00", "Visitantes": 13},
+    {"Fecha": "2025-12-27 00:00:00", "Visitantes": 26},
+    {"Fecha": "2025-12-26 00:00:00", "Visitantes": 26},
+    {"Fecha": "2025-12-25 00:00:00", "Visitantes": 12},
+    {"Fecha": "2025-12-24 00:00:00", "Visitantes": 14},
 ]
 
-default_job_controls = pd.DataFrame([
-    {"control_parameter": "Client", "value": "OPD Enrgy Tranfer"},
-    {"control_parameter": "Job #", "value": "1106"},
-    {"control_parameter": "Project Name", "value": "Frac 9"},
-    {"control_parameter": "Location", "value": "Mont Belvieu"},
-    {"control_parameter": "Shift", "value": "Days"},
-    {"control_parameter": "Day of Week", "value": "Tuesday"},
-    {"control_parameter": "Weather", "value": "sunny"}
-])
-
-default_issues_log = pd.DataFrame(columns=[
-    "Issue", "Impact", "Action Taken", "Responsible", "Status", "Start", "End"
-])
-
-default_work_performed = pd.DataFrame([
-    {"entry_id": 1, "description": "kldkflkdlk"},
-    {"entry_id": 2, "description": "kjwejfdoeojodwjoj"}
-])
-
-# ---------------------------------------------------------
-# BARRA LATERAL E INTERACCIÓN DE DATOS (REGLA 3)
-# ---------------------------------------------------------
-st.sidebar.title("🎛️ Control Operativo")
-uploaded_file = st.sidebar.file_uploader("Cargar datos externos", type=['xlsx', 'csv'])
-
-# Carga dinámica o fallback
-df_job_controls = default_job_controls.copy()
-df_issues_log = default_issues_log.copy()
-df_work_performed = default_work_performed.copy()
+# 3. Carga de datos y Sidebar File Uploader
+st.sidebar.header("📁 Carga de Datos")
+uploaded_file = st.sidebar.file_uploader(
+    "Subir archivo personalizado", type=["csv", "xlsx"]
+)
 
 if uploaded_file is not None:
     try:
-        if uploaded_file.name.endswith('.csv'):
-            uploaded_df = pd.read_csv(uploaded_file)
+        if uploaded_file.name.endswith(".csv"):
+            df_raw = pd.read_csv(uploaded_file)
         else:
-            uploaded_df = pd.read_excel(uploaded_file)
-        st.sidebar.success("Archivo cargado exitosamente.")
-        # Si el dataframe subido coincide con alguna estructura se asigna, de lo contrario se complementa
-        if 'description' in uploaded_df.columns:
-            df_work_performed = uploaded_df
-        elif 'Issue' in uploaded_df.columns:
-            df_issues_log = uploaded_df
-        elif 'control_parameter' in uploaded_df.columns:
-            df_job_controls = uploaded_df
+            df_raw = pd.read_excel(uploaded_file)
     except Exception as e:
         st.sidebar.error(f"Error al leer el archivo: {e}")
+        df_raw = pd.DataFrame(DEFAULT_RECORDS)
+else:
+    df_raw = pd.DataFrame(DEFAULT_RECORDS)
 
-# Filtros interactivos en sidebar
-selected_date = st.sidebar.date_input("Fecha de Filtro", pd.to_datetime(metadata["date"]))
+# Validaciones defensivas y preparación de datos
+if "Fecha" not in df_raw.columns or "Visitantes" not in df_raw.columns:
+    st.error(
+        "El conjunto de datos debe incluir obligatoriamente las columnas"
+        " 'Fecha' y 'Visitantes'."
+    )
+    st.stop()
 
-# Extraer opciones dinámicamente si existen
-shift_options = ["Days", "Nights"]
-if 'control_parameter' in df_job_controls.columns and 'value' in df_job_controls.columns:
-    shift_val = df_job_controls[df_job_controls['control_parameter'] == 'Shift']['value'].values
-    if len(shift_val) > 0:
-        shift_options = list(set(shift_options + [shift_val[0]]))
+df = df_raw.copy()
+df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce")
+df["Visitantes"] = pd.to_numeric(df["Visitantes"], errors="coerce")
+df = df.dropna(subset=["Fecha", "Visitantes"])
 
-selected_shift = st.sidebar.multiselect("Seleccionar Turno (Shift)", shift_options, default=["Days"])
+if df.empty:
+    st.error("No hay registros válidos para procesar.")
+    st.stop()
 
-weather_val = "sunny"
-if 'control_parameter' in df_job_controls.columns and 'value' in df_job_controls.columns:
-    w_val = df_job_controls[df_job_controls['control_parameter'] == 'Weather']['value'].values
-    if len(w_val) > 0:
-        weather_val = w_val[0]
+df = df.sort_values(by="Fecha", ascending=True).reset_index(drop=True)
 
-selected_weather = st.sidebar.selectbox("Condición Climática", [weather_val, "rainy", "cloudy", "windy"])
+# Mapeo de día de la semana
+dias_map = {
+    0: "Lunes",
+    1: "Martes",
+    2: "Miércoles",
+    3: "Jueves",
+    4: "Viernes",
+    5: "Sábado",
+    6: "Domingo",
+}
+df["Día"] = df["Fecha"].dt.weekday.map(dias_map)
 
-status_options = ["Open", "Closed", "In Progress", "Pending"]
-if 'Status' in df_issues_log.columns and not df_issues_log['Status'].empty:
-    status_options = list(set(status_options + df_issues_log['Status'].dropna().unique().tolist()))
+# 4. Encabezado Principal y Metadatos
+st.title("Reporte de Visitantes B2C")
+st.caption("Tráfico de Visitantes - Canal B2C (ST_B2C)")
 
-selected_status = st.sidebar.multiselect("Estado de Incidencias", status_options, default=status_options)
+with st.expander("ℹ️ Resumen Ejecutivo y Alcance del Reporte"):
+    st.write(
+        "Registro diario del volumen de visitantes en la pestaña ST_B2C"
+        " abarcando desde finales de diciembre de 2025 hasta la tercera semana"
+        " de enero de 2026."
+    )
+    st.write(
+        "**Rango de Fechas Oficial del Reporte:** 2025-12-24 al 2026-01-21"
+    )
 
-# Información de Sistema en Sidebar
-st.sidebar.markdown("---")
-st.sidebar.caption("📌 **Información del Sistema:**")
-st.sidebar.caption("Job #: **1106**")
-st.sidebar.caption("Cliente: **OPD Enrgy Tranfer**")
+# 5. Barra Lateral de Filtros Interactivos
+st.sidebar.header("🔍 Filtros de Segmentación")
 
+min_date = df["Fecha"].min().date()
+max_date = df["Fecha"].max().date()
 
-# ---------------------------------------------------------
-# ESTRUCTURA VISUAL SUPERIOR (HEADER Y KPIS)
-# ---------------------------------------------------------
-st.title(metadata["document_title"])
-st.subheader(metadata["entity_or_subject"])
+date_range = st.sidebar.date_input(
+    "Seleccionar Rango de Fechas",
+    value=(min_date, max_date),
+    min_value=min_date,
+    max_value=max_date,
+)
 
-st.info(f"📅 **{metadata['date_context']}:** {selected_date.strftime('%Y-%m-%d')}\n\n"
-        f"📝 **Resumen General:** {metadata['general_summary']}")
+min_vis = int(df["Visitantes"].min())
+max_vis = int(df["Visitantes"].max())
 
-# Tarjetas de Métricas (5 columnas)
-col1, col2, col3, col4, col5 = st.columns(5)
+vis_range = st.sidebar.slider(
+    "Filtrar por Rango de Visitantes",
+    min_value=min_vis,
+    max_value=max_vis,
+    value=(min_vis, max_vis),
+)
+
+dias_disponibles = [
+    "Lunes",
+    "Martes",
+    "Miércoles",
+    "Jueves",
+    "Viernes",
+    "Sábado",
+    "Domingo",
+]
+dias_seleccionados = st.sidebar.multiselect(
+    "Días de la Semana",
+    options=dias_disponibles,
+    default=dias_disponibles,
+)
+
+# Aplicación de Filtros
+if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+    start_date, end_date = date_range
+    df_filtrado = df[
+        (df["Fecha"].dt.date >= start_date) & (df["Fecha"].dt.date <= end_date)
+    ]
+else:
+    df_filtrado = df.copy()
+
+df_filtrado = df_filtrado[
+    (df_filtrado["Visitantes"] >= vis_range[0])
+    & (df_filtrado["Visitantes"] <= vis_range[1])
+]
+
+df_filtrado = df_filtrado[df_filtrado["Día"].isin(dias_seleccionados)]
+
+# Validación de DataFrame Vacío
+if df_filtrado.empty:
+    st.warning(
+        "⚠️ No hay datos que coincidan con los filtros seleccionados. Por"
+        " favor, ajusta los criterios en la barra lateral."
+    )
+    st.stop()
+
+# 6. Tarjetas de Métricas (KPIs Globales / Dinámicos)
+col1, col2, col3, col4 = st.columns(4)
+
+total_acumulado = int(df_filtrado["Visitantes"].sum())
+promedio_diario = round(df_filtrado["Visitantes"].mean(), 1)
+maximo_diario = int(df_filtrado["Visitantes"].max())
+minimo_diario = int(df_filtrado["Visitantes"].min())
+
+fecha_max = (
+    df_filtrado.loc[df_filtrado["Visitantes"].idxmax(), "Fecha"].strftime(
+        "%Y-%m-%d"
+    )
+    if not df_filtrado.empty
+    else "N/A"
+)
 
 with col1:
     st.metric(
-        label=global_kpis[0]["metric"],
-        value=f"{global_kpis[0]['value']} {global_kpis[0]['unit']}",
-        help=global_kpis[0]["context"]
+        label="Total de Visitantes Acumulados",
+        value=f"{total_acumulado:,} visitantes",
+        help="Suma total de visitantes registrados en el periodo seleccionado",
     )
+
 with col2:
     st.metric(
-        label=global_kpis[1]["metric"],
-        value=f"{global_kpis[1]['value']} {global_kpis[1]['unit']}",
-        help=global_kpis[1]["context"]
+        label="Promedio Diario de Visitantes",
+        value=f"{promedio_diario} visitantes/día",
+        help="Promedio diario durante el periodo seleccionado",
     )
+
 with col3:
     st.metric(
-        label=global_kpis[2]["metric"],
-        value=f"{global_kpis[2]['value']} ✅",
-        help=global_kpis[2]["context"]
+        label="Máximo Diario de Visitantes",
+        value=f"{maximo_diario} visitantes",
+        help=f"Registrado en la fecha {fecha_max}",
     )
+
 with col4:
     st.metric(
-        label=global_kpis[3]["metric"],
-        value=f"{global_kpis[3]['value']} ✅",
-        help=global_kpis[3]["context"]
-    )
-with col5:
-    st.metric(
-        label=global_kpis[4]["metric"],
-        value=f"{global_kpis[4]['value']} ✅",
-        help=global_kpis[4]["context"]
+        label="Mínimo Diario de Visitantes",
+        value=f"{minimo_diario} visitantes",
+        help="Valor mínimo en el rango seleccionado",
     )
 
 st.markdown("---")
 
-# ---------------------------------------------------------
-# PESTAÑAS PRINCIPALES
-# ---------------------------------------------------------
-tab1, tab2, tab3 = st.tabs([
-    "📋 Controles de Trabajo y Parámetros",
-    "⚠️ Bitácora de Incidencias y Retrasos",
-    "🏗️ Trabajo Ejecutado Hoy"
-])
+# 7. Pestañas de Navegación
+tab1, tab2 = st.tabs(
+    ["📊 Análisis y Tendencias B2C", "📋 Datos Crudos y Exportación"]
+)
 
-# ---------------------------------------------------------
-# PESTAÑA 1: Controles de Trabajo
-# ---------------------------------------------------------
 with tab1:
-    st.markdown("### Parámetros Operativos del Proyecto")
-    
-    # Renderizado defensivo de tabla
-    if not df_job_controls.empty:
-        st.dataframe(df_job_controls, width="stretch")
-    else:
-        st.warning("No hay parámetros de control registrados.")
+    col_chart1, col_chart2 = st.columns(2)
 
-    st.markdown("---")
-    st.markdown("### Indicador de Cumplimiento HSE (Seguridad, Salud y Medio Ambiente)")
-    
-    # Gráfico 1: Cumplimiento de Seguridad HSE
-    hse_metrics = pd.DataFrame({
-        "Categoría": ["JSA/JHA Reviewed", "Permits Verified", "PPE Compliance"],
-        "Cumplimiento": [100, 100, 100]
-    })
-    
-    fig_hse = px.pie(
-        hse_metrics,
-        names="Categoría",
-        values="Cumplimiento",
-        hole=0.4,
-        color_discrete_sequence=["#2ECC71", "#27AE60", "#1E8449"],
-        title="Tasa de Cumplimiento de Protocolos HSE (100% Efectividad)"
-    )
-    # REGLA ESTRICTA DE SINTAXIS PLOTLY
-    fig_hse.update_layout(
-        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5)
-    )
-    st.plotly_chart(fig_hse, width="stretch")
+    with col_chart1:
+        # Gráfico 1: Evolución Temporal
+        fig_line = px.line(
+            df_filtrado,
+            x="Fecha",
+            y="Visitantes",
+            markers=True,
+            title="Evolución Temporal del Tráfico",
+            labels={
+                "Fecha": "Fecha del Registro",
+                "Visitantes": "Volumen de Visitantes",
+            },
+        )
+        fig_line.add_hline(
+            y=promedio_diario,
+            line_dash="dash",
+            line_color="red",
+            annotation_text=f"Promedio ({promedio_diario})",
+            annotation_position="bottom right",
+        )
+        fig_line.update_layout(
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.25,
+                xanchor="center",
+                x=0.5,
+            )
+        )
+        st.plotly_chart(fig_line, width="stretch")
 
-# ---------------------------------------------------------
-# PESTAÑA 2: Bitácora de Incidencias y Retrasos
-# ---------------------------------------------------------
+    with col_chart2:
+        # Gráfico 2: Comportamiento Diario (Barras)
+        fig_bar = px.bar(
+            df_filtrado,
+            x="Fecha",
+            y="Visitantes",
+            color="Visitantes",
+            color_continuous_scale="Viridis",
+            title="Comportamiento y Distribución Diaria",
+            labels={
+                "Fecha": "Fecha del Registro",
+                "Visitantes": "Volumen de Visitantes",
+            },
+        )
+        fig_bar.update_layout(
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.25,
+                xanchor="center",
+                x=0.5,
+            )
+        )
+        st.plotly_chart(fig_bar, width="stretch")
+
+    # Gráfico 3: Análisis de Distribución (Box Plot)
+    fig_box = px.box(
+        df_filtrado,
+        y="Visitantes",
+        points="all",
+        title="Análisis de Distribución y Dispersión (Box Plot)",
+        labels={"Visitantes": "Volumen de Visitantes"},
+    )
+    fig_box.update_layout(
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5
+        )
+    )
+    st.plotly_chart(fig_box, width="stretch")
+
 with tab2:
-    st.markdown("### Control de Eventos e Incidencias del Turno")
-    
-    # Aplicar filtro defensivo si la columna existe
-    df_issues_filtered = df_issues_log.copy()
-    if 'Status' in df_issues_filtered.columns and not df_issues_filtered.empty:
-        df_issues_filtered = df_issues_filtered[df_issues_filtered['Status'].isin(selected_status)]
-    
-    # Manejo defensivo de dataframe vacío (Caso borde especificado)
-    if df_issues_filtered.empty:
-        st.warning("No se registraron incidencias o retrasos durante este turno.")
-        if st.button("➕ Registrar Nueva Incidencia / Evento Extra"):
-            st.info("Formulario de registro habilitado para captura de nuevos eventos.")
-    else:
-        st.dataframe(df_issues_filtered, width="stretch")
-        
-        # Si la tabla tiene fechas válidas, renderizar Gantt
-        if 'Start' in df_issues_filtered.columns and 'End' in df_issues_filtered.columns and 'Issue' in df_issues_filtered.columns:
-            if df_issues_filtered['Start'].notnull().any() and df_issues_filtered['End'].notnull().any():
-                fig_timeline = px.timeline(
-                    df_issues_filtered,
-                    x_start="Start",
-                    x_end="End",
-                    y="Issue",
-                    color="Status" if "Status" in df_issues_filtered.columns else None,
-                    title="Línea de Tiempo de Incidencias Reportadas"
-                )
-                fig_timeline.update_layout(
-                    legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5)
-                )
-                st.plotly_chart(fig_timeline, width="stretch")
+    st.subheader("Visor de Datos de Tráfico B2C")
 
-# ---------------------------------------------------------
-# PESTAÑA 3: Trabajo Ejecutado Hoy
-# ---------------------------------------------------------
-with tab3:
-    st.markdown("### Tareas y Actividades Ejecutadas")
-    
-    if df_work_performed.empty:
-        st.warning("No hay registros de trabajo ejecutado para mostrar.")
-        st.stop()
-    
-    # Garantizar tipado numérico defensivo
-    if 'entry_id' in df_work_performed.columns:
-        df_work_performed['entry_id'] = pd.to_numeric(df_work_performed['entry_id'], errors='coerce')
-    
-    # Gráfico 2: Asignación Semántica de Personal por Tarea
-    df_chart = df_work_performed.copy()
-    total_manpower = 6
-    num_tasks = len(df_chart) if len(df_chart) > 0 else 1
-    # Distribuir de forma equitativa para representación semántica
-    df_chart['personal_asignado'] = total_manpower / num_tasks
-    df_chart['tarea_label'] = df_chart['entry_id'].astype(str).apply(lambda x: f"Tarea {x}")
-    
-    fig_work = px.bar(
-        df_chart,
-        x="personal_asignado",
-        y="tarea_label",
-        orientation="h",
-        hover_data=["description"] if "description" in df_chart.columns else None,
-        labels={"personal_asignado": "Personal Asignado (Manpower)", "tarea_label": "ID de Tarea"},
-        title="Asignación Semántica de Personal por Tarea (Total Manpower: 6)",
-        color_discrete_sequence=["#3498DB"]
-    )
-    
-    # REGLA ESTRICTA DE SINTAXIS PLOTLY
-    fig_work.update_layout(
-        legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5)
-    )
-    
-    st.plotly_chart(fig_work, width="stretch")
-    
-    st.markdown("---")
-    st.markdown("### Registro Detallado de Tareas Realizadas")
-    
-    # Tabla estructurada con column_config
-    st.dataframe(
-        df_work_performed,
-        width="stretch",
-        column_config={
-            "entry_id": st.column_config.NumberColumn("ID de Entrada", format="%d"),
-            "description": st.column_config.TextColumn("Descripción detallada del trabajo realizado", width="large")
-        }
+    # Configuración de Dataframe visual
+    df_display = df_filtrado[["Fecha", "Día", "Visitantes"]].copy()
+
+    st.dataframe(df_display, width="stretch")
+
+    st.markdown("### 📈 Estadísticas Descriptivas Rápidas")
+    st.write(df_filtrado["Visitantes"].describe())
+
+    # Exportación de datos
+    csv_data = df_filtrado.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Descargar Datos Filtrados (CSV)",
+        data=csv_data,
+        file_name="visitantes_b2c_filtrado.csv",
+        mime="text/csv",
     )
