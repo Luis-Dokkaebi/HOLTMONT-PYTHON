@@ -11591,8 +11591,10 @@ const filteredStaffTrackerData = computed(() => {
           personalAgenda.value.isLoading = true;
           google.script.run.withSuccessHandler(res => {
               personalAgenda.value.isLoading = false;
+              // `apiFetchUnifiedAgenda` (CODIGO.js y /api/legacy/unifiedAgenda) entrega
+              // workTasks, personalEvents y habits en la raíz, no dentro de `data`.
               if (res.success) {
-                  const tasks = (res.data.workTasks || []).map(t => {
+                  const tasks = (res.workTasks || []).map(t => {
                       let dateStr = '';
                       const dateKeys = ['FECHA', 'FECHA INICIO', 'ALTA', 'FECHA DE INICIO', 'FECHA VISITA', 'FECHA_ALTA', 'FECHAS', 'F. INICIO', 'F_INICIO'];
                       for (const k of dateKeys) {
@@ -11612,7 +11614,7 @@ const filteredStaffTrackerData = computed(() => {
                       };
                   });
 
-                  const events = (res.data.personalEvents || []).map(e => ({
+                  const events = (res.personalEvents || []).map(e => ({
                       id: e.ID,
                       type: 'PERSONAL',
                       title: e.TITULO,
@@ -11642,15 +11644,15 @@ const filteredStaffTrackerData = computed(() => {
                       selectedDailyDay.value = today ? today.dateStr : weekDays.value[0].dateStr;
                   }
 
-                  personalAgenda.value.habits = res.data.habits || [];
-                  personalAgenda.value.habitLogs = res.data.habitLogs || [];
+                  personalAgenda.value.habits = res.habits || [];
+                  personalAgenda.value.habitLogs = res.habitLogs || [];
 
                   // Update Metrics
                   personalAgenda.value.metrics = {
                       totalEvents: timeline.length,
                       pendingTasks: tasks.filter(t => !isTaskDone(t.original)).length,
                       urgentTasks: tasks.filter(t => t.color === '#e74c3c').length,
-                      completedHabits: (res.data.habitLogs || []).length,
+                      completedHabits: (res.habitLogs || []).length,
                       progress: 0 // To be calculated
                   };
 
